@@ -1093,8 +1093,8 @@ profile the owner chose on 13 October 2026:
 | AWS Config, small | 3.00 |
 | GuardDuty, foundational | 4.00 |
 | SES: the transcript emails, $0.10 per 1,000 (more on SES's newer bundled plans) | under 0.10 |
-| The voice task and its alarm (`enable_voice`, set on in `production.tfvars` on 22 October 2026, live once applied; "The voice endpoint") | 8.61 |
-| **Total, running** | **≈ 79** (≈ 70 without voice) |
+| The voice task and its alarm (`enable_voice`, set on in `production.tfvars` on 22 October 2026; one vCPU and 2 GB from 25 October 2026, live once applied; "The voice endpoint") | 28.94 |
+| **Total, running** | **≈ 99** (≈ 70 without voice) |
 
 In standby ("Standby") the account costs **about $4 a month**: the two KMS keys, the images, the
 database's snapshot and, for 35 days, its automated backups, and a little Config, GuardDuty and
@@ -1124,7 +1124,7 @@ weeks; the next step up for each is one variable.
 | `web_desired = 2` (multiplies the in-memory rate limits; turn the WAF on first) | +8.51 |
 | `vpc_endpoints = true` (six interface endpoints in two AZs, plus S3) | +87.60, plus $0.01 a GB |
 | `enable_flow_logs = true` | CloudWatch ingestion, by traffic |
-| `enable_voice = true` (one voice task, 0.25 vCPU and 1 GB on ARM64, and its alarm; "The voice endpoint", set on in `production.tfvars` on 22 October 2026 and so in the running figure once applied) | +8.61 |
+| `enable_voice = true` (one voice task and its alarm; "The voice endpoint", set on in `production.tfvars` on 22 October 2026 and so in the running figure once applied): at the variable's lean default of 0.25 vCPU and 1 GB on ARM64; at production's one vCPU and 2 GB (`voice_cpu = 1024`, `voice_memory = 2048`, from 25 October 2026) +28.94 | +8.61 |
 | `voice_provision_enabled = true` (no AWS resource; it lets the engine buy a Retell number for each paid voice clinic, which Retell bills, up to the daily cap) | +0.00 on AWS, Retell's number fee per clinic |
 | `voice_desired = 2` (a second voice task, so losing one mid-call drops only its own calls) | +8.51 more |
 | `container_insights = true`, Database Insights advanced | extra CloudWatch charges |

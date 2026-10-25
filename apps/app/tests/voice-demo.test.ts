@@ -39,16 +39,24 @@ import type { AssistantResponder } from "@/lib/assistant/turn";
 import { demoVoiceOpening, voiceDisclosureEs } from "@/lib/compliance/disclosure";
 import { log } from "@/lib/log";
 import {
+  afterDemoReply,
+  DEMO_START_PROGRESS,
   DEMO_TIME_ZONE,
   demoAssistantFacts,
   demoContextFromCall,
   demoDuration,
   demoOpenDays,
+  demoPitchFacts,
   demoPrice,
+  demoPriceList,
+  demoQuestionAsked,
   demoRoleplayOpener,
   demoStageNote,
   demoTimeZone,
   nextDemoStage,
+  ROLEPLAY_MAX_TURNS,
+  withDemoAnswer,
+  type DemoProgress,
 } from "@/lib/voice/demo-facts";
 import { DEMO_EXPIRED_LINE, RetellCallSession, type RetellOutbound, type RetellSessionDeps } from "@/lib/voice/retell";
 import { createVoiceServer } from "@/voice/server";
@@ -76,6 +84,7 @@ function context(overrides: Partial<DemoCallContext> = {}): DemoCallContext {
     issuedAt: Date.now(),
     offer: null,
     test: false,
+    buyButton: "Book Onboarding",
     clinic: {
       clinicName: "Lumen Aesthetics",
       summary: "A boutique med spa in downtown Austin.",
@@ -236,54 +245,127 @@ describe("a demo call's facts", () => {
     }
   });
 
-  test("the intro note asks the role, then gives the owner's A/B choice, and starts the role-play with its opener", () => {
-    const note = demoStageNote(context(), "intro", Date.now());
+  test("the intro note asks one thing at a time, the role then the owner's A/B choice, and starts the role-play in the same reply", () => {
+    const now = Date.now();
+    const opener = demoRoleplayOpener("Lumen Aesthetics");
+    const note = demoStageNote(context(), "intro", now);
     expect(note).toContain("live demo for Sam");
+    expect(note).toContain("Next: once they confirm who they are, greet them by name in a few words and ask their role at Lumen Aesthetics");
     expect(note).toContain("What's your role at Lumen Aesthetics?");
-    expect(note).toContain("I'll keep this super brief. Would you like to hear what I can do for Lumen Aesthetics and how that helps your team, or jump straight into a quick role-play");
-    expect(note).toContain(`start it by saying exactly: "${demoRoleplayOpener("Lumen Aesthetics")}"`);
-    expect(note).toMatch(/English and Spanish/);
-    expect(note).toMatch(/never mention a website, scraping/);
+    expect(note).toContain(`start it in the same reply, never a later one, with exactly: "${opener}"`);
     expect(note).toContain('Say "your patients", never "our patients"');
     expect(note).toContain('write it exactly "Aya", never "AYA"');
     expect(note).toMatch(/no flirting/);
-    expect(demoStageNote(context({ firstName: null }), "intro", Date.now())).toContain("live demo for the caller");
+    // Skipping the role-play finds out what they need before anything is sold.
+    expect(note).toContain('"What made you want to look at an AI assistant for Lumen Aesthetics?"');
+    expect(demoStageNote(context({ firstName: null }), "intro", now)).toContain("live demo for the caller");
+
+    // Their role is known: the A/B choice, never the role again, and no congratulations (owner's test call, 25 October 2026).
+    const role = demoStageNote(context(), "intro", now, { asked: null, answers: { role: "the owner" }, roleplayTurns: 0 });
+    expect(role).toContain('- their role: "the owner"');
+    expect(role).toContain("Never ask any of it again");
+    expect(role).toContain("never congratulate them");
+    expect(role).toContain("or jump straight into a quick role-play where you call in as a patient?");
+    expect(role).not.toContain("Next: once they confirm who they are");
+
+    // Their choice is known, or left to Aya: she starts the role-play in that reply.
+    const chose = demoStageNote(context(), "intro", now, { asked: null, answers: { role: "the owner", choice: "whatever is best" }, roleplayTurns: 0 });
+    expect(chose).toContain(`or leave it to you ("whatever's best"), start it in this same reply`);
+    expect(chose).toMatch(/English and Spanish/);
+    expect(chose).toMatch(/never mention a website, scraping/);
   });
 
-  test("the role-play note keeps her in character, wraps up on its own and never ends the call", () => {
+  test("the role-play note is brisk, takes a request in few questions, wraps up on its own and never ends the call", () => {
     const note = demoStageNote(context(), "roleplay", Date.now());
     expect(note).toContain("The role-play is on: Sam");
-    expect(note).toContain("Keep in mind everything said earlier, their name included");
-    expect(note).toContain('step out of character with exactly: "Ok, how was that? Haha!"');
+    expect(note).toContain("one or two short sentences a turn");
+    expect(note).toContain("ask only for the treatment and a preferred day and time");
+    expect(note).toContain('never ask "anything else?"');
+    expect(note).toContain("never a figure they said");
+    expect(note).toContain('step out of character with exactly: "And that\'s the role-play! So, how was that?"');
     expect(note).toContain('Never set "end" to true during the role-play');
+    expect(note).not.toContain("run long enough");
     // No stage's script runs into another.
-    expect(note).not.toMatch(/super brief|how many calls/);
+    expect(note).not.toMatch(/how many calls|What made you/);
+    // After four of the caller's turns, it is wrapped up in the next reply.
+    const long = demoStageNote(context(), "roleplay", Date.now(), { asked: null, answers: {}, roleplayTurns: ROLEPLAY_MAX_TURNS });
+    expect(long).toContain("The role-play has run long enough: wrap it up in this reply");
   });
 
-  test("the pitch note makes the point, asks the discovery questions from the open days, and pitches without a price", () => {
+  test("after the role-play, discovery comes before the pitch, one next step at a time, never asking what was answered", () => {
     const now = Date.now();
-    const note = demoStageNote(context(), "pitch", now);
-    expect(note).toContain("I'm built to do that 24/7, on the phone and in your website chat, Instagram, Messenger and WhatsApp");
-    expect(note).toContain("never on a call and never by text message");
-    expect(note).toContain('"Generally, how many calls do you get a day?"');
-    // Mon-Fri on the website: five days, said as a fact only because the hours say so plainly.
-    expect(note).toContain(`"I see you're open 5 days a week, so would it be fair to say about [their number times 5] calls a week`);
-    expect(note).toContain("after-hours calls only, taking over when the lines are busy, or handling all your incoming calls?");
-    expect(note).toContain("Aya Voice, Aya Web Chat, Aya Meta Chat");
+    const at = (answers: DemoProgress["answers"]) => demoStageNote(context(), "pitch", now, { asked: null, answers, roleplayTurns: 0 });
+    const first = at({});
+    expect(first).toContain("Find out what they need before you sell anything");
+    expect(first).toContain("no pitch until the questions are answered");
+    expect(first).toContain('Next: take their reaction to the role-play in a few words (if they are unsure or not convinced, ask what would make it convincing for them), then find out what they are after: "What made you want to look at an AI assistant for Lumen Aesthetics?"');
+    expect(first).toContain("never on a call and never by text message");
+    expect(first).toContain("Aya Voice, Aya Web Chat, Aya Meta Chat");
     // Capitals only in the rule against them, so nothing she copies spells it out.
-    expect(note.replace('never "AYA"', "")).not.toContain("AYA");
-    expect(note).not.toMatch(/super brief|Ring ring/);
-    // Hours it cannot read: it asks rather than says a number of days.
-    const unread = demoStageNote(context({ clinic: { ...context().clinic, hours: [{ days: "Most days", hours: "by arrangement" }] } }), "pitch", now);
-    expect(unread).toContain("ask how many days a week they are open");
+    expect(first.replace('never "AYA"', "")).not.toContain("AYA");
+    expect(first).toContain(`If they want to try another role-play, start it the same way: "${demoRoleplayOpener("Lumen Aesthetics")}"`);
+
+    const goal = at({ goal: "we miss calls when we're busy" });
+    expect(goal).toContain(`- what they are after: "we miss calls when we're busy"`);
+    expect(goal).toContain('Next: react to what they said in a few words, then ask: "Generally, how many calls do you get a day?"');
+
+    // "Five" was heard: never "how many calls" again (owner's test call, 25 October 2026); Mon-Fri on the website: five days.
+    const volume = at({ goal: "missed calls", volume: "Five." });
+    expect(volume).toContain('- calls a day: "Five."');
+    expect(volume).not.toContain('then ask: "Generally, how many calls do you get a day?"');
+    expect(volume).toContain(`Next: Check the total with them, close to these words: "I see you're open 5 days a week, so would it be fair to say about [their calls a day times 5] calls a week`);
+
+    const checked = at({ goal: "missed calls", volume: "Five.", volumeCheck: "yeah" });
+    expect(checked).toContain(`Next: ask: "What happens with after-hours calls, or when your team's busy with patients?"`);
+    const missed = at({ goal: "missed calls", volume: "Five.", volumeCheck: "yeah", missed: "they go missed" });
+    expect(missed).toContain("after-hours calls only, taking over when the lines are busy, or handling all your incoming calls?");
+
+    // Only now the pitch: what she does, in their terms, the package, and the ask.
+    const pitch = at({ goal: "missed calls", volume: "Five.", volumeCheck: "yeah", missed: "they go missed", coverage: "after hours" });
+    expect(pitch).toContain("Next: Now, and only now, tie what you do to what they told you: you're built to answer 24/7, on the phone and in their website chat, Instagram, Messenger and WhatsApp");
+    expect(pitch).toContain('"Want to get Lumen Aesthetics set up?"');
+
+    // Hours it cannot read: no number of days is said, and the check is skipped.
+    const unread = demoStageNote(context({ clinic: { ...context().clinic, hours: [{ days: "Most days", hours: "by arrangement" }] } }), "pitch", now, {
+      asked: null,
+      answers: { goal: "x", volume: "Five." },
+      roleplayTurns: 0,
+    });
     expect(unread).not.toMatch(/you're open \d days/);
+    expect(unread).toContain(`Next: ask: "What happens with after-hours calls`);
   });
 
-  test("the pitch note mentions a live discount only while it is live, as a percentage and a window, never a dollar amount", () => {
+  test("the session takes each answer from the caller's words after Aya's own question", () => {
+    expect(demoQuestionAsked("Fair enough. Generally, how many calls do you get a day?")).toBe("volume");
+    expect(demoQuestionAsked("Great to meet you! What's your role at Lumen Aesthetics?")).toBe("role");
+    expect(demoQuestionAsked("Would you like to hear what I can do, or jump straight into a quick role-play?")).toBe("choice");
+    expect(demoQuestionAsked("Love that. What made you want to look at an AI assistant for Lumen Aesthetics?")).toBe("goal");
+    expect(demoQuestionAsked("So would it be fair to say about 25 calls a week, or around 110 calls a month?")).toBe("volumeCheck");
+    expect(demoQuestionAsked("What happens with after-hours calls, or when your team's busy with patients?")).toBe("missed");
+    expect(demoQuestionAsked("How do you see me helping you best: after-hours calls only, or all of them?")).toBe("coverage");
+    expect(demoQuestionAsked("Want to get Lumen Aesthetics set up?")).toBe("ask");
+    // No question asked, no answer expected.
+    expect(demoQuestionAsked("We get a lot of calls about how many calls we get.")).toBeNull();
+
+    let p = afterDemoReply(DEMO_START_PROGRESS, "pitch", "pitch", "Generally, how many calls do you get a day?");
+    expect(p.asked).toBe("volume");
+    p = withDemoAnswer(p, "pitch", "Five.");
+    expect(p.answers.volume).toBe("Five.");
+    p = afterDemoReply(p, "pitch", "pitch", "Got it, five a day.");
+    expect(p).toMatchObject({ asked: null, answers: { volume: "Five." } });
+    // A role-play counts the caller's turns from its start.
+    p = afterDemoReply(p, "pitch", "roleplay", demoRoleplayOpener("Lumen Aesthetics"));
+    p = withDemoAnswer(withDemoAnswer(p, "roleplay", "hi"), "roleplay", "botox please");
+    expect(p.roleplayTurns).toBe(2);
+    expect(p.answers.volume).toBe("Five.");
+  });
+
+  test("the pitch note mentions a live discount only while it is live, as a percentage, a window and the discounted fees", () => {
     const now = Date.now();
     const live = demoStageNote(context({ offer: { percentOfSetupFee: 50, endsAt: now + 10 * 3_600_000 } }), "pitch", now);
     expect(live).toMatch(/50% off healdesk's setup fee, with about 10 hours left on it/);
-    expect(live).toMatch(/never a dollar amount/);
+    expect(live).toMatch(/already applied at checkout/);
+    expect(live).toMatch(/never a different number or a different amount of time/);
     const almostOver = demoStageNote(context({ offer: { percentOfSetupFee: 30, endsAt: now + 30 * 60_000 } }), "pitch", now);
     expect(almostOver).toMatch(/30% off healdesk's setup fee, with about 1 hour left on it\b/);
     for (const offer of [{ percentOfSetupFee: 50, endsAt: now - 1_000 }, null]) {
@@ -292,6 +374,61 @@ describe("a demo call's facts", () => {
     // Only the pitch carries it.
     const intro = demoStageNote(context({ offer: { percentOfSetupFee: 50, endsAt: now + 10 * 3_600_000 } }), "intro", now);
     expect(intro).not.toMatch(/% off/);
+  });
+
+  test("the closer quotes healdesk's real prices, closes on the page's own button, and promises nothing it cannot send", () => {
+    const now = Date.now();
+    const note = demoStageNote(context({ offer: { percentOfSetupFee: 50, endsAt: now + 10 * 3_600_000 } }), "pitch", now);
+    // From the catalog: $80, $40 and $60 for every 100; setup per package, discounted per package as checkout rounds it.
+    expect(note).toContain("Aya Voice is $80 a month for every 100 minutes; Aya Web Chat $40 a month for every 100 conversations; Aya Meta Chat, website chat included, $60 a month for every 100 conversations");
+    expect(note).toContain("Aya Voice $697 ($349 with their 50% off)");
+    expect(note).toContain("Aya Voice plus Meta Chat $1,394 ($697 with their 50% off)");
+    expect(note).toContain("The monthly price only starts the day you first answer one of their patients");
+    expect(note).toContain('"Want to get Lumen Aesthetics set up?"');
+    expect(note).toContain('"Just tap Book Onboarding at the top of your demo page and your 50% is already applied."');
+    // Asked, and they hesitated: one doubt answered, asked once more.
+    const asked = demoStageNote(context({ offer: { percentOfSetupFee: 50, endsAt: now + 10 * 3_600_000 } }), "pitch", now, {
+      asked: null,
+      answers: { goal: "x", volume: "5", volumeCheck: "yes", missed: "voicemail", coverage: "after hours", ask: "maybe" },
+      roleplayTurns: 0,
+    });
+    expect(asked).toContain("If they hesitated, ask what is holding them back, answer that one thing and ask once more");
+    expect(note).toContain("Never say you will send a link, an email or a text, and never take payment details on the call.");
+    expect(note).toContain('"We sign a business associate agreement and handle patient data under it", never "HIPAA compliant"');
+    // A booking's value in the clinic's own terms, never revenue.
+    expect(note).toContain("a HydraFacial on their books at $199");
+    expect(note).toContain("Never call it revenue, profit or money they will make");
+    // The homepage demo's button is "Get AYA" on the page, said "Get Aya"; a browser demo points at the chat on the page.
+    const selfServe = demoStageNote(context({ buyButton: "Get AYA", offer: null }), "pitch", now);
+    expect(selfServe).toContain('"Just tap Get Aya at the top of your demo page."');
+    expect(selfServe).toContain("try you in chat too, right there on their demo page");
+    expect(demoStageNote(context({ mode: "phone" }), "pitch", now)).not.toContain("try you in chat too");
+    // No button on the page: nothing to tap.
+    expect(demoStageNote(context({ buyButton: null }), "pitch", now)).toContain("the healdesk team will help them get started");
+  });
+
+  test("healdesk's prices pass the guard only in the pitch, exactly, and never during the role-play", () => {
+    const now = Date.now();
+    const offer = { percentOfSetupFee: 50, endsAt: now + 10 * 3_600_000 };
+    const facts = demoAssistantFacts(context());
+    const pitch = demoPitchFacts(facts, { offer }, now);
+    for (const line of [
+      "Aya Voice is $80 a month for every 100 minutes.",
+      "For 500 minutes that's $400 a month, and with 300 chats on Meta it's $580.",
+      "Setup is $697, and with your 50% off it's $349.",
+      "Voice plus Meta Chat is $1,394 to set up, $697 with your discount.",
+    ]) {
+      expect([line, guardAssistantReply(line, pitch)]).toEqual([line, { ok: true }]);
+      // In the intro or the role-play the same figures are an off-menu price.
+      expect(guardAssistantReply(line, facts)).toMatchObject({ ok: false });
+    }
+    // A figure the catalog does not give is refused even in the pitch: $348 is not 50% off $697, and $698 is not the package's discount.
+    expect(guardAssistantReply("Setup is just $348 with your discount.", pitch)).toMatchObject({ ok: false });
+    expect(guardAssistantReply("Voice plus Meta Chat is $698 with your discount.", pitch)).toMatchObject({ ok: false });
+    // Checkout rounds each package's discount up, and so does the list.
+    expect(demoPriceList(offer, now).amounts).toEqual(expect.arrayContaining([349, 130, 478, 697, 1394, 956, 64, 32, 48]));
+    expect(demoPriceList({ percentOfSetupFee: 30, endsAt: now + 1_000 }, now).amounts).toEqual(expect.arrayContaining([488, 182, 670, 976]));
+    expect(demoPriceList(null, now).amounts).not.toContain(349);
   });
 
   test("every line the notes put in Aya's mouth passes the guard, a number of calls included", () => {
@@ -319,7 +456,12 @@ describe("a demo call's facts", () => {
     expect(nextDemoStage("intro", demoRoleplayOpener("Lumen Aesthetics"))).toBe("roleplay");
     expect(nextDemoStage("roleplay", "Sure, Friday at 3 works. Anything else?")).toBe("roleplay");
     expect(nextDemoStage("roleplay", "See you then! Ok, how was that? Haha!")).toBe("pitch");
-    expect(nextDemoStage("pitch", "Ring ring!")).toBe("pitch");
+    // A second role-play from the pitch, and the pitch straight from the intro when the role-play is skipped.
+    expect(nextDemoStage("pitch", demoRoleplayOpener("Lumen Aesthetics"))).toBe("roleplay");
+    expect(nextDemoStage("intro", "Sure! Generally, how many calls do you get a day?")).toBe("pitch");
+    expect(nextDemoStage("intro", "Sure! What made you want to look at an AI assistant for Lumen Aesthetics?")).toBe("pitch");
+    expect(nextDemoStage("roleplay", "See you then! And that's the role-play! So, how was that?")).toBe("pitch");
+    expect(nextDemoStage("roleplay", "Generally, how many calls do you get a day?")).toBe("roleplay");
     expect(demoOpenDays(context())).toBe(5);
     expect(demoOpenDays(context({ clinic: { ...context().clinic, hours: [{ days: "Mon-Fri", hours: "9am-6pm" }, { days: "Saturday", hours: "10am-2pm" }, { days: "Sunday", hours: "Closed" }] } }))).toBe(6);
     expect(demoOpenDays(context({ clinic: { ...context().clinic, hours: [] } }))).toBeNull();
@@ -448,6 +590,74 @@ describe("a demo call on the voice engine", () => {
     const spoken = heard();
     expect(spoken.find((r) => r.content.includes("how was that"))!.end_call).toBe(false);
     expect(spoken.at(-1)).toMatchObject({ content: "Thanks so much, Sam, have a great day!", end_call: true });
+    await s.finish();
+  });
+
+  test("an answer is never asked for again: the next turn's note carries it, and the role-play is wrapped up after four turns", async () => {
+    const replies = [
+      "Great to meet you, Sam! What's your role at Lumen Aesthetics?",
+      "Would you like to hear what I can do for Lumen Aesthetics, or jump straight into a quick role-play where you call in as a patient?",
+      `Let's do it, you be the patient. ${demoRoleplayOpener("Lumen Aesthetics")}`,
+      "We have HydraFacials and Botox. Which one are you after?",
+      "Lovely, what day suits you?",
+      "Perfect, Friday it is.",
+      "The team will confirm the time. Take care! And that's the role-play! So, how was that?",
+      "Glad you liked it. What made you want to look at an AI assistant for Lumen Aesthetics?",
+      "Makes sense. Generally, how many calls do you get a day?",
+      "Five a day, got it.",
+    ];
+    const seen: string[] = [];
+    const responder: AssistantResponder = async ({ system }) => {
+      seen.push((system as { turn: string }).turn);
+      return `${replies[seen.length - 1]}\n###\n{"handoff": false, "end": false}`;
+    };
+    const { s, raw, heard } = demoSession(responder);
+    await s.open();
+    await s.handle(details({ retell_llm_dynamic_variables: { demo_context: sealed() } }));
+    await vi.waitFor(() => expect(raw()).toHaveLength(1));
+    const words = ["yes it's me", "I'm the owner", "whatever is best", "hi, what do you have", "a HydraFacial", "Friday", "morning please", "pretty good", "we miss calls when we're busy", "Five."];
+    for (const [i, text] of words.entries()) {
+      await s.handle(said(i + 1, [{ role: "agent", content: heard().at(-1)!.content }, { role: "user", content: text }]));
+    }
+    // The role, once said, is known and never asked again.
+    expect(seen[1]).toContain('- their role: "I\'m the owner"');
+    expect(seen[1]).not.toContain("Next: once they confirm who they are");
+    // Four of the patient's turns: wrap up now.
+    expect(seen[5]).not.toContain("run long enough");
+    expect(seen[6]).toContain("The role-play has run long enough: wrap it up in this reply");
+    // After it, discovery first, and "Five" is kept: never "how many calls" again.
+    expect(seen[7]).toContain("Next: take their reaction to the role-play");
+    expect(seen[8]).toContain(`- what they are after: "we miss calls when we're busy"`);
+    expect(seen[9]).toContain('- calls a day: "Five."');
+    expect(seen[9]).not.toContain('then ask: "Generally, how many calls do you get a day?"');
+    await s.finish();
+  });
+
+  test("a reply dropped unheard takes back the stage it moved: a 'Ring ring!' nobody heard starts no role-play", async () => {
+    const replies = [
+      "Great to meet you, Sam! What's your role at Lumen Aesthetics?",
+      `Let's do it, you be the patient. ${demoRoleplayOpener("Lumen Aesthetics")}`,
+      "Got it. Would you like to hear what I can do for Lumen Aesthetics, or jump straight into a quick role-play where you call in as a patient?",
+    ];
+    const seen: string[] = [];
+    const responder: AssistantResponder = async ({ system }) => {
+      seen.push((system as { turn: string }).turn);
+      return `${replies[seen.length - 1]}\n###\n{"handoff": false, "end": false}`;
+    };
+    const { s, raw, heard } = demoSession(responder);
+    await s.open();
+    await s.handle(details({ retell_llm_dynamic_variables: { demo_context: sealed() } }));
+    await vi.waitFor(() => expect(raw()).toHaveLength(1));
+    const opening = raw()[0]!.content;
+    await s.handle(said(1, [{ role: "agent", content: opening }, { role: "user", content: "yes it's me" }]));
+    const question = heard().at(-1)!.content;
+    await s.handle(said(2, [{ role: "agent", content: opening }, { role: "user", content: "yes it's me" }, { role: "agent", content: question }, { role: "user", content: "I'm the owner" }]));
+    // They carried on before the role-play opener was heard: it never happened.
+    const whole = "I'm the owner, but before any role-play I'd like to hear what you do";
+    await s.handle(said(3, [{ role: "agent", content: opening }, { role: "user", content: "yes it's me" }, { role: "agent", content: question }, { role: "user", content: whole }]));
+    expect(seen[2]).toContain("This call is a live demo for Sam");
+    expect(seen[2]).not.toContain("The role-play is on");
+    expect(seen[2]).toContain(`- their role: "${whole}"`);
     await s.finish();
   });
 

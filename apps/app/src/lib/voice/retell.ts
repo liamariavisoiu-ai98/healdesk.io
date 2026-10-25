@@ -24,7 +24,19 @@ import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
 import { nextCallLanguage, START_LANGUAGE, type CallLanguageState } from "./call-language";
-import { DEMO_TIME_ZONE, demoAssistantFacts, demoContextFromCall, demoStageNote, nextDemoStage, type DemoStage } from "./demo-facts";
+import {
+  afterDemoReply,
+  DEMO_START_PROGRESS,
+  DEMO_TIME_ZONE,
+  demoAssistantFacts,
+  demoContextFromCall,
+  demoPitchFacts,
+  demoStageNote,
+  nextDemoStage,
+  withDemoAnswer,
+  type DemoProgress,
+  type DemoStage,
+} from "./demo-facts";
 import { fallbackLineFor, rememberDirectLine, rememberedDirectLine, usableLine, type FallbackLookup } from "./fallback-line";
 import { forwardedFromCall, type ForwardedFrom } from "./forwarded-from";
 import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
@@ -139,9 +151,15 @@ import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./te
  *   - the start: the demo opening line (disclosure.ts, demoVoiceOpening),
  *     with the same two facts, then three stages (owner, 25 October 2026;
  *     demo-facts.ts, DemoStage), each with its own note: intro (who they
- *     are, their role, the choice), role-play (from Aya's "Ring ring!") and
- *     pitch (from her "how was that?"), so no stage's instructions run into
- *     another; a goodbye inside the role-play never ends the call;
+ *     are, their role, the choice), role-play (from Aya's "Ring ring!", again
+ *     from the pitch for a second one) and pitch (from her "how was that?",
+ *     or her first discovery question when the role-play is skipped), so no
+ *     stage's instructions run into another; what the caller has answered
+ *     is kept from her own questions (DemoProgress) so nothing is asked
+ *     twice, and the pitch waits for the discovery questions; a goodbye
+ *     inside the role-play never
+ *     ends the call; only the pitch may quote healdesk's own prices
+ *     (demoPitchFacts), and it closes on the demo page's own buy button;
  *   - nothing is written or sent anywhere: no answer gate or billing, no
  *     test-mode screen (voice_real_calls governs clinics' calls, and a demo
  *     is no clinic's: no clinic row is read, and no patient's call reaches
@@ -197,22 +215,29 @@ export const RETRY_LINE_ES = "¿Me lo repite, por favor?";
 export const DEMO_EXPIRED_LINE = "This demo link has expired. Please start the demo again from the page.";
 
 /**
- * What a call hears while the model thinks, so there is no dead air (owner,
- * 24 October 2026). The sound of someone thinking rather than a verdict
- * ("Mm.", not "Sure."), so whatever follows (a booking question, a refusal,
- * the failure line) still reads naturally after it. Said once the reply has
- * not started within ACKNOWLEDGE_AFTER_MS (the owner: "no pause for the
- * first word"), picked at random and never the same twice in a row, so it
- * has no pattern. No "okay", which Retell's backchannel and the model's own
- * openers already say.
+ * What a call hears while the model thinks, so a slow reply has no dead air
+ * (owner, 24 October 2026). The sound of someone thinking rather than a
+ * verdict ("Mm.", never "Sure." or "Right."), so whatever follows (a booking
+ * question, a refusal, the failure line) still reads naturally after it.
+ * Picked at random and never the same twice in a row. No "okay", which
+ * Retell's backchannel and the model's own openers already say.
+ *
+ * Only for a reply that is genuinely slow (ACKNOWLEDGE_AFTER_MS), and never
+ * on two turns running: at 200 ms nearly every reply began with one, and the
+ * owner's test call of 25 October 2026 heard "Hmm.", "Mm-hmm.", "Right." and
+ * "Sure." in front of every answer ("the emotions are in a loop").
  */
 export const ACKNOWLEDGEMENTS: Readonly<Record<SpokenLanguage, readonly string[]>> = {
-  en: ["Mm.", "Hmm.", "Mm-hmm.", "Right.", "Sure."],
-  es: ["Mm.", "A ver.", "Ajá.", "Claro."],
+  en: ["Mm.", "Hmm.", "Let's see."],
+  es: ["Mm.", "A ver.", "Ajá."],
 };
 
-/** How long the reply may take to start before the acknowledgement is said instead. */
-export const ACKNOWLEDGE_AFTER_MS = 200;
+/**
+ * How long the reply may take to start before the acknowledgement is said
+ * instead: a pause a person leaves before answering, so a reply that starts
+ * by then is heard without one.
+ */
+export const ACKNOWLEDGE_AFTER_MS = 900;
 
 /**
  * How long the model may sit idle on a call before it is readied again
@@ -425,6 +450,58 @@ export function interruptedAt(transcript: unknown, turns: readonly TranscriptTur
   return heard.slice(0, 300);
 }
 
+/** Words of a reply the caller must have heard before part of it counts as that reply (heardTurns). */
+const HEARD_MIN_WORDS = 4;
+
+/**
+ * The call's record as the caller heard it (owner's test call, 25 October
+ * 2026: "she doesn't remember anything I say"). A reply is recorded once it
+ * is sent, but a caller who pauses mid-thought and carries on is answered
+ * before they finish: Retell then drops that reply unheard and asks again
+ * with their whole sentence as one, so the record held the half sentence,
+ * a reply nobody heard, then the whole sentence again. The model read a
+ * conversation that never happened, answered the same words twice and
+ * repeated itself, and the clinic's transcript showed the caller saying
+ * everything twice.
+ *
+ * Retell's transcript ends with the last words of the agent the caller
+ * heard, then the caller's words since. The record is cut back to the reply
+ * those words match (what came after it is carried in the caller's latest
+ * words), and that reply is cut to what was heard of it when the caller
+ * talked over it. Untouched when Retell's transcript holds no agent words or
+ * none that match a reply recorded here: never a guess.
+ */
+export function heardTurns(transcript: unknown, turns: readonly TranscriptTurn[]): TranscriptTurn[] | null {
+  if (!Array.isArray(transcript)) return null;
+  const entries = transcript as RetellTranscriptEntry[];
+  let heard: string | null = null;
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const entry = entries[i]!;
+    if (entry.role === "agent") {
+      heard = typeof entry.content === "string" ? entry.content.trim() : null;
+      break;
+    }
+  }
+  if (!heard) return null;
+  const words = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").split(/\s+/).filter(Boolean);
+  const h = words(heard);
+  if (h.length === 0) return null;
+  for (let i = turns.length - 1; i >= 0; i -= 1) {
+    const turn = turns[i]!;
+    if (turn.speaker !== "assistant") continue;
+    const t = words(turn.text);
+    if (h.length > t.length || !h.every((w, k) => t[k] === w)) continue;
+    // Part of a reply counts only from a few words: a lone "Mm-hmm." heard
+    // from a reply that was dropped must not match the start of an older one.
+    if (h.length < t.length && h.length < HEARD_MIN_WORDS) continue;
+    if (i === turns.length - 1 && h.length === t.length) return null;
+    const kept = turns.slice(0, i + 1);
+    if (h.length < t.length) kept[i] = { ...turn, text: heard.slice(0, 2_000) };
+    return kept;
+  }
+  return null;
+}
+
 export class RetellCallSession {
   private facts: AssistantFacts | null = null;
   private turns: TranscriptTurn[] = [];
@@ -515,12 +592,22 @@ export class RetellCallSession {
   private acknowledged = 0;
   /** The last acknowledgement said, never said again next. */
   private lastAcknowledgement: string | null = null;
+  /** The last reply said began with an acknowledgement: the next may not. */
+  private acknowledgedLastTurn = false;
   /** Silences answered so far: the check-ins, then the close. */
   private reminders = 0;
   /** A demo call's context, once opened: the requester's first name and the clinic's profile. In memory only. */
   private demoContext: DemoCallContext | null = null;
   /** Where a demo call is (demo-facts.ts, DemoStage), moved on by Aya's own scripted lines. */
   private demoStage: DemoStage = "intro";
+  /** What a demo call has found out (demo-facts.ts, DemoProgress); in memory only. */
+  private demoProgress: DemoProgress = DEMO_START_PROGRESS;
+  /**
+   * The demo's stage and progress before each reply that moved them, by the
+   * record's length then: a reply dropped unheard (heardTurns) takes back
+   * what it moved, so a "Ring ring!" nobody heard starts no role-play.
+   */
+  private demoBefore: { at: number; stage: DemoStage; progress: DemoProgress }[] = [];
   /** When the model was last asked anything on this call, a warm included (Date.now()). */
   private lastModelAt = 0;
   /** A turn is with the model: no warm goes alongside it. */
@@ -1097,6 +1184,20 @@ export class RetellCallSession {
     }
     const words = latestCallerWords(event.transcript);
     if (!words) return;
+    // What the caller heard of the last reply, then the record cut back to
+    // what they heard: a reply dropped unheard, and the half sentence it
+    // answered, are not part of the conversation (heardTurns).
+    const cutIn = interruptedAt(event.transcript, this.turns);
+    const heardSoFar = heardTurns(event.transcript, this.turns);
+    if (heardSoFar) {
+      this.turns = heardSoFar;
+      const undone = this.demoBefore.findIndex((b) => b.at >= heardSoFar.length);
+      if (undone >= 0) {
+        this.demoStage = this.demoBefore[undone]!.stage;
+        this.demoProgress = this.demoBefore[undone]!.progress;
+        this.demoBefore.length = undone;
+      }
+    }
     // The turn's timing, from Retell asking for an answer: when the caller
     // first heard something and when the answer was complete. Logged once
     // the answer is said, as numbers only (owner, 24 October 2026).
@@ -1151,6 +1252,8 @@ export class RetellCallSession {
       !(resumed && !this.welcomedBack);
     const acknowledgeable =
       nothingDue &&
+      // Never two turns running (ACKNOWLEDGEMENTS).
+      !this.acknowledgedLastTurn &&
       // In the caller's own language only: no English "Okay." to Spanish words.
       messageLanguage(words, { knownTerms: languageTerms(facts) }) === language.language &&
       words.split(/\s+/).filter(Boolean).length >= ACKNOWLEDGE_MIN_WORDS &&
@@ -1170,8 +1273,28 @@ export class RetellCallSession {
     };
     this.answering = true;
     this.lastModelAt = Date.now();
+    // When the model's first words came, apart from ours (the log below).
+    let modelFirstAt: number | null = null;
+    const base = this.deps.responder;
+    const responder: AssistantResponder | null = base
+      ? (request) =>
+          base({
+            ...request,
+            ...(request.onText
+              ? {
+                  onText: (delta: string) => {
+                    modelFirstAt ??= Date.now();
+                    request.onText!(delta);
+                  },
+                }
+              : {}),
+          })
+      : null;
+    // These words as the answer to the demo's last question, kept once the reply is said.
+    const progress = this.demoContext ? withDemoAnswer(this.demoProgress, this.demoStage, words) : null;
     const turn = await answerTurn({
-      facts,
+      // A demo's pitch may quote healdesk's own prices; nothing else may (demo-facts.ts).
+      facts: this.demoContext && this.demoStage === "pitch" ? demoPitchFacts(facts, this.demoContext, this.now().getTime()) : facts,
       channel: "voice",
       acknowledge: acknowledgeable
         ? {
@@ -1200,11 +1323,11 @@ export class RetellCallSession {
             heard();
           }
         : null,
-      interruptedAt: interruptedAt(event.transcript, this.turns),
+      interruptedAt: cutIn,
       history: this.turns,
       text: words,
       capture: this.capture,
-      responder: this.deps.responder,
+      responder,
       now: this.now(),
       tools: this.tools,
       toolState: this.toolState,
@@ -1215,7 +1338,8 @@ export class RetellCallSession {
       urgentTransferTo: this.deps.demo ? null : this.urgentLine(facts),
       // The note for the stage the demo is in (demo-facts.ts), so no stage's
       // instructions are ever repeated into another, a role-play above all.
-      notes: this.demoContext ? [demoStageNote(this.demoContext, this.demoStage, this.now().getTime())] : null,
+      notes: this.demoContext ? [demoStageNote(this.demoContext, this.demoStage, this.now().getTime(), progress ?? undefined)] : null,
+      callerFirstName: this.demoContext?.firstName ?? null,
     }).finally(() => {
       stopAck();
       this.answering = false;
@@ -1225,7 +1349,9 @@ export class RetellCallSession {
     // request carries these words too, so this answer is dropped unsaid.
     if (responseId !== this.latestResponseId || this.closing) return;
     this.callLanguage = language;
+    this.acknowledgedLastTurn = acknowledgement !== null;
 
+    if (this.demoContext) this.demoBefore.push({ at: this.turns.length, stage: this.demoStage, progress: this.demoProgress });
     this.turns.push({ speaker: "person", text: turn.personText });
     this.capture = turn.capture;
     this.toolState = turn.toolState;
@@ -1234,7 +1360,10 @@ export class RetellCallSession {
     // inside the role-play, its "patient" signing off included, never ends
     // the call: the pitch comes after it.
     const stageBefore = this.demoStage;
-    if (this.demoContext && turn.source !== "fallback") this.demoStage = nextDemoStage(stageBefore, turn.reply);
+    if (this.demoContext && progress && turn.source !== "fallback") {
+      this.demoStage = nextDemoStage(stageBefore, turn.reply);
+      this.demoProgress = afterDemoReply(progress, stageBefore, this.demoStage, turn.reply);
+    }
     const ends = turn.end && !(this.demoContext && stageBefore === "roleplay");
 
     let urgentQueued = false;
@@ -1349,6 +1478,8 @@ export class RetellCallSession {
       source: turn.source,
       ms: (firstHeardAt ?? Date.now()) - askedAt,
       totalMs: Date.now() - askedAt,
+      // The model's own time to its first words, so a slow turn says whose time it was.
+      modelMs: modelFirstAt === null ? null : modelFirstAt - askedAt,
     });
     // The urgent alert is critical: sent in-process once its row has
     // committed, after the caller has heard the reply, so the line never

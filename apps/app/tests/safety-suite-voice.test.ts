@@ -259,7 +259,8 @@ describeDb("safety suite: voice, end to end", () => {
     for (const c of FORBIDDEN_OUTPUT_CASES) {
       caseTest(c.defect)(`${c.label}${c.defect ? " [DEFECT]" : ""}`, async () => {
         const r = await call(clinic.clinicId, [c.asked], () => modelJson(c.reply, c.extra), transport);
-        expect(r.calls).toHaveLength(1);
+        // A price refusal is asked once more with the reason (turn.ts, PRICE_AGAIN); the stub refuses again.
+        expect(r.calls).toHaveLength(c.label.startsWith("price:") ? 2 : 1);
         const said = r.responses[1]!.content;
         expect(said).not.toContain(c.reply);
         const fixed = (["never_say", "price", "payment_details", "hipaa_claim", "clinical", "language", "booking_confirmation", "human_claim", "outbound_promise", "alert_claim", "other_party", "empty"] as const).map((g) =>

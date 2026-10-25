@@ -82,6 +82,8 @@ export async function demoEngineCall(input: {
   offer?: { percentOfSetupFee: number; endsAt: Date } | null;
   /** A healdesk operator signed in to /admin started it: its transcript goes to hello@ (DemoCallContext.test). */
   test?: boolean;
+  /** The buy button the demo page shows (lib/demo/offer.ts demoBuyButton), what Aya closes on. */
+  buyButton?: string | null;
 }): Promise<DemoEngineCall | null> {
   const agentId = demoEngineAgentId();
   const secret = process.env.HEALDESK_PROVISION_SECRET;
@@ -99,6 +101,7 @@ export async function demoEngineCall(input: {
     clinic,
     offer: input.offer ? { percentOfSetupFee: input.offer.percentOfSetupFee, endsAt: input.offer.endsAt.getTime() } : null,
     test: input.test === true,
+    buyButton: input.buyButton ?? null,
   };
   try {
     return { agentId, variables: { [DEMO_CALL_VARIABLE]: sealDemoCallContext(context, secret) } };

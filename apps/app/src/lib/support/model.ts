@@ -20,7 +20,7 @@ import { SUPPORT_TOOLS } from "./tools";
  *     it; this one's screen holds back enough of the stream that no
  *     treatment name or number can be sent before it is seen whole
  *     (screen.ts, StreamScreen);
- *   - it has TOOLS: four read-only ones (tools.ts), tool_choice auto, strict.
+ *   - it has TOOLS: five read-only ones (tools.ts), tool_choice auto, strict.
  *
  * No server-side refusal fallback, as on the patient channels: a refusal
  * ends the turn with the fixed line that gives the support phone and

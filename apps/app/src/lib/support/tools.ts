@@ -5,8 +5,9 @@ import { NOT_APPLICABLE, PHONE_SYSTEMS, SYMPTOM_IDS, TOPIC_IDS } from "./escalat
 import { LINK_TARGETS } from "./targets";
 
 /**
- * The support chat's four tools (plan Part H): read-only, and none of them
- * touches a patient. Strict schemas, so every argument the model gives is one
+ * The support chat's five tools (plan Part H; get_open_cases added by lane
+ * P7b, design E5 §8 S8, owner D16): read-only, and none of them touches a
+ * patient. Strict schemas, so every argument the model gives is one
  * of the listed values; the server checks each again before using it
  * (escalation-fields.ts, targets.ts).
  *
@@ -54,6 +55,13 @@ export const SUPPORT_TOOLS: Anthropic.Tool[] = [
       required: ["setting"],
       additionalProperties: false,
     },
+    strict: true,
+  },
+  {
+    name: "get_open_cases",
+    description:
+      "This practice's open support requests: the day each opened, its topic, where it stands and the day a person replies by. Never anyone's words. Call it before escalate_to_support.",
+    input_schema: NO_INPUT,
     strict: true,
   },
   {
@@ -110,4 +118,4 @@ export const SUPPORT_TOOLS: Anthropic.Tool[] = [
 ];
 
 export type SupportToolName =
-  "get_account_state" | "get_forwarding_steps" | "link_to" | "escalate_to_support";
+  "get_account_state" | "get_forwarding_steps" | "link_to" | "get_open_cases" | "escalate_to_support";

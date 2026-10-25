@@ -170,7 +170,8 @@ for (const channel of CHANNELS) {
           const model = stubModel(() => modelJson(c.reply, c.extra));
           const { results } = await run([c.asked], model.responder, channel);
           const r = results[0]!;
-          expect(model.calls).toHaveLength(1);
+          // A call asks once more after a price refusal (turn.ts, PRICE_AGAIN); the stub refuses again.
+          expect(model.calls).toHaveLength(channel === "voice" && r.guard === "price" ? 2 : 1);
           expect(r.source).toBe("guard");
           expect(r.reply).toBe(guardedLine(r.guard!, SAFETY_FACTS.clinicName, "en", channel === "voice"));
           expect(r.reply).not.toContain(c.reply);

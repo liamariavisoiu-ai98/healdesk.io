@@ -159,10 +159,12 @@ enforceable rather than aspirational.
    as the Privacy page says. Only the
    start differs: Aya gives the AI and transcription notice, checks she has
    the requester by name, asks their role, offers to explain or to role-play
-   a patient call (opened with "Ring ring!" and the clinic's own notice),
-   then pitches, asks about call volume and closes on the demo page's own
-   buy button (owner, 25 October 2026; `lib/voice/demo-facts.ts`,
-   `DemoStage`). Only the pitch may quote healdesk's prices, each from the
+   a patient call (opened with "Ring ring!" and the clinic's own notice,
+   wrapped up within four of the caller's turns), then asks what they are
+   after, their call volume and what happens to missed calls before it
+   pitches, never asking twice what was answered (`DemoProgress`), and
+   closes on the demo page's own buy button (owner, 25 October 2026;
+   `lib/voice/demo-facts.ts`, `DemoStage`). Only the pitch may quote healdesk's prices, each from the
    catalog and let through the guard exactly (`demoPriceList`,
    `AssistantFacts.quotedAmountsUsd`); a clinic's call quotes its own menu
    alone. Spoken text writes "Aya", never

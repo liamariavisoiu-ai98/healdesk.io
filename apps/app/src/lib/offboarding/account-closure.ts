@@ -125,9 +125,6 @@ export const KEPT_FOR_GOOD: Readonly<Record<string, string>> = {
     "the ledger of the setup reminders given and of our own alerts about the account: which notice and alert, when, and to whom (the clinic's address, ours or Slack), beside the notices it records; ids, closed words and dates, no patient",
   clinic_lifecycle:
     "where the account stood when it ended and our decision about its setup (let it close, extended): what explains a closure at the end of the setup window; counts, dates and closed words, no patient",
-  // The patient-rights tracker (drizzle/0120).
-  rights_intakes:
-    "the record of each patient-rights request and of when it was met: what proves the agreement's ten and five business days were kept, beside incidents; ids, closed words and dates, no person and no contact id",
   // The lifecycle watch's ignore list (drizzle/0118).
   lifecycle_ignored_clinics:
     "our mark that the account was one of healdesk's own test accounts, which is why the setup watch never chased it: beside clinic_lifecycle, whose silence it explains; an id, a closed reason, the operator's label and a date, no patient",

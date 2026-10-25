@@ -26,13 +26,29 @@ import { packWeek, PACK_TIME_ZONE, type PackWeek } from "./week";
  * numbers, so a failed read never prints as a zero. The five headline
  * numbers are null for a section that could not be read.
  *
- * A pure function of the database and the week: every count is bounded by
- * the week's two instants (New York midnight to New York midnight, see
- * ./week.ts), and a state "at the end of the week" is worked out from each
- * row's own timestamps, so a pack built late for a past week reads the same
- * as one built on its Monday, except where a row's history is not kept (each
- * such number says so in its name: `...Now`). Demo clinics are left out of
- * every per-clinic count, as the console lists leave them out.
+ * Reads, and writes read-audit rows (each clinic's tenant reads of incidents,
+ * transcript receipts and rights records leave an audit_log row, as every
+ * console read does); it changes nothing else.
+ *
+ * Which numbers are as of the week, and which are as of the build:
+ *   - "...ThisWeek" counts events whose own timestamp falls inside the week
+ *     (New York midnight to New York midnight, ./week.ts);
+ *   - "...AtWeekEnd" is a state worked out from each row's own timestamps
+ *     at the week's last instant, so a pack built late reads the same;
+ *   - "...Now" (and the `jobsNow` list) is read as the database stands when
+ *     the pack is built, because no history of it is kept: a transcript
+ *     copy still held, a rights request blocked or done with no closing
+ *     day, the purge jobs' last runs, a review's superseded status, and the
+ *     BAA floor the re-signs are measured against.
+ * Patient-rights days are UTC calendar days (the tracker's own clock,
+ * lib/rights/clocks.ts), not New York days: the rights section takes the
+ * week's Monday to Sunday as UTC days.
+ *
+ * Demo clinics are left out of every PER-CLINIC count (re-signs, reviews,
+ * incidents, rights, transcripts), as the console lists leave them out. The
+ * platform-wide counts (agreements bound, vendor attestations, the security
+ * log, the approval inbox, the job rows) are not per clinic and include any
+ * demo clinic's rows.
  *
  * Where each number comes from (verified against the code on 25 October 2026):
  *   - agreements: baa_acceptances (the register searchAgreements reads),
@@ -70,16 +86,25 @@ type CouldNotRead = { status: "could_not_read"; unreadClinics?: number };
 type Section<T> = ({ status: "ok" } & T) | CouldNotRead;
 
 export type AgreementsSection = Section<{
-  signed: { kind: string; version: string; count: number }[];
+  /**
+   * Agreements bound to a paying account this week, by kind and version,
+   * counted by when they were bound (baa_acceptances.bound_at), not when
+   * they were signed: a signature taken at checkout reaches the host only
+   * when provisioning imports and binds it, possibly weeks later, and a
+   * count by signing time would leave it out of every pack already stored.
+   * So each signature is counted once, in the week it was bound.
+   */
+  boundThisWeek: { kind: string; version: string; count: number }[];
   resigns: {
     openedThisWeek: number;
     signedThisWeek: number;
     withdrawnThisWeek: number;
     openAtWeekEnd: number;
-    /** Open at the week's end with the version in force below today's floor. */
-    belowFloorAtWeekEnd: number;
+    /** Of those open at the week's end, the ones whose version in force is below the floor as it stands now. */
+    openAtWeekEndBelowFloorNow: number;
   };
-  reviews: { openedThisWeek: number; decidedThisWeek: number; openAtWeekEnd: number };
+  /** openAtWeekEndNow: open at the week's end, less any review whose status reads superseded now (that status has no date). */
+  reviews: { openedThisWeek: number; decidedThisWeek: number; openAtWeekEndNow: number };
 }>;
 
 export type VendorState = "in_force" | "lapsed" | "withdrawn" | "not_attested";
@@ -104,7 +129,16 @@ export type IncidentsSection = Section<{
   notReportableThisWeek: number;
   resolvedThisWeek: number;
   openAtWeekEnd: number;
-  /** Past the internal 24-hour target with no notice, or noticed after it, by the week's end. */
+  /** Open at the week's end, less service complaints (no agreement reports them): the headline's number. */
+  reportableOpenAtWeekEnd: number;
+  /**
+   * The internal 24-hour target missed: the overdue rule of
+   * lib/incidents/incidents.ts overdueIncidents (open, no notice, not
+   * recorded as not reportable, target passed) at the week's end, plus any
+   * incident whose target fell inside the week and passed with no notice by
+   * it. One resolved before the week whose target passed before it never
+   * appears.
+   */
   targetMissed: { clinicId: string; incidentId: string }[];
   /** Open at the week's end, no notice recorded, the agreement's deadline within 14 days or past. */
   agreementDeadlineAtRisk: { clinicId: string; incidentId: string; agreementNotifyBy: string }[];
@@ -121,6 +155,12 @@ export type RightsSection = Section<{
   dueSoonAtWeekEnd: number;
   /** Open, with no route to run on the host yet. */
   blockedNow: number;
+  /**
+   * Done with no closing day recorded (an erasure whose subcontractor step
+   * is stamped, an intake whose record has run): never open or overdue, and
+   * never counted as closed this week, since the day is not known.
+   */
+  doneWithNoClosingDayNow: number;
 }>;
 
 export type JobState = {
@@ -137,7 +177,8 @@ export type DataLifecycleSection = Section<{
     /** Copies still held, queued more than 30 days before the week's end. */
     copiesPast30DaysNow: number;
   };
-  jobs: JobState[];
+  /** The purge jobs as they stand when the pack is built: their row keeps no history. */
+  jobsNow: JobState[];
   failureAlertsThisWeek: { event: string; count: number }[];
 }>;
 
@@ -167,9 +208,24 @@ export type Headline = {
   transcriptCopiesPast30Days: number | null;
 };
 
+/**
+ * How the pack was made, set by the job (./job.ts) when it stores it:
+ * `partial` with the sections that could not be read (stored only once the
+ * week's due time plus 48 hours has passed, after the hourly retries), and
+ * `builtLate` with the whole days since it was due when it was made after
+ * its due hour (the worker was down, or the week was made by hand).
+ */
+export type PackBuild = {
+  partial: boolean;
+  unreadSections: string[];
+  builtLate: boolean;
+  lateDays: number;
+};
+
 export type CompliancePack = {
   schema: typeof PACK_SCHEMA;
   week: { start: string; lastDay: string; timeZone: string; from: string; to: string };
+  build: PackBuild;
   headline: Headline;
   agreements: AgreementsSection;
   vendors: VendorsSection;
@@ -280,11 +336,11 @@ export function median(values: readonly number[]): number | null {
 // -----------------------------------------------------------------------------
 
 async function readAgreements(week: PackWeek, clinics: readonly Clinic[]): Promise<AgreementsSection> {
-  const signed = await readOr("agreements.signed", async () => {
+  const signed = await readOr("agreements.bound", async () => {
     const result = await unsafeDb.execute<{ kind: string; version: string; n: number }>(sql`
       select agreement_kind as kind, document_version as version, count(*)::int as n
         from baa_acceptances
-       where accepted_at >= ${week.from} and accepted_at < ${week.to}
+       where bound_at >= ${week.from} and bound_at < ${week.to}
        group by agreement_kind, document_version`);
     return result.rows.map((r) => ({ kind: r.kind, version: r.version, count: n(r.n) }));
   });
@@ -328,18 +384,18 @@ async function readAgreements(week: PackWeek, clinics: readonly Clinic[]): Promi
   const sum = (rows: Record<string, number>[], key: string) => rows.reduce((total, r) => total + n(r[key]), 0);
   return {
     status: "ok",
-    signed: signed.filter((s) => s.count > 0).sort((a, b) => a.kind.localeCompare(b.kind) || a.version.localeCompare(b.version)),
+    boundThisWeek: signed.filter((s) => s.count > 0).sort((a, b) => a.kind.localeCompare(b.kind) || a.version.localeCompare(b.version)),
     resigns: {
       openedThisWeek: sum(resigns.rows, "opened"),
       signedThisWeek: sum(resigns.rows, "signed"),
       withdrawnThisWeek: sum(resigns.rows, "withdrawn"),
       openAtWeekEnd: sum(resigns.rows, "open_at_end"),
-      belowFloorAtWeekEnd: sum(resigns.rows, "below_floor"),
+      openAtWeekEndBelowFloorNow: sum(resigns.rows, "below_floor"),
     },
     reviews: {
       openedThisWeek: sum(reviews.rows, "opened"),
       decidedThisWeek: sum(reviews.rows, "decided"),
-      openAtWeekEnd: sum(reviews.rows, "open_at_end"),
+      openAtWeekEndNow: sum(reviews.rows, "open_at_end"),
     },
   };
 }
@@ -435,6 +491,7 @@ async function readIncidents(week: PackWeek, clinics: readonly Clinic[]): Promis
     notReportableThisWeek: 0,
     resolvedThisWeek: 0,
     openAtWeekEnd: 0,
+    reportableOpenAtWeekEnd: 0,
     targetMissed: [] as { clinicId: string; incidentId: string }[],
     agreementDeadlineAtRisk: [] as { clinicId: string; incidentId: string; agreementNotifyBy: string }[],
   };
@@ -451,6 +508,7 @@ async function readIncidents(week: PackWeek, clinics: readonly Clinic[]): Promis
       const resolved = t(i.resolved_at);
       const open = resolved === null || resolved >= to;
       if (open) section.openAtWeekEnd += 1;
+      if (open && i.class !== "service_complaint") section.reportableOpenAtWeekEnd += 1;
       const notified = t(i.notified_at);
       const notifiedByEnd = notified !== null && notified < to ? notified : null;
       const decidedNotReportable = (() => {
@@ -458,7 +516,11 @@ async function readIncidents(week: PackWeek, clinics: readonly Clinic[]): Promis
         return at !== null && at < to;
       })();
       const target = t(i.notify_by)!;
-      if (!decidedNotReportable && target < to && (notifiedByEnd === null || notifiedByEnd > target)) {
+      const noticeLate = notifiedByEnd === null || notifiedByEnd > target;
+      // The overdue rule at the week's end, or a target that fell in the week and passed unmet.
+      const overdueAtEnd = open && notifiedByEnd === null && target < to;
+      const missedInWeek = target >= from && target < to && noticeLate;
+      if (!decidedNotReportable && (overdueAtEnd || missedInWeek)) {
         section.targetMissed.push({ clinicId: clinic.clinicId, incidentId: i.id });
       }
       const deadline = t(i.agreement_notify_by);
@@ -497,6 +559,7 @@ export function rightsSection(rows: readonly RightsRow[], week: Pick<PackWeek, "
     overdueAtWeekEnd: 0,
     dueSoonAtWeekEnd: 0,
     blockedNow: 0,
+    doneWithNoClosingDayNow: 0,
   };
   for (const row of rows) {
     if (inWeek(row.receivedOn)) {
@@ -508,7 +571,11 @@ export function rightsSection(rows: readonly RightsRow[], week: Pick<PackWeek, "
       if (row.closedOn! <= row.dueOn) out.closedOnTimeThisWeek += 1;
       else out.closedLateThisWeek += 1;
     }
-    const openAtEnd = row.receivedOn <= week.lastDay && (row.closedOn === null || row.closedOn > week.lastDay);
+    // Done with no day: closed at a time the record does not keep, so neither open nor closed this week.
+    const doneNoDay = row.state === "done" && row.closedOn === null;
+    if (doneNoDay) out.doneWithNoClosingDayNow += 1;
+    const openAtEnd =
+      !doneNoDay && row.receivedOn <= week.lastDay && (row.closedOn === null || row.closedOn > week.lastDay);
     if (openAtEnd) {
       out.openAtWeekEnd += 1;
       const clock = clockState(week.lastDay, row.dueOn);
@@ -592,7 +659,7 @@ async function readDataLifecycle(week: PackWeek, clinics: readonly Clinic[]): Pr
       deliveredThisWeek: sum("delivered"),
       copiesPast30DaysNow: sum("past_30"),
     },
-    jobs: LIFECYCLE_JOBS.map((job) => {
+    jobsNow: LIFECYCLE_JOBS.map((job) => {
       const row = byName.get(job);
       return {
         job,
@@ -679,10 +746,10 @@ async function readApprovals(week: PackWeek): Promise<ApprovalsSection> {
 // -----------------------------------------------------------------------------
 
 /** The five numbers the pointer email carries; null for a section that could not be read. */
-export function headlineOf(pack: Omit<CompliancePack, "headline">): Headline {
+export function headlineOf(pack: Omit<CompliancePack, "headline" | "build">): Headline {
   const vendors = pack.vendors;
   return {
-    incidentsOpen: pack.incidents.status === "ok" ? pack.incidents.openAtWeekEnd : null,
+    incidentsOpen: pack.incidents.status === "ok" ? pack.incidents.reportableOpenAtWeekEnd : null,
     rightsOverdue: pack.rights.status === "ok" ? pack.rights.overdueAtWeekEnd : null,
     resignsOpen: pack.agreements.status === "ok" ? pack.agreements.resigns.openAtWeekEnd : null,
     vendorsNeedingAttention:
@@ -694,14 +761,26 @@ export function headlineOf(pack: Omit<CompliancePack, "headline">): Headline {
   };
 }
 
-/** Whether any section could not be read: the job stores the pack anyway, and says so. */
-export function unreadSections(pack: CompliancePack): string[] {
+/** The sections that could not be read. */
+export function unreadSections(pack: Omit<CompliancePack, "headline" | "build">): string[] {
   const sections = ["agreements", "vendors", "incidents", "rights", "dataLifecycle", "access", "approvals"] as const;
   return sections.filter((name) => pack[name].status === "could_not_read");
 }
 
-/** Build one week's pack. Reads only. Throws only if the clinic list cannot be read. */
-export async function buildCompliancePack(weekStart: string): Promise<CompliancePack> {
+/**
+ * Build one week's pack. Reads, and writes read-audit rows. Throws only if
+ * the clinic list cannot be read. `build` says how it was made: by default
+ * complete and on time; the job sets it (./job.ts storable).
+ */
+export async function buildCompliancePack(
+  weekStart: string,
+  build: (unread: string[]) => PackBuild = (unread) => ({
+    partial: unread.length > 0,
+    unreadSections: unread,
+    builtLate: false,
+    lateDays: 0,
+  }),
+): Promise<CompliancePack> {
   const week = packWeek(weekStart);
   const clinics = (await listClinics()).map((c) => ({ id: c.id }));
   const body = {
@@ -721,6 +800,6 @@ export async function buildCompliancePack(weekStart: string): Promise<Compliance
     access: await readAccess(week),
     approvals: await readApprovals(week),
     launchPromises: { status: "read_on_the_console" as const },
-  } satisfies Omit<CompliancePack, "headline">;
-  return { ...body, headline: headlineOf(body) };
+  } satisfies Omit<CompliancePack, "headline" | "build">;
+  return { ...body, build: build(unreadSections(body)), headline: headlineOf(body) };
 }

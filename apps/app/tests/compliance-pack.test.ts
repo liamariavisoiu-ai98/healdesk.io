@@ -627,7 +627,7 @@ describeDb("the compliance pack, against the database", () => {
         const pack = await buildCompliancePack(randomPastWeek());
         expect(unreadSections(pack), table).toEqual(unread);
         for (const section of unread as readonly ("vendors" | "access" | "approvals")[]) expect(pack[section], `${table} ${section}`).toEqual({ status: "could_not_read" });
-        if (unread.includes("vendors")) expect(pack.headline.vendorsNeedingAttention).toBeNull();
+        if ((unread as readonly string[]).includes("vendors")) expect(pack.headline.vendorsNeedingAttention).toBeNull();
       } finally {
         spy.mockRestore();
       }

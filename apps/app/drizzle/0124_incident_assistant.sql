@@ -10,7 +10,7 @@ CREATE TABLE "incident_checklist_ticks" (
 	CONSTRAINT "incident_checklist_ticks_step_key" UNIQUE("incident_id","step"),
 	CONSTRAINT "incident_checklist_ticks_step_check" CHECK ("incident_checklist_ticks"."step" in ('contain', 'open', 'preserve_ids', 'investigate', 'notify_email', 'notify_phone', 'affected_list_recorded', 'help_clinic', 'resolve')),
 	CONSTRAINT "incident_checklist_ticks_count_check" CHECK (("incident_checklist_ticks"."step" = 'affected_list_recorded') = ("incident_checklist_ticks"."affected_count" is not null) and ("incident_checklist_ticks"."affected_count" is null or "incident_checklist_ticks"."affected_count" >= 0)),
-	CONSTRAINT "incident_checklist_ticks_batch_check" CHECK ("incident_checklist_ticks"."batch_key" is null or ("incident_checklist_ticks"."step" = 'open' and "incident_checklist_ticks"."batch_key" ~ '^(vendor|channel):[a-z_]{1,40}:[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z:[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z:[a-z_]{1,40}$')),
+	CONSTRAINT "incident_checklist_ticks_batch_check" CHECK ("incident_checklist_ticks"."batch_key" is null or ("incident_checklist_ticks"."step" = 'open' and "incident_checklist_ticks"."batch_key" ~ '^(vendor|channel):[a-z_]{1,40}:(all_holding|window_only):[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z:[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z:[a-z_]{1,40}$')),
 	CONSTRAINT "incident_checklist_ticks_by_check" CHECK (char_length("incident_checklist_ticks"."ticked_by") between 3 and 200 and "incident_checklist_ticks"."ticked_by" ~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$')
 );
 --> statement-breakpoint
@@ -117,3 +117,13 @@ BEGIN
   END IF;
 END;
 $$;
+--> statement-breakpoint
+
+-- The two jobs' descriptions, which the console's Jobs page prints, now say
+-- what they do for the incident assistant (lib/approvals/incident-sweep.ts):
+-- incident-deadlines, seeded on, is its safety net, so a legal clock's item
+-- and its alerts never wait on approvals-propose, which ships off.
+UPDATE scheduled_jobs SET cadence = 'Hourly; raises one ops alert, ever, for each open incident past the internal 24-hour notice target with no notice recorded. Also puts the first report of each open reportable incident with none proposed and no notice recorded into the approval inbox for the owner''s yes, takes off the list any incident item the Incidents page has already dealt with, and alerts ops by email and Slack about each waiting incident item on its first run and again every 4 hours while it waits. Sends, opens and closes nothing'
+ WHERE name = 'incident-deadlines';--> statement-breakpoint
+UPDATE scheduled_jobs SET cadence = 'Hourly; puts each billing change the billing worker gave up on, each Stripe event parked after its retries and each extra-usage invoice that failed into the approval inbox, one item each, for the owner to approve or reject. Nothing an automatic process still retries: a plan start or a price step-up only while billing-reconcile is off, an extra-usage invoice only while annual-overage-invoice is off. Expires items past their window and re-alerts items past due. Also runs the incident assistant''s hourly pass, which incident-deadlines runs too. Never retries or replays anything itself. Off until the owner switches it on'
+ WHERE name = 'approvals-propose';

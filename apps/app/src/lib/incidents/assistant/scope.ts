@@ -187,7 +187,8 @@ const VOICE_ROWS: readonly ConversationChannel[] = ["voice"];
 const WEB_ROWS: readonly ConversationChannel[] = ["web_chat", "web_form"];
 const META_ROWS: readonly ConversationChannel[] = ["instagram_dm", "whatsapp"];
 
-async function countClinic(
+/** One clinic's counts over the window, and whether it is healdesk's demo clinic. */
+export async function scopeCounts(
   clinic: ClinicOverview,
   channels: readonly ScopeChannel[],
   from: Date,
@@ -256,7 +257,7 @@ export async function incidentScope(input: ScopeInput, ctx: Ctx): Promise<ScopeR
     if (clinic.destroyedAt) continue;
     let read: { demo: boolean; counts: Record<ScopeChannel, number> };
     try {
-      read = await countClinic(clinic, channels, input.from, input.to, ctx);
+      read = await scopeCounts(clinic, channels, input.from, input.to, ctx);
     } catch (error) {
       result.unread += 1;
       log.warn("incident scope: a clinic could not be read", { clinicId: clinic.id, error: describeError(error) });

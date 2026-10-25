@@ -146,7 +146,7 @@ describe("the reply spoken as it is written", () => {
     await s.open();
     await s.handle(said(1, [{ role: "agent", content: raw()[0]!.content }, { role: "user", content: "when do you open" }]));
     const timing = info.mock.calls.find(([message]) => message === "retell turn timing");
-    expect(timing?.[1]).toEqual({ clinicId: CLINIC, callId: expect.stringMatching(/^call_/), source: "model", ms: expect.any(Number), totalMs: expect.any(Number) });
+    expect(timing?.[1]).toEqual({ clinicId: CLINIC, callId: expect.stringMatching(/^call_/), source: "model", ms: expect.any(Number), totalMs: expect.any(Number), modelMs: expect.any(Number) });
     await s.finish();
   });
 });

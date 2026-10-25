@@ -997,9 +997,39 @@ describe("the model request", () => {
     // The Meta front door moved onto this client from its own, on claude-opus-5.
     expect(at("meta")).toMatchObject({ model: "claude-opus-5-5", max_tokens: 800, thinking: { type: "adaptive" }, output_config: { effort: "low" } });
     expect(at("meta").messages[0]!.content).toHaveLength(2_000);
-    expect(at("voice").messages[0]!.content).toHaveLength(4_000);
+    // A call's latest words are a cached text block (the conversation-caching test below), still cut at 4,000.
+    expect((at("voice").messages[0]!.content as { text: string }[])[0]!.text).toHaveLength(4_000);
     expect(MODEL_CONFIG.voice).toMatchObject({ timeoutMs: 8_000, maxRetries: 0 });
     expect(MODEL_CONFIG.web_chat).toMatchObject({ timeoutMs: 30_000, maxRetries: 1 });
+  });
+
+  test("a call caches its conversation: the turn's context comes after it, and the breakpoint sits on the caller's latest words", () => {
+    const voice = { stable: buildAssistantPrompt(FACTS, "voice"), turn: "Now it is Friday.\nThis call is a live demo." };
+    const turnOne = modelRequest({ channel: "voice", system: voice, messages: [{ role: "user", content: "hi, how much is botox" }] });
+    // The stable prefix alone in `system`: nothing that changes by the turn ahead of the conversation.
+    expect(turnOne.system).toEqual([{ type: "text", text: voice.stable, cache_control: { type: "ephemeral" } }]);
+    expect(turnOne.messages).toEqual([
+      { role: "user", content: [{ type: "text", text: "hi, how much is botox", cache_control: { type: "ephemeral" } }] },
+      { role: "system", content: [{ type: "text", text: voice.turn }] },
+    ]);
+    // The next turn starts with exactly the bytes the last one cached, up to its breakpoint.
+    const turnTwo = modelRequest({
+      channel: "voice",
+      system: { ...voice, turn: "Now it is Friday, a minute later." },
+      messages: [
+        { role: "user", content: "hi, how much is botox" },
+        { role: "assistant", content: "Botox is $12 per unit." },
+        { role: "user", content: "great, can I book friday" },
+      ],
+    });
+    expect(turnTwo.system).toEqual(turnOne.system);
+    expect(turnTwo.messages[0]).toEqual({ role: "user", content: "hi, how much is botox" });
+    expect(turnTwo.messages.at(-2)).toEqual({ role: "user", content: [{ type: "text", text: "great, can I book friday", cache_control: { type: "ephemeral" } }] });
+    expect(turnTwo.messages.at(-1)).toEqual({ role: "system", content: [{ type: "text", text: "Now it is Friday, a minute later." }] });
+    // Web chat and the Meta front door keep their requests as they were.
+    const chat = modelRequest({ channel: "web_chat", system: { stable: "x", turn: "y" }, messages: [{ role: "user", content: "hi" }] });
+    expect(chat.system).toEqual([{ type: "text", text: "x", cache_control: { type: "ephemeral" } }, { type: "text", text: "y" }]);
+    expect(chat.messages).toEqual([{ role: "user", content: "hi" }]);
   });
 
   test("a call moved onto a model that refuses thinking off keeps that model's default, rather than failing every turn", () => {

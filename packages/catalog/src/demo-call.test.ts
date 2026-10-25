@@ -11,6 +11,7 @@ const CONTEXT: DemoCallContext = {
   issuedAt: 1_800_000_000_000,
   offer: { percentOfSetupFee: 50, endsAt: 1_800_000_000_000 + 48 * 60 * 60_000 },
   test: false,
+  buyButton: "Book Onboarding",
   clinic: {
     clinicName: "Lumen Aesthetics",
     summary: "A med spa in Austin.",

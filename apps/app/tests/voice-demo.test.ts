@@ -44,7 +44,9 @@ import {
   demoContextFromCall,
   demoDuration,
   demoOpenDays,
+  demoPitchFacts,
   demoPrice,
+  demoPriceList,
   demoRoleplayOpener,
   demoStageNote,
   demoTimeZone,
@@ -76,6 +78,7 @@ function context(overrides: Partial<DemoCallContext> = {}): DemoCallContext {
     issuedAt: Date.now(),
     offer: null,
     test: false,
+    buyButton: "Book Onboarding",
     clinic: {
       clinicName: "Lumen Aesthetics",
       summary: "A boutique med spa in downtown Austin.",
@@ -260,7 +263,7 @@ describe("a demo call's facts", () => {
     expect(note).not.toMatch(/super brief|how many calls/);
   });
 
-  test("the pitch note makes the point, asks the discovery questions from the open days, and pitches without a price", () => {
+  test("the pitch note makes the point, asks the discovery questions from the open days, and offers another role-play", () => {
     const now = Date.now();
     const note = demoStageNote(context(), "pitch", now);
     expect(note).toContain("I'm built to do that 24/7, on the phone and in your website chat, Instagram, Messenger and WhatsApp");
@@ -272,18 +275,21 @@ describe("a demo call's facts", () => {
     expect(note).toContain("Aya Voice, Aya Web Chat, Aya Meta Chat");
     // Capitals only in the rule against them, so nothing she copies spells it out.
     expect(note.replace('never "AYA"', "")).not.toContain("AYA");
-    expect(note).not.toMatch(/super brief|Ring ring/);
+    expect(note).not.toMatch(/super brief/);
+    // A second role-play starts the same way.
+    expect(note).toContain(`If they want to try another role-play, start it the same way: "${demoRoleplayOpener("Lumen Aesthetics")}"`);
     // Hours it cannot read: it asks rather than says a number of days.
     const unread = demoStageNote(context({ clinic: { ...context().clinic, hours: [{ days: "Most days", hours: "by arrangement" }] } }), "pitch", now);
     expect(unread).toContain("ask how many days a week they are open");
     expect(unread).not.toMatch(/you're open \d days/);
   });
 
-  test("the pitch note mentions a live discount only while it is live, as a percentage and a window, never a dollar amount", () => {
+  test("the pitch note mentions a live discount only while it is live, as a percentage, a window and the discounted fees", () => {
     const now = Date.now();
     const live = demoStageNote(context({ offer: { percentOfSetupFee: 50, endsAt: now + 10 * 3_600_000 } }), "pitch", now);
     expect(live).toMatch(/50% off healdesk's setup fee, with about 10 hours left on it/);
-    expect(live).toMatch(/never a dollar amount/);
+    expect(live).toMatch(/already applied at checkout/);
+    expect(live).toMatch(/never a different number or a different amount of time/);
     const almostOver = demoStageNote(context({ offer: { percentOfSetupFee: 30, endsAt: now + 30 * 60_000 } }), "pitch", now);
     expect(almostOver).toMatch(/30% off healdesk's setup fee, with about 1 hour left on it\b/);
     for (const offer of [{ percentOfSetupFee: 50, endsAt: now - 1_000 }, null]) {
@@ -292,6 +298,54 @@ describe("a demo call's facts", () => {
     // Only the pitch carries it.
     const intro = demoStageNote(context({ offer: { percentOfSetupFee: 50, endsAt: now + 10 * 3_600_000 } }), "intro", now);
     expect(intro).not.toMatch(/% off/);
+  });
+
+  test("the closer quotes healdesk's real prices, closes on the page's own button, and promises nothing it cannot send", () => {
+    const now = Date.now();
+    const note = demoStageNote(context({ offer: { percentOfSetupFee: 50, endsAt: now + 10 * 3_600_000 } }), "pitch", now);
+    // From the catalog: $80, $40 and $60 for every 100; setup per package, discounted per package as checkout rounds it.
+    expect(note).toContain("Aya Voice is $80 a month for every 100 minutes; Aya Web Chat $40 a month for every 100 conversations; Aya Meta Chat, website chat included, $60 a month for every 100 conversations");
+    expect(note).toContain("Aya Voice $697 ($349 with their 50% off)");
+    expect(note).toContain("Aya Voice plus Meta Chat $1,394 ($697 with their 50% off)");
+    expect(note).toContain("The monthly price only starts the day you first answer one of their patients");
+    expect(note).toContain('"Want to get Lumen Aesthetics set up?"');
+    expect(note).toContain('"Just tap Book Onboarding at the top of your demo page and your 50% is already applied."');
+    expect(note).toContain("Never say you will send a link, an email or a text, and never take payment details on the call.");
+    expect(note).toContain('"We sign a business associate agreement and handle patient data under it", never "HIPAA compliant"');
+    // A booking's value in the clinic's own terms, never revenue.
+    expect(note).toContain("a HydraFacial on their books at $199");
+    expect(note).toContain("Never call it revenue, profit or money they will make");
+    // The homepage demo's button is "Get AYA" on the page, said "Get Aya"; a browser demo points at the chat on the page.
+    const selfServe = demoStageNote(context({ buyButton: "Get AYA", offer: null }), "pitch", now);
+    expect(selfServe).toContain('"Just tap Get Aya at the top of your demo page."');
+    expect(selfServe).toContain("try you in chat too, right there on their demo page");
+    expect(demoStageNote(context({ mode: "phone" }), "pitch", now)).not.toContain("try you in chat too");
+    // No button on the page: nothing to tap.
+    expect(demoStageNote(context({ buyButton: null }), "pitch", now)).toContain("the healdesk team will help them get started");
+  });
+
+  test("healdesk's prices pass the guard only in the pitch, exactly, and never during the role-play", () => {
+    const now = Date.now();
+    const offer = { percentOfSetupFee: 50, endsAt: now + 10 * 3_600_000 };
+    const facts = demoAssistantFacts(context());
+    const pitch = demoPitchFacts(facts, { offer }, now);
+    for (const line of [
+      "Aya Voice is $80 a month for every 100 minutes.",
+      "For 500 minutes that's $400 a month, and with 300 chats on Meta it's $580.",
+      "Setup is $697, and with your 50% off it's $349.",
+      "Voice plus Meta Chat is $1,394 to set up, $697 with your discount.",
+    ]) {
+      expect([line, guardAssistantReply(line, pitch)]).toEqual([line, { ok: true }]);
+      // In the intro or the role-play the same figures are an off-menu price.
+      expect(guardAssistantReply(line, facts)).toMatchObject({ ok: false });
+    }
+    // A figure the catalog does not give is refused even in the pitch: $348 is not 50% off $697, and $698 is not the package's discount.
+    expect(guardAssistantReply("Setup is just $348 with your discount.", pitch)).toMatchObject({ ok: false });
+    expect(guardAssistantReply("Voice plus Meta Chat is $698 with your discount.", pitch)).toMatchObject({ ok: false });
+    // Checkout rounds each package's discount up, and so does the list.
+    expect(demoPriceList(offer, now).amounts).toEqual(expect.arrayContaining([349, 130, 478, 697, 1394, 956, 64, 32, 48]));
+    expect(demoPriceList({ percentOfSetupFee: 30, endsAt: now + 1_000 }, now).amounts).toEqual(expect.arrayContaining([488, 182, 670, 976]));
+    expect(demoPriceList(null, now).amounts).not.toContain(349);
   });
 
   test("every line the notes put in Aya's mouth passes the guard, a number of calls included", () => {
@@ -319,7 +373,10 @@ describe("a demo call's facts", () => {
     expect(nextDemoStage("intro", demoRoleplayOpener("Lumen Aesthetics"))).toBe("roleplay");
     expect(nextDemoStage("roleplay", "Sure, Friday at 3 works. Anything else?")).toBe("roleplay");
     expect(nextDemoStage("roleplay", "See you then! Ok, how was that? Haha!")).toBe("pitch");
-    expect(nextDemoStage("pitch", "Ring ring!")).toBe("pitch");
+    // A second role-play from the pitch, and the pitch straight from the intro when the role-play is skipped.
+    expect(nextDemoStage("pitch", demoRoleplayOpener("Lumen Aesthetics"))).toBe("roleplay");
+    expect(nextDemoStage("intro", "Sure! Generally, how many calls do you get a day?")).toBe("pitch");
+    expect(nextDemoStage("roleplay", "Generally, how many calls do you get a day?")).toBe("roleplay");
     expect(demoOpenDays(context())).toBe(5);
     expect(demoOpenDays(context({ clinic: { ...context().clinic, hours: [{ days: "Mon-Fri", hours: "9am-6pm" }, { days: "Saturday", hours: "10am-2pm" }, { days: "Sunday", hours: "Closed" }] } }))).toBe(6);
     expect(demoOpenDays(context({ clinic: { ...context().clinic, hours: [] } }))).toBeNull();

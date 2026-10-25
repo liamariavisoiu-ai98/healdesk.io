@@ -111,6 +111,14 @@ describe("POST /api/demo/[slug]/retell/v3/create-web-call, the engine", () => {
     expect(calls[0]!.body.metadata).toMatchObject({ demo_slug: SLUG, engine: "aya" });
     // A visitor's call: no transcript goes anywhere (the Privacy page).
     expect(context!.test).toBe(false);
+    // What Aya closes on: the button an operator-built demo's page shows.
+    expect(context!.buyButton).toBe("Book Onboarding");
+  });
+
+  test("a homepage demo closes on the page's own buy button, as the page labels it", async () => {
+    sessionOverride = { slug: SLUG, profile: true, createdBy: "homepage" };
+    expect((await post({ firstName: "Sam" })).status).toBe(201);
+    expect(openDemoCallContext(variables().demo_context, SECRET)!.buyButton).toBe("Get AYA");
   });
 
   test("marks the call as a test only when an operator is signed in to /admin, so its transcript goes to hello@", async () => {

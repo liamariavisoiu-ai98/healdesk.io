@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const findActiveDemoByCaller = vi.fn();
 vi.mock("@/lib/demo/sessions", () => ({
+  isSelfServeDemo: () => false,
   findActiveDemoByCaller: (...args: unknown[]) => findActiveDemoByCaller(...args),
   profileOf: (s: { profile: unknown }) => (s.profile ? { clinicName: "Peachy Studio", services: [], hours: [], providers: [], faqs: [], policies: [], highlights: [], summary: null, specialty: null, phone: null, address: null, booking: null } : null),
 }));

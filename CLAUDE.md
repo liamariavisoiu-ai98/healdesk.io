@@ -160,8 +160,12 @@ enforceable rather than aspirational.
    start differs: Aya gives the AI and transcription notice, checks she has
    the requester by name, asks their role, offers to explain or to role-play
    a patient call (opened with "Ring ring!" and the clinic's own notice),
-   then pitches and asks about call volume (owner, 25 October 2026;
-   `lib/voice/demo-facts.ts`, `DemoStage`). Spoken text writes "Aya", never
+   then pitches, asks about call volume and closes on the demo page's own
+   buy button (owner, 25 October 2026; `lib/voice/demo-facts.ts`,
+   `DemoStage`). Only the pitch may quote healdesk's prices, each from the
+   catalog and let through the guard exactly (`demoPriceList`,
+   `AssistantFacts.quotedAmountsUsd`); a clinic's call quotes its own menu
+   alone. Spoken text writes "Aya", never
    "AYA", which a voice spells out. While the host is in standby, the demo falls back to the
    Retell-hosted clinic demo agent, so a demo never depends on AWS being on.
 
@@ -236,8 +240,8 @@ the NAT and every service, keeping the key, the parameters and the images, at
 about $4 a month; started from `/admin/host` or by a first paid invoice that
 finds the host off). Since 13
 October 2026 it builds the owner's lean profile by default, about $70 a month
-running (about $79 with the voice task, which `production.tfvars` turns on from
-22 October 2026, once applied): one ARM64 web task of a quarter vCPU carrying the worker too
+running (about $99 with the voice task, which `production.tfvars` turns on from
+22 October 2026 and sizes at one vCPU and 2 GB from 25 October, once applied): one ARM64 web task of a quarter vCPU carrying the worker too
 (`worker_placement`), a `db.t4g.micro`, a NAT instance instead of a NAT
 gateway (`nat_mode`), and the WAF off (`enable_waf`); each is one variable
 from the shape first built (README, "Costs").

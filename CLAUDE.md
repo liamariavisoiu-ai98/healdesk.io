@@ -162,9 +162,16 @@ enforceable rather than aspirational.
    a patient call (opened with "Ring ring!" and the clinic's own notice,
    wrapped up within four of the caller's turns), then asks what they are
    after, their call volume and what happens to missed calls before it
-   pitches, never asking twice what was answered (`DemoProgress`), and
-   closes on the demo page's own buy button (owner, 25 October 2026;
-   `lib/voice/demo-facts.ts`, `DemoStage`). Only the pitch may quote healdesk's prices, each from the
+   pitches, never asking twice what was answered (`DemoProgress`); the
+   pitch is the owner's nine beats in order, each said once (`DemoBeat`):
+   their pain, the reveal, keeping their number, what is not finished yet
+   with the live discount (the demo's own share and the hours left, never a
+   fixed figure), a cost anchor, value in the clinic's own prices, one
+   package, no strings, and the terms' refund (the first period within
+   `FIRST_PERIOD_REFUND_DAYS` of the plan start; the setup fee never); then
+   a tie-down and the close on the demo page's own buy button (owner,
+   25 October 2026; `lib/voice/demo-facts.ts`, `DemoStage`). No call-back is
+   offered until something delivers one. Only the pitch may quote healdesk's prices, each from the
    catalog and let through the guard exactly (`demoPriceList`,
    `AssistantFacts.quotedAmountsUsd`); a clinic's call quotes its own menu
    alone. Spoken text writes "Aya", never

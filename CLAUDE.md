@@ -682,6 +682,51 @@ undeclared variable is invisible to the task.
 
 # Working in this repo
 
+## How work is reviewed, tested and landed (owner's rules, 25 October 2026)
+
+These apply to every session, lead or builder, on every task. They exist to
+reach the end faster **without** weakening what protects the product. The owner
+asked for them to be written here so each session reads them.
+
+1. **Review once per lane, at the end, not after every fix round.** A second
+   round is kept only for what can hurt: money, legal clocks (incidents, the
+   BAA/agreement deadlines), anything that sends email to a clinic, and
+   anything that records an agreement answer or pauses AYA. The final review
+   looks at the **merged combination**, not each lane alone, and every
+   owner-facing sentence (alerts, screens, runbooks) gets an accuracy review
+   against the code: false sentences were found in every wave.
+2. **Merge as you go.** Before reporting, a builder merges the integration
+   branch (or `main`) into its own branch, resolves the conflicts there, and
+   runs the full verify (rule 4) on the merged tree. Commit after every piece of
+   work; never run `git checkout <ref> -- .` or anything else that overwrites a
+   working tree; never use a bare `git stash` (the stack is shared).
+3. **Tests must be deterministic.** No random weeks, dates or ids that can
+   cross a daylight-saving change or collide in a shared table; pin fixtures.
+   Clear shared tables (for example `ops_alerts`) per file, or set unrelated
+   rows aside, instead of assuming the table is empty. The database suites
+   **skip silently** without `TEST_APP_URL`: always report skip counts, and
+   never call a run green with skips you did not explain.
+4. **One local verify command.** `bash scripts/verify-local.sh` starts a
+   throwaway Postgres, migrates, runs the typecheck, lint, the drizzle schema
+   check and the **whole** `apps/web` and `apps/app` suites, and prints
+   pass/fail/skip counts. Run it on the exact tree you will hand over; CI must
+   not be the first place a cross-lane failure is found. (`VERIFY_QUICK=1` is a
+   smoke run, `VERIFY_APP_FILES="..."` names the app suites; neither replaces the
+   full run before a handoff.)
+5. **Fewer, bigger landings.** Land and deploy in batches, not per lane. Only an
+   infrastructure plan and apply (Terraform) stay separate, with their own
+   approval. None of this changes the standing rule: nothing lands on `main`,
+   deploys, applies infrastructure or touches a secret without the owner's
+   explicit yes in chat, and a deploy that rolls the voice service needs his
+   word that no call is running or planned.
+6. **Scope a big phase to a first useful slice.** Read the design in full,
+   propose the slice and what waits, and get the owner's word before building
+   the rest.
+
+What these rules never relax: the fresh authenticator code on irreversible
+admin acts, the PHI boundary, real-database tests, CI on the exact tree that
+lands, and the owner's approval before a landing or a deploy.
+
 - **Verify before claiming something is built.** Read it out of the code, not
   out of a README, a directory listing, or a plan document. The spec says what
   v1 must do, not what exists.

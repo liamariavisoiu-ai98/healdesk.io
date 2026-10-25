@@ -162,6 +162,7 @@ import {
   opMatchSupportCase,
   opSnoozeSupportCase,
 } from "@/lib/ops/support-case-ops";
+import { opRegenerateSupportDraft } from "@/lib/ops/support-draft-ops";
 import { opGenerateCompliancePack, opGetCompliancePack, opListCompliancePacks } from "@/lib/ops/pack-ops";
 import {
   opIncidentChecklist,
@@ -759,6 +760,9 @@ const OPERATIONS = [
   "assignSupportCase",
   "matchSupportCase",
   "closeSupportCase",
+  // The support drafter (lane P7b, lib/ops/support-draft-ops.ts): ask for a
+  // new draft of a case. It only queues; the support-draft job drafts.
+  "regenerateSupportDraft",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -926,6 +930,8 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "assignSupportCase",
   "matchSupportCase",
   "closeSupportCase",
+  // Mutating: a new draft of a support case asked for. It only queues; nothing is sent.
+  "regenerateSupportDraft",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -1645,6 +1651,8 @@ export async function runOperation(
       return opMatchSupportCase(args, operator);
     case "closeSupportCase":
       return opCloseSupportCase(args, operator);
+    case "regenerateSupportDraft":
+      return opRegenerateSupportDraft(args, operator);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The

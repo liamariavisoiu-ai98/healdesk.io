@@ -226,7 +226,7 @@ function replyOf(events: readonly SupportEvent[]): string {
 // -----------------------------------------------------------------------------
 
 describe("the request", () => {
-  test("claude-opus-5-5, the help text cached as a static prefix, the clinic after it, four strict tools", () => {
+  test("claude-opus-5-5, the help text cached as a static prefix, the clinic after it, five strict tools", () => {
     const system = buildSupportPrompt({
       clinicName: "Radiance Med Spa",
       audience: "patients",
@@ -267,6 +267,7 @@ describe("the request", () => {
       "get_account_state",
       "get_forwarding_steps",
       "link_to",
+      "get_open_cases",
       "escalate_to_support",
     ]);
     for (const tool of SUPPORT_TOOLS) {

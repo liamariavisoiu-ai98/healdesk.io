@@ -3,8 +3,9 @@
 import { useSelectedLayoutSegment } from "next/navigation";
 
 /**
- * The console's five sections (E1 §2): Home · Clinics · Queues · Compliance ·
- * System, each answering one question, with the current one marked. The
+ * The console's sections (E1 §2, and Support since lane P7f): Home · Clinics ·
+ * Queues · Support · Compliance · System, each answering one question, with
+ * the current one marked. The
  * mark is read from the client router, which is right on every navigation;
  * the layout that renders this cannot know which child is below it
  * (app/admin/layout.tsx says why), and `AdminChrome` already reads the same
@@ -22,7 +23,9 @@ import { useSelectedLayoutSegment } from "next/navigation";
 export const SECTIONS = [
   { href: "/admin", label: "Home", segments: [null] },
   { href: "/admin/clinics", label: "Clinics", segments: ["clinics", "ops"] },
-  { href: "/admin/queues", label: "Queues", segments: ["queues", "reviews", "support", "recordings", "site-reads", "setup", "inbox"] },
+  { href: "/admin/queues", label: "Queues", segments: ["queues", "reviews", "recordings", "site-reads", "setup", "inbox"] },
+  // The support console (lane P7d) is its own section: its cases are worked there, not in a queue.
+  { href: "/admin/support", label: "Support", segments: ["support"] },
   { href: "/admin/compliance", label: "Compliance", segments: ["compliance", "agreements", "incidents", "notices", "rights"] },
   { href: "/admin/system", label: "System", segments: ["system", "map", "host", "seo", "demos", "crm"] },
 ] as const;

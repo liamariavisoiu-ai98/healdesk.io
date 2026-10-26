@@ -53,8 +53,9 @@ import {
  * you just left. The mark is therefore the client's: `AdminNav` asks
  * `useSelectedLayoutSegment()`, the same question `AdminChrome` asks to hide
  * this header on the door, and sets `aria-current` from the answer. Since
- * the admin redesign (23 October 2026) the nav has five sections, Home,
- * Clinics, Queues, Compliance and System, each answering one question.
+ * the admin redesign (23 October 2026) the nav has five sections, and six
+ * since the Support console (lane P7f): Home, Clinics, Queues, Support,
+ * Compliance and System, each answering one question.
  *
  * Full navigations rather than `<Link>`, deliberately. Every page under here is
  * `force-dynamic` and re-runs `requireOperator()` on the server, so there is no
@@ -96,9 +97,10 @@ export const metadata: Metadata = {
 };
 
 /**
- * The five sections, each answering one question (components/admin/AdminNav.tsx):
+ * The sections, each answering one question (components/admin/AdminNav.tsx):
  * what needs me today, every clinic's state, what is queued for a decision,
- * what is attested and signed, and how the system itself is doing.
+ * which clinics are waiting on a reply from us, what is attested and signed,
+ * and how the system itself is doing.
  */
 
 /**

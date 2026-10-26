@@ -992,25 +992,42 @@ is never touched. Owner steps, in order:
    every message (or only messages to hello@) to `hello@in.healdesk.io`, keeping a copy in the
    mailbox. Some providers first send a confirmation to the forwarding address. Gmail and Google
    Workspace do (Settings, Forwarding and POP/IMAP, Add a forwarding address): its confirmation,
-   from forwarding-noreply@google.com, is not turned into a case; it is left in the inbound
-   bucket for a day. Read it in CloudShell with `aws s3 ls s3://<bucket>/mail/` and
+   from forwarding-noreply@google.com and signed by google.com (an aligned DKIM pass at SES), is
+   not turned into a case; it is left in the inbound bucket until the hourly sweep deletes it
+   once it is a day old, so read it the same day (if the sweep is still off, the bucket's
+   one-day lifecycle rule takes it, within about two days). One without google.com's signature
+   is treated as an ordinary email from nobody we know. Read it in CloudShell with
+   `aws s3 ls s3://<bucket>/mail/` and
    `aws s3 cp s3://<bucket>/mail/<id> -`, enter the code or open the link it gives, then
    `aws s3 rm` it. Other providers (Microsoft 365's outbound forwarding policy, for one) may
    instead need an administrator to allow automatic forwarding to outside addresses; whichever
    it is, the step is the provider's, not ours.
 7. **Test.** From a clinic's sign-in address (the demo clinic's), email hello@healdesk.io with a
    subject such as "Calls ring out". Within a minute a case appears in Support (call forwarding,
-   now), the clinic gets "We've got your email (ref HD-xxxxx)", and the bucket is empty. Do not test
-   from an @healdesk.io address: mail from our own domain is dropped as our own.
+   now), the clinic's owners and billing contacts get "We've got your email (ref HD-xxxxx)", and
+   the bucket is empty. Check that the case names the clinic and its message says matched by
+   address and authenticated: an email is trusted as a clinic's only when SES saw a DKIM
+   signature that passed aligned with its From domain, or a DMARC pass. Forwarding normally keeps
+   the original DKIM signature (the body and signed headers are left alone), so the clinic's own
+   signature should still pass at SES; if this first test comes in as a case with no clinic and
+   `authenticated: no`, the mailbox's forwarding is breaking the signature, and every clinic's
+   email will arrive unmatched until that is fixed. Do not test from an @healdesk.io address: mail
+   from our own domain is dropped as our own.
 
 What it keeps, and for how long: per email, SES's id, an HMAC of the sender's address (to count
 an hour's mail; never the address), the Message-ID and In-Reply-To (opaque ids, for threading),
 the topic, symptom and urgency read from fixed word lists, how the sender matched a clinic, SES's
-verdicts, counts of hidden numbers, addresses, treatment names and clinical words, and the number,
-classes and size bucket of attachments. Never the body, the subject, the sender's name or a file
-name. The rows go with the clinic at destruction (`app_destroy_support_cases`). The raw email
-lives in the bucket for the length of one request, at most a day; the owner's own mailbox keeps
-its copy as it always has.
+verdicts and whether the sender was authenticated, counts of hidden numbers, addresses, treatment
+names and clinical words, and the number, classes and size bucket of attachments. Never the body,
+the subject, the sender's name or a file name. A case about a clinic, with its messages, goes
+with the clinic at destruction (`app_destroy_support_cases`). A case about no clinic (a prospect,
+a stranger, a closed account, an unauthenticated sender) is closed silently after 30 days with
+nothing on it and deleted with its messages 30 days after it closed, nightly
+(`lib/support/inbound/retention.ts`, `app_delete_unmatched_email_cases`). The raw email lives in
+the bucket for the length of one request: the handler deletes it once read, the hourly sweep
+deletes anything a failed handler left once it is a day old, and the bucket's one-day lifecycle
+rule is the backstop, which S3 applies asynchronously (up to about two days). The owner's own
+mailbox keeps its copy as it always has.
 
 Cost, at about 200 emails a month: SES receiving $0.10 per 1,000 emails plus $0.09 per 1,000
 incoming 256 KB chunks (about $0.04 together), S3 storage for seconds and a few hundred requests, SNS's

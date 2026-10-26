@@ -19,13 +19,17 @@ import { s3MailStore, type MailStore } from "./store";
  *     (handleInboundNotice, idempotent by SES's id, which is the object's
  *     key after the prefix), so an email the webhook already recorded is
  *     only deleted;
- *   - an object older than a day is deleted unread (the bucket's lifecycle
- *     does the same; this makes it hourly, not "by the next midnight").
+ *   - an object older than a day is deleted unread. The bucket's one-day
+ *     lifecycle rule is only the backstop behind this: S3 applies it
+ *     asynchronously, up to about two days after an object is written.
  *
- * SES's verdicts are in the notice, not the object, so a swept message is
- * read with them UNKNOWN: it is never dropped as spam it was not, and it
- * gets an acknowledgement only if every other rule allows (DKIM "unknown"
- * is not "failed"). The note counts what happened; nothing names a message.
+ * A swept message has no notice, so its verdicts are read from the headers
+ * SES wrote at the top of the message (auth.ts: X-SES-Spam-Verdict,
+ * X-SES-Virus-Verdict and SES's own Authentication-Results, never one a
+ * sender wrote below them): spam and viruses are dropped as the webhook
+ * would drop them, and the sender is matched to a clinic, joined to a
+ * clinic's case or acknowledged only on an aligned DKIM or DMARC pass. The
+ * note counts what happened; nothing names a message.
  */
 
 export const JOB_SUPPORT_INBOUND_SWEEP = "support-inbound-sweep";

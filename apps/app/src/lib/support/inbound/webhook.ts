@@ -32,8 +32,10 @@ import { inboundNoticeFrom } from "./notice";
  *        already recorded, and a notice that is not an S3 receipt: SNS
  *        must not retry those;
  *   500  verified, but storage or the database failed: SNS retries, and the
- *        object stays for the retry, the hourly sweep or the bucket's
- *        one-day expiry.
+ *        object stays for the retry or the hourly sweep (the bucket's
+ *        one-day lifecycle rule is the backstop);
+ *   503  verified, but HEALDESK_INBOUND_MAIL_BUCKET is not set while the
+ *        topic is: a configuration error, logged as one, and SNS retries.
  *
  * Nothing in the body is logged: SNS's message id, SES's message id, the
  * type and the outcome.
@@ -94,6 +96,15 @@ export async function inboundMailWebhook(request: Request, deps: InboundWebhookD
 
   try {
     const outcome = await handleInboundNotice(notice, { ...deps, now });
+    if (outcome.outcome === "refused" && outcome.reason === "not_set_up") {
+      // The topic is trusted but no bucket is set: a configuration error, not
+      // this mail's fault. 503, so SNS keeps the notice and retries it.
+      log.error("inbound mail: HEALDESK_INBOUND_MAIL_BUCKET is not set; notice not handled", {
+        eventId: notice.sesMessageId,
+        status: "config_error",
+      });
+      return new Response("Not set up.", { status: 503 });
+    }
     if (outcome.outcome === "refused") {
       log.warn("inbound mail notice refused", { eventId: notice.sesMessageId, status: "refused", reason: outcome.reason });
     }
@@ -104,7 +115,7 @@ export async function inboundMailWebhook(request: Request, deps: InboundWebhookD
       return new Response("Not recorded.", { status: 500 });
     }
     // Anything else is a bug about this one mail: never a retry loop. The
-    // object stays for the sweep (which logs it again) or the expiry.
+    // object stays for the sweep (which logs it again) or the lifecycle rule.
     log.error("inbound mail failed", { eventId: notice.sesMessageId, error: describeError(error) });
     return new Response("OK.", { status: 200 });
   }

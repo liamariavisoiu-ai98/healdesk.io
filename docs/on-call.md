@@ -785,7 +785,16 @@ words. The email is deleted from the bucket as soon as it is read.
   (another topic or a bad signature: someone else is posting) name the ids, never the mail.
 - **"N left" stays above zero.** One of them may be a mail provider's forwarding confirmation,
   which is left on purpose for the owner to read once (`docs/handover.md`, "Inbound support mail");
-  the bucket deletes it within a day. Anything else left is a key the sweep does not recognise.
+  the sweep deletes it once it is a day old. Anything else left is a key the sweep does not
+  recognise.
 - **"N failed" above zero.** S3 or the database refused the sweep; the next hour tries again, and
-  the bucket's one-day expiry is the backstop, so an email can be lost after a day of failures:
-  read the engine's log for `support inbound sweep` lines and fix the cause the same day.
+  the bucket's one-day lifecycle rule is the backstop (S3 applies it asynchronously, up to about
+  two days after the email arrived), so an email can be lost after a day of failures: read the
+  engine's log for `support inbound sweep` lines and fix the cause the same day.
+- **`inbound mail: HEALDESK_INBOUND_MAIL_BUCKET is not set`.** The topic is set on the task but
+  the bucket is not: a configuration error. The webhook answers 503, so SNS keeps retrying the
+  notice (about 45 minutes) and the email waits in the bucket; run a full `deploy-app.yml` so the
+  tasks carry both variables, then the sweep takes what waited.
+- **A clinic's email became a case with no clinic.** Its fields say `authenticated: no`: the
+  sender's domain did not pass DKIM aligned with its From, nor DMARC, at SES, so the address
+  alone was not trusted. Match the case to the clinic by hand once you are sure it is theirs.

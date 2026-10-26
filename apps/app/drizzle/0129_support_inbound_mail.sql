@@ -29,7 +29,7 @@ ALTER TABLE "support_messages" ADD CONSTRAINT "support_messages_email_ids_check"
 --                          no second acknowledgement;
 --                        + sender_ref: an HMAC-SHA256 of the sender's
 --                          lower-cased address (lib/support/inbound/
---                          sender.ts), so the hour's mail from one address
+--                          facts.ts senderRef), so the hour's mail from one address
 --                          is counted (a fourth gets no acknowledgement)
 --                          without the address being kept;
 --                        support_messages_email_check: an inbound email has
@@ -42,7 +42,14 @@ ALTER TABLE "support_messages" ADD CONSTRAINT "support_messages_email_ids_check"
 --                          size bucket in lower-case words (so no file name,
 --                          which would need a dot or a capital, can be
 --                          stored); and only an email has SES's id and the
---                          sender's reference.
+--                          sender's reference;
+--                        support_messages_email_ids_check: an inbound
+--                          email's Message-ID and In-Reply-To are of one
+--                          strict shape, "<local@domain>" in printable ASCII
+--                          with no ':', '/', quote or space, at most 250
+--                          characters (lib/support/inbound/parse.ts
+--                          MESSAGE_ID), so one can always ride in a reply's
+--                          threading headers and is never a link.
 --   billing_notices.kind + support_received (L38), the fixed "We've got your
 --   report_deliveries    email" with the case's ref (owner decision D14: a
 --                          fixed acknowledgement needs no approval).
@@ -55,13 +62,21 @@ ALTER TABLE "support_messages" ADD CONSTRAINT "support_messages_email_ids_check"
 --                          clinic (0125's guard refuses a clinic that has
 --                          left), so it is a fact on the message, and ops
 --                          decides.
+--   app_delete_unmatched_email_cases(as_of)
+--                          deletes, with their messages, the email cases
+--                          that name no clinic and closed more than 30 days
+--                          before the earlier of as_of and the database's
+--                          clock (lib/support/inbound/retention.ts, nightly;
+--                          it first closes such a case after 30 quiet days).
+--                          A case about a clinic still goes only with the
+--                          clinic (app_destroy_support_cases).
 --
 -- The runtime role's grants are unchanged: it inserts support_messages
 -- (every column, 0125) and updates none of the new columns, which the
 -- 0125/0126 guard holds fixed in any case (identity columns). Safe to apply
--- in place: two empty columns, their indexes, a CHECK every existing row
--- passes (no row is kind 'email' before this lane), two kind CHECKs that
--- only widen, a function and a job row.
+-- in place: two empty columns, their indexes, two CHECKs every existing
+-- row passes (no row is kind 'email' before this lane), two kind CHECKs that
+-- only widen, two functions and a job row.
 -- =============================================================================
 
 INSERT INTO scheduled_jobs (name, cadence, enabled) VALUES

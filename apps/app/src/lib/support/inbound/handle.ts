@@ -94,7 +94,7 @@ async function remove(store: MailStore, notice: InboundNotice): Promise<void> {
   try {
     await store.delete(notice.bucket, notice.key);
   } catch (error) {
-    // The case is written; the sweep or the one-day expiry takes the object.
+    // The case is written; the sweep deletes the object once it is a day old (the lifecycle rule is the backstop).
     log.warn("support inbound: object not deleted", { eventId: notice.sesMessageId, error: describeError(error) });
   }
 }

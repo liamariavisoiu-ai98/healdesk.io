@@ -167,7 +167,7 @@ export const TOOLS: readonly ToolDef[] = [
   { id: "kms", name: "Key safe", role: "Amazon KMS: locks logins and waiting transcripts", kind: "aws", category: "vault", icon: "lock", side: "patient" },
   { id: "ses", name: "Amazon email", role: "SES: sends transcripts", kind: "aws", category: "vault", icon: "mail", side: "patient" },
   { id: "exports", name: "Export bucket", role: "Amazon S3: a leaving clinic's records", kind: "aws", category: "vault", icon: "archive", side: "patient" },
-  // Lane P7g: support mail received on in.healdesk.io, held a day at most (infra/aws/ses-inbound.tf).
+  // Lane P7g: support mail received on in.healdesk.io, deleted as soon as it is read (infra/aws/ses-inbound.tf).
   { id: "ses-in", name: "Support mail in", role: "SES receiving: clinics' emails to support", kind: "aws", category: "vault", icon: "mail", side: "patient" },
   { id: "aws-console", name: "AWS console", role: "CloudShell, stored keys, alarms", kind: "aws", category: "vault", icon: "terminal", side: "patient" },
   { id: "claude-baa", name: "Claude", role: "Anthropic, patient account, under a BAA", kind: "vendor", category: "brain", icon: "sparkles", side: "patient" },
@@ -1636,10 +1636,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["aws.HEALDESK_INBOUND_MAIL_TOPIC_ARN", "aws.HEALDESK_INBOUND_MAIL_BUCKET"],
     keyless: "No password: Amazon signs each notice and the engine checks it; the engine reads and deletes the email because of the role it runs as.",
     phi: true,
-    phiNote: "A clinic may paste a patient's details despite every warning, so it is received under the AWS agreement and never kept: the email is deleted as soon as it is read, and Amazon deletes anything left after a day.",
+    phiNote: "A clinic may paste a patient's details despite every warning, so it is received under the AWS agreement and never kept: the email is deleted as soon as it is read, the hourly sweep deletes anything a day old, and Amazon's one-day expiry, which can take up to about another day, is the backstop.",
     build: "built",
     buildNote:
-      "Off until enable_inbound_mail and the second apply that subscribes the engine, and until your mailbox forwards to hello@in.healdesk.io; the hourly support-inbound-sweep job, which ships off, picks up any email the engine missed. An unmatched sender becomes a case with no clinic and no reply; nothing goes to the address an email came from.",
+      "Off until enable_inbound_mail and the second apply that subscribes the engine, and until your mailbox forwards to hello@in.healdesk.io; the hourly support-inbound-sweep job, which ships off, picks up any email the engine missed. An unmatched or unauthenticated sender (no aligned DKIM or DMARC pass) becomes a case with no clinic and no reply, closed after 30 quiet days and deleted 30 days after it closes; nothing goes to the address an email came from.",
   },
   {
     id: "app-exports",

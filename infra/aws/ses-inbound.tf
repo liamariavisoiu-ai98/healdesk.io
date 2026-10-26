@@ -18,9 +18,11 @@
 # Under the AWS BAA end to end (SES, S3, SNS, KMS): a clinic's mail may carry
 # a patient's details despite every warning. Nothing of the message is kept:
 # no body, no subject, no display name, no attachment name. The bucket holds a
-# message for as long as the handler takes, and at most a day (its lifecycle,
-# the backstop for a handler that failed; the hourly support-inbound-sweep job
-# takes what a failed handler left).
+# message for as long as the handler takes: the handler deletes it at once.
+# What a failed handler leaves, the hourly support-inbound-sweep job handles,
+# and it deletes anything a day old. The one-day lifecycle rule below is only
+# the backstop behind both: S3 applies it asynchronously, so an object can
+# outlive it by up to about another day.
 #
 # Encryption: the bucket's default encryption is SSE-KMS under the project's
 # key with S3 Bucket Keys, as the export bucket; SES writes without naming an
@@ -79,16 +81,16 @@ resource "cloudflare_dns_record" "inbound_mx" {
 }
 
 # ---------------------------------------------------------------------------
-# The bucket: one message at a time, a day at most
+# The bucket: one message at a time, deleted as soon as it is read
 # ---------------------------------------------------------------------------
 
 resource "aws_s3_bucket" "inbound_mail" {
   count = local.inbound_on ? 1 : 0
 
   bucket = local.inbound_bucket
-  # A message is never a record: the handler deletes it at once and the
-  # lifecycle within a day. Switching the feature off must not fail on a
-  # message still waiting there.
+  # A message is never a record: the handler deletes it at once, the sweep
+  # anything a day old, and the lifecycle rule is the backstop. Switching the
+  # feature off must not fail on a message still waiting there.
   force_destroy = true
 
   #checkov:skip=CKV_AWS_18:Server access logs would copy object keys into another bucket; every object read and write is a CloudTrail data event (cloudtrail.tf).

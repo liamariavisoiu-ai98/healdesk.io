@@ -372,6 +372,8 @@ describe("the acknowledgement, L38", () => {
     expect(r.subject).toBe("We've got your email (ref HD-7F3KQ)");
     expect(r.text).toContain("HD-7F3KQ");
     expect(r.text).toContain("keep the reference in the subject");
+    // It goes to the owners and billing contacts, not necessarily the address that wrote: it promises no address.
+    expect(r.text).not.toMatch(/this address/);
     expect(r.text).not.toMatch(/looked like it might include|Conversations and Bookings/);
   });
 
@@ -414,6 +416,22 @@ describe("the webhook's door", () => {
   test("a signed notice for the trusted topic is taken (200); one that is not a receipt changes nothing", async () => {
     vi.stubEnv("HEALDESK_INBOUND_MAIL_TOPIC_ARN", TOPIC);
     expect((await post(notification())).status).toBe(200);
+  });
+
+  test("the topic set but no bucket: a configuration error, 503 so SNS retries, nothing read", async () => {
+    vi.stubEnv("HEALDESK_INBOUND_MAIL_TOPIC_ARN", TOPIC);
+    vi.stubEnv("HEALDESK_INBOUND_MAIL_BUCKET", "");
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const receipt = JSON.stringify({
+      notificationType: "Received",
+      mail: { messageId: "o3k1ses0002", timestamp: "2026-10-26T14:00:00.000Z" },
+      receipt: { timestamp: "2026-10-26T14:00:01.000Z", action: { type: "S3", bucketName: "inbound-bucket", objectKey: "mail/o3k1ses0002" } },
+    });
+    const store = { get: vi.fn(), delete: vi.fn(), list: vi.fn() };
+    expect((await post(notification({ Message: receipt }), { store })).status).toBe(503);
+    expect(store.get).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalled();
+    error.mockRestore();
   });
 
   test("a signature that does not verify is refused (403)", async () => {

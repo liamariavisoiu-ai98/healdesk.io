@@ -7,9 +7,13 @@ import type { EmailTemplate } from "./types";
 /**
  * L38, "We've got your email" (ops automation lane P7g; design E5 §2.6;
  * owner decision D14: a fixed acknowledgement goes without approval): the
- * acknowledgement of a practice's email to support, to the practice's one
- * address only (never to the email's From, so a stranger's mail is never
- * answered), once per case, through the outbox.
+ * acknowledgement of a practice's email to support, once per case, through
+ * the outbox, which sends it to the practice's owners and billing contacts
+ * (lib/billing/recipients.ts), never to the email's From, so a stranger's
+ * mail is never answered. The outbox has no fixed recipient per kind, so the
+ * words do not say which address the reply will go to: a support reply goes
+ * to the practice's sign-in address (lib/support/send.ts), which may be
+ * another.
  *
  * Fixed words throughout. It carries the case's ref, so a reply joins the
  * case, and the day a person will reply by. It quotes nothing of the email,
@@ -35,7 +39,7 @@ export const renderSupportReceived: EmailTemplate<SupportReceivedPayload> = (pay
   const blocks: Block[] = [
     {
       type: "paragraph",
-      text: `We've got your email to healdesk support. A person at healdesk will reply to this address by ${replyBy}.`,
+      text: `We've got your email to healdesk support. A person at healdesk will reply by ${replyBy}.`,
     },
     { type: "facts", rows: [["Your reference", payload.supportRef]] },
     {

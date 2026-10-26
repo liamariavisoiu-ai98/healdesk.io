@@ -712,8 +712,11 @@ decision D18): an incident opened at every clinic a vendor's or a channel's inci
 reached (proposed by an operator after reading the scope), and one practice's incident report,
 pre-filled from fixed lists (proposed by an operator, by an approved batch for each incident it
 opened, and by the hourly pass for any open reportable incident with no report proposed before
-and no notice recorded; a report the owner rejected, or one that failed, is never proposed again
-by the pass, only by hand). The hourly pass runs from the `incident-deadlines` job (seeded on)
+and no notice recorded; a report the owner rejected, or one that failed with a reason on its row,
+is never proposed again by the pass, only by hand; one that was interrupted, meaning the owner
+approved it and the process carrying it out died, so nobody knows it did not go, is proposed
+again by the next hourly pass, once per interruption, and the alert comes for it as for any
+item). The hourly pass runs from the `incident-deadlines` job (seeded on)
 and from `approvals-propose` (off until switched on). Both kinds are legal clocks: the alert
 comes, by email and Slack, at the first hourly pass after an item arrives and again at the first
 pass 4 hours or more after the last, while one waits; an item never expires and is never

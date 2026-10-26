@@ -155,29 +155,59 @@ export type IncidentFound = {
   unread: number;
 };
 
-/** "<incident id>:<report>" of every report item ever proposed, in any status. */
-async function reportsEverProposed(): Promise<Set<string>> {
+/** One report item that was ever proposed, as the hourly proposer reads it. */
+type ReportItemFact = { subjectRef: string; status: string; outcomeCode: string | null; proposedAt: Date };
+
+/** Every report item ever proposed, in any status, by "<incident id>:<report>". */
+async function reportItemsEverProposed(): Promise<Map<string, ReportItemFact[]>> {
   const rows = await unsafeDb
-    .select({ subjectRef: opsApprovals.subjectRef })
+    .select({
+      subjectRef: opsApprovals.subjectRef,
+      status: opsApprovals.status,
+      outcomeCode: opsApprovals.outcomeCode,
+      proposedAt: opsApprovals.proposedAt,
+    })
     .from(opsApprovals)
     .where(eq(opsApprovals.kind, "incident_report_send"));
-  const seen = new Set<string>();
-  for (const { subjectRef } of rows) {
-    const s = parseReportSubject(subjectRef);
-    if (s) seen.add(`${s.incidentId}:${s.report}`);
+  const seen = new Map<string, ReportItemFact[]>();
+  for (const row of rows) {
+    const s = parseReportSubject(row.subjectRef);
+    if (!s) continue;
+    const key = `${s.incidentId}:${s.report}`;
+    seen.set(key, [...(seen.get(key) ?? []), row]);
   }
   return seen;
+}
+
+/**
+ * Whether a report's items say it needs a fresh one now: the newest item is
+ * `failed` with the outcome `interrupted`, meaning the process that was
+ * carrying out the owner's yes died and nobody knows the report did not go
+ * (lib/approvals/store.ts sweepInterrupted). Never while one waits or is
+ * approved (that is the newest item then), never after one was sent (the
+ * incident's own count moves on and the report number with it), and never
+ * for a failure that has a reason on its row, which the owner reads and
+ * decides: a refusal, a rejection, an operation that answered no.
+ */
+function needsNewAfterInterruption(items: readonly ReportItemFact[]): boolean {
+  const newest = [...items].sort((a, b) => b.proposedAt.getTime() - a.proposedAt.getTime())[0];
+  return newest !== undefined && newest.status === "failed" && newest.outcomeCode === "interrupted";
 }
 
 /**
  * The first report of an open reportable incident gets one item, so the
  * agreement's clock is in the owner's list even when nobody pressed the
  * button, but only once, ever: never again after the owner rejected it, it
- * failed or it was overtaken (any item for that report, in any status, as
+ * failed with a reason on its row (the owner reads that) or it
+ * was overtaken (any item for that report, in any status, as
  * proposeIncidentReport reads them), and never for an incident whose
  * practice has already been told and the notice recorded (`notified_at`:
  * the owner phoned and recorded it). An operator can still propose one by
- * hand. Updates are proposed by an operator only. healdesk's demo clinic and
+ * hand. One exception: a report whose newest item was interrupted (approved,
+ * then left by a dead process and marked failed / `interrupted`) gets one
+ * fresh item, and one more after each later interruption, because nobody has
+ * decided anything about it and the clock still runs. Updates are proposed by
+ * an operator only. healdesk's demo clinic and
  * destroyed clinics are left out. Nothing here throws: a failure to read is
  * counted in `unread`, so the billing proposer that calls it carries on.
  */
@@ -191,10 +221,10 @@ export async function findIncidentSubjects(now: Date, ctx: Ctx): Promise<Inciden
     listed: new Set(),
     unread: 0,
   };
-  let proposedBefore: Set<string>;
+  let proposedBefore: Map<string, ReportItemFact[]>;
   let clinics: ClinicOverview[];
   try {
-    proposedBefore = await reportsEverProposed();
+    proposedBefore = await reportItemsEverProposed();
     clinics = await listClinics();
   } catch (error) {
     found.unread += 1;
@@ -221,8 +251,13 @@ export async function findIncidentSubjects(now: Date, ctx: Ctx): Promise<Inciden
         for (const row of open) {
           if (!isReportableClass(row.class)) continue;
           found.awaiting.add(`${row.id}:${row.reportsSent + 1}`);
-          if (row.reportsSent > 0 || row.notifiedAt !== null || proposedBefore.has(`${row.id}:1`)) continue;
-          const proposal = await reportProposal(tx, row);
+          if (row.reportsSent > 0 || row.notifiedAt !== null) continue;
+          const earlier = proposedBefore.get(`${row.id}:1`) ?? [];
+          // Proposed before: once, ever, except that a report whose item was
+          // interrupted gets one fresh item per interruption (the same
+          // subject numbering as the operator's button: base, base:1, ...).
+          if (earlier.length > 0 && !needsNewAfterInterruption(earlier)) continue;
+          const proposal = await reportProposal(tx, row, { attempt: earlier.length });
           if (proposal) found.proposals.push(proposal);
         }
         found.readClinics.add(clinic.id);

@@ -15,6 +15,7 @@ import {
   withDemoAnswer,
   withRoleplayExit,
   withRoleplayOpener,
+  type DemoProgress,
 } from "@/lib/voice/demo-facts";
 
 /**
@@ -89,7 +90,7 @@ describe("what the caller's words mean, read in code", () => {
       expect(isConfused(words), words).toBe(true);
     }
     expect(isConfused("I don't understand why that costs so much, can you explain the price?")).toBe(false);
-    let p = { ...DEMO_START_PROGRESS, asked: "volume" as const };
+    let p: DemoProgress = { ...DEMO_START_PROGRESS, asked: "volume" };
     p = withDemoAnswer(p, "pitch", "I don't understand.");
     expect(p.answers.volume).toBeUndefined();
     expect(p.confused).toBe(1);

@@ -604,6 +604,15 @@ alert and clinic, and each decision owed as its own row with "Decide" (lane A4),
 Clinics table shows each clinic's stage and usage. If the line did not arrive by morning, open System › Jobs: the digest's row shows its
 switch, last run and note (sent, already gone, or the failure).
 
+The email's own queue table is read by the same function as Home and System › Requires your
+attention (`readMachineQueues`), so a count and an age in the email are the ones those screens
+show: a notice held for later (quiet hours, a retry, a reminder for tomorrow) is not waiting
+until it falls due, a job waits from when it became due, and a job that failed in the last two
+days is a queue of its own. Dead letters and bounces are in the email-by-kind table, not told
+twice. The email also carries one line, "Approvals: N items waiting for your yes", the approval
+inbox without support replies (the support line counts those). A switched-off job is not a queue
+and the email does not mention it; System › Jobs shows which are off.
+
 ### Approvals
 
 `approval_waiting`. The approval inbox (`apps/app/src/lib/approvals/`, ops automation Phase 6)

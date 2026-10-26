@@ -74,8 +74,11 @@ export async function runSupportRetention(now: Date): Promise<{ status: "ok" | "
   try {
     const texts = await sweepSentReplyText(now);
     const drafts = await forgetSupportReplyDrafts(now);
-    await runUnmatchedEmailRetention(now); // Lane P7g: email cases about no clinic (never throws; logs its counts).
-    return { status: "ok", note: `${texts} sent replies' text deleted, ${drafts} approval copies deleted` };
+    const emails = await runUnmatchedEmailRetention(now); // Lane P7g: email cases about no clinic (never throws).
+    return {
+      status: "ok",
+      note: `${texts} sent replies' text deleted, ${drafts} approval copies deleted, ${emails.closed} idle email cases about no clinic closed, ${emails.deleted} deleted`,
+    };
   } catch (error) {
     log.error("support retention failed", { error: describeError(error) });
     return { status: "failed", note: error instanceof Error ? error.name : "unknown" };

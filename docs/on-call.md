@@ -412,9 +412,9 @@ target calendar refused, an access or connection break) are never retried by the
 (`lib/booking/calendar.ts`, `CALENDAR_WRITE_REASONS`). `calendar_write_stuck` fires only for a
 write the sweep no longer takes: a failed one at once, an unanswered one at five tries, past its
 slot, with a settled reason, or (whatever the switch says) untouched for 24 hours, a rule a
-working sweep never trips. With the switch off that last rule is the only one that catches a
-write Google never answered, so its alert can come a day after the failure, even after the
-slot; the lists on the Setup tab and the System page show it at once and say so. System › "Requires your attention", "Calendar writes stuck",
+working sweep never trips. With the switch off, the alert for a write Google never answered
+comes at 24 hours untouched or when its slot starts, whichever is first, so it can come a day
+after the failure; the lists on the Setup tab and the System page show it at once and say so. System › "Requires your attention", "Calendar writes stuck",
 lists the stuck writes across clinics, one row per clinic, linking to its "Calendar writes". A
 broken connection already flipped the clinic to manual booking in the same turn: the clinic
 takes booking requests and is not down. Google refusing our OAuth client is every clinic at

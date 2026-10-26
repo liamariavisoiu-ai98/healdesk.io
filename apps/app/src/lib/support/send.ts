@@ -386,7 +386,7 @@ export async function deliverReply(
     return { status: "stopped", reason: "case_closed" };
   }
   const clinicId = supportCase.subjectClinicId;
-  if (message.approvedAt && message.sendAttempts > 0 && now.getTime() - message.approvedAt.getTime() > SUPPORT_RETRY_WINDOW_MS) {
+  if (message.approvedAt && now.getTime() - message.approvedAt.getTime() > SUPPORT_RETRY_WINDOW_MS) {
     // A try may have reached Resend and lost its answer; its key no longer protects a repeat. Never sent twice.
     log.error("support reply retry past the idempotency window; not sent", { clinicId: clinicId ?? null });
     await stop(messageId, "dead", now);

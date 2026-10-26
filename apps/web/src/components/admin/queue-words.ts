@@ -109,7 +109,7 @@ export const CALENDAR_WRITE_REASON_WORDS: Record<CalendarWriteReasonCode, string
  * and no row may read as waiting for its next try or due now.
  */
 export const SWEEP_OFF_WORDS =
-  "These writes will not be retried by themselves while the calendar-watch switch on the Jobs page is off. With it off, an alert for a write Google never answered waits until it has sat untouched for 24 hours, so this list is the early warning.";
+  "These writes will not be retried by themselves while the calendar-watch switch on the Jobs page is off. With it off, an alert for a write Google never answered waits until it has sat untouched for 24 hours or its slot has started, whichever comes first, so this list is the early warning.";
 
 /**
  * The write's state, without its reason: "failed, not retried by itself" (a

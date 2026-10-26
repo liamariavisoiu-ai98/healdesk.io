@@ -123,7 +123,7 @@ export async function listStuckCalendarWrites(options: {
               and(
                 eq(appointments.clinicId, tx.clinicId),
                 inArray(appointments.status, [...WRITABLE_APPOINTMENT_STATUSES]),
-                sql`(${appointments.scheduledFor} > ${now} or ${appointments.updatedAt} > ${passedSince})`,
+                sql`(${appointments.scheduledFor} > ${passedSince} or ${appointments.updatedAt} > ${passedSince})`,
                 sql`(${appointments.calendarWriteStatus} in ('failed', 'unknown')
                      or (${appointments.calendarWriteStatus} = 'writing'
                          and coalesce(${appointments.calendarWriteClaimedAt}, ${appointments.updatedAt})

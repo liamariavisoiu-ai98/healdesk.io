@@ -77,8 +77,9 @@ function plural(n: number, one: string, many: string): string {
 
 /**
  * Business days left, as apps/app counts them (lib/rights/clocks.ts
- * daysLeftFor: Monday to Friday in UTC, 0 on the due day, at most -1 once
- * past). Never "0 days left" while overdue: a negative count reads as days
+ * daysLeftFor: Monday to Friday, 0 on the due day, at most -1 once past;
+ * read on the UTC day, except a patient's own request, which is read on the
+ * clinic's own day, as the host that records it sets its reply-by day). Never "0 days left" while overdue: a negative count reads as days
  * past, and an overdue row that somehow carries 0 reads "past its day".
  */
 export function daysLeftWords(row: Pick<RightsRowView, "daysLeft" | "state">): string {

@@ -35,6 +35,7 @@ import { runCompliancePackJob } from "@/lib/compliance-pack/job";
 import { runLifecycleWatchJob } from "@/lib/lifecycle/watch";
 import { runRightsWatchJob } from "./rights-watch";
 import { runSupportRetention, runSupportSendJob } from "./support-send";
+import { runSupportInboundSweepJob } from "@/lib/support/inbound/sweep";
 import { runAddressChangesJob } from "@/lib/sign-in/address-change";
 import { runWelcomeBackstop } from "@/lib/setup/welcome-email";
 import { runSiteReadsSweep, runWebsiteDriftJob } from "@/lib/website/job";
@@ -331,6 +332,10 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // which ships off: the minute queue's backstop. Each reply is leased on its
   // own row, so the overlap sends nothing twice (lib/scheduler/support-send.ts).
   await record("support-send", () => runSupportSendJob({ now }));
+  // Inbound support mail (drizzle/0130), hourly behind its switch, which
+  // ships off: each message a failed webhook left in the bucket becomes a
+  // case, idempotent by SES's id; anything older than a day is deleted.
+  await record("support-inbound-sweep", () => runSupportInboundSweepJob({ now }));
   // L8, hourly behind its switch: each clinic's "request still open" goes at
   // its own opening hour, so the hour it runs is the clinic's, not UTC's.
   await record("requests-still-open", () => runRequestsStillOpenJob({ now }));

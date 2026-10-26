@@ -114,6 +114,12 @@ export type OpsDigestPayload = {
   supportNeedYouCount?: number;
   supportPastDueCount?: number;
   supportWaitingClinicCount?: number;
+  /**
+   * Items waiting for the owner's yes in the approval inbox, support replies
+   * apart (the support line counts those). Absent from a digest collected
+   * before 26 October 2026.
+   */
+  approvalsWaitingCount?: number;
 };
 
 /** Resend's free plan stops at 100 a day; the alarm is at 70 (Annex X2). */
@@ -253,6 +259,14 @@ export const renderOpsDigest: EmailTemplate<OpsDigestPayload> = (payload, ctx) =
             text: `Support: ${payload.supportNeedYouCount} need you, ${payload.supportPastDueCount ?? 0} past their day, ${payload.supportWaitingClinicCount ?? 0} waiting on a clinic.`,
           },
         ]),
+    ...((payload.approvalsWaitingCount ?? 0) > 0
+      ? [
+          {
+            type: "paragraph" as const,
+            text: `Approvals: ${plural(payload.approvalsWaitingCount ?? 0, "item")} waiting for your yes. Home lists them.`,
+          },
+        ]
+      : []),
     { type: "paragraph", text: "Email sent through Resend, the whole account (both apps):" },
     {
       type: "facts",
@@ -351,7 +365,11 @@ export const renderOpsDigest: EmailTemplate<OpsDigestPayload> = (payload, ctx) =
   ];
 
   const attention =
-    waiting.length + payload.connectionRows.length + warnings.length + (payload.decisionsOwedCount ?? 0);
+    waiting.length +
+    payload.connectionRows.length +
+    warnings.length +
+    (payload.decisionsOwedCount ?? 0) +
+    ((payload.approvalsWaitingCount ?? 0) > 0 ? 1 : 0);
   return compose(
     {
       subject: `healdesk ops digest, ${day}${attention > 0 ? `: ${attention} to look at` : ""}`,

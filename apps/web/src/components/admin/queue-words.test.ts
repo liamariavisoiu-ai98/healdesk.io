@@ -103,7 +103,7 @@ describe("the ages and counts", () => {
     // With the sweep switched off nothing retries: never "waiting", whatever the row says.
     expect(writeProblemWords({ status: "unknown", attempts: 2, retryable: true }, false)).toBe("will not be retried by itself");
     expect(SWEEP_OFF_WORDS).toBe(
-      "These writes will not be retried by themselves while the calendar-watch switch on the Jobs page is off.",
+      "These writes will not be retried by themselves while the calendar-watch switch on the Jobs page is off. With it off, an alert for a write Google never answered waits until it has sat untouched for 24 hours or its slot has started, whichever comes first, so this list is the early warning.",
     );
     expect(nextTryWords({ nextAttemptAt: null }, now)).toBe("due now");
     expect(nextTryWords({ nextAttemptAt: "2026-10-24T09:30:00.000Z" }, now)).toBe("in about 30 minutes");
@@ -113,6 +113,8 @@ describe("the ages and counts", () => {
     expect(slotWords(0)).toBe("within 24 hours");
     expect(slotWords(1)).toBe("in 1 day");
     expect(slotWords(4)).toBe("in 4 days");
+    // Once the slot has started the days mean nothing: say so, and what to do.
+    expect(slotWords(0, true)).toBe("has passed: phone the clinic to check it was added by hand");
   });
 
   test("a clinic's stuck writes in a phrase: the count, and how many the sweep will not retry", () => {

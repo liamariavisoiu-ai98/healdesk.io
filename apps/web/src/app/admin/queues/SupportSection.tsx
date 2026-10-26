@@ -19,6 +19,11 @@ import { isHostUnreachable } from "@/lib/host/state";
  * once, and the 07:00 digest counts the ones still owed. The mark is a
  * security event on apps/app, through the ops API, and cannot be undone.
  *
+ * Since the support console (lane P7d) a chat escalation opens a case, and
+ * the case is the promise: it is on /admin/support, and the list here is only
+ * the requests with no case (apps/app's listSupportRequests leaves the cased
+ * ones out). The mark below still works for those.
+ *
  * What this shows is ids, a topic code and dates, as the ops API sends them:
  * never the chat's words, which nobody keeps, and the clinic only as its id
  * and a link to its panel. Plain forms posting to a server action, which
@@ -123,6 +128,14 @@ export default async function SupportSection({ searchParams }: { searchParams: P
           {RESULTS[result]}
         </p>
       ) : null}
+
+      <p className="text-muted mt-2 text-sm">
+        Chat requests that opened a support case are worked on the{" "}
+        <a className="underline" href="/admin/support">
+          Support page
+        </a>
+        . Only requests with no case are listed here.
+      </p>
 
       {isHostUnreachable(loaded) ? (
         <HostStandbyNotice what="The support requests" />

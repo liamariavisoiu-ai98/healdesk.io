@@ -89,7 +89,7 @@ export function writeLine(write: StuckCalendarWriteView, nowIso: string, sweepOn
   const state = writeProblemWords(write, sweepOn);
   const waiting = write.retryable && sweepOn;
   const head = `${state.charAt(0).toUpperCase()}${state.slice(1)}${waiting ? `, ${nextTryWords(write, nowIso)}` : ""}`;
-  return `${head}: ${CALENDAR_WRITE_REASON_WORDS[write.reason]}. ${triesWords(write.attempts)}. Slot ${slotWords(write.slotInDays)}.`;
+  return `${head}: ${CALENDAR_WRITE_REASON_WORDS[write.reason]}. ${triesWords(write.attempts)}. Slot ${slotWords(write.slotInDays, write.slotPassed)}.`;
 }
 
 /** The one line for a clinic with no row in the list, true to how much of the list was read. */

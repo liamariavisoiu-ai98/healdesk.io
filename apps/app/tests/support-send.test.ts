@@ -624,6 +624,50 @@ describeDb("approve and send a support reply (drizzle/0126)", () => {
     expect(await replyRow(c2.caseId)).toMatchObject({ send_stopped_reason: "case_closed", sent_at: null });
   });
 
+  test("a sign-in address that changed after a try Resend accepted: the key-reuse refusal reconciles as sent, with no false dead alert and no second email", async () => {
+    const c = await chatCase("send-address-moved");
+    const saved = await saveAndPropose(c.caseId, GOOD);
+    // The first try: Resend took it, but the answer was lost (the process died before recording it).
+    send.mockResolvedValueOnce(DOWN);
+    await decide(saved.approvalId!, {}, NOW);
+    // Meanwhile the clinic's sign-in address changed, so the retry's request differs under the same key.
+    await inTenant(c.clinicId, (client) =>
+      client.query(
+        `update "user" set email = 'moved-' || email
+          where id in (select user_id from clinic_memberships where clinic_id = $1 and revoked_at is null)`,
+        [c.clinicId],
+      ),
+    );
+    const REUSED = {
+      data: null,
+      error: { name: "invalid_idempotent_request", message: "This idempotency key has already been used with a different request payload.", statusCode: 409 },
+      headers: {},
+    };
+    send.mockResolvedValueOnce(REUSED);
+    expect(await retrySupportReplies(at(MINUTE))).toEqual({ sent: 1, retrying: 0, stopped: 0 });
+    expect(await replyRow(c.caseId)).toMatchObject({ send_attempts: 2, send_stopped_reason: null });
+    expect((await replyRow(c.caseId)).sent_at).not.toBeNull();
+    // Still the one key on both tries, and the case moved on as for any sent reply.
+    const keys = new Set(replySends().map(([, o]) => (o as { idempotencyKey: string }).idempotencyKey));
+    expect(keys.size).toBe(1);
+    // The retry really went to the new address: the request the key had seen differs.
+    const recipients = replySends().map(([p]) => String((p as { to: unknown }).to));
+    expect(recipients[1]).toBe(`moved-${recipients[0]}`);
+    const { rows: alerts } = await getMigratorPool().query(
+      `select count(*)::int as n from ops_alerts where event = 'support_reply_dead' and fields->>'clinicId' = $1`,
+      [c.clinicId],
+    );
+    expect(alerts[0].n).toBe(0);
+    expect(await retrySupportReplies(at(2 * MINUTE))).toEqual({ sent: 0, retrying: 0, stopped: 0 });
+    const { rows: caseRows } = await getMigratorPool().query(`select state from support_cases where id = $1`, [c.caseId]);
+    expect(caseRows[0].state).toBe("waiting_clinic");
+    // The ledger row for the new address says why it was not sent again, not that it failed.
+    const ledger = await inTenant(c.clinicId, async (client) =>
+      (await client.query<{ status: string }>(`select status from report_deliveries where kind = 'support_reply' and clinic_id = $1`, [c.clinicId])).rows,
+    );
+    expect(ledger.map((r) => r.status).sort()).toEqual(["failed", "skipped"]);
+  });
+
   test("a retry later than the idempotency window is never sent: stopped dead with the alert (review finding)", async () => {
     const c = await chatCase("send-retry-stale");
     const saved = await saveAndPropose(c.caseId, GOOD);

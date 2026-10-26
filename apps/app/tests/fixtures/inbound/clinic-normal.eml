@@ -1,0 +1,12 @@
+From: Front Desk <{{FROM}}>
+To: hello@healdesk.io
+Subject: Calls ring out since this morning
+Date: Mon, 26 Oct 2026 14:00:00 +0000
+Message-ID: <normal-1@mail.example-clinic.test>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Hi,
+Since this morning our calls ring out and nobody answers. Can you check the forwarding?
+Thanks
+Front desk

@@ -8309,10 +8309,18 @@ export const supportMessages = pgTable(
     nextSendAt: timestamp("next_send_at", { withTimezone: true }),
     sendStoppedAt: timestamp("send_stopped_at", { withTimezone: true }),
     sendStoppedReason: text("send_stopped_reason").$type<SupportSendStoppedReason>(),
-    /** When the approved text is deleted: 12 months after it was sent (the row stays). */
+    /** When the approved text is deleted: 12 months after it was sent, or after the sending stopped without it going (0129; the row stays). */
     textDeleteAfter: timestamp("text_delete_after", { withTimezone: true }),
     /** Names, types and sizes only: an attachment is never opened or kept. */
     attachmentsJson: jsonb("attachments_json"),
+    /**
+     * An inbound email (lane P7g, drizzle/0130): SES's own message id, so a
+     * notice SNS delivers twice is the same row; and an HMAC of the sender's
+     * address (lib/support/inbound/facts.ts senderRef), so mail from one address can
+     * be counted without the address being kept.
+     */
+    inboundMailId: text("inbound_mail_id"),
+    senderRef: text("sender_ref"),
     receivedAt: timestamp("received_at", { withTimezone: true }),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -8320,6 +8328,25 @@ export const supportMessages = pgTable(
   (t) => [
     uniqueIndex("support_messages_request_key").on(t.requestId),
     index("support_messages_case_idx").on(t.caseId, t.createdAt),
+    // Lane P7g (drizzle/0130): one row per message SES received, and the
+    // hour's count per sender.
+    uniqueIndex("support_messages_inbound_mail_key").on(t.inboundMailId),
+    index("support_messages_sender_idx").on(t.senderRef, t.receivedAt),
+    // An inbound email is facts only (owner, lane P7g): no text, no subject,
+    // no attachment name, ever; its fields and attachment summary are fixed
+    // words and small numbers; and only an email carries SES's id and the
+    // sender's reference.
+    check(
+      "support_messages_email_check",
+      sql`(${t.kind} = 'email') = (${t.inboundMailId} is not null) and (${t.kind} = 'email') = (${t.senderRef} is not null) and (${t.kind} <> 'email' or (${t.direction} = 'in' and ${t.text} is null and ${t.subjectScreened} is null and ${t.draftText} is null and ${t.receivedAt} is not null and ${t.fieldsJson} is not null and ${t.inboundMailId} ~ '^[A-Za-z0-9._-]{1,128}$' and ${t.senderRef} ~ '^[0-9a-f]{64}$' and (${t.attachmentsJson} is null or (jsonb_typeof(${t.attachmentsJson}) = 'object' and char_length(${t.attachmentsJson}::text) <= 300 and ${t.attachmentsJson}::text ~ '^[a-z0-9_{}":, ]*$'))))`,
+    ),
+    // An inbound email's Message-ID and In-Reply-To are of one strict shape
+    // (lib/support/inbound/parse.ts MESSAGE_ID): never a link, a quote or a
+    // space, at most 250 characters, so a reply can always carry them.
+    check(
+      "support_messages_email_ids_check",
+      sql`${t.kind} <> 'email' or ((${t.messageId} is null or (char_length(${t.messageId}) <= 250 and ${t.messageId} ~ '^<[A-Za-z0-9!#$%&*+.=?^_{|}~-]{1,200}@[A-Za-z0-9._-]{1,200}>$')) and (${t.inReplyTo} is null or (char_length(${t.inReplyTo}) <= 250 and ${t.inReplyTo} ~ '^<[A-Za-z0-9!#$%&*+.=?^_{|}~-]{1,200}@[A-Za-z0-9._-]{1,200}>$')))`,
+    ),
     check("support_messages_direction_check", sql`${t.direction} in (${sqlList(SUPPORT_MESSAGE_DIRECTIONS)})`),
     check("support_messages_kind_check", sql`${t.kind} in (${sqlList(SUPPORT_MESSAGE_KINDS)})`),
     // A chat escalation carries no words: no text, subject, draft, ids of
@@ -8353,7 +8380,7 @@ export const supportMessages = pgTable(
     ),
     check(
       "support_messages_send_check",
-      sql`(${t.kind} = 'reply' or (${t.replySubject} is null and ${t.approvedHash} is null and ${t.sendAttempts} = 0 and ${t.nextSendAt} is null and ${t.sendStoppedAt} is null and ${t.textDeleteAfter} is null)) and ${t.sendAttempts} between 0 and ${sql.raw(String(SUPPORT_SEND_MAX_ATTEMPTS))} and (${t.approvedHash} is null or ${t.approvedHash} ~ '^[0-9a-f]{64}$') and (${t.replySubject} is null or char_length(${t.replySubject}) between 1 and 200) and (${t.sendStoppedAt} is null) = (${t.sendStoppedReason} is null) and (${t.sendStoppedReason} is null or ${t.sendStoppedReason} in (${sqlList(SUPPORT_SEND_STOPPED_REASONS)})) and not (${t.sendStoppedAt} is not null and ${t.sentAt} is not null) and (${t.textDeleteAfter} is null or ${t.sentAt} is not null)`,
+      sql`(${t.kind} = 'reply' or (${t.replySubject} is null and ${t.approvedHash} is null and ${t.sendAttempts} = 0 and ${t.nextSendAt} is null and ${t.sendStoppedAt} is null and ${t.textDeleteAfter} is null)) and ${t.sendAttempts} between 0 and ${sql.raw(String(SUPPORT_SEND_MAX_ATTEMPTS))} and (${t.approvedHash} is null or ${t.approvedHash} ~ '^[0-9a-f]{64}$') and (${t.replySubject} is null or char_length(${t.replySubject}) between 1 and 200) and (${t.sendStoppedAt} is null) = (${t.sendStoppedReason} is null) and (${t.sendStoppedReason} is null or ${t.sendStoppedReason} in (${sqlList(SUPPORT_SEND_STOPPED_REASONS)})) and not (${t.sendStoppedAt} is not null and ${t.sentAt} is not null) and (${t.textDeleteAfter} is null or ${t.sentAt} is not null or ${t.sendStoppedAt} is not null)`,
     ),
     check(
       "support_messages_approved_check",

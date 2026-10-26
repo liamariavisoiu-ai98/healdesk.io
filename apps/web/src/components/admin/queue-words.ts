@@ -109,7 +109,7 @@ export const CALENDAR_WRITE_REASON_WORDS: Record<CalendarWriteReasonCode, string
  * and no row may read as waiting for its next try or due now.
  */
 export const SWEEP_OFF_WORDS =
-  "These writes will not be retried by themselves while the calendar-watch switch on the Jobs page is off.";
+  "These writes will not be retried by themselves while the calendar-watch switch on the Jobs page is off. With it off, an alert for a write Google never answered waits until it has sat untouched for 24 hours or its slot has started, whichever comes first, so this list is the early warning.";
 
 /**
  * The write's state, without its reason: "failed, not retried by itself" (a
@@ -137,8 +137,9 @@ export function nextTryWords(write: Pick<StuckCalendarWriteView, "nextAttemptAt"
   return `in about ${plural(Math.round(minutes / 60), "hour", "hours")}`;
 }
 
-/** The slot as whole days ahead, as apps/app sends it: never a time. */
-export function slotWords(slotInDays: number): string {
+/** The slot as whole days ahead, as apps/app sends it: never a time; `passed` once it has started. */
+export function slotWords(slotInDays: number, passed = false): string {
+  if (passed) return "has passed: phone the clinic to check it was added by hand";
   if (slotInDays <= 0) return "within 24 hours";
   return `in ${plural(slotInDays, "day", "days")}`;
 }

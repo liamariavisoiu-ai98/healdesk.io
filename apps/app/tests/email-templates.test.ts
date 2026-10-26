@@ -281,6 +281,8 @@ describe("the template registry", () => {
       "baa_resign_chase",
       // Lane P7c: L37, the support reply the owner approves.
       "support_reply",
+      // Lane P7g: L38, the acknowledgement of a practice's email to support.
+      "support_received",
     ]);
   });
 

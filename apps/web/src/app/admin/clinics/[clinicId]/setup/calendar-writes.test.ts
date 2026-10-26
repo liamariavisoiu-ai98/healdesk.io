@@ -47,6 +47,7 @@ const retrying: StuckCalendarWriteView = {
   attempts: 2,
   nextAttemptAt: "2026-10-24T09:30:00.000Z",
   slotInDays: 4,
+  slotPassed: false,
   retryable: true,
 };
 const gaveUp: StuckCalendarWriteView = { ...retrying, appointmentId: APPT_2, attempts: 5, nextAttemptAt: null, retryable: false, slotInDays: 0 };
@@ -97,6 +98,10 @@ describe("the section's words", () => {
 
   test("gave up (five spent), will not be retried by itself (settled with tries to spare), failed, past five, due now, within 24 hours", () => {
     expect(writeLine(gaveUp, NOW)).toBe("Gave up after 5 tries: Google did not answer in time. Tries 5 of 5. Slot within 24 hours.");
+    // A slot that started before the write settled is listed too, and says what to do.
+    expect(writeLine({ ...gaveUp, slotPassed: true }, NOW)).toBe(
+      "Gave up after 5 tries: Google did not answer in time. Tries 5 of 5. Slot has passed: phone the clinic to check it was added by hand.",
+    );
     expect(writeLine(settled, NOW)).toBe("Will not be retried by itself: the clinic deleted the event in its own calendar. Tries 2 of 5. Slot in 4 days.");
     expect(writeLine(refused, NOW)).toBe(
       "Failed, not retried by itself: our event id is already taken: the event is in the calendar at another time. Tries 1 of 5. Slot in 1 day.",

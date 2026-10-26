@@ -53,7 +53,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     whyItMatters:
       "Until it is applied, our record of the clinic's billing may be wrong: a payment, a failed charge or a cancellation Stripe knows about and we do not.",
     steps: [
-      "Open the clinic's Billing tab if this alert names a clinic, and find the event under Parked Stripe events: its type, its failures and a short reason are on its row. If it names none, open the System page: Stripe events parked under Requires your attention counts it, with how long the oldest has waited, though nothing there replays it. Tell the owner today, since only the owner can look into an event that names no clinic.",
+      "Open the clinic's Billing tab if this alert names a clinic, and find the event under Parked Stripe events: its type, its failures and a short reason are on its row. If it names none, open the System page: Stripe events parked under Requires your attention counts it, with how long the oldest has waited, though nothing there replays it. Tell the owner today, since only the owner can look into an event that names no clinic. While the approvals job is on, the event is usually also an item under Approvals (not one provisioning will replay, or one you rejected) on the Queues page, which Home lists as its own row, and Approve there replays it with the owner's code.",
       "Press Replay on the row. The event is applied again from the start; if it fails again, it stays listed as failed with the new reason, and nothing retries it by itself.",
       "Tell the owner today if the replay fails again, with the reason the row under Parked Stripe events shows.",
       "Check Parked Stripe events on the Billing tab again. You are done when the event is gone from the list.",

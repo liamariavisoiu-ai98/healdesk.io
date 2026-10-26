@@ -117,6 +117,41 @@ data "aws_iam_policy_document" "kms" {
     }
   }
 
+  # Inbound support mail (ses-inbound.tf), while enable_inbound_mail is on:
+  # SES encrypts the message it writes to the inbound bucket (the bucket's
+  # default SSE-KMS, which S3 asks the key for on SES's behalf) and the
+  # notice it publishes to the encrypted inbound topic, both for the one
+  # receipt rule and nothing else. Decrypt is what AWS documents SES needs
+  # beside GenerateDataKey for a server-side encrypted bucket. SES reads
+  # nothing back: no grant here lets SES or anyone outside this account open
+  # a message.
+  dynamic "statement" {
+    for_each = var.enable_inbound_mail ? [1] : []
+
+    content {
+      sid       = "SesEncryptsInboundSupportMail"
+      actions   = ["kms:GenerateDataKey*", "kms:Decrypt"]
+      resources = ["*"]
+
+      principals {
+        type        = "Service"
+        identifiers = ["ses.amazonaws.com"]
+      }
+
+      condition {
+        test     = "StringEquals"
+        variable = "aws:SourceAccount"
+        values   = [local.account_id]
+      }
+
+      condition {
+        test     = "StringEquals"
+        variable = "aws:SourceArn"
+        values   = [local.inbound_rule_arn]
+      }
+    }
+  }
+
   #checkov:skip=CKV_AWS_109:This is a key policy, where "*" as the resource means this key and nothing else; kms:* for the account root is AWS's default statement that hands control to IAM, so no principal gains anything an IAM policy does not grant.
   #checkov:skip=CKV_AWS_111:Same reason: a key policy's "*" resource is the key itself, and the root statement only delegates to IAM.
   #checkov:skip=CKV_AWS_356:Same reason: in a key policy the resource is written "*", which AWS defines as the key the policy is attached to (its ARN does not exist until the key does).

@@ -25,7 +25,8 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // paid relay was stamped (app/api/provision/route.ts, after the intent is
   // found: an order refused before that is not counted), and its Open button
   // lands on the System page's "Requires your attention", which is
-  // read-only: nothing in the console replays the payment.
+  // read-only: nothing in the console replays the payment. This alert's own
+  // link opens the same section (NO_CLINIC_PAGE).
   provisioning_follow_up_past_due: {
     title: "A paid order's sign-in link is overdue",
     headline: "A buyer's promised sign-in link is overdue and the account still does not exist",
@@ -34,7 +35,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     whyItMatters:
       "The buyer has paid and has heard nothing since the day we named in writing. Until the account exists nothing can be set up, and AYA cannot answer for them.",
     steps: [
-      "Open the Home page and find the row Paid orders without an account: this order is one of them, unless it was refused before its payment was recorded here. Its Open button lands on Requires your attention on the System page, which shows the count and how long the oldest has waited.",
+      "Open Requires your attention on the System page, where this alert's link lands, and find Paid orders without an account: this order is one of them, unless it was refused before its payment was recorded here. It shows the count and how long the oldest has waited, and the Home page has the same row.",
       "Write to the buyer today from hello@, at the address on their payment in Stripe: say the account is still being set up and name the new day you will have it done by. Do not refund anything: the payment is safe and the order stands, and nothing on the Home page or the System page can undo it.",
       "Ask whoever maintains the engine to fix the cause named in the earlier alert about this order, the refused or parked payment, and to replay it. Neither the Home page nor the System page has a button that replays a payment.",
       "Check the Clinics page afterwards. You are done when the practice is listed there and the buyer has been emailed their sign-in link.",

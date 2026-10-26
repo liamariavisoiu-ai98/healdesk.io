@@ -84,6 +84,7 @@ import { SETUP_EXTENDED_ENTRY } from "./setup_extended";
 import { SETUP_HELP_OFFER_ENTRY } from "./setup_help_offer";
 import { SETUP_WAITING_ON_US_ENTRY } from "./setup_waiting_on_us";
 import { SUPPORT_REPLY_ENTRY } from "./support_reply";
+import { SUPPORT_RECEIVED_ENTRY } from "./support_received";
 
 /**
  * Which kinds have a template, and who owes the rest.
@@ -240,6 +241,9 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   // Ops automation lane P7c: L37, a support reply, the one prose email, sent
   // only once the owner approves it (owner decision D12; lib/support/send.ts).
   support_reply: SUPPORT_REPLY_ENTRY,
+  // L38, lane P7g: "We've got your email", the fixed acknowledgement of a
+  // practice's email to support (owner decision D14), from the outbox.
+  support_received: SUPPORT_RECEIVED_ENTRY,
 };
 
 /**
@@ -369,6 +373,7 @@ export const PENDING_TEMPLATES: Record<
     | "access_request"
     | ContactTemplatedKind
     | "support_reply"
+    | "support_received"
     | BillingTemplatedKind
   >,
   PendingTemplate

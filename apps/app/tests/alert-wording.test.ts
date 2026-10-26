@@ -446,7 +446,7 @@ describe("the console link", () => {
       "https://healdesk.test/admin/queues#setup-requests",
     );
     expect(opsConsoleLink("dmarc_review_due", {}, ALERT)).toBe("https://healdesk.test/admin/system/jobs");
-    expect(opsConsoleLink("provisioning_follow_up_past_due", {}, ALERT)).toBe("https://healdesk.test/admin/");
+    expect(opsConsoleLink("provisioning_follow_up_past_due", {}, ALERT)).toBe("https://healdesk.test/admin/system#attention");
     vi.stubEnv("HEALDESK_CONSOLE_ORIGIN", "");
     expect(opsConsoleLink("dmarc_review_due", {}, ALERT)).toBeNull();
   });

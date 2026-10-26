@@ -4,6 +4,7 @@ import { unsafeDb } from "@/db";
 import type { SendEmailOptions } from "@/lib/email/send";
 import { describeError, log } from "@/lib/log";
 import { retrySupportReplies, sweepSentReplyText } from "@/lib/support/send";
+import { runUnmatchedEmailRetention } from "@/lib/support/inbound/retention";
 
 import { getJob, JOB_SUPPORT_SEND, runSwitchedJob, type JobOutcome } from "./jobs";
 
@@ -29,10 +30,10 @@ import { getJob, JOB_SUPPORT_SEND, runSwitchedJob, type JobOutcome } from "./job
  * (`ops_approvals.draft`, support_reply_send only, through the database's
  * own app_forget_support_reply_drafts()), so the prose of a reply that WENT is
  * kept 12 months in both places and no longer. The rows stay, without the
- * words, with their hashes and every approval event. KNOWN GAP: the text of an
- * approved reply that never went (stopped dead, case closed, clinic left) stays
- * on its row until the clinic is destroyed; widening the sweep to it needs a
- * change to support_messages_send_check (0126), left for the next slice.
+ * words, with their hashes and every approval event. The text of an approved
+ * reply that never went (stopped dead, case closed, clinic left) is swept on
+ * the same rule, 12 months from the stop (0129, lane P7f); its approval item's
+ * copy goes 12 months from the decision, as for any reply.
  *
  * Neither throws into the queue: a failure is the job's note.
  */
@@ -73,7 +74,11 @@ export async function runSupportRetention(now: Date): Promise<{ status: "ok" | "
   try {
     const texts = await sweepSentReplyText(now);
     const drafts = await forgetSupportReplyDrafts(now);
-    return { status: "ok", note: `${texts} sent replies' text deleted, ${drafts} approval copies deleted` };
+    const emails = await runUnmatchedEmailRetention(now); // Lane P7g: email cases about no clinic (never throws).
+    return {
+      status: "ok",
+      note: `${texts} sent replies' text deleted, ${drafts} approval copies deleted, ${emails.closed} idle email cases about no clinic closed, ${emails.deleted} deleted`,
+    };
   } catch (error) {
     log.error("support retention failed", { error: describeError(error) });
     return { status: "failed", note: error instanceof Error ? error.name : "unknown" };

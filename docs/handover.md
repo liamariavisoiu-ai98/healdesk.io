@@ -763,18 +763,24 @@ act on it. We pass it to the practice within five business days, and our reply t
 person says we cannot act on it and have passed it on. That reply is written by a
 person, once; nothing contacts the patient.
 
-1. **Record it, never on the care page.** `npm run ops:patient-request -w @healdesk/app`
-   (`scripts/ops-patient-request.ts`), by ids and closed choices only: the clinic, what
-   was asked (`access`, `amendment`, `accounting`, `deletion` or `other`), the contact it
-   is about when you can name one by its id, when it reached us (an ISO date or time;
-   the five business days run from it), and your work address. Nothing the patient wrote
-   and none of their details are typed or passed, on any host. On the AWS host it is a
-   one-off task with `HEALDESK_PATIENT_REQUEST_CLINIC_ID`, `HEALDESK_PATIENT_REQUEST_KIND`,
-   optionally `HEALDESK_PATIENT_REQUEST_CONTACT_ID` and
-   `HEALDESK_PATIENT_REQUEST_RECEIVED_AT`, and `HEALDESK_OPS_OPERATOR` in its environment
-   set by `bash run-task.sh patient-request <clinic id> <kind> <you@healdesk.io>
-   [received at] [contact id]` in CloudShell. It prints the request's id and the day the
-   practice is asked to mark it received by.
+1. **Record it on the Patient rights page, then run its command.** Open `/admin/rights`
+   (Compliance › Patient rights) and press "Record a request": the clinic, "What it asks for"
+   (a patient's own request, to pass on), "What the patient asked for" (a closed list:
+   to see their information, to have it corrected, to be told who it was disclosed to, to
+   have it deleted, something else), "Day received" (the five business days run from it)
+   and "How it was verified". Nothing the patient wrote and none of their details are typed,
+   here or on the host. The row appears with its clock and a prepared command: "Copy
+   command", then paste it in AWS CloudShell yourself (the page runs nothing). The command
+   is `bash run-task.sh patient-request <clinic id> <kind> <you@healdesk.io> [received at]
+   [contact id]`, the one-off task `ops:patient-request` (`scripts/ops-patient-request.ts`),
+   whose environment is `HEALDESK_PATIENT_REQUEST_CLINIC_ID`,
+   `HEALDESK_PATIENT_REQUEST_KIND`, optionally `HEALDESK_PATIENT_REQUEST_CONTACT_ID` and
+   `HEALDESK_PATIENT_REQUEST_RECEIVED_AT`, and `HEALDESK_OPS_OPERATOR`. It records the
+   request on the host and prints the request's id and the day the practice is asked to mark
+   it received by. Then press "Mark done" on the row: it closes your intake, and the host's
+   request is chased on its own from there (step 5). The page counts the five days on the
+   clinic's own calendar day, as the host does, and every other kind on UTC weekdays. On a
+   development machine the same task is `npm run ops:patient-request -w @healdesk/app`.
 2. **What the practice gets.** L32 at its one address, a pointer naming the clinic, the
    kind of request and that day, linking to the request's own page in the portal, which
    opens behind the passkey step-up and shows the contact it names. Home points at it
@@ -964,6 +970,75 @@ request run again before the service reopens:
    its `recorded_at`; a contact correction cannot be copied, because the restored row
    is the old one, so it is always asked for again.
 7. Only then reopen the service.
+
+### Inbound support mail
+
+Built 26 October 2026 (ops automation lane P7g), **off**: `enable_inbound_mail = false` in
+`infra/aws/production.tfvars`. A clinic's email to hello@healdesk.io becomes a support case
+holding facts only, never its words (`apps/app/src/lib/support/inbound/`); the root domain's MX
+is never touched. Owner steps, in order:
+
+1. **Check for an active receipt rule set.** In AWS CloudShell, `aws ses
+   describe-active-receipt-rule-set --region us-east-1`. Empty: leave
+   `inbound_mail_rule_set_name` empty and Terraform creates and activates its own set. If it names
+   a set, put that name in `inbound_mail_rule_set_name`: SES keeps one active set per region, and
+   Terraform must add its rule to that set rather than replace it.
+2. **Read the plan.** Set `enable_inbound_mail = true`, open a PR, and read `infra.yml`'s plan: an
+   MX record for in.healdesk.io, the bucket, the encrypted topic, the receipt rule (and its set),
+   the key policy's new SES statement, the task role's three statements, two environment variables
+   and the CloudTrail data events. Nothing else may change.
+3. **Apply, then deploy.** Merge, let `infra.yml` apply, then run a full `deploy-app.yml` so the
+   tasks carry `HEALDESK_INBOUND_MAIL_TOPIC_ARN` and `HEALDESK_INBOUND_MAIL_BUCKET`.
+4. **Subscribe.** Set `subscribe_inbound_mail = true`, merge, apply. SNS posts a confirmation and
+   the engine confirms it; `aws sns list-subscriptions-by-topic` shows it confirmed.
+5. **Switch the jobs on.** At System > Jobs: `support-inbound-sweep` (hourly), and, for drafts and
+   sends, `support-draft` and `support-send` if not already on. The acknowledgement goes through
+   the outbox, so `billing-notices` must be on too.
+6. **Forward the mailbox.** In the mailbox that receives hello@healdesk.io, add a rule forwarding
+   every message (or only messages to hello@) to `hello@in.healdesk.io`, keeping a copy in the
+   mailbox. Some providers first send a confirmation to the forwarding address. Gmail and Google
+   Workspace do (Settings, Forwarding and POP/IMAP, Add a forwarding address): its confirmation,
+   from forwarding-noreply@google.com and signed by google.com (an aligned DKIM pass at SES), is
+   not turned into a case; it is left in the inbound bucket until the hourly sweep deletes it
+   once it is a day old, so read it the same day (if the sweep is still off, the bucket's
+   one-day lifecycle rule takes it, within about two days). One without google.com's signature
+   is treated as an ordinary email from nobody we know. Read it in CloudShell with
+   `aws s3 ls s3://<bucket>/mail/` and
+   `aws s3 cp s3://<bucket>/mail/<id> -`, enter the code or open the link it gives, then
+   `aws s3 rm` it. Other providers (Microsoft 365's outbound forwarding policy, for one) may
+   instead need an administrator to allow automatic forwarding to outside addresses; whichever
+   it is, the step is the provider's, not ours.
+7. **Test.** From a clinic's sign-in address (the demo clinic's), email hello@healdesk.io with a
+   subject such as "Calls ring out". Within a minute a case appears in Support (call forwarding,
+   now), the clinic's owners and billing contacts get "We've got your email (ref HD-xxxxx)", and
+   the bucket is empty. Check that the case names the clinic and its message says matched by
+   address and authenticated: an email is trusted as a clinic's only when SES saw a DKIM
+   signature that passed aligned with its From domain, or a DMARC pass. Forwarding normally keeps
+   the original DKIM signature (the body and signed headers are left alone), so the clinic's own
+   signature should still pass at SES; if this first test comes in as a case with no clinic and
+   `authenticated: no`, the mailbox's forwarding is breaking the signature, and every clinic's
+   email will arrive unmatched until that is fixed. Do not test from an @healdesk.io address: mail
+   from our own domain is dropped as our own.
+
+What it keeps, and for how long: per email, SES's id, an HMAC of the sender's address (to count
+an hour's mail; never the address), the Message-ID and In-Reply-To (opaque ids, for threading),
+the topic, symptom and urgency read from fixed word lists, how the sender matched a clinic, SES's
+verdicts and whether the sender was authenticated, counts of hidden numbers, addresses, treatment
+names and clinical words, and the number, classes and size bucket of attachments. Never the body,
+the subject, the sender's name or a file name. A case about a clinic, with its messages, goes
+with the clinic at destruction (`app_destroy_support_cases`). A case about no clinic (a prospect,
+a stranger, a closed account, an unauthenticated sender) is closed silently after 30 days with
+nothing on it and deleted with its messages 30 days after it closed, nightly
+(`lib/support/inbound/retention.ts`, `app_delete_unmatched_email_cases`). The raw email lives in
+the bucket for the length of one request: the handler deletes it once read, the hourly sweep
+deletes anything a failed handler left once it is a day old, and the bucket's one-day lifecycle
+rule is the backstop, which S3 applies asynchronously (up to about two days). The owner's own
+mailbox keeps its copy as it always has.
+
+Cost, at about 200 emails a month: SES receiving $0.10 per 1,000 emails plus $0.09 per 1,000
+incoming 256 KB chunks (about $0.04 together), S3 storage for seconds and a few hundred requests, SNS's
+HTTPS deliveries (the first 100,000 a month are free), KMS requests (a few hundred, under $0.01)
+and CloudTrail data events ($0.10 per 100,000): well under $1 a month.
 
 ### Logs
 

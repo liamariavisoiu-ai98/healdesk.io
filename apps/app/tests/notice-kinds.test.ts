@@ -83,6 +83,8 @@ const REGISTERED_AHEAD: Record<
   setup_waiting_on_us: ["O19", "normal", null, "daytime"],
   setup_help_offer: ["O20", "normal", null, "daytime"],
   agreement_question: ["L36", "normal", null, "daytime"],
+  // Lane P7g: "We've got your email", at once, answering mail just sent.
+  support_received: ["L38", "normal", null, "any_hour"],
 };
 
 const F0_KINDS = [

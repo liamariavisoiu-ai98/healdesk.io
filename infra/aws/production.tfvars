@@ -114,6 +114,13 @@ enable_ses                = true
 # and host.yml's last apply, after its deploy, leaves it on.
 subscribe_ses_events = true
 
+# Inbound support mail on SES (ses-inbound.tf; owner decision D13): off. The
+# owner turns it on only after reading the plan, then deploys, then sets
+# subscribe_inbound_mail = true in a second apply; inbound_mail_rule_set_name
+# stays empty unless `aws ses describe-active-receipt-rule-set` names a set.
+enable_inbound_mail    = false
+subscribe_inbound_mail = false
+
 # Monitoring and cost.
 enable_guardduty   = true
 monthly_budget_usd = 250

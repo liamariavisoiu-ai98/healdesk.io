@@ -7,11 +7,13 @@ import { getApproval, moveStatus, SERVICE_ACTOR } from "@/lib/approvals/store";
 import { renderOpsDigest } from "@/lib/email/templates/ops_digest";
 import { collectDigest } from "@/lib/ops/digest";
 import type { Operator } from "@/lib/ops/api";
+import { runOperation } from "@/lib/ops/api";
 import { opDecideApproval } from "@/lib/ops/approval-ops";
 import { slackText } from "@/lib/ops/slack";
 import { watchSupportReplies } from "@/lib/ops/watch";
 import { setJobEnabled } from "@/lib/scheduler/jobs";
 import { forgetSupportReplyDrafts, JOB_SUPPORT_SEND, runSupportRetention, runSupportSendJob } from "@/lib/scheduler/support-send";
+import { sweepSentReplyText } from "@/lib/support/send";
 import { assignSupportCase, closeSupportCase, recordChatEscalation, snoozeSupportCase } from "@/lib/support/cases";
 import { draftNextCase, type DraftModelClient } from "@/lib/support/draft/run";
 import { READ_TOOL_NAMES } from "@/lib/support/draft/tools";
@@ -473,6 +475,103 @@ describeDb("the support slice, wired (lane P7e; drizzle/0127)", () => {
 
     // The nightly step runs both sweeps and says so.
     expect((await runSupportRetention(at(366 * DAY, OLD))).status).toBe("ok");
+  });
+
+  test("the words of a reply that never went are forgotten 12 months from the stop, in the row and in its approval item; one that is still trying keeps its words", async () => {
+    const wordsOf = async (caseId: string) => {
+      const { rows } = await getMigratorPool().query<{
+        text: string | null;
+        text_delete_after: Date | null;
+        send_stopped_at: Date | null;
+        send_stopped_reason: string | null;
+        sent_at: Date | null;
+      }>(
+        `select text, text_delete_after, send_stopped_at, send_stopped_reason, sent_at from support_messages where case_id = $1 and kind = 'reply' and approved_at is not null`,
+        [caseId],
+      );
+      return rows[0]!;
+    };
+
+    // A long-past clock, as the draft-forgetting test uses: the database never forgets a draft early by its own clock.
+    const OLD = new Date("2024-03-05T15:00:00Z");
+    // A reply whose first try failed, then its case was closed before the retry: stopped without going.
+    const c = await chatCase(a.clinicId, "forwarding", "codes_not_working", "2024-03-06", OLD);
+    await draft(c.caseId, BY_WEDNESDAY, OLD, "Wednesday 6 March 2024");
+    const [item] = await itemsOf(c.caseId);
+    send.mockResolvedValueOnce(DOWN);
+    expect(ok<{ outcomeCode: string }>(await decide(item!.id, OLD)).outcomeCode).toBe("send_retrying");
+    // Still trying: it keeps its words and has no deletion date (a CHECK holds that: a date needs a send or a stop).
+    expect(await wordsOf(c.caseId)).toMatchObject({ text_delete_after: null, send_stopped_at: null });
+    expect((await wordsOf(c.caseId)).text).not.toBeNull();
+    await expect(
+      getMigratorPool().query(`update support_messages set text_delete_after = now() where case_id = $1 and kind = 'reply'`, [c.caseId]),
+    ).rejects.toThrow(/support_messages_send_check/);
+
+    await closeSupportCase(c.caseId, "no_reply_needed", at(2 * MINUTE, OLD));
+    await setJobEnabled(JOB_SUPPORT_SEND, true, a.userId);
+    try {
+      expect(await runSupportSendJob({ now: at(3 * MINUTE, OLD) })).toEqual({ status: "ok", note: "0 sent, 0 to try again, 1 stopped" });
+    } finally {
+      await setJobEnabled(JOB_SUPPORT_SEND, false, a.userId);
+    }
+    const stopped = await wordsOf(c.caseId);
+    expect(stopped).toMatchObject({ send_stopped_reason: "case_closed", sent_at: null });
+    expect(stopped.text).not.toBeNull();
+    const stopAt = stopped.send_stopped_at!;
+    expect(stopped.text_delete_after!.getTime() - stopAt.getTime()).toBe(365 * DAY);
+    expect(replySends()).toHaveLength(1);
+
+    // 364 days on: kept. 366 days on: the row's words and the approval item's copy are gone, and the rest stays.
+    await sweepSentReplyText(new Date(stopAt.getTime() + 364 * DAY));
+    expect((await wordsOf(c.caseId)).text).not.toBeNull();
+    await sweepSentReplyText(new Date(stopAt.getTime() + 366 * DAY));
+    expect(await wordsOf(c.caseId)).toMatchObject({ text: null, send_stopped_reason: "case_closed" });
+    expect((await itemsOf(c.caseId))[0]!.draft).not.toBeNull();
+    await forgetSupportReplyDrafts(new Date(stopAt.getTime() + 366 * DAY));
+    expect((await itemsOf(c.caseId))[0]).toMatchObject({ draft: null, draft_hash: expect.stringMatching(/^[0-9a-f]{64}$/) });
+
+    // A sent reply is unchanged by the wider rule: its date is 12 months from the send.
+    const d = await chatCase(a.clinicId, "sign_in", "passkey_problem", "2024-03-06", OLD);
+    await draft(d.caseId, BY_WEDNESDAY, OLD, "Wednesday 6 March 2024");
+    const [sentItem] = await itemsOf(d.caseId);
+    expect(ok<{ outcomeCode: string }>(await decide(sentItem!.id, at(10 * MINUTE, OLD))).outcomeCode).toBe("sent");
+    const sent = await wordsOf(d.caseId);
+    expect(sent.text_delete_after!.getTime() - sent.sent_at!.getTime()).toBe(365 * DAY);
+  });
+
+  test("Queues > Support lists only the chat promises that have no case; the mark still works for them", async () => {
+    const withNotice = async (clinicId: string, requestId: string) =>
+      inTenant(clinicId, (client) =>
+        client.query(
+          `insert into billing_notices (clinic_id, kind, dedupe_key, payload)
+           values ($1, 'support_request', $2, $3)`,
+          [clinicId, `support_request:${requestId}`, JSON.stringify({ requestId, topic: "forwarding", replyByOn: "2999-01-01", helpPhoneE164: null })],
+        ),
+      );
+    const listed = async () =>
+      (await runOperation("listSupportRequests", {}, OPERATOR)).body as { data: { requests: { requestId: string }[] } };
+    // A chat escalation as the escalate flow records it: a case with its message, and the old L25 notice beside it.
+    const onCase = randomUUID();
+    await recordChatEscalation({
+      clinicId: a.clinicId,
+      actor: ACTOR,
+      requestId: onCase,
+      fields: { topic: "forwarding", symptom: "codes_not_working", carrier: null, phoneSystem: null, mode: null, channel: null },
+      replyByOn: REPLY_BY,
+      now: NOW,
+    } as Parameters<typeof recordChatEscalation>[0]);
+    await withNotice(a.clinicId, onCase);
+    // One from before cases existed: a notice and no case.
+    const noCase = randomUUID();
+    await withNotice(a.clinicId, noCase);
+
+    const ids = (await listed()).data.requests.map((r) => r.requestId);
+    expect(ids).toContain(noCase);
+    expect(ids).not.toContain(onCase);
+    // The mark is still accepted for both: the old watch and the old button keep working for rows with no case.
+    for (const requestId of [noCase]) {
+      expect((await runOperation("markSupportReplied", { clinicId: a.clinicId, requestId }, OPERATOR)).body).toEqual({ data: { status: "marked" } });
+    }
   });
 
   test("the guard: only a support reply item's draft may go to NULL, with nothing else; no other kind, column or role", async () => {

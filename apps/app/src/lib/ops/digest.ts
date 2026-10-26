@@ -1,21 +1,15 @@
 import { USAGE_ALERT_PERCENT } from "@healdesk/catalog";
 import { GOOGLE_CALENDAR_PROVIDER } from "@healdesk/connectors";
-import { and, count, eq, gte, inArray, isNull, lt, min, ne, notInArray, sql } from "drizzle-orm";
+import { and, count, eq, gte, isNull, min, notInArray, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import {
-  billingEvents,
   billingNotices,
-  billingRequests,
   bookingRequests,
-  checkoutIntents,
   opsAlerts,
   reportDeliveries,
   securityEvents,
-  stripeConnectEvents,
-  transcriptEmails,
 } from "@/db/schema";
-import { belowFloorUnsigned } from "@/lib/agreements/resign";
 import { effectiveIncluded, getEntitlements } from "@/lib/billing/entitlements";
 import { openWindowAt, usedOf } from "@/lib/billing/usage";
 import { emailEventCounts, pruneEmailEvents } from "@/lib/email/health";
@@ -45,7 +39,10 @@ import { describeError, log } from "@/lib/log";
 import { findUnhealthyConnections, readConnectionHealth } from "@/lib/scheduler/connection-health";
 import { JOB_OPS_DIGEST, runJob, type JobOutcome } from "@/lib/scheduler/jobs";
 
+import { waitingItems } from "@/lib/approvals/store";
+
 import { listClinics } from "./clinics";
+import { readMachineQueues } from "./inbox/queues";
 import { FLAG_ALERT_EVENT } from "./flag-alert";
 import { raiseOpsAlertKeyed } from "./notify";
 import { SLACK_MAX_ATTEMPTS, slackWebhookUrl } from "./slack";
@@ -62,11 +59,16 @@ import { listSupportRequests } from "./support-replies";
  * to HEALDESK_OPS_EMAIL (falling back to HEALDESK_ADMIN_EMAIL, as notifyOps
  * does), carrying ids and counts only:
  *
- *   - every queue, with the age of its oldest item: pg-boss's own queues,
- *     the outbox, the transcript outbox, billing requests, billing and
- *     Connect events retrying or parked, booking requests waiting on a
- *     clinic, paid orders without an account, support replies owed, and ops
- *     alerts that could not be emailed;
+ *   - every queue, with the age of its oldest item: the machine queues Home
+ *     and the System page show, read by the same function and so the same
+ *     counts and ages (lib/ops/inbox/queues.ts readMachineQueues: pg-boss's
+ *     waiting and recently failed jobs, the outbox once its notices are due,
+ *     the transcript outbox, billing requests, billing and Connect events
+ *     retrying or parked, paid orders without an account, accounts below the
+ *     agreement floor, ops alerts that could not be emailed), plus booking
+ *     requests waiting on a clinic and support replies owed, which Home does
+ *     not read; the approval inbox as one line (items waiting for the owner's
+ *     yes, apart from support replies, which the support line counts);
  *   - email health per kind over the last 24 hours: sent, failed, bounced,
  *     complaints and suppressed from the ledger and the webhook's events,
  *     and the outbox's dead letters over seven days; I1's own sends from the
@@ -172,69 +174,23 @@ export async function collectDigest(now: Date = new Date()): Promise<OpsDigestPa
   const tally = new Tally();
   for (const kind of QUEUES) tally.queue(kind, 0, null);
 
-  await tally.read("pgboss", async () => {
-    const result = await unsafeDb.execute<{
-      name: string;
-      n: number | string;
-      oldest: Date | string;
-    }>(
-      sql`select name, count(*) as n, min(created_on) as oldest
-            from pgboss.job
-           where state in ('created', 'retry') and start_after <= ${now}
-           group by name order by name`,
-    );
-    for (const row of (result as unknown as { rows: Record<string, unknown>[] }).rows) {
-      tally.queue(`pgboss:${String(row.name)}`, Number(row.n), row.oldest as string);
+  // The machine queues are read by the one function Home and the System
+  // page read (lib/ops/inbox/queues.ts readMachineQueues), so a count here is
+  // the count they show: a notice held for later (quiet hours, a retry, a
+  // reminder for tomorrow) is not waiting until it is due, a job waits from
+  // when it became due, and a recently failed job is a queue of its own.
+  // Dead letters and bounces stay in the email table below, by kind, so
+  // they are not told twice. A part it could not read counts as unread.
+  await tally.read("machine queues", async () => {
+    const read = await readMachineQueues({ now, actor: ACTOR, request: {} });
+    for (const [kind, q] of read.queues) {
+      if (kind === "outbox_dead" || kind === "emails_undeliverable") continue;
+      tally.queue(kind, q.count, q.oldest);
     }
+    tally.unread += read.unread.length;
   });
 
-  // The identity-plane ledgers: no tenant.
-  await tally.read("billing_events", async () => {
-    for (const [kind, outcome] of [
-      ["billing_events_retrying", "failed"],
-      ["billing_events_parked", "dead_letter"],
-    ] as const) {
-      const [row] = await unsafeDb
-        .select({ n: count(), oldest: min(billingEvents.receivedAt) })
-        .from(billingEvents)
-        .where(eq(billingEvents.outcome, outcome));
-      tally.queue(kind, row?.n ?? 0, row?.oldest);
-    }
-  });
-  await tally.read("stripe_connect_events", async () => {
-    for (const [kind, outcome] of [
-      ["connect_events_retrying", "failed"],
-      ["connect_events_parked", "dead_letter"],
-    ] as const) {
-      const [row] = await unsafeDb
-        .select({ n: count(), oldest: min(stripeConnectEvents.receivedAt) })
-        .from(stripeConnectEvents)
-        .where(eq(stripeConnectEvents.outcome, outcome));
-      tally.queue(kind, row?.n ?? 0, row?.oldest);
-    }
-  });
-  await tally.read("checkout_intents", async () => {
-    const [row] = await unsafeDb
-      .select({ n: count(), oldest: min(checkoutIntents.paidSeenAt) })
-      .from(checkoutIntents)
-      .where(
-        and(sql`${checkoutIntents.paidSeenAt} is not null`, isNull(checkoutIntents.consumedAt)),
-      );
-    tally.queue("orders_without_account", row?.n ?? 0, row?.oldest);
-  });
   await tally.read("ops_alerts", async () => {
-    const [unsent] = await unsafeDb
-      .select({ n: count(), oldest: min(opsAlerts.raisedAt) })
-      .from(opsAlerts)
-      .where(
-        and(
-          ne(opsAlerts.event, DIGEST_EVENT),
-          isNull(opsAlerts.sentAt),
-          sql`${opsAlerts.lastError} is not null`,
-          gte(opsAlerts.raisedAt, new Date(now.getTime() - DEAD_LETTER_DAYS * DAY_MS)),
-        ),
-      );
-    tally.queue("ops_alerts_unsent", unsent?.n ?? 0, unsent?.oldest);
     // I1's own sends, and I4's (a flag's ticket), which have no ledger row:
     // their state is the ops log, each under its own kind.
     const sends = async (events: { only: string } | { except: readonly string[] }) => {
@@ -287,15 +243,6 @@ export async function collectDigest(now: Date = new Date()): Promise<OpsDigestPa
       owed.reduce<Date | null>((o, r) => (!o || r.askedAt < o ? r.askedAt : o), null),
     );
     tally.unread += failures;
-  });
-
-  // Accounts still answering under a BAA version below the floor, their
-  // re-sign unsigned (wave 2 R11): AYA keeps answering under it until it is
-  // signed (owner, 19 October 2026), so the digest keeps them in view for a
-  // call, beside the 7-day alert. Counts and the oldest's age only.
-  await tally.read("agreements_below_floor", async () => {
-    const { count: n, oldest } = await belowFloorUnsigned();
-    tally.queue("agreements_below_floor", n, oldest);
   });
 
   // Each clinic's own rows, in its own tenant.
@@ -368,6 +315,14 @@ export async function collectDigest(now: Date = new Date()): Promise<OpsDigestPa
     };
   });
 
+  // The approval inbox (Phase 6): what waits for the owner's yes, as one
+  // number. A support reply waits beside its case and is counted on the
+  // support line above, once.
+  let approvalsWaitingCount: number | undefined;
+  await tally.read("approvals", async () => {
+    approvalsWaitingCount = (await waitingItems()).filter((item) => item.kind !== "support_reply_send").length;
+  });
+
   // Ops alerts Slack never took (lib/ops/slack.ts gives up after its tries);
   // null while Slack is off, when none is posted at all.
   let slackUnpostedCount: number | null = null;
@@ -427,6 +382,7 @@ export async function collectDigest(now: Date = new Date()): Promise<OpsDigestPa
     ...lifecycle,
     slackUnpostedCount,
     ...support,
+    ...(approvalsWaitingCount === undefined ? {} : { approvalsWaitingCount }),
   };
 }
 
@@ -576,21 +532,13 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-/** One clinic's queues and email, counted inside its tenant. */
+/**
+ * One clinic's booking requests (a patient's, so counted with an audit row),
+ * dead letters and email, inside its tenant. Its outbox, transcript copies and
+ * billing requests are the shared machine-queue read's above.
+ */
 async function readClinic(tx: TenantTx, tally: Tally, now: Date, since: Date): Promise<void> {
   const c = tx.clinicId;
-
-  const [outbox] = await tx.db
-    .select({ n: count(), oldest: min(billingNotices.createdAt) })
-    .from(billingNotices)
-    .where(
-      and(
-        eq(billingNotices.clinicId, c),
-        isNull(billingNotices.sentAt),
-        lt(billingNotices.attempts, MAX_NOTICE_ATTEMPTS),
-      ),
-    );
-  tally.queue("outbox", outbox?.n ?? 0, outbox?.oldest);
 
   const dead = await tx.db
     .select({ kind: billingNotices.kind, n: count() })
@@ -605,23 +553,6 @@ async function readClinic(tx: TenantTx, tally: Tally, now: Date, since: Date): P
     )
     .groupBy(billingNotices.kind);
   for (const row of dead) tally.email(row.kind, { deadCount: row.n });
-
-  const [transcripts] = await tx.db
-    .select({ n: count(), oldest: min(transcriptEmails.createdAt) })
-    .from(transcriptEmails)
-    .where(
-      and(
-        eq(transcriptEmails.clinicId, c),
-        inArray(transcriptEmails.status, ["pending", "sent", "bounced"]),
-      ),
-    );
-  tally.queue("transcript_emails", transcripts?.n ?? 0, transcripts?.oldest);
-
-  const [requests] = await tx.db
-    .select({ n: count(), oldest: min(billingRequests.requestedAt) })
-    .from(billingRequests)
-    .where(and(eq(billingRequests.clinicId, c), isNull(billingRequests.doneAt)));
-  tally.queue("billing_requests", requests?.n ?? 0, requests?.oldest);
 
   const [bookings] = await tx.db
     .select({ n: count(), oldest: min(bookingRequests.createdAt) })

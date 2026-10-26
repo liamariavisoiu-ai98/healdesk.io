@@ -227,6 +227,11 @@ export const NOTICE_KIND_REGISTRY = {
   setup_help_offer: kind("O20", "transactional", "normal", null, "daytime", "plan"),
   // L36: which agreement a DPA "No" practice whose website takes insurance needs.
   agreement_question: kind("L36", "transactional", "normal", null, "daytime", "plan"),
+  // L38 (ops automation lane P7g; owner decision D14): "We've got your
+  // email", the fixed acknowledgement of a clinic's email to support, with
+  // the case's ref and nothing of the email. At once and at any hour: it
+  // answers mail the clinic has just sent (queued by lib/support/inbound/record.ts).
+  support_received: kind("L38", "transactional", "normal", null, "any_hour", "plan"),
 } as const;
 
 export type NoticeKind = keyof typeof NOTICE_KIND_REGISTRY;

@@ -1,6 +1,7 @@
 import { describeError, log } from "@/lib/log";
 import { printableBusinessName } from "@/lib/ops/alert-wording/allow-list";
 import { notifyOpsOnce, type OpsFields } from "@/lib/ops/notify";
+import { requestIdsOnCases } from "@/lib/support/watch";
 
 import {
   audit,
@@ -116,8 +117,19 @@ export type SupportRequestView = {
   pastDue: boolean;
 };
 
+/**
+ * Queues › Support's list: the chat's promises that have no support case. A
+ * chat escalation now opens a case (lane P7a), and the case is the promise:
+ * it is worked, snoozed, drafted, alerted and closed on /admin/support, so
+ * listing it here as well, beside a "Mark replied" that does not touch the
+ * case, said one promise twice. A request the case code never saw (one from
+ * before cases, or one whose case could not be opened) stays here with its
+ * mark, which still works, and the old watch still alerts it.
+ */
 export async function opListSupportRequests(): Promise<OpsOutcome> {
-  const { rows, failures } = await listSupportRequests(new Date());
+  const { rows: all, failures } = await listSupportRequests(new Date());
+  const onCases = await requestIdsOnCases(all.map((r) => r.requestId));
+  const rows = all.filter((r) => !onCases.has(r.requestId));
   const views: SupportRequestView[] = [];
   for (const row of rows.slice(0, 200)) {
     const clinic = await clinicById(row.clinicId);

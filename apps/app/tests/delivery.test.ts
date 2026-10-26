@@ -478,6 +478,9 @@ describeDb("delivery", () => {
           // The support reply's retries (drizzle/0127), hourly behind their
           // switch, which ships off: the minute queue's backstop.
           "support-send",
+          // Inbound support mail's sweep (drizzle/0130), hourly behind its
+          // switch, which ships off; reads nothing without the bucket.
+          "support-inbound-sweep",
         ].sort(),
       );
       // Every job that has not been switched on says so rather than working;

@@ -8042,6 +8042,104 @@ Replies reach the healdesk team. Please leave out patient details.
 }
 `;
 
+exports[`each template's output > support_received, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>We&#39;ve got your email (ref HD-7F3KQ)</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">A person at healdesk will reply by Tuesday 27 October.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">We&#39;ve got your email to healdesk support. A person at healdesk will reply to this address by Tuesday 27 October.</p>
+<p style="margin:0 0 4px;"><strong>Your reference:</strong> HD-7F3KQ</p>
+<p style="margin:0 0 16px;">To add anything, reply to this email and keep the reference in the subject, so it joins the same request.</p>
+<p style="margin:0 0 16px;">Your email looked like it might include client details. Please leave them out of support emails: you can see each conversation and booking in your portal, under Conversations and Bookings.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out your clients&#39; details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "A person at healdesk will reply by Tuesday 27 October.",
+  "subject": "We've got your email (ref HD-7F3KQ)",
+  "text": "We've got your email to healdesk support. A person at healdesk will reply to this address by Tuesday 27 October.
+
+Your reference: HD-7F3KQ
+
+To add anything, reply to this email and keep the reference in the subject, so it joins the same request.
+
+Your email looked like it might include client details. Please leave them out of support emails: you can see each conversation and booking in your portal, under Conversations and Bookings.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out your clients' details.
+800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > support_received, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>We&#39;ve got your email (ref HD-7F3KQ)</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">A person at healdesk will reply by Tuesday 27 October.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">We&#39;ve got your email to healdesk support. A person at healdesk will reply to this address by Tuesday 27 October.</p>
+<p style="margin:0 0 4px;"><strong>Your reference:</strong> HD-7F3KQ</p>
+<p style="margin:0 0 16px;">To add anything, reply to this email and keep the reference in the subject, so it joins the same request.</p>
+<p style="margin:0 0 16px;">Your email looked like it might include patient details. Please leave them out of support emails: you can see each conversation and booking in your portal, under Conversations and Bookings.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "A person at healdesk will reply by Tuesday 27 October.",
+  "subject": "We've got your email (ref HD-7F3KQ)",
+  "text": "We've got your email to healdesk support. A person at healdesk will reply to this address by Tuesday 27 October.
+
+Your reference: HD-7F3KQ
+
+To add anything, reply to this email and keep the reference in the subject, so it joins the same request.
+
+Your email looked like it might include patient details. Please leave them out of support emails: you can see each conversation and booking in your portal, under Conversations and Bookings.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
 exports[`each template's output > support_reply, for clients: the snapshot 1`] = `
 {
   "html": "<!doctype html>
@@ -8065,7 +8163,7 @@ exports[`each template's output > support_reply, for clients: the snapshot 1`] =
 <p style="margin:0 0 16px;">Hi, calls aren&#39;t reaching AYA yet because forwarding on your main line isn&#39;t set, so callers reach your line as before and nobody is missed.</p>
 <p style="margin:0 0 16px;">The codes for your carrier are in Settings, under Channels; they take about two minutes. If they don&#39;t take, reply here and we&#39;ll call you on Monday.</p>
 <p style="margin:0 0 16px;">The Healdesk Team</p>
-<p style="margin:0 0 16px;">Your reference: HD-7F3KQ. Reply to this email and quote this reference.</p>
+<p style="margin:0 0 16px;">Your reference: HD-7F3KQ. To add anything, reply to this email and keep the reference in the subject, so it joins the same request.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out your clients&#39; details.</p>
@@ -8081,7 +8179,7 @@ The codes for your carrier are in Settings, under Channels; they take about two 
 
 The Healdesk Team
 
-Your reference: HD-7F3KQ. Reply to this email and quote this reference.
+Your reference: HD-7F3KQ. To add anything, reply to this email and keep the reference in the subject, so it joins the same request.
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.
@@ -8114,7 +8212,7 @@ exports[`each template's output > support_reply, for patients: the snapshot 1`] 
 <p style="margin:0 0 16px;">Hi, calls aren&#39;t reaching AYA yet because forwarding on your main line isn&#39;t set, so callers reach your line as before and nobody is missed.</p>
 <p style="margin:0 0 16px;">The codes for your carrier are in Settings, under Channels; they take about two minutes. If they don&#39;t take, reply here and we&#39;ll call you on Monday.</p>
 <p style="margin:0 0 16px;">The Healdesk Team</p>
-<p style="margin:0 0 16px;">Your reference: HD-7F3KQ. Reply to this email and quote this reference.</p>
+<p style="margin:0 0 16px;">Your reference: HD-7F3KQ. To add anything, reply to this email and keep the reference in the subject, so it joins the same request.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
@@ -8130,7 +8228,7 @@ The codes for your carrier are in Settings, under Channels; they take about two 
 
 The Healdesk Team
 
-Your reference: HD-7F3KQ. Reply to this email and quote this reference.
+Your reference: HD-7F3KQ. To add anything, reply to this email and keep the reference in the subject, so it joins the same request.
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.

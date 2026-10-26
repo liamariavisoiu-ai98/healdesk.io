@@ -123,9 +123,18 @@ describeDb("support case operations", () => {
         now: NOW,
       }),
     );
+    // Lane P7g (0129): an inbound email holds facts only, and the database refuses its words outright.
+    await expect(
+      getMigratorPool().query(
+        `insert into support_messages (case_id, direction, kind, inbound_mail_id, sender_ref, fields_json, received_at, subject_screened, text)
+         values ($1, 'in', 'email', 'sesops1', repeat('a', 64), '{"source":"email"}', now(), $2, $2)`,
+        [email.id, WORDS],
+      ),
+    ).rejects.toThrow(/support_messages_email_check/);
     await getMigratorPool().query(
-      `insert into support_messages (case_id, direction, kind, subject_screened, text) values ($1, 'in', 'email', $2, $2)`,
-      [email.id, WORDS],
+      `insert into support_messages (case_id, direction, kind, inbound_mail_id, sender_ref, fields_json, received_at)
+       values ($1, 'in', 'email', 'sesops2', repeat('a', 64), '{"source":"email","topic":"billing"}', now())`,
+      [email.id],
     );
     await getMigratorPool().query(
       `insert into ops_alerts (event, dedupe_key, fields, raised_at, last_raised_at) values

@@ -16,7 +16,9 @@ import type { EmailTemplate } from "./types";
  * Nothing else in it is free: the subject is fixed per topic with the case's
  * ref (lib/support/send-vocab.ts), the sign-off is "The Healdesk Team"
  * (SUPPORT_SIGN_OFF, never a first name), the reference line names the ref
- * so a reply joins the case, and compose() appends the standard footer: why
+ * and asks that it stay in the subject, so a reply joins the case (lane
+ * P7g: true whether the case came from the chat or by email; on an email
+ * case lib/support/send.ts also sets In-Reply-To and References), and compose() appends the standard footer: why
  * the practice gets this, that replies reach the team, and to leave patient
  * or client details out. Pure: the same payload renders the same bytes, so a
  * retry under the same idempotency key sends what the first try sent.
@@ -66,7 +68,10 @@ export function renderSupportReplyWith(subject: string): EmailTemplate<SupportRe
     const blocks: Block[] = [
       ...paragraphs.map((text): Block => ({ type: "paragraph", text })),
       { type: "paragraph", text: SUPPORT_SIGN_OFF },
-      { type: "paragraph", text: `Your reference: ${payload.supportRef}. Reply to this email and quote this reference.` },
+      {
+        type: "paragraph",
+        text: `Your reference: ${payload.supportRef}. To add anything, reply to this email and keep the reference in the subject, so it joins the same request.`,
+      },
     ];
     const first = paragraphs[0]!.replace(/\s+/g, " ");
     return compose(

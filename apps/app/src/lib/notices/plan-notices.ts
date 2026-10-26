@@ -28,6 +28,7 @@ import type { SetupClosedPayload } from "@/lib/email/templates/setup_closed";
 import type { SetupReminderPayload } from "@/lib/email/templates/setup_reminder";
 import type { SubprocessorNoticePayload } from "@/lib/email/templates/subprocessor_notice";
 import type { SupportRequestPayload } from "@/lib/email/templates/support_request";
+import type { SupportReceivedPayload } from "@/lib/email/templates/support_received";
 import type { SuspendedForCausePayload } from "@/lib/email/templates/suspended_for_cause";
 import type { TermsNoticePayload } from "@/lib/email/templates/terms_notice";
 import type { WeeklyRecapPayload } from "@/lib/email/templates/weekly_recap";
@@ -172,6 +173,12 @@ export type PlanNoticePayloads = {
   setup_help_offer: SetupHelpOfferPayload;
   /** Dedupe `agreement_question:<approval id>`. */
   agreement_question: AgreementQuestionPayload;
+  /**
+   * Dedupe `support_received:<case id>`: once per case (lane P7g). Queued by
+   * lib/support/inbound/record.ts with the outbox row's id set to the case's
+   * id, so its key is `hd-support_received-<case id>-1`.
+   */
+  support_received: SupportReceivedPayload;
 };
 
 // The payload map and the registry's plan kinds name the same kinds: adding a

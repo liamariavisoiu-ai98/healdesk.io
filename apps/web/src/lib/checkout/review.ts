@@ -273,3 +273,18 @@ export function locationsLine(plan: Plan, interval: BillingInterval): string {
 export function payLabel(plan: Plan, offer: SetupOffer | null = null): string {
   return `Pay ${usd.format(setupDueUsd(plan, offer))} and start setup`;
 }
+
+/**
+ * The one line of reassurance on the agreement and pay steps, where the risk
+ * is felt (26 October 2026): only what the product does for the package being
+ * bought. Billing starts at the first answer for every package; the number and
+ * the fallback to the clinic's own line only where there is a phone line,
+ * and website chat's contact form where there is not. Never a refund: the
+ * setup fee is not refunded (Terms, section 3).
+ */
+export function riskLine(plan: Pick<Plan, "channels">, specialty: SpecialtyId | null): string {
+  const parts = [`Monthly billing starts when AYA answers her first ${audienceFor(specialty)}`];
+  if (plan.channels.voice) parts.push("You keep your number", "Calls fall back to your own line");
+  else if (plan.channels.web) parts.push("Website chat falls back to a contact form");
+  return parts.join(" · ");
+}

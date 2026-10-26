@@ -29,7 +29,7 @@ vi.mock("stripe", () => ({
   },
 }));
 
-const { createCheckout } = await import("./billing");
+const { createCheckout, paymentMethods } = await import("./billing");
 const { planStartSentence } = await import("@healdesk/catalog");
 
 const REF = "11111111-2222-4333-8444-555555555555";
@@ -279,3 +279,20 @@ describe("the Session the previous press of Pay opened", () => {
     expect(fake.create).not.toHaveBeenCalled();
   });
 });
+
+describe("paymentMethods", () => {
+  test("cards alone while no configuration is named", () => {
+    expect(paymentMethods(undefined)).toEqual({ payment_method_types: ["card"] });
+    expect(paymentMethods("")).toEqual({ payment_method_types: ["card"] });
+  });
+
+  test("healdesk's own configuration, for Apple Pay and Google Pay, in place of the card list", () => {
+    expect(paymentMethods(" pmc_1AbC2dEf ")).toEqual({ payment_method_configuration: "pmc_1AbC2dEf" });
+  });
+
+  test("a value that is not a configuration id falls back to cards rather than failing every purchase", () => {
+    expect(paymentMethods("apple_pay")).toEqual({ payment_method_types: ["card"] });
+    expect(paymentMethods("pmc_ with space")).toEqual({ payment_method_types: ["card"] });
+  });
+});
+

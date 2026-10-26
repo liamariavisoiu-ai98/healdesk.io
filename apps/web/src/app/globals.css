@@ -5017,3 +5017,99 @@
     transform: none;
   }
 }
+
+/* =============================================================================
+   The personalised demo's close (components/demo/DemoClose.tsx,
+   CoverageModes.tsx)
+   =============================================================================
+   - `.hd-overflow-pulse`  a call landing in the open hours while the desk is
+                           busy: a dot that rings once a cycle, then "Booked".
+                           Still, and still legible, with reduced motion.
+   - `.hd-close-card`      the card after a demo conversation rises in once.
+   - `.hd-example`         an example card fades in when its mode is chosen.
+   ============================================================================= */
+
+.hd-overflow-pulse {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.hd-overflow-dot {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--color-mint);
+  box-shadow: 0 0 0 2px rgb(11 21 32 / 0.75);
+}
+
+.hd-overflow-tag {
+  border-radius: 9999px;
+  background: var(--color-mint);
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: #0b1520;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .hd-overflow-dot::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: var(--color-mint);
+    animation: hd-ring 2s var(--ease-out) infinite;
+  }
+
+  .hd-overflow-tag {
+    animation: hd-booked 2s var(--ease-out) infinite;
+  }
+
+  .hd-close-card {
+    animation: reveal-up var(--duration-slow) var(--ease-out) backwards;
+  }
+
+  .hd-example {
+    animation: hd-fade-in var(--duration-slow) var(--ease-out) backwards;
+  }
+}
+
+@keyframes hd-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  70%,
+  100% {
+    transform: scale(3.2);
+    opacity: 0;
+  }
+}
+
+@keyframes hd-booked {
+  0%,
+  30% {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+  45%,
+  90% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes hd-fade-in {
+  from {
+    opacity: 0;
+  }
+}

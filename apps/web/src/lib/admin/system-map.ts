@@ -857,6 +857,10 @@ export const NOT_KEYS: Readonly<Record<string, string>> = {
   VOICE_DEMO_DAILY_WEBCALL_CAP: "A daily limit on the homepage's browser calls.",
   OWN_DEMO_DAILY_CAP: "A daily limit on \"send me my own AI assistant\" demos.",
   STRIPE_AUTOMATIC_TAX: "Whether Stripe adds sales tax at checkout.",
+  STRIPE_PAYMENT_METHOD_CONFIGURATION:
+    "Names healdesk's own Stripe payment method configuration (pmc_…): cards, Apple Pay and Google Pay, nothing delayed. An id, not a key. Unset, checkout takes cards only.",
+  DEMO_CLOSE_SPLIT:
+    "Which close the personalised demos show: close (the redesign), control (the old page), or split by demo when unset (lib/demo/close.ts).",
   HEALDESK_EMAIL_TRANSPORT: "Which service carries the engine's email: a word.",
   HEALDESK_KMS_PROVIDER: "Which key safe the engine uses. The key itself never leaves AWS; the key-safe line checks it live.",
   HEALDESK_KMS_KEY_ID: "Names the key in the key safe; not the key.",

@@ -14,7 +14,7 @@ import { type ReactNode, type Ref, useEffect, useRef, useState } from "react";
 import { site } from "@/lib/site";
 
 import { agreementCopyFor, effectiveDateToday, versionLabel } from "./agreement-kinds";
-import { FIELD_LABEL, PrimaryButton, RadioGroup, type RadioOption, StepShell, TextField } from "./StepShell";
+import { FIELD_LABEL, PrimaryButton, RadioGroup, type RadioOption, RiskLine, StepShell, TextField } from "./StepShell";
 
 /**
  * Signing the agreement, its own step, before payment.
@@ -116,10 +116,16 @@ export function AgreementStep({
   onSigned,
   onContinue,
   onResign,
+  riskLine,
 }: {
   step: number;
   totalSteps: number;
   onBack: () => void;
+  /**
+   * The one line of reassurance under the step (lib/checkout/review.ts
+   * `riskLine`), for the package being bought; absent, the step's own line.
+   */
+  riskLine?: string;
   /** Present only when hosted in a modal. See StepShell. */
   onClose?: () => void;
   headingRef?: Ref<HTMLHeadingElement>;
@@ -351,9 +357,13 @@ export function AgreementStep({
         </p>
       ) : null}
       {children}
-      <p className="text-muted mt-10 text-center text-xs">
-        No payment on this step · No access to your clinical records
-      </p>
+      {riskLine ? (
+        <RiskLine text={riskLine} />
+      ) : (
+        <p className="text-muted mt-10 text-center text-xs">
+          No payment on this step · No access to your clinical records
+        </p>
+      )}
     </StepShell>
   );
 

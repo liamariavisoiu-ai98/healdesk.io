@@ -13,6 +13,8 @@ import {
 } from "@/lib/checkout/records";
 import { postInternalAlert } from "@/lib/demo/alert";
 import { wakeHostForPaidInvoice } from "@/lib/host/wake";
+import { demoVariant } from "@/lib/demo/close";
+import { recordDemoEvent } from "@/lib/demo/events";
 import { displayName, markDemoClaimed } from "@/lib/demo/sessions";
 import { markCheckoutAbandoned, markConverted } from "@/lib/leads";
 import { updateSetupRequest } from "@/lib/setup-requests";
@@ -705,6 +707,8 @@ async function recordDemoClaim(session: Stripe.Checkout.Session): Promise<void> 
     const { id, plan } = sessionPlan(session);
     const claimed = await markDemoClaimed(slug, id);
     if (!claimed?.newly) return;
+    // The last step of the demo's close, beside the page's own events.
+    await recordDemoEvent({ slug, variant: demoVariant(slug), name: "checkout_paid" });
     await postInternalAlert(
       `Demo claimed: ${displayName(claimed.session)} bought ${plan?.name ?? "a package"} from their personalised demo (${slug}).`,
     );

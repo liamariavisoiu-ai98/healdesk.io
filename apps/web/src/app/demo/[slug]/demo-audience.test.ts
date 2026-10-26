@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { demoEmail } from "@/lib/demo/build";
 import type { DemoSession } from "@/lib/demo/sessions";
@@ -107,6 +107,14 @@ describe("a demo in its practice's own words", () => {
     sessions.current = null;
   });
 
+  // The old close, which these were written against; the redesign is tested below.
+  beforeEach(() => {
+    process.env.DEMO_CLOSE_SPLIT = "control";
+  });
+  afterEach(() => {
+    delete process.env.DEMO_CLOSE_SPLIT;
+  });
+
   test("a vet's demo page says clients, and the data protection agreement, never patients or a BAA", async () => {
     const { said, ringNote } = await page(session("veterinary", "Paws & Claws", "paws-claws-k7q2mz9xwa"));
     expect(said).toContain("Try her the way a client would.");
@@ -127,6 +135,29 @@ describe("a demo in its practice's own words", () => {
     expect(said).toContain("We sign a business associate agreement and handle patient data under it.");
     expect(said).toContain("Ask me anything a patient would");
     expect(said).toContain("please don't share real patient details");
+    expect(ringNote).toBe("One demo call, because you asked. Live, it only answers: it never dials a patient.");
+  });
+
+  test("the redesigned close says clients and the data protection agreement for a vet, never patients or a BAA", async () => {
+    process.env.DEMO_CLOSE_SPLIT = "close";
+    const { said, ringNote } = await page(session("veterinary", "Paws & Claws", "paws-claws-k7q2mz9xwa"));
+    expect(said).toContain("message her the way a client would.");
+    expect(said).toContain("We sign a data protection agreement and handle your clients' information under it");
+    expect(said).toContain("Ask me anything a client would");
+    expect(said).toContain("Will clients mind it's AI?");
+    expect(said).toContain("New client");
+    expect(said).not.toMatch(/\bpatients?\b/i);
+    expect(said).not.toMatch(/\bBAA\b|business associate/i);
+    expect(ringNote).toBe("One demo call, because you asked. Live, it only answers: it never dials a client.");
+  });
+
+  test("the redesigned close says patient and the BAA for a practice whose patients are people", async () => {
+    process.env.DEMO_CLOSE_SPLIT = "close";
+    const { said, ringNote } = await page(session("med-spa", "Glow Med Spa", "glow-med-spa-k7q2mz9xwa"));
+    expect(said).toContain("message her the way a patient would.");
+    expect(said).toContain("We sign a business associate agreement and handle patient data under it.");
+    expect(said).toContain("We sign a BAA and handle patient data under it");
+    expect(said).toContain("Ask me anything a patient would");
     expect(ringNote).toBe("One demo call, because you asked. Live, it only answers: it never dials a patient.");
   });
 

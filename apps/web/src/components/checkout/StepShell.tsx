@@ -1,6 +1,52 @@
 "use client";
 
-import { type ReactNode, type Ref, useId } from "react";
+import { createContext, type ReactNode, type Ref, useContext, useId } from "react";
+
+import type { SetupOffer } from "@/lib/checkout/review";
+import { site } from "@/lib/site";
+
+import { OfferBadge } from "./SetupOfferBanner";
+
+/**
+ * A purchase that came from a personalised demo carries the clinic through
+ * every step (26 October 2026): its logo or initial and "Activate {clinic}'s
+ * AYA" where the eyebrow was, and the setup offer's badge and clock beside
+ * them, in the demo page's own language. Set by CheckoutFlow; absent for
+ * every other buyer, whose steps are unchanged.
+ */
+export type CheckoutBrand = {
+  clinicName: string;
+  logoUrl: string | null;
+  offer: SetupOffer | null;
+  onOfferEnd?: () => void;
+};
+
+export const CheckoutBrandContext = createContext<CheckoutBrand | null>(null);
+
+/** "Activate Peachy Studio's AYA". */
+export function activateTitle(clinicName: string): string {
+  return `Activate ${clinicName}\u2019s ${site.agent}`;
+}
+
+function BrandEyebrow({ brand }: { brand: CheckoutBrand }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      <span className="flex min-w-0 items-center gap-2.5">
+        {brand.logoUrl ? (
+          <span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-full bg-white ring-1 ring-black/10">
+            <img src={brand.logoUrl} alt="" className="max-h-[70%] max-w-[80%] object-contain" />
+          </span>
+        ) : (
+          <span aria-hidden className="bg-ink font-display grid size-8 shrink-0 place-items-center rounded-full text-[15px] font-semibold text-white">
+            {brand.clinicName.trim().charAt(0).toUpperCase()}
+          </span>
+        )}
+        <span className="text-ink truncate text-[14.4px] font-bold">{activateTitle(brand.clinicName)}</span>
+      </span>
+      {brand.offer ? <OfferBadge offer={brand.offer} onEnd={brand.onOfferEnd} /> : null}
+    </div>
+  );
+}
 
 /**
  * Shared chrome for every checkout step.
@@ -43,6 +89,7 @@ export function StepShell({
    */
   headingRef?: Ref<HTMLHeadingElement>;
 }) {
+  const brand = useContext(CheckoutBrandContext);
   return (
     <div className="mx-auto w-full max-w-[720px]">
       <div className="mb-8">
@@ -95,9 +142,13 @@ export function StepShell({
         ) : null}
       </div>
 
-      <p className="text-muted text-xs font-bold tracking-[0.14em] uppercase">
-        {eyebrow}
-      </p>
+      {brand ? (
+        <BrandEyebrow brand={brand} />
+      ) : (
+        <p className="text-muted text-xs font-bold tracking-[0.14em] uppercase">
+          {eyebrow}
+        </p>
+      )}
       <h1
         ref={headingRef}
         tabIndex={-1}
@@ -119,6 +170,11 @@ export function StepShell({
  * the clinic signs in to (its calendar, its channels, its payment account),
  * and never its clinical records: v1 reads no EMR or point of sale.
  */
+/** The agreement and pay steps' one line: lib/checkout/review.ts `riskLine`. */
+export function RiskLine({ text, className = "mt-10" }: { text: string; className?: string }) {
+  return <p className={`text-muted text-center text-xs font-semibold ${className}`}>{text}</p>;
+}
+
 export function Reassurance() {
   return (
     <p className="text-muted mt-10 text-center text-xs">

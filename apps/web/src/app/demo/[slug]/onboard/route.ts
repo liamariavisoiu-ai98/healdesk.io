@@ -1,7 +1,10 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
+import { planLink } from "@/lib/checkout/funnel";
 import { DEMO_COOKIE, demoCookieOptions } from "@/lib/demo/attribution";
+import { demoVariant } from "@/lib/demo/close";
+import { demoEventDetail, recordDemoEvent } from "@/lib/demo/events";
 import { getDemoSession, isDemoSlug } from "@/lib/demo/sessions";
 
 /**
@@ -22,8 +25,21 @@ import { getDemoSession, isDemoSlug } from "@/lib/demo/sessions";
  */
 export async function GET(request: Request, ctx: { params: Promise<{ slug: string }> }): Promise<Response> {
   const { slug } = await ctx.params;
-  await remember(slug);
-  return NextResponse.redirect(new URL("/get-started", request.url), 303);
+  const known = await remember(slug);
+  const asked = new URL(request.url).searchParams;
+  // Which button was pressed, counted here rather than from the page, so the
+  // press is recorded even when the browser leaves before a beacon would land.
+  if (known) {
+    const from = demoEventDetail("cta_clicked", asked.get("from"));
+    if (from) await recordDemoEvent({ slug, variant: demoVariant(slug), name: "cta_clicked", detail: from });
+  }
+  // The package the demo recommended, at its steps: checkout opens on it
+  // (`planLink` decides; anything it does not know preselects nothing). Plan
+  // ids are catalog names, not the slug, so analytics on /get-started may see them.
+  const next = new URL("/get-started", request.url);
+  const plan = asked.get("plan");
+  if (plan && planLink(plan)) next.searchParams.set("plan", plan);
+  return NextResponse.redirect(next, 303);
 }
 
 export async function POST(_request: Request, ctx: { params: Promise<{ slug: string }> }): Promise<Response> {

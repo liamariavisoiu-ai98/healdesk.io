@@ -7,6 +7,7 @@ import { isEmailConfigured } from "@/lib/email";
 import { AUDIT_THRESHOLDS, auditReportOf, type AuditIssue } from "@/lib/demo/audit";
 import { handoffBlocker } from "@/lib/demo/build";
 import { demoPipeline } from "@/lib/demo/pipeline";
+import { closeFunnel, type CloseFunnelRow, listDemoEvents } from "@/lib/demo/events";
 import {
   demoUrl,
   displayName,
@@ -136,6 +137,18 @@ export default async function DemosPage() {
     }
   }
 
+  // The two closes side by side (lib/demo/close.ts), over every demo the Sheet
+  // still holds, not only the fifty listed below.
+  let funnel: CloseFunnelRow[] | null = null;
+  if (configured && !loadError) {
+    try {
+      const [all, events] = await Promise.all([listDemoSessions(1_000), listDemoEvents()]);
+      funnel = closeFunnel(all, events);
+    } catch {
+      funnel = null;
+    }
+  }
+
   const missing = [
     !process.env.ANTHROPIC_API_KEY && "ANTHROPIC_API_KEY (reads the site into a profile)",
     !process.env.RETELL_API_KEY && "RETELL_API_KEY",
@@ -160,6 +173,7 @@ export default async function DemosPage() {
       </p>
 
       <DemoPipelineRow pipeline={pipeline} retryStalled={retryStalledDemosAction} />
+      {funnel ? <CloseReport rows={funnel} /> : null}
 
       {!configured ? (
         <p className="bg-tint-peach mt-6 rounded-md px-4 py-3 text-[15px] font-medium">
@@ -257,5 +271,57 @@ export default async function DemosPage() {
         })}
       </ul>
     </main>
+  );
+}
+
+/**
+ * Demo opened → "Activate my AYA" pressed → paid, for each close, counted by
+ * demo (lib/demo/events.ts `closeFunnel`). Small numbers: read the paid
+ * column as a count, not a rate, until there are dozens of demos in each.
+ */
+function CloseReport({ rows }: { rows: CloseFunnelRow[] }) {
+  const pct = (n: number, of: number) => (of > 0 ? `${Math.round((n / of) * 100)}%` : "—");
+  return (
+    <section className="border-line mt-6 rounded-md border bg-white p-5" aria-labelledby="close-report">
+      <h2 id="close-report" className="text-[17px] font-bold">
+        Demo close: redesign against the old page
+      </h2>
+      <p className="text-muted mt-1 text-[13.8px]">
+        Each demo shows one close, by its slug. Counted per demo, from the first time it was opened after 26 October 2026.
+      </p>
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full min-w-[560px] text-left text-[14.4px] tabular-nums">
+          <thead className="text-muted text-[12.6px] font-bold tracking-[0.06em] uppercase">
+            <tr>
+              <th className="py-2 pr-4">Close</th>
+              <th className="py-2 pr-4">Opened</th>
+              <th className="py-2 pr-4">Pressed Activate</th>
+              <th className="py-2 pr-4">Paid</th>
+              <th className="py-2">First press from</th>
+            </tr>
+          </thead>
+          <tbody className="divide-line divide-y">
+            {rows.map((row) => (
+              <tr key={row.variant}>
+                <td className="py-2 pr-4 font-semibold">{row.variant === "close" ? "Redesign" : "Old page"}</td>
+                <td className="py-2 pr-4">{row.viewed}</td>
+                <td className="py-2 pr-4">
+                  {row.clicked} <span className="text-muted">({pct(row.clicked, row.viewed)})</span>
+                </td>
+                <td className="py-2 pr-4">
+                  {row.paid} <span className="text-muted">({pct(row.paid, row.viewed)})</span>
+                </td>
+                <td className="text-muted py-2">
+                  {Object.entries(row.firstClickFrom)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([from, n]) => `${from} ${n}`)
+                    .join(" · ") || "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }

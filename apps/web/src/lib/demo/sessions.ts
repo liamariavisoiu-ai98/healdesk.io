@@ -25,6 +25,8 @@ import {
 } from "@/lib/sheets/schema";
 import { site } from "@/lib/site";
 
+import { purgeDemoEvents } from "./events";
+
 import { normalizeProfile, type ClinicProfile } from "./profile";
 
 export type { DemoAuditVerdict, DemoSession, DemoSessionStatus } from "@/lib/sheets/schema";
@@ -440,10 +442,8 @@ export async function purgeExpiredDemoSessions(
 ): Promise<number> {
   const client = await store();
   const cutoff = now.getTime() - days * 24 * 60 * 60 * 1000;
-  const doomed = (await readAll(client))
-    .filter((r) => !r.value.claimed && r.value.expiresAt.getTime() < cutoff)
-    .map((r) => r.row)
-    .sort((a, b) => b - a);
+  const stale = (await readAll(client)).filter((r) => !r.value.claimed && r.value.expiresAt.getTime() < cutoff);
+  const doomed = stale.map((r) => r.row).sort((a, b) => b - a);
   if (doomed.length === 0) return 0;
   const sheetId = await client.getSheetId(DEMO_SESSIONS.title);
   if (sheetId === null) return 0;
@@ -454,6 +454,10 @@ export async function purgeExpiredDemoSessions(
     })),
   );
   cache.clear();
+  // Each demo's page events go with it (lib/demo/events.ts).
+  await purgeDemoEvents(new Set(stale.map((r) => r.value.slug))).catch((error: unknown) => {
+    console.error("[healdesk] demo events not purged", { error: (error as Error).message });
+  });
   return doomed.length;
 }
 

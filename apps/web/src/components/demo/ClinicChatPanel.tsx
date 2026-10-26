@@ -16,7 +16,21 @@ import { ChatSkins, type SkinMessage } from "@/components/agent-panel/ChatSkins"
  * The greeting is not sent to the model: it is the first assistant line on
  * screen, and the route strips leading assistant turns before the call. The
  * thread lives only in this component; nothing is stored on our side.
+ *
+ * ## When a chat "ends"
+ *
+ * A chat has no hang-up, so `onConversationEnded` is called once, the first
+ * time the visitor goes quiet after a real exchange: AYA's third reply and
+ * then fifteen seconds without a keystroke, or four seconds after she offers
+ * a time, which is where a booking conversation peaks. The demo page shows its
+ * close card then (components/demo/DemoClose.tsx). Only the timing is read;
+ * nothing of the conversation leaves this component.
  */
+
+const QUIET_AFTER_EXCHANGE_MS = 15_000;
+const QUIET_AFTER_TIME_OFFER_MS = 4_000;
+const EXCHANGE_REPLIES = 3;
+const OFFERS_A_TIME = /\b\d{1,2}(?::\d{2})?\s?(?:am|pm)\b/i;
 
 type Message = SkinMessage;
 
@@ -27,6 +41,7 @@ export function ClinicChatPanel({
   greeting,
   chips,
   locked,
+  onConversationEnded,
 }: {
   slug: string;
   clinicName: string;
@@ -34,6 +49,7 @@ export function ClinicChatPanel({
   greeting: string;
   chips: string[];
   locked: boolean;
+  onConversationEnded?: () => void;
 }) {
   const [messages, setMessages] = useState<Message[]>(() => [{ role: "assistant", content: greeting }]);
   const [input, setInput] = useState("");
@@ -42,6 +58,25 @@ export function ClinicChatPanel({
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  // Once per page: see "When a chat ends" above.
+  const endedRef = useRef(false);
+  useEffect(() => {
+    if (endedRef.current || streaming || !onConversationEnded) return;
+    const replies = messages.filter((m) => m.role === "assistant").length - 1; // less the greeting
+    if (replies < 1 || input.trim() !== "") return;
+    const last = messages[messages.length - 1];
+    const offered = last?.role === "assistant" && OFFERS_A_TIME.test(last.content);
+    if (!offered && replies < EXCHANGE_REPLIES) return;
+    const id = window.setTimeout(
+      () => {
+        endedRef.current = true;
+        onConversationEnded();
+      },
+      offered ? QUIET_AFTER_TIME_OFFER_MS : QUIET_AFTER_EXCHANGE_MS,
+    );
+    return () => window.clearTimeout(id);
+  }, [messages, streaming, input, onConversationEnded]);
 
   const send = useCallback(
     async (text: string) => {

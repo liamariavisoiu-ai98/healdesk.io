@@ -274,6 +274,22 @@ export function siteUrl(): string {
 }
 
 
+/**
+ * How Checkout chooses the ways to pay: healdesk's own payment method
+ * configuration when one is named (cards and the wallets that pay with them),
+ * else cards alone. The two are exclusive on a Session. An id that is not a
+ * configuration's shape is ignored rather than sent, so a typo in the
+ * variable falls back to cards instead of failing every purchase.
+ */
+export function paymentMethods(
+  configuration: string | undefined = process.env.STRIPE_PAYMENT_METHOD_CONFIGURATION,
+): { payment_method_configuration: string } | { payment_method_types: ["card"] } {
+  const id = configuration?.trim();
+  return id && /^pmc_[A-Za-z0-9]+$/.test(id)
+    ? { payment_method_configuration: id }
+    : { payment_method_types: ["card"] };
+}
+
 export async function createCheckout(
   input: CheckoutIntent,
 ): Promise<CheckoutResult> {
@@ -327,7 +343,16 @@ export async function createCheckout(
       // Cards only (funnel-portal-contracts §2): the account shares Stripe
       // with scalabid, whose dashboard settings would otherwise decide, and a
       // delayed method completes the Session before any money moves.
-      payment_method_types: ["card"],
+      //
+      // Apple Pay and Google Pay are cards in a wallet, paid on the spot, so
+      // they keep that promise, and a buyer on a phone should not have to
+      // type a card number (owner, 26 October 2026). Checkout has no API
+      // switch for them: they are the card method plus a payment method
+      // configuration that turns the wallets on. STRIPE_PAYMENT_METHOD_CONFIGURATION
+      // names one made for healdesk alone (Card, Apple Pay, Google Pay and
+      // nothing delayed), so scalabid's settings still decide nothing here.
+      // Unset, it is cards as before.
+      ...paymentMethods(),
       customer_email: input.contactEmail,
       line_items: [
         // One-time: on the first invoice only. Never on a renewal.

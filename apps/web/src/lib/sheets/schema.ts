@@ -626,6 +626,35 @@ export const DEMO_CALLBACKS: Tab = {
   ],
 };
 
+/**
+ * What happened on a personalised demo's page, for reading its close
+ * (lib/demo/events.ts): a closed vocabulary of names, the close the demo
+ * shows, and where on the page a button was pressed. Keyed by the demo's
+ * slug, which demo_sessions already holds; never a visitor, a message or a
+ * figure the owner typed. Purged with the demo it belongs to.
+ */
+export type DemoEvent = {
+  id: string;
+  slug: string;
+  variant: string;
+  name: string;
+  /** Which button, which channel or which mode: one short word from a closed list. */
+  detail: string | null;
+  at: Date;
+};
+
+export const DEMO_EVENTS: Tab = {
+  title: "demo_events",
+  columns: [
+    col("id", "id", "text"),
+    col("slug", "slug", "text"),
+    col("variant", "variant", "text"),
+    col("name", "name", "text"),
+    col("detail", "detail", "text"),
+    col("at", "at", "timestamp"),
+  ],
+};
+
 export const TABS: readonly Tab[] = [
   LEADS,
   LEAD_EVENTS,
@@ -639,6 +668,7 @@ export const TABS: readonly Tab[] = [
   SEO_STEP_TICKS,
   AI_PANEL_RUNS,
   DEMO_CALLBACKS,
+  DEMO_EVENTS,
 ];
 
 // -----------------------------------------------------------------------------

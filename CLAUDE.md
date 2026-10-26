@@ -205,7 +205,23 @@ enforceable rather than aspirational.
    firm no or a failed call back (`DEMO_QUIRKS`; owner, 26 October 2026, 6h).
    A clinic's own calls use the short name it sets in Settings ("What
    patients call you"), read by the guards as its own words only when it is a
-   part of its full name (`ownShortName`). Only the pitch may quote healdesk's prices, each from the
+   part of its full name (`ownShortName`). The stage moves only on her state's
+   signal (`"roleplay"`: start, cancel, end) or the whole scripted line,
+   never on a phrase in passing, and the call itself says the role-play
+   opener and exit line word for word (`withRoleplayOpener`,
+   `withRoleplayExit`); a bare yes to "the role-play, or more?" gets "which
+   one?"; a rich answer counts for every discovery question it answers
+   (`"answered"`), an impatient caller is asked nothing more (`"impatient"`),
+   "I don't understand" gets "which part?" before any re-explaining, "the
+   second one" is read in code from the items she just listed, and the
+   role-play keeps its booking so nothing is asked twice (test call
+   72dc66b7; owner, 26 October 2026). She says deposit links come in website
+   chat, Instagram, Messenger and WhatsApp as design, never on a call
+   (`DEPOSIT_CLAIM`; LAUNCH_PROMISES `deposit-link-meta`). On every call
+   the code says no filler while the model thinks (`ACKNOWLEDGEMENTS` is
+   empty), and takes the caller's name out as a form of address after two
+   uses and a reflex "sorry" after the call's first apology
+   (`shapeVoiceReply`, words only ever removed, before the guard reads them). Only the pitch may quote healdesk's prices, each from the
    catalog and let through the guard exactly (`demoPriceList`,
    `AssistantFacts.quotedAmountsUsd`); a clinic's call quotes its own menu
    alone. Spoken text writes "Aya", never

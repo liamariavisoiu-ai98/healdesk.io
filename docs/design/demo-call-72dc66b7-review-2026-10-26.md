@@ -1,8 +1,23 @@
 # Demo call 72dc66b7 (Thomas, Lumen): what went wrong, and the fix brief
 
-Status: analysis for the owner, 26 October 2026. Nothing here is built yet.
-Section 3 is the prompt to hand Claude Code once the owner has answered
-section 4.
+Status: built as VOICE-T19, 26 October 2026, on the owner's word ("PLEASE
+APPLY ALL THE NEEDED CHANGES RIGHT AWAY! COMMIT AND DEPLOY"). The owner's
+answers to section 4:
+- Deposit links on Instagram, Messenger and WhatsApp: "she should say those
+  channels too as this is what we will launch". She says them as design
+  (`DEPOSIT_CLAIM`), with LAUNCH_PROMISES `deposit-link-meta` added, which
+  blocks go-live.
+- An employee: "it should be the same importance", so the call is unchanged
+  for one.
+
+Two parts were built more narrowly than section 3 asks:
+- Fault 18's word-count re-ask is not built. A second model call on every
+  long reply costs a call's latency; the note's cap and the two-price rule
+  stand in for it.
+- Fault 5's "a discovery question in a role-play is replaced by the exit
+  line" is not built. With the stage now moved only on her signal, a
+  role-play no longer runs under the pitch note, which is what caused it.
+  The role-play note forbids the question.
 
 The call ran on production after PR 58 was deployed (run 40310795297):
 "Talk soon, Thomas!" is VOICE-T18a's sign-off. So every fault below is in

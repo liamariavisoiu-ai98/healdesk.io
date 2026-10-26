@@ -4332,6 +4332,13 @@ export const clinicSettings = pgTable(
     phoneGreeting: text("phone_greeting"),
     /** The first line in chat and DMs after the locked AI line; null means the default. */
     chatGreeting: text("chat_greeting"),
+    /**
+     * What patients call the clinic, said after its full name has been said
+     * once ("Lumen" for "Lumen Aesthetics & Wellness"; owner, 26 October 2026,
+     * docs/design/clinic-nickname-2026-10-26.md). Null means the short form
+     * worked out from the name (@healdesk/catalog shortClinicName).
+     */
+    shortName: text("short_name"),
     /** The languages AYA answers in. It answers in the caller's language and stays in it. */
     languages: text("languages")
       .array()
@@ -4412,6 +4419,7 @@ export const clinicSettings = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
+    check("clinic_settings_short_name_check", sql`${t.shortName} is null or char_length(${t.shortName}) between 1 and 40`),
     check(
       "clinic_settings_uncollectable_check",
       sql`${t.depositUncollectable} in ('book_and_flag', 'hold_and_alert', 'decline_and_alert')`,
@@ -8301,12 +8309,12 @@ export const supportMessages = pgTable(
     nextSendAt: timestamp("next_send_at", { withTimezone: true }),
     sendStoppedAt: timestamp("send_stopped_at", { withTimezone: true }),
     sendStoppedReason: text("send_stopped_reason").$type<SupportSendStoppedReason>(),
-    /** When the approved text is deleted: 12 months after it was sent (the row stays). */
+    /** When the approved text is deleted: 12 months after it was sent, or after the sending stopped without it going (0129; the row stays). */
     textDeleteAfter: timestamp("text_delete_after", { withTimezone: true }),
     /** Names, types and sizes only: an attachment is never opened or kept. */
     attachmentsJson: jsonb("attachments_json"),
     /**
-     * An inbound email (lane P7g, drizzle/0129): SES's own message id, so a
+     * An inbound email (lane P7g, drizzle/0130): SES's own message id, so a
      * notice SNS delivers twice is the same row; and an HMAC of the sender's
      * address (lib/support/inbound/facts.ts senderRef), so mail from one address can
      * be counted without the address being kept.
@@ -8320,7 +8328,7 @@ export const supportMessages = pgTable(
   (t) => [
     uniqueIndex("support_messages_request_key").on(t.requestId),
     index("support_messages_case_idx").on(t.caseId, t.createdAt),
-    // Lane P7g (drizzle/0129): one row per message SES received, and the
+    // Lane P7g (drizzle/0130): one row per message SES received, and the
     // hour's count per sender.
     uniqueIndex("support_messages_inbound_mail_key").on(t.inboundMailId),
     index("support_messages_sender_idx").on(t.senderRef, t.receivedAt),
@@ -8372,7 +8380,7 @@ export const supportMessages = pgTable(
     ),
     check(
       "support_messages_send_check",
-      sql`(${t.kind} = 'reply' or (${t.replySubject} is null and ${t.approvedHash} is null and ${t.sendAttempts} = 0 and ${t.nextSendAt} is null and ${t.sendStoppedAt} is null and ${t.textDeleteAfter} is null)) and ${t.sendAttempts} between 0 and ${sql.raw(String(SUPPORT_SEND_MAX_ATTEMPTS))} and (${t.approvedHash} is null or ${t.approvedHash} ~ '^[0-9a-f]{64}$') and (${t.replySubject} is null or char_length(${t.replySubject}) between 1 and 200) and (${t.sendStoppedAt} is null) = (${t.sendStoppedReason} is null) and (${t.sendStoppedReason} is null or ${t.sendStoppedReason} in (${sqlList(SUPPORT_SEND_STOPPED_REASONS)})) and not (${t.sendStoppedAt} is not null and ${t.sentAt} is not null) and (${t.textDeleteAfter} is null or ${t.sentAt} is not null)`,
+      sql`(${t.kind} = 'reply' or (${t.replySubject} is null and ${t.approvedHash} is null and ${t.sendAttempts} = 0 and ${t.nextSendAt} is null and ${t.sendStoppedAt} is null and ${t.textDeleteAfter} is null)) and ${t.sendAttempts} between 0 and ${sql.raw(String(SUPPORT_SEND_MAX_ATTEMPTS))} and (${t.approvedHash} is null or ${t.approvedHash} ~ '^[0-9a-f]{64}$') and (${t.replySubject} is null or char_length(${t.replySubject}) between 1 and 200) and (${t.sendStoppedAt} is null) = (${t.sendStoppedReason} is null) and (${t.sendStoppedReason} is null or ${t.sendStoppedReason} in (${sqlList(SUPPORT_SEND_STOPPED_REASONS)})) and not (${t.sendStoppedAt} is not null and ${t.sentAt} is not null) and (${t.textDeleteAfter} is null or ${t.sentAt} is not null or ${t.sendStoppedAt} is not null)`,
     ),
     check(
       "support_messages_approved_check",

@@ -535,8 +535,8 @@ describeDb("WP5: health flags, the ops watch and the digest", () => {
       const now = new Date();
       await inTenant(clinic.clinicId, async (client) => {
         await client.query(
-          `insert into billing_notices (clinic_id, kind, dedupe_key, payload, created_at)
-           values ($1, 'receipt', 'digest-pending', '{}', $2)`,
+          `insert into billing_notices (clinic_id, kind, dedupe_key, payload, created_at, send_after)
+           values ($1, 'receipt', 'digest-pending', '{}', $2, $2)`,
           [clinic.clinicId, new Date(now.getTime() - 30 * 60_000)],
         );
         await client.query(
@@ -574,6 +574,78 @@ describeDb("WP5: health flags, the ops watch and the digest", () => {
       expect(text).not.toContain("example-clinic.test");
       expect(text).not.toContain(clinic.slug);
     });
+
+    /**
+     * The digest's queue numbers are Home's and the System page's (lane P7f):
+     * one read, one rule. A reminder held for tomorrow is not waiting, and
+     * one that fell due waits from when it fell due, not from when it was
+     * queued; the approval inbox is one line.
+     */
+    test("counts the queues by the machine-queue rule, so a held reminder is not waiting and the numbers are the System page's", async () => {
+      const clinic = await seedClinic("digest-held");
+      const now = new Date(Date.now());
+      const base = async () => (await collectDigest(now)).queueRows.find((q) => q.kind === "outbox")!;
+      const before = await base();
+      await inTenant(clinic.clinicId, async (client) => {
+        await client.query(
+          `insert into billing_notices (clinic_id, kind, dedupe_key, payload, created_at, send_after)
+           values ($1, 'setup_reminder', 'digest-held-tomorrow', '{}', $2, $3)`,
+          [clinic.clinicId, new Date(now.getTime() - 2 * HOUR), new Date(now.getTime() + DAY)],
+        );
+      });
+      // Queued two hours ago but not due until tomorrow: not in the outbox count.
+      expect((await base()).count).toBe(before.count);
+      await inTenant(clinic.clinicId, async (client) => {
+        await client.query(
+          `insert into billing_notices (clinic_id, kind, dedupe_key, payload, created_at, send_after)
+           values ($1, 'setup_reminder', 'digest-due-now', '{}', $2, $3)`,
+          [clinic.clinicId, new Date(now.getTime() - 5 * HOUR), new Date(now.getTime() - 20 * 60_000)],
+        );
+      });
+      const after = await base();
+      expect(after.count).toBe(before.count + 1);
+      // The same numbers the System page reads, from the same function.
+      const { machineQueuesOf } = await import("@/lib/ops/machine-queues-ops");
+      const { readMachineQueues } = await import("@/lib/ops/inbox/queues");
+      const system = machineQueuesOf(
+        await readMachineQueues({ now, actor: { type: "service", serviceName: "test" }, request: {} }),
+        now,
+      ).queues.find((q) => q.key === "outbox");
+      expect(system).toMatchObject({ count: after.count, oldestAgeMinutes: after.oldestMinutes });
+      // Every queue the screens list with something in it is the digest's count too, none told twice.
+      const digest = await collectDigest(now);
+      const screens = machineQueuesOf(
+        await readMachineQueues({ now, actor: { type: "service", serviceName: "test" }, request: {} }),
+        now,
+      ).queues.filter((q) => q.count > 0 && q.key !== "outbox_dead" && q.key !== "emails_undeliverable");
+      for (const q of screens) {
+        expect(digest.queueRows.filter((r) => r.kind === q.key), q.key).toEqual([expect.objectContaining({ count: q.count })]);
+      }
+    }, 60_000);
+
+    test("says how many items wait for the owner's yes in the approval inbox, support replies apart", async () => {
+      const pool = getMigratorPool();
+      const now = new Date();
+      const count = async () => (await collectDigest(now)).approvalsWaitingCount;
+      const before = (await count()) ?? 0;
+      await pool.query(
+        `insert into ops_approvals (kind, subject_ref, payload, due_at, urgency, proposed_by)
+         values ('billing_event_replay', 'digest-approvals-a', '{}', now(), 'money', 'approvals-propose'),
+                ('support_reply_send', 'digest-approvals-b', '{}', now(), 'routine', 'support-send')`,
+      );
+      expect(await count()).toBe(before + 1);
+      const digest = await collectDigest(now);
+      expect(() => assertPayloadAllowed(digest, "ops_digest")).not.toThrow();
+      const rendered = renderOpsDigest(digest, {
+        clinicName: null,
+        audience: "patients",
+        reason: "test",
+        raisedAt: now,
+        timeZone: "UTC",
+      });
+      expect(rendered.text).toMatch(/Approvals: \d+ items? waiting for your yes\./);
+      await pool.query(`update ops_approvals set status = 'rejected', decided_at = now() where subject_ref like 'digest-approvals-%' and status = 'waiting'`);
+    }, 60_000);
 
     /**
      * Until 19 October 2026 the digest read only the ledgers and the ops log:

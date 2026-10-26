@@ -331,7 +331,7 @@ export const CHECK_NOTE = "Runs the checks on the text above as Send will, and n
 
 /** The one line under Send (lib/approvals/support-reply.ts sendSupportReply). */
 export const SEND_NOTE =
-  "Nothing is sent until the code is entered. Send proposes the current draft if it is not waiting already, then approves it with your code: the checks run again on the text above, and if one fails nothing is sent and the rule is named. The reply goes to the practice's one sign-in address, signed The Healdesk Team, under the subject shown.";
+  "Nothing is sent until the code is entered. Send proposes the current draft if it is not waiting already, then approves it with your code: the checks run again on the text above, and if one fails nothing is sent and the rule is named. The reply goes to the practice's one sign-in address, signed The Healdesk Team, under the subject shown. There is no Reject: to not send this reply, Close the case below, which takes a waiting reply off the list unsent.";
 
 /** The second press on Send. */
 export const SEND_CONFIRM = "Send this reply? It cannot be undone once the reply has gone.";

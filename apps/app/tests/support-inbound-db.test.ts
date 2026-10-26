@@ -16,7 +16,7 @@ import { memoryMailStore } from "./setup/inbound-mail";
 
 /**
  * Inbound support mail against the real database (ops automation lane P7g;
- * drizzle/0129): an email becomes exactly one case holding facts only, the
+ * drizzle/0130): an email becomes exactly one case holding facts only, the
  * fixed acknowledgement is queued to the clinic's one address at most once
  * per case and only when the rules allow, a reply joins its case by ref or
  * thread, a stranger gets nothing, a redelivered notice changes nothing, and
@@ -91,7 +91,7 @@ async function acks(clinicId: string) {
   );
 }
 
-describeDb("inbound support mail (drizzle/0129)", () => {
+describeDb("inbound support mail (drizzle/0130)", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();

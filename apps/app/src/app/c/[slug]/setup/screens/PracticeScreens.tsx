@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
+import { shortClinicName } from "@healdesk/catalog";
 
 import {
   emptyServiceRow,
@@ -32,6 +33,8 @@ type Common = { slug: string; backHref: string | null; skipCost: string };
 
 export type BasicsInitial = {
   name: string;
+  /** What patients call the practice, as saved; "" when it is still the one worked out from the name. */
+  shortName: string;
   address: string;
   phone: string;
   website: string;
@@ -52,6 +55,10 @@ export function BasicsScreen(
   },
 ) {
   const [name, setName] = useState(props.initial.name);
+  // Pre-filled from the name (spec, "never ask twice") and following it as
+  // it is corrected, until the clinic writes its own.
+  const [shortName, setShortName] = useState(props.initial.shortName);
+  const shown = shortName || shortClinicName(name);
   const [address, setAddress] = useState(props.initial.address);
   const [phone, setPhone] = useState(props.initial.phone);
   const [website, setWebsite] = useState(props.initial.website);
@@ -90,7 +97,7 @@ export function BasicsScreen(
       }
       skipCost={props.skipCost}
       backHref={props.backHref}
-      payload={() => ({ name, address, phone, website, timezone, location })}
+      payload={() => ({ name, shortName: shown, address, phone, website, timezone, location })}
     >
       {props.locations.length > 1 ? (
         <Choice
@@ -116,6 +123,13 @@ export function BasicsScreen(
         onChange={setName}
         maxLength={120}
         autoComplete="organization"
+      />
+      <Field
+        label={`What ${props.audience} call you`}
+        hint="AYA says your full name once, at the start, then this, on every channel."
+        value={shown}
+        onChange={setShortName}
+        maxLength={40}
       />
       <Field
         label="Address"

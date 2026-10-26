@@ -129,6 +129,8 @@ function viewOf(
       coverageMode: "overflow_after_hours",
       callRouting: "conditional",
       callRoutingConfirmedAt: null,
+      callName: null,
+      shortNameSet: false,
       carrier: null,
       assistantNumberE164: null,
       publishedPhoneE164: null,

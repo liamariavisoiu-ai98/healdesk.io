@@ -197,8 +197,9 @@ restart the worker, as above) and hourly from the tick, each reply you approved 
 did not go is tried again on the email outbox's schedule, and stopped after six with
 `support_reply_dead`. It sends only the text you approved. While it is off, a failed first try
 waits with no retry. At 03 UTC, unswitched because it only deletes, the tick's
-`support-retention` step deletes the words of every reply sent more than 12 months ago, and the
-copy in its approval item; the rows, hashes and approval events stay.
+`support-retention` step deletes the words of every reply sent, or stopped without going (dead,
+its case closed, its clinic left), more than 12 months ago, and the copy in its approval item
+12 months after the decision; the rows, hashes and approval events stay.
 
 v1 adds jobs that are not built yet: the demo-sandbox purge (7 to 14 days), the 14-day
 zero-inbound flag for an active voice plan, the 48-hour zero-interaction flag, the
@@ -304,7 +305,12 @@ sends none), only a preview and the confirmed amount, so have the owner's word b
 press it. System › "Requires your attention" counts, across clinics, the Stripe and Connect
 events parked or retrying and the billing requests still pending ("Billing requests not
 done": a dead-lettered request has its done_at set, so it is not among them); it only reads,
-and an event that names no clinic shows nowhere else.
+and an event that names no clinic shows nowhere else, except in the approval inbox. A parked
+Stripe event lives in one place for you to act on: the item under Queues › Approvals, whose
+Approve replays it, while the approvals job is on (an event provisioning will replay is not
+proposed). Home then shows that approval row and drops the "Stripe events parked" queue row for
+the events it holds, but still shows the queue row for any it does not hold; System still counts
+all of them, and the alert raised when it parked stays on Home for a day.
 
 ### Usage
 
@@ -338,12 +344,13 @@ account holds is counted nowhere.
 
 `setup_request_reply_past_due`, `provisioning_follow_up_past_due`, `support_reply_past_due`,
 `assistant_knows_no_services`.
-Queues › Setup requests and Queues › Support: a reply promised by the next business day was
-not marked. Reply from hello@, then mark it. Since lane P7e `support_reply_past_due` is raised
+Queues › Setup requests and Queues › Support (the latter lists only chat requests with no
+support case; a request on a case is on the Support page): a reply promised by the next business
+day was not marked. Reply from hello@, then mark it. Since lane P7e `support_reply_past_due` is raised
 only for a chat request that has no support case; a request on a case raises
 `support_case_past_due` instead (Support cases, below), one alert per promise. A follow-up past due is a paid order whose
-account still does not exist past the day we promised the buyer: Home counts paid orders
-without an account. Write to the buyer from hello@ today and get the cause fixed (see
+account still does not exist past the day we promised the buyer: the alert opens System ›
+Requires your attention, which counts paid orders without an account (so does Home). Write to the buyer from hello@ today and get the cause fixed (see
 Provisioning). `assistant_knows_no_services` is AYA answering a
 clinic that has no approved service or price in Knowledge: add the services in its Knowledge page
 or get the practice questions approved, then the alert stops.
@@ -388,7 +395,9 @@ never automated.
 the watch; the clinic's Setup tab, "Calendar", shows the connection and offers the link and a
 disconnect, and keeps the history of every write attempted with Google's own word where it
 gave one; "Calendar writes" (apps/web `setup/CalendarWrites.tsx`, Phase 5) lists this clinic's
-writes not settled whose slot has not started, each with the reason in words
+writes not settled whose slot has not started or started within the last 14 days (marked "Slot
+has passed": the sweep no longer takes it, and `calendar_write_stuck` is raised for it, so it is
+listed), each with the reason in words
 (`components/admin/queue-words.ts`), the tries so far of five and the next try, and a "Retry"
 per row (`opRetryCalendarWrite`: reads Google back first, may go past the five, refuses a
 booking staff cancelled or marked). A write Google did not answer (a timeout, a lost reply, a
@@ -401,7 +410,11 @@ starts (`WRITE_BACKOFF_MINUTES`; the fifth step, 6 h, is recorded and never run,
 `MAX_WRITE_ATTEMPTS`); settled reasons (deleted in the calendar, event id taken, not ours, no calendar connected, the
 target calendar refused, an access or connection break) are never retried by the sweep
 (`lib/booking/calendar.ts`, `CALENDAR_WRITE_REASONS`). `calendar_write_stuck` fires only for a
-write the sweep no longer takes. System › "Requires your attention", "Calendar writes stuck",
+write the sweep no longer takes: a failed one at once, an unanswered one at five tries, past its
+slot, with a settled reason, or (whatever the switch says) untouched for 24 hours, a rule a
+working sweep never trips. With the switch off that last rule is the only one that catches a
+write Google never answered, so its alert can come a day after the failure, even after the
+slot; the lists on the Setup tab and the System page show it at once and say so. System › "Requires your attention", "Calendar writes stuck",
 lists the stuck writes across clinics, one row per clinic, linking to its "Calendar writes". A
 broken connection already flipped the clinic to manual booking in the same turn: the clinic
 takes booking requests and is not down. Google refusing our OAuth client is every clinic at
@@ -604,6 +617,15 @@ alert and clinic, and each decision owed as its own row with "Decide" (lane A4),
 Clinics table shows each clinic's stage and usage. If the line did not arrive by morning, open System › Jobs: the digest's row shows its
 switch, last run and note (sent, already gone, or the failure).
 
+The email's own queue table is read by the same function as Home and System › Requires your
+attention (`readMachineQueues`), so a count and an age in the email are the ones those screens
+show: a notice held for later (quiet hours, a retry, a reminder for tomorrow) is not waiting
+until it falls due, a job waits from when it became due, and a job that failed in the last two
+days is a queue of its own. Dead letters and bounces are in the email-by-kind table, not told
+twice. The email also carries one line, "Approvals: N items waiting for your yes", the approval
+inbox without support replies (the support line counts those). A switched-off job is not a queue
+and the email does not mention it; System › Jobs shows which are off.
+
 ### Approvals
 
 `approval_waiting`. The approval inbox (`apps/app/src/lib/approvals/`, ops automation Phase 6)
@@ -670,6 +692,8 @@ the email outbox's schedule, and after six the sending stops (`support_reply_dea
 are drawn beside their case under Support, not under Approvals; Home's row for them opens Support.
 They raise no reminder of their own: the case's `support_case_past_due` already does. An item
 leaves the list unsent after 14 days, and at once, as `case_closed`, when its case is closed.
+There is no Reject on a support reply: Close the case to not send it (the case view says so);
+the item is then expired unsent, and a clinic that writes again opens a new case.
 
 ### Compliance pack
 
@@ -712,8 +736,11 @@ decision D18): an incident opened at every clinic a vendor's or a channel's inci
 reached (proposed by an operator after reading the scope), and one practice's incident report,
 pre-filled from fixed lists (proposed by an operator, by an approved batch for each incident it
 opened, and by the hourly pass for any open reportable incident with no report proposed before
-and no notice recorded; a report the owner rejected, or one that failed, is never proposed again
-by the pass, only by hand). The hourly pass runs from the `incident-deadlines` job (seeded on)
+and no notice recorded; a report the owner rejected, or one that failed with a reason on its row,
+is never proposed again by the pass, only by hand; one that was interrupted, meaning the owner
+approved it and the process carrying it out died, so nobody knows it did not go, is proposed
+again by the next hourly pass, once per interruption, and the alert comes for it as for any
+item). The hourly pass runs from the `incident-deadlines` job (seeded on)
 and from `approvals-propose` (off until switched on). Both kinds are legal clocks: the alert
 comes, by email and Slack, at the first hourly pass after an item arrives and again at the first
 pass 4 hours or more after the last, while one waits; an item never expires and is never
@@ -742,7 +769,9 @@ under Reports and alerts (kind support_reply) with the last try's status and rea
 clinic's address if it bounced, then write to the clinic from hello@ with the same answer and
 close the case. The retries run from the `support-send` job (Jobs, above), which ships off:
 until it is on, only the first try at approval happens, and a failed first try stays waiting
-with no alert.
+with no alert. If the clinic's sign-in address changed between a try Resend took and the next
+one, Resend refuses the retry because its key was already used with another address; the send
+treats that refusal as sent (the reply went, to the address at the time) and raises no alert.
 
 ### Support cases
 

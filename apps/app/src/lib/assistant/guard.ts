@@ -614,20 +614,34 @@ const PER_UNIT_PRICE = new RegExp(
 );
 
 type ScreenFacts = Pick<AssistantFacts, "services"> &
-  Partial<Pick<AssistantFacts, "clinicName" | "address" | "requirements" | "providerNames" | "businessCounts">>;
+  Partial<Pick<AssistantFacts, "clinicName" | "shortName" | "address" | "requirements" | "providerNames" | "businessCounts">>;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**
- * The reply with the clinic's own words blanked: its name, its service names,
+ * The short name the clinic chose (Settings, "What patients call you"), as
+ * the screens' own words only when it is a part of its full name ("Painless
+ * Laser" of "Painless Laser Studio"): words the name already excuses, never
+ * new ones typed into Settings. Any other short name is read like any word
+ * of a reply, so a guard refuses it rather than reading past it.
+ */
+export function ownShortName(facts: { clinicName?: string | null; shortName?: string | null }): string | null {
+  const short = (facts.shortName ?? "").trim();
+  return short && (facts.clinicName ?? "").toLowerCase().includes(short.toLowerCase()) ? short : null;
+}
+
+/**
+ * The reply with the clinic's own words blanked: its name and a short name
+ * that is a part of it (ownShortName), its service names,
  * its address and the questions its booking requirements ask, all screened
  * or written by the practice, not by the model.
  */
 function withoutOwnWords(reply: string, facts: ScreenFacts): string {
   const own = [
     facts.clinicName ?? "",
+    ownShortName(facts) ?? "",
     facts.address ?? "",
     ...facts.services.map((s) => s.name),
     ...(facts.requirements ?? []).map((f) => f.ask),
@@ -824,6 +838,8 @@ function listForm(text: string): string {
  * keep the person's name.
  */
 export function clinicOwnWords(facts: { clinicName?: string | null; address?: string | null }): string[] {
+  // Never the short name: one that is itself an entry ("Painless") would
+  // make the entry an own word, which excuses nothing, the full name included.
   const words = [facts.clinicName ?? ""];
   for (const part of (facts.address ?? "").split(/[,\n]+/)) {
     words.push(part, part.trim().replace(/^\d+[a-z]?\s+/i, ""));
@@ -1337,7 +1353,7 @@ export function guardAssistantReply(
   if (HIPAA_CLAIM.test(reply) || HIPAA_CLAIM_ES.test(reply)) return { ok: false, reason: "hipaa_claim" };
   if (claimsToBeHuman(reply, facts)) return { ok: false, reason: "human_claim" };
   // The practice's own words (its menu, its people, its city) are no language either way.
-  const knownTerms = [facts.clinicName, facts.address, ...facts.services.map((s) => s.name), ...(facts.providerNames ?? [])];
+  const knownTerms = [facts.clinicName, facts.shortName ?? undefined, facts.address, ...facts.services.map((s) => s.name), ...(facts.providerNames ?? [])];
   if (messageLanguage(reply, { knownTerms }) === "other") return { ok: false, reason: "language" };
   if (clinicalIn(reply, facts)) return { ok: false, reason: "clinical" };
   if (promisesOutbound(reply)) return { ok: false, reason: "outbound_promise" };

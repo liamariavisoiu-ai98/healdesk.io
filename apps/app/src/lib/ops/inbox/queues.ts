@@ -7,6 +7,7 @@ import {
   billingRequests,
   checkoutIntents,
   opsAlerts,
+  opsApprovals,
   reportDeliveries,
   stripeConnectEvents,
   transcriptEmails,
@@ -33,7 +34,9 @@ import type { InboxContext, InboxRow, InboxSource, Tone } from "./types";
  * audit row is written by any of it. Booking requests are left to the digest
  * email, and support replies to their own source. The machine queues section
  * of the System page (lib/ops/machine-queues-ops.ts) reads the same queues
- * through readMachineQueues and judges them by the same needsAttention.
+ * through readMachineQueues and judges them by the same needsAttention. One
+ * exception, on Home only: a parked Stripe event the approval inbox holds is
+ * the Approvals row's (uncoveredParkedEvents), so Home does not say it twice.
  *
  * A queue is a Home row only when it needs a person: a dead letter, a bounce,
  * a failed job or a paid order without an account at once; anything else once its
@@ -371,14 +374,50 @@ export function queueHref(kind: string, q: Pick<QueueTotal, "clinics">): string 
   return words.href;
 }
 
+/**
+ * The parked Stripe events no waiting approval item covers. A parked event
+ * is on Home in up to three places: the alert raised when it parked, the
+ * Approvals row (its replay waits for the owner's yes, D17: the inbox holds
+ * what no process retries) and this queue's row. Home keeps the Approvals
+ * row, where Approve replays it, and drops the queue's row for exactly the
+ * events that have a waiting item, so an event the inbox does not hold (the
+ * approvals job is off, one provisioning will replay, one rejected) stays
+ * on Home here. The System page's section still counts every one.
+ */
+async function uncoveredParkedEvents(): Promise<{ count: number; oldest: Date | null }> {
+  const parked = await unsafeDb
+    .select({ id: billingEvents.stripeEventId, receivedAt: billingEvents.receivedAt })
+    .from(billingEvents)
+    .where(eq(billingEvents.outcome, "dead_letter"));
+  const waiting = await unsafeDb
+    .select({ subjectRef: opsApprovals.subjectRef })
+    .from(opsApprovals)
+    .where(and(eq(opsApprovals.kind, "billing_event_replay"), eq(opsApprovals.status, "waiting")));
+  // An item's subject is "<stripe event id>:<seconds it parked>" (lib/approvals/proposers.ts).
+  const covered = new Set(waiting.map((w) => w.subjectRef.split(":")[0]));
+  const left = parked.filter((e) => !covered.has(e.id));
+  const oldest = left.reduce<Date | null>((o, e) => (!o || e.receivedAt < o ? e.receivedAt : o), null);
+  return { count: left.length, oldest };
+}
+
 export const queuesSource: InboxSource = {
   name: "the queues",
   async read(ctx) {
     const now = ctx.now;
     const read = await readMachineQueues(ctx);
+    let parkedLeft: { count: number; oldest: Date | null } | null = null;
+    if (read.queues.has("billing_events_parked")) {
+      try {
+        parkedLeft = await uncoveredParkedEvents();
+      } catch (error) {
+        // Unread: show the queue's whole row rather than hide an event.
+        log.error("ops inbox parked events unreadable", { error: describeError(error) });
+      }
+    }
 
     const rows: InboxRow[] = [];
-    for (const [kind, q] of read.queues) {
+    for (const [kind, total] of read.queues) {
+      const q = kind === "billing_events_parked" && parkedLeft ? { ...total, ...parkedLeft } : total;
       const words = wordsFor(kind);
       const minutes = oldestAgeMinutes(q, now);
       if (!needsAttention(kind, q.count, minutes)) continue;

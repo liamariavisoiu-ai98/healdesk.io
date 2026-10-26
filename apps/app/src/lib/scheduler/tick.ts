@@ -332,7 +332,7 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // which ships off: the minute queue's backstop. Each reply is leased on its
   // own row, so the overlap sends nothing twice (lib/scheduler/support-send.ts).
   await record("support-send", () => runSupportSendJob({ now }));
-  // Inbound support mail (drizzle/0129), hourly behind its switch, which
+  // Inbound support mail (drizzle/0130), hourly behind its switch, which
   // ships off: each message a failed webhook left in the bucket becomes a
   // case, idempotent by SES's id; anything older than a day is deleted.
   await record("support-inbound-sweep", () => runSupportInboundSweepJob({ now }));

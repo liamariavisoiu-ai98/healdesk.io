@@ -763,18 +763,24 @@ act on it. We pass it to the practice within five business days, and our reply t
 person says we cannot act on it and have passed it on. That reply is written by a
 person, once; nothing contacts the patient.
 
-1. **Record it, never on the care page.** `npm run ops:patient-request -w @healdesk/app`
-   (`scripts/ops-patient-request.ts`), by ids and closed choices only: the clinic, what
-   was asked (`access`, `amendment`, `accounting`, `deletion` or `other`), the contact it
-   is about when you can name one by its id, when it reached us (an ISO date or time;
-   the five business days run from it), and your work address. Nothing the patient wrote
-   and none of their details are typed or passed, on any host. On the AWS host it is a
-   one-off task with `HEALDESK_PATIENT_REQUEST_CLINIC_ID`, `HEALDESK_PATIENT_REQUEST_KIND`,
-   optionally `HEALDESK_PATIENT_REQUEST_CONTACT_ID` and
-   `HEALDESK_PATIENT_REQUEST_RECEIVED_AT`, and `HEALDESK_OPS_OPERATOR` in its environment
-   set by `bash run-task.sh patient-request <clinic id> <kind> <you@healdesk.io>
-   [received at] [contact id]` in CloudShell. It prints the request's id and the day the
-   practice is asked to mark it received by.
+1. **Record it on the Patient rights page, then run its command.** Open `/admin/rights`
+   (Compliance › Patient rights) and press "Record a request": the clinic, "What it asks for"
+   (a patient's own request, to pass on), "What the patient asked for" (a closed list:
+   to see their information, to have it corrected, to be told who it was disclosed to, to
+   have it deleted, something else), "Day received" (the five business days run from it)
+   and "How it was verified". Nothing the patient wrote and none of their details are typed,
+   here or on the host. The row appears with its clock and a prepared command: "Copy
+   command", then paste it in AWS CloudShell yourself (the page runs nothing). The command
+   is `bash run-task.sh patient-request <clinic id> <kind> <you@healdesk.io> [received at]
+   [contact id]`, the one-off task `ops:patient-request` (`scripts/ops-patient-request.ts`),
+   whose environment is `HEALDESK_PATIENT_REQUEST_CLINIC_ID`,
+   `HEALDESK_PATIENT_REQUEST_KIND`, optionally `HEALDESK_PATIENT_REQUEST_CONTACT_ID` and
+   `HEALDESK_PATIENT_REQUEST_RECEIVED_AT`, and `HEALDESK_OPS_OPERATOR`. It records the
+   request on the host and prints the request's id and the day the practice is asked to mark
+   it received by. Then press "Mark done" on the row: it closes your intake, and the host's
+   request is chased on its own from there (step 5). The page counts the five days on the
+   clinic's own calendar day, as the host does, and every other kind on UTC weekdays. On a
+   development machine the same task is `npm run ops:patient-request -w @healdesk/app`.
 2. **What the practice gets.** L32 at its one address, a pointer naming the clinic, the
    kind of request and that day, linking to the request's own page in the portal, which
    opens behind the passkey step-up and shows the contact it names. Home points at it

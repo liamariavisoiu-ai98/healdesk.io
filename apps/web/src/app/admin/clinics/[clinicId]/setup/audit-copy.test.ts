@@ -71,6 +71,8 @@ function page(agent: OnboardingView["agent"], channels: OnboardingView["channels
       phoneSystemType: "landline",
       callRouting: "conditional",
       callRoutingConfirmedAt: null,
+      callName: null,
+      shortNameSet: false,
       carrier: null,
       assistantNumberE164: null,
       publishedPhoneE164: null,

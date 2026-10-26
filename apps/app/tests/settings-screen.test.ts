@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { assistantFacts } from "@/lib/assistant/facts";
 import { assistantMayAnswer } from "@/lib/billing/answering";
 import { depositDecision, readClinicDepositFacts } from "@/lib/billing/deposits";
 import { assertPayloadAllowed } from "@/lib/email/lint";
@@ -801,6 +802,40 @@ describeDb("Settings", () => {
     } finally {
       await withTenant({ clinicId: portal.clinicId, actor: ACTOR }, (tx) => saveNeverSay(tx, []));
       await save("phone_greeting", null);
+    }
+  });
+
+  // What patients call you (owner, 26 October 2026; docs/design/clinic-nickname-2026-10-26.md).
+  test("What patients call you saves, reaches the assistant's facts, refuses what the screens would, and resets", async () => {
+    try {
+      const saved = await save("short_name", "  Settings  Spa ");
+      expect(saved).toMatchObject({ ok: true, toast: expect.stringMatching(/^Saved\. AYA says your full name once, then calls you "Settings Spa"\./) });
+      const facts = await withTenant({ clinicId: portal.clinicId, actor: ACTOR }, (tx) => assistantFacts(tx, { asApproved: true }));
+      expect(facts?.shortName).toBe("Settings Spa");
+
+      for (const [name, why] of [
+        ["x".repeat(41), /Keep it to 40 characters/],
+        ["https://glow.test", /plain words/],
+        ["123", /plain words/],
+        ["Acne Clinic", /not a treatment or medical term/],
+      ] as const) {
+        expect(await save("short_name", name), name).toMatchObject({ ok: false, message: expect.stringMatching(why) });
+      }
+      await withTenant({ clinicId: portal.clinicId, actor: ACTOR }, (tx) => saveNeverSay(tx, ["glowiest"]));
+      expect(await save("short_name", "The Glowiest")).toMatchObject({ ok: false, message: expect.stringMatching(/never-say list/) });
+      expect(await save("short_name", "Settings Spa")).toMatchObject({ ok: true });
+
+      // The column's own check holds whatever writes it.
+      await expect(inTenant(portal.clinicId, (c) => c.query(`update clinic_settings set short_name = '' where clinic_id = $1`, [portal.clinicId]))).rejects.toThrow(
+        /clinic_settings_short_name_check/,
+      );
+
+      expect(await save("short_name", "")).toMatchObject({ ok: true, toast: expect.stringMatching(/^Back to the name AYA works out/) });
+      const reset = await withTenant({ clinicId: portal.clinicId, actor: ACTOR }, (tx) => assistantFacts(tx, { asApproved: true }));
+      expect(reset?.shortName).toBeNull();
+    } finally {
+      await withTenant({ clinicId: portal.clinicId, actor: ACTOR }, (tx) => saveNeverSay(tx, []));
+      await save("short_name", null);
     }
   });
 

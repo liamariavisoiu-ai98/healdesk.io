@@ -123,7 +123,7 @@ describeDb("support case operations", () => {
         now: NOW,
       }),
     );
-    // Lane P7g (0129): an inbound email holds facts only, and the database refuses its words outright.
+    // Lane P7g (0130): an inbound email holds facts only, and the database refuses its words outright.
     await expect(
       getMigratorPool().query(
         `insert into support_messages (case_id, direction, kind, inbound_mail_id, sender_ref, fields_json, received_at, subject_screened, text)

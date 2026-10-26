@@ -1,6 +1,6 @@
 {
-  "id": "7abd2fd0-26d4-4b19-84c1-19c221c51347",
-  "prevId": "14ec668f-2f71-49d6-ab02-b1de2ae7df26",
+  "id": "4c78bb19-c3f4-4989-8b8a-f2ce35f1bad9",
+  "prevId": "1a087fdf-935e-42a5-9dab-0e851fc71a6d",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1730,7 +1730,7 @@
       "checkConstraints": {
         "billing_notices_kind_check": {
           "name": "billing_notices_kind_check",
-          "value": "\"billing_notices\".\"kind\" in ('payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected', 'setup_reminder', 'setup_closed', 'calendar_stopped', 'calendar_reconnected', 'setting_changed', 'channel_ready', 'channel_live', 'booking_request', 'request_still_open', 'request_missed', 'deposit_to_collect', 'handover', 'urgent', 'website_message', 'calendar_check', 'ended_early', 'daily_summary', 'weekly_recap', 'ai_paused', 'outage_started', 'outage_ended', 'guarantee_miss', 'website_changes', 'support_request', 'terms_notice', 'subprocessor_notice', 'incident_report', 'guarantee_claim_received', 'guarantee_finding', 'suspended_for_cause', 'patient_request', 'product_update', 'pass_through_ending', 'export_ready', 'export_reminder', 'assistant_ready', 'practice_questions_failed', 'closed_day_bookings', 'setup_extended', 'setup_waiting_on_us', 'setup_help_offer', 'agreement_question', 'support_received')"
+          "value": "\"billing_notices\".\"kind\" in ('payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected', 'setup_reminder', 'setup_closed', 'calendar_stopped', 'calendar_reconnected', 'setting_changed', 'channel_ready', 'channel_live', 'booking_request', 'request_still_open', 'request_missed', 'deposit_to_collect', 'handover', 'urgent', 'website_message', 'calendar_check', 'ended_early', 'daily_summary', 'weekly_recap', 'ai_paused', 'outage_started', 'outage_ended', 'guarantee_miss', 'website_changes', 'support_request', 'terms_notice', 'subprocessor_notice', 'incident_report', 'guarantee_claim_received', 'guarantee_finding', 'suspended_for_cause', 'patient_request', 'product_update', 'pass_through_ending', 'export_ready', 'export_reminder', 'assistant_ready', 'practice_questions_failed', 'closed_day_bookings', 'setup_extended', 'setup_waiting_on_us', 'setup_help_offer', 'agreement_question')"
         }
       },
       "isRLSEnabled": false
@@ -4665,6 +4665,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "short_name": {
+          "name": "short_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "languages": {
           "name": "languages",
           "type": "text[]",
@@ -4814,6 +4820,10 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
+        "clinic_settings_short_name_check": {
+          "name": "clinic_settings_short_name_check",
+          "value": "\"clinic_settings\".\"short_name\" is null or char_length(\"clinic_settings\".\"short_name\") between 1 and 40"
+        },
         "clinic_settings_uncollectable_check": {
           "name": "clinic_settings_uncollectable_check",
           "value": "\"clinic_settings\".\"deposit_uncollectable\" in ('book_and_flag', 'hold_and_alert', 'decline_and_alert')"
@@ -11734,7 +11744,7 @@
       "checkConstraints": {
         "report_deliveries_kind_check": {
           "name": "report_deliveries_kind_check",
-          "value": "\"report_deliveries\".\"kind\" in ('monthly', 'weekly', 'alert', 'renewal', 'payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected', 'setup_reminder', 'setup_closed', 'calendar_stopped', 'calendar_reconnected', 'setting_changed', 'channel_ready', 'channel_live', 'booking_request', 'request_still_open', 'request_missed', 'deposit_to_collect', 'handover', 'urgent', 'website_message', 'calendar_check', 'ended_early', 'daily_summary', 'weekly_recap', 'ai_paused', 'outage_started', 'outage_ended', 'guarantee_miss', 'website_changes', 'support_request', 'terms_notice', 'subprocessor_notice', 'incident_report', 'guarantee_claim_received', 'guarantee_finding', 'suspended_for_cause', 'patient_request', 'product_update', 'pass_through_ending', 'export_ready', 'export_reminder', 'assistant_ready', 'practice_questions_failed', 'closed_day_bookings', 'setup_extended', 'setup_waiting_on_us', 'setup_help_offer', 'agreement_question', 'support_received', 'welcome', 'steps_sent', 'address_change_confirm', 'address_changing', 'agreement_to_sign', 'data_destroyed', 'baa_resign_chase', 'support_reply')"
+          "value": "\"report_deliveries\".\"kind\" in ('monthly', 'weekly', 'alert', 'renewal', 'payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected', 'setup_reminder', 'setup_closed', 'calendar_stopped', 'calendar_reconnected', 'setting_changed', 'channel_ready', 'channel_live', 'booking_request', 'request_still_open', 'request_missed', 'deposit_to_collect', 'handover', 'urgent', 'website_message', 'calendar_check', 'ended_early', 'daily_summary', 'weekly_recap', 'ai_paused', 'outage_started', 'outage_ended', 'guarantee_miss', 'website_changes', 'support_request', 'terms_notice', 'subprocessor_notice', 'incident_report', 'guarantee_claim_received', 'guarantee_finding', 'suspended_for_cause', 'patient_request', 'product_update', 'pass_through_ending', 'export_ready', 'export_reminder', 'assistant_ready', 'practice_questions_failed', 'closed_day_bookings', 'setup_extended', 'setup_waiting_on_us', 'setup_help_offer', 'agreement_question', 'welcome', 'steps_sent', 'address_change_confirm', 'address_changing', 'agreement_to_sign', 'data_destroyed', 'baa_resign_chase', 'support_reply')"
         },
         "report_deliveries_delivery_status_check": {
           "name": "report_deliveries_delivery_status_check",
@@ -14190,18 +14200,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "inbound_mail_id": {
-          "name": "inbound_mail_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sender_ref": {
-          "name": "sender_ref",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "received_at": {
           "name": "received_at",
           "type": "timestamp with time zone",
@@ -14258,42 +14256,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "support_messages_inbound_mail_key": {
-          "name": "support_messages_inbound_mail_key",
-          "columns": [
-            {
-              "expression": "inbound_mail_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "support_messages_sender_idx": {
-          "name": "support_messages_sender_idx",
-          "columns": [
-            {
-              "expression": "sender_ref",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "received_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -14315,14 +14277,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "support_messages_email_check": {
-          "name": "support_messages_email_check",
-          "value": "(\"support_messages\".\"kind\" = 'email') = (\"support_messages\".\"inbound_mail_id\" is not null) and (\"support_messages\".\"kind\" = 'email') = (\"support_messages\".\"sender_ref\" is not null) and (\"support_messages\".\"kind\" <> 'email' or (\"support_messages\".\"direction\" = 'in' and \"support_messages\".\"text\" is null and \"support_messages\".\"subject_screened\" is null and \"support_messages\".\"draft_text\" is null and \"support_messages\".\"received_at\" is not null and \"support_messages\".\"fields_json\" is not null and \"support_messages\".\"inbound_mail_id\" ~ '^[A-Za-z0-9._-]{1,128}$' and \"support_messages\".\"sender_ref\" ~ '^[0-9a-f]{64}$' and (\"support_messages\".\"attachments_json\" is null or (jsonb_typeof(\"support_messages\".\"attachments_json\") = 'object' and char_length(\"support_messages\".\"attachments_json\"::text) <= 300 and \"support_messages\".\"attachments_json\"::text ~ '^[a-z0-9_{}\":, ]*$'))))"
-        },
-        "support_messages_email_ids_check": {
-          "name": "support_messages_email_ids_check",
-          "value": "\"support_messages\".\"kind\" <> 'email' or ((\"support_messages\".\"message_id\" is null or (char_length(\"support_messages\".\"message_id\") <= 250 and \"support_messages\".\"message_id\" ~ '^<[A-Za-z0-9!#$%&*+.=?^_{|}~-]{1,200}@[A-Za-z0-9._-]{1,200}>$')) and (\"support_messages\".\"in_reply_to\" is null or (char_length(\"support_messages\".\"in_reply_to\") <= 250 and \"support_messages\".\"in_reply_to\" ~ '^<[A-Za-z0-9!#$%&*+.=?^_{|}~-]{1,200}@[A-Za-z0-9._-]{1,200}>$')))"
-        },
         "support_messages_direction_check": {
           "name": "support_messages_direction_check",
           "value": "\"support_messages\".\"direction\" in ('in', 'out')"
@@ -14357,7 +14311,7 @@
         },
         "support_messages_send_check": {
           "name": "support_messages_send_check",
-          "value": "(\"support_messages\".\"kind\" = 'reply' or (\"support_messages\".\"reply_subject\" is null and \"support_messages\".\"approved_hash\" is null and \"support_messages\".\"send_attempts\" = 0 and \"support_messages\".\"next_send_at\" is null and \"support_messages\".\"send_stopped_at\" is null and \"support_messages\".\"text_delete_after\" is null)) and \"support_messages\".\"send_attempts\" between 0 and 6 and (\"support_messages\".\"approved_hash\" is null or \"support_messages\".\"approved_hash\" ~ '^[0-9a-f]{64}$') and (\"support_messages\".\"reply_subject\" is null or char_length(\"support_messages\".\"reply_subject\") between 1 and 200) and (\"support_messages\".\"send_stopped_at\" is null) = (\"support_messages\".\"send_stopped_reason\" is null) and (\"support_messages\".\"send_stopped_reason\" is null or \"support_messages\".\"send_stopped_reason\" in ('dead', 'case_closed', 'clinic_left')) and not (\"support_messages\".\"send_stopped_at\" is not null and \"support_messages\".\"sent_at\" is not null) and (\"support_messages\".\"text_delete_after\" is null or \"support_messages\".\"sent_at\" is not null)"
+          "value": "(\"support_messages\".\"kind\" = 'reply' or (\"support_messages\".\"reply_subject\" is null and \"support_messages\".\"approved_hash\" is null and \"support_messages\".\"send_attempts\" = 0 and \"support_messages\".\"next_send_at\" is null and \"support_messages\".\"send_stopped_at\" is null and \"support_messages\".\"text_delete_after\" is null)) and \"support_messages\".\"send_attempts\" between 0 and 6 and (\"support_messages\".\"approved_hash\" is null or \"support_messages\".\"approved_hash\" ~ '^[0-9a-f]{64}$') and (\"support_messages\".\"reply_subject\" is null or char_length(\"support_messages\".\"reply_subject\") between 1 and 200) and (\"support_messages\".\"send_stopped_at\" is null) = (\"support_messages\".\"send_stopped_reason\" is null) and (\"support_messages\".\"send_stopped_reason\" is null or \"support_messages\".\"send_stopped_reason\" in ('dead', 'case_closed', 'clinic_left')) and not (\"support_messages\".\"send_stopped_at\" is not null and \"support_messages\".\"sent_at\" is not null) and (\"support_messages\".\"text_delete_after\" is null or \"support_messages\".\"sent_at\" is not null or \"support_messages\".\"send_stopped_at\" is not null)"
         },
         "support_messages_approved_check": {
           "name": "support_messages_approved_check",

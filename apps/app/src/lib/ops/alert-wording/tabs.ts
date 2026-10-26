@@ -152,8 +152,8 @@ export const NO_CLINIC_PAGE: Readonly<Record<OpsEvent, string>> = {
   daily_email_count_70: "/admin/queues#setup-requests",
   // no clinic: the request is in the marketing Sheet.
   setup_request_reply_past_due: "/admin/queues#setup-requests",
-  // no clinic yet: a paid order; Home counts paid orders without an account.
-  provisioning_follow_up_past_due: "/admin/",
+  // no clinic yet: a paid order, counted under "Paid orders without an account" (as the two above).
+  provisioning_follow_up_past_due: "/admin/system#attention",
   support_reply_past_due: "/admin/queues#support",
   practice_question_review_past_due: "/admin/queues#reviews",
   agreement_unsigned_7_days: "/admin/clinics",

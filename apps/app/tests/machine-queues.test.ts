@@ -277,6 +277,33 @@ describeDb("listMachineQueues and Home's queue rows (lane P5d)", () => {
     );
   });
 
+  test("a parked Stripe event the approval inbox holds is the Approvals row's, not this queue's; the System section still counts it, and one it does not hold stays here", async () => {
+    await seedQueues();
+    const pool = getMigratorPool();
+    const home = async () => (await readOpsInbox(OPERATOR, { sources: [queuesSource] })).rows.find((r) => r.id === "queue:billing_events_parked");
+    // Nothing waiting in the inbox (the approvals job off): the queue row is the only Home row, as before.
+    expect(await home()).toMatchObject({ count: 1 });
+    await pool.query(
+      `insert into ops_approvals (kind, subject_ref, payload, due_at, urgency, proposed_by)
+       values ('billing_event_replay', 'evt_mq_parked:1', '{"eventType":"invoice.paid"}', now(), 'money', 'approvals-propose')`,
+    );
+    // Held by a waiting item: left to the Approvals row, which has Approve; the System section still counts it.
+    expect(await home()).toBeUndefined();
+    expect((await machineQueues()).queues.find((q) => q.key === "billing_events_parked")).toMatchObject({ count: 1, needsAttention: true });
+    // A second parked event nothing proposes (a purchase will replay it, or the item was rejected) stays on Home, with its own age.
+    await pool.query(
+      `insert into billing_events (stripe_event_id, type, outcome, failures, error, payload, received_at)
+       values ('evt_mq_parked_two', 'invoice.paid', 'dead_letter', 5, 'Error: boom', '{}'::jsonb, $1)`,
+      [new Date(Date.now() - 2 * HOUR)],
+    );
+    const row = await home();
+    expect(row).toMatchObject({ count: 1 });
+    expect(row!.sentence).toMatch(/the oldest is 2 h old/);
+    // A rejected item no longer holds its event.
+    await pool.query(`update ops_approvals set status = 'rejected', decided_at = now() where subject_ref = 'evt_mq_parked:1'`);
+    expect(await home()).toMatchObject({ count: 2 });
+  });
+
   test("a part that cannot be read is named and absent, never a zero", async () => {
     const { a } = await seedQueues();
     failing.floor = true;

@@ -174,6 +174,7 @@ vi.mock("@/lib/admin/ops-client", () => {
         attempts: 2,
         nextAttemptAt: null,
         slotInDays: 3,
+        slotPassed: false,
         retryable: true,
       });
       return { ok: true, data: { writes: [write(CLINIC, APPT), write(OTHER, CHANGE)], count: 2, truncated: false, unreadClinics: 0, sweepOn: true } };

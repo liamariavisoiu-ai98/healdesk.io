@@ -846,6 +846,64 @@ describeDb("the incident assistant (database)", () => {
       expect(await itemsOf("incident_report_send", [told.c.clinicId])).toEqual([]);
     });
 
+    test("a report item interrupted after the owner's yes is proposed again once, by the hourly pass, never while one waits, is approved or was executed", async () => {
+      const { c } = await openBreach("stick-interrupted");
+      const pool = getMigratorPool();
+      const t0 = new Date(Date.now() + MINUTE);
+      await runIncidentSweep(t0);
+      const [first] = await itemsOf("incident_report_send", [c.clinicId]);
+      expect(first!.status).toBe("waiting");
+
+      // Approved and left by a process that died: not stuck yet at 5 minutes, so nothing new while it is approved.
+      await pool.query(`update ops_approvals set status = 'approved', decided_at = $2 where id = $1`, [first!.id, t0]);
+      await runIncidentSweep(new Date(t0.getTime() + 5 * MINUTE));
+      expect((await itemsOf("incident_report_send", [c.clinicId])).map((r) => r.status)).toEqual(["approved"]);
+
+      // Stuck past 15 minutes: recorded failed / interrupted by this pass; the next hourly pass proposes the fresh one.
+      await runIncidentSweep(new Date(t0.getTime() + 20 * MINUTE));
+      expect((await itemsOf("incident_report_send", [c.clinicId])).map((r) => [r.status, r.outcome_code])).toEqual([
+        ["failed", "interrupted"],
+      ]);
+      await runIncidentSweep(new Date(t0.getTime() + 80 * MINUTE));
+      const afterOne = await itemsOf("incident_report_send", [c.clinicId]);
+      expect(afterOne.map((r) => r.status)).toEqual(["failed", "waiting"]);
+      expect(afterOne[1]!.subject_ref).toBe(`${(afterOne[0]!.payload as { incidentId: string }).incidentId}:1:1`);
+      expect(afterOne[1]!.proposed_by).toBe("approvals-propose");
+
+      // Idempotent: another pass while the new one waits proposes nothing, and neither does one that sees it approved.
+      await runIncidentSweep(new Date(t0.getTime() + 90 * MINUTE));
+      expect(await itemsOf("incident_report_send", [c.clinicId])).toHaveLength(2);
+      await pool.query(`update ops_approvals set status = 'approved', decided_at = $2 where id = $1`, [afterOne[1]!.id, new Date(t0.getTime() + 95 * MINUTE)]);
+      await runIncidentSweep(new Date(t0.getTime() + 100 * MINUTE));
+      expect(await itemsOf("incident_report_send", [c.clinicId])).toHaveLength(2);
+
+      // A second interruption earns one more, with its own subject.
+      await runIncidentSweep(new Date(t0.getTime() + 120 * MINUTE));
+      await runIncidentSweep(new Date(t0.getTime() + 180 * MINUTE));
+      await runIncidentSweep(new Date(t0.getTime() + 240 * MINUTE));
+      const afterTwo = await itemsOf("incident_report_send", [c.clinicId]);
+      expect(afterTwo.map((r) => r.status)).toEqual(["failed", "failed", "waiting"]);
+      expect(afterTwo[2]!.subject_ref.endsWith(":1:2")).toBe(true);
+
+      // One that ran (executed) is never followed by another for the same report.
+      const done = await openBreach("stick-executed");
+      await runIncidentSweep(t0);
+      const [item] = await itemsOf("incident_report_send", [done.c.clinicId]);
+      await pool.query(`update ops_approvals set status = 'approved', decided_at = $2 where id = $1`, [item!.id, t0]);
+      await pool.query(`update ops_approvals set status = 'executed', outcome_code = 'sent' where id = $1`, [item!.id]);
+      await runIncidentSweep(new Date(t0.getTime() + 3 * HOUR));
+      expect((await itemsOf("incident_report_send", [done.c.clinicId])).map((r) => r.status)).toEqual(["executed"]);
+
+      // One that failed with a reason on its row stays for the owner, not for the hourly pass (pinned above too).
+      const refused = await openBreach("stick-refused-again");
+      await runIncidentSweep(t0);
+      const [r1] = await itemsOf("incident_report_send", [refused.c.clinicId]);
+      await pool.query(`update ops_approvals set status = 'approved', decided_at = $2 where id = $1`, [r1!.id, t0]);
+      await pool.query(`update ops_approvals set status = 'failed', outcome_code = 'operation_refused' where id = $1`, [r1!.id]);
+      await runIncidentSweep(new Date(t0.getTime() + 3 * HOUR));
+      expect(await itemsOf("incident_report_send", [refused.c.clinicId])).toHaveLength(1);
+    });
+
     test("two waiting items for one report approved at once send one report; the loser is refused, never an update", async () => {
       const { c, i } = await openBreach("race");
       const a = data<{ approvalId: string }>(await runOperation("proposeIncidentReport", { clinicId: c.clinicId, incidentId: i.id }, OPERATOR));

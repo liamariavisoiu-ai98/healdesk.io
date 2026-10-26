@@ -17,7 +17,7 @@ import { closeSupportCase } from "../cases";
  *     move by ops): closed, silently, as `no_further_reply`. No mail to
  *     anyone, no alert: closing is all it does;
  *   - closed for 30 days: deleted with its messages, by the database's own
- *     app_delete_unmatched_email_cases() (0129), which the runtime role may
+ *     app_delete_unmatched_email_cases() (0130), which the runtime role may
  *     call but cannot widen (it has no DELETE on either table).
  *
  * Only cases that came by email and name no clinic: a chat case always

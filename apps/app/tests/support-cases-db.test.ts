@@ -301,7 +301,7 @@ describeDb("support cases (drizzle/0125)", () => {
         [email.id, randomUUID()],
       ),
     ).rejects.toMatchObject({ code: "23514", message: expect.stringMatching(/came from the chat/) });
-    // Inbound text: since lane P7g (0129) an inbound email holds facts only, and its words are refused outright.
+    // Inbound text: since lane P7g (0130) an inbound email holds facts only, and its words are refused outright.
     await expect(
       asApp(
         clinic.clinicId,

@@ -8,7 +8,7 @@ import { s3MailStore, type MailStore } from "./store";
 
 /**
  * The hourly support-inbound-sweep job (lane P7g; design E5 §2.3), seeded
- * OFF by drizzle/0129 and switched on by the owner at System > Jobs.
+ * OFF by drizzle/0130 and switched on by the owner at System > Jobs.
  *
  * The webhook handles each email within seconds of SES's notice and deletes
  * its object. What it could not (a database blip that outlasted SNS's

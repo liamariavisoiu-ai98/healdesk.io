@@ -49,7 +49,7 @@ export const MAX_MESSAGE_ID_CHARS = 250;
  * The one shape of message id kept, stored or sent back in a header: "<local@domain>",
  * printable ASCII with no ":" or "/" (so never a link, which the email lint
  * would refuse in a reply's headers), no quote, space or bracket inside, at
- * most MAX_MESSAGE_ID_CHARS. drizzle/0129's support_messages_email_ids_check
+ * most MAX_MESSAGE_ID_CHARS. drizzle/0130's support_messages_email_ids_check
  * holds the same pattern. Gmail's, Outlook's, Apple's and SES's ids all fit.
  */
 export const MESSAGE_ID = /^<[A-Za-z0-9!#$%&*+.=?^_{|}~-]{1,200}@[A-Za-z0-9._-]{1,200}>$/;

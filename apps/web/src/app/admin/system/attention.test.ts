@@ -67,6 +67,7 @@ const write = (clinicId: string, over: Partial<StuckCalendarWriteView> = {}): St
   attempts: 2,
   nextAttemptAt: null,
   slotInDays: 3,
+  slotPassed: false,
   retryable: true,
   ...over,
 });

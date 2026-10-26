@@ -203,9 +203,9 @@ The BAA promises the clinic what it needs to answer a patient's access,
 amendment or accounting-of-disclosures request within ten business days, and
 that a request a person makes to healdesk itself (by email or letter, not
 through the clinic's assistant) is passed to the clinic within five business
-days: record it with `npm run ops:patient-request -w @healdesk/app`, which tells
-the clinic through its portal and keeps the five-day clock (docs/handover.md, "A
-request a patient makes to us"). A person on our team replies to that request,
+days: record it on the Patient rights page (`/admin/rights`, "Record a request") and
+run the command it prepares, which tells the clinic through its portal and keeps the
+five-day clock (docs/handover.md, "A request a patient makes to us"). A person on our team replies to that request,
 saying we cannot act on it ourselves and have passed it to the clinic. That reply
 is the only message we send, and nothing about it is automated. The clinic validates the request; we
 produce the bundle.

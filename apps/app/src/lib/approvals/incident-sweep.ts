@@ -15,7 +15,10 @@ import { moveStatus, propose, SERVICE_ACTOR, sweepInterrupted, waitingItems } fr
  *
  *   1. Propose the first report of each open reportable incident that has
  *      none yet, has never had one proposed and whose practice has no notice
- *      recorded (./incident-kinds.ts findIncidentSubjects).
+ *      recorded (./incident-kinds.ts findIncidentSubjects); also a fresh one,
+ *      once per interruption, for a report whose newest item was marked
+ *      failed / `interrupted` (step 3 does that marking, so the fresh item
+ *      comes at the next pass, within the hour).
  *   2. Take off the list, unrun, a report item the Incidents page has
  *      overtaken (`no_longer_needed`) or whose clinic has gone or is the demo
  *      clinic (`clinic_out_of_service`).

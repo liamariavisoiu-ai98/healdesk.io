@@ -101,7 +101,7 @@ $$;--> statement-breakpoint
 REVOKE ALL ON FUNCTION app_support_closed_account_for_address(text) FROM PUBLIC;--> statement-breakpoint
 GRANT EXECUTE ON FUNCTION app_support_closed_account_for_address(text) TO healdesk_app;--> statement-breakpoint
 COMMENT ON FUNCTION app_support_closed_account_for_address(text) IS
-  'Whether the address is a closed account''s kept notice address (0096), still within its six years (0129, inbound support mail): yes or no, never which clinic. Business contact data.';--> statement-breakpoint
+  'Whether the address is a closed account''s kept notice address (0096), still within its six years (0130, inbound support mail): yes or no, never which clinic. Business contact data.';--> statement-breakpoint
 
 CREATE OR REPLACE FUNCTION app_delete_unmatched_email_cases(as_of timestamptz)
 RETURNS integer
@@ -129,7 +129,7 @@ $$;--> statement-breakpoint
 REVOKE ALL ON FUNCTION app_delete_unmatched_email_cases(timestamptz) FROM PUBLIC;--> statement-breakpoint
 GRANT EXECUTE ON FUNCTION app_delete_unmatched_email_cases(timestamptz) TO healdesk_app;--> statement-breakpoint
 COMMENT ON FUNCTION app_delete_unmatched_email_cases(timestamptz) IS
-  'Deletes every support case that came by email, names no clinic and closed more than 30 days before the earlier of the time passed and now(), with its messages (0129): the retention of a prospect''s, a stranger''s or a closed account''s email. Returns the count of cases.';--> statement-breakpoint
+  'Deletes every support case that came by email, names no clinic and closed more than 30 days before the earlier of the time passed and now(), with its messages (0130): the retention of a prospect''s, a stranger''s or a closed account''s email. Returns the count of cases.';--> statement-breakpoint
 
 DO $$
 DECLARE

@@ -357,13 +357,32 @@ function meantAsJson(raw: string): boolean {
 function spokenParts(raw: string): { words: string; details: string } | null {
   const at = raw.indexOf(SPOKEN_END);
   if (at >= 0 && !raw.slice(0, at).trimStart().startsWith("{")) {
-    return { words: clean(raw.slice(0, at), MAX_TEXT) ?? "", details: raw.slice(at + SPOKEN_END.length) };
+    return { words: clean(withoutMood(raw.slice(0, at)), MAX_TEXT) ?? "", details: raw.slice(at + SPOKEN_END.length) };
   }
   const brace = raw.indexOf("{");
   if (brace > 0 && raw.slice(0, brace).trim() && !/"reply"\s*:/.test(raw)) {
-    return { words: clean(raw.slice(0, brace), MAX_TEXT) ?? "", details: raw.slice(brace) };
+    return { words: clean(withoutMood(raw.slice(0, brace)), MAX_TEXT) ?? "", details: raw.slice(brace) };
   }
   return null;
+}
+
+/**
+ * The moods a call's reply may open with (prompt.ts, VOICE_STYLE): one word
+ * in square brackets, written before the words, so the reply is written from
+ * that feeling rather than decorated with it afterwards (owner, 26 October
+ * 2026: "an emotion or a set of emotions established before the response").
+ * Never said: it is taken out before the guard reads a word or the caller
+ * hears one, and costs the few tokens it takes to write, not a second call.
+ */
+export const MOODS = ["warm", "cheerful", "excited", "sympathetic", "apologetic", "reassuring", "curious", "playful", "calm", "focused"] as const;
+
+/** The mood at the start of a reply, and any mood tag left anywhere in it, taken out. */
+const LEADING_MOOD = /^\s*\[[a-z]{3,14}\]\s*/i;
+const ANY_MOOD = new RegExp(`\\s*\\[(?:${MOODS.join("|")})\\]\\s*`, "gi");
+
+/** `text` without its mood tag (MOODS): what is said. */
+export function withoutMood(text: string): string {
+  return text.replace(LEADING_MOOD, "").replace(ANY_MOOD, " ").trim();
 }
 
 /** The details object of a call's answer, read as the JSON form's fields are; anything unreadable is nothing. */
@@ -397,6 +416,8 @@ export class SpokenStream {
   private held = "";
   private mode: "unknown" | "words" | "json" = "unknown";
   private ended = false;
+  /** Whether the mood the words open with (MOODS) has been passed over. */
+  private moodRead = false;
   /** How many deltas arrived: none means the responder did not stream. */
   received = 0;
 
@@ -411,6 +432,21 @@ export class SpokenStream {
       this.mode = start.startsWith("{") ? "json" : "words";
     }
     if (this.mode !== "words" || this.ended) return;
+    if (!this.moodRead) {
+      // The mood written first (MOODS) is never said: wait for its "]",
+      // then start the words after it.
+      const lead = this.text.length - this.text.trimStart().length;
+      if (this.text[lead] === "[") {
+        const close = this.text.indexOf("]", lead);
+        if (close < 0) {
+          if (this.text.length - lead <= 20) return;
+        } else if (close - lead <= 16) {
+          const after = this.text.slice(close + 1);
+          this.consumed = close + 1 + (after.length - after.trimStart().length);
+        }
+      }
+      this.moodRead = true;
+    }
     const at = this.text.indexOf(SPOKEN_END);
     if (at >= 0) {
       this.ended = true;
@@ -483,7 +519,7 @@ export function parseModelAnswer(raw: string): ModelAnswer {
         }
       }
       return {
-        reply: clean(parsed.reply, MAX_TEXT) ?? "",
+        reply: clean(typeof parsed.reply === "string" ? withoutMood(parsed.reply) : parsed.reply, MAX_TEXT) ?? "",
         booking: {
           wants: b.wants === true,
           firstName: clean(b.first_name, 60),
@@ -509,14 +545,14 @@ export function parseModelAnswer(raw: string): ModelAnswer {
   const replyOnly = /"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(raw);
   if (replyOnly) {
     try {
-      const reply = clean(JSON.parse(`"${replyOnly[1]}"`), MAX_TEXT);
+      const reply = clean(withoutMood(String(JSON.parse(`"${replyOnly[1]}"`))), MAX_TEXT);
       if (reply) return { reply, booking: {}, handoff: false, end: false, action: null };
     } catch {
       // not a JSON string: malformed, below
     }
   }
   if (meantAsJson(raw)) return { reply: "", booking: {}, handoff: false, end: false, action: null, malformed: true };
-  return { reply: clean(raw, MAX_TEXT) ?? "", booking: {}, handoff: false, end: false, action: null };
+  return { reply: clean(withoutMood(raw), MAX_TEXT) ?? "", booking: {}, handoff: false, end: false, action: null };
 }
 
 /** Later values win; an empty value never erases one already captured. */

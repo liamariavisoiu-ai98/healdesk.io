@@ -10,7 +10,7 @@ import { assistantFacts, type AssistantFacts } from "@/lib/assistant/facts";
 import { buildAssistantPrompt } from "@/lib/assistant/prompt";
 import { checkMenu } from "@/lib/assistant/menu-check";
 import { openingLine } from "@/lib/assistant/opening";
-import { answerTurn, EMPTY_CAPTURE, failureLine, languageTerms, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
+import { answerTurn, EMPTY_CAPTURE, failureLine, languageTerms, spokenOnly, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
 import { assistantFallbackRefused, patientDataRefused, voiceAnswerDecision, type AnswerDecision } from "@/lib/billing/answering";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { demoVoiceOpening, voiceDisclosureEs } from "@/lib/compliance/disclosure";
@@ -33,10 +33,12 @@ import {
   demoAssistantFacts,
   demoContextFromCall,
   demoPitchFacts,
+  demoIntroRecovery,
   demoRecovery,
   demoStageNote,
   demoRoleplayOpener,
   demoStateFrom,
+  handsOver,
   isBareYes,
   listedIn,
   nextDemoStage,
@@ -703,7 +705,7 @@ export class RetellCallSession {
   constructor(
     readonly clinicId: string,
     readonly callId: string,
-    private readonly send: (message: RetellOutbound) => void,
+    private readonly sendRaw: (message: RetellOutbound) => void,
     private readonly deps: RetellSessionDeps,
   ) {
     this.openedAt = this.now();
@@ -735,12 +737,27 @@ export class RetellCallSession {
    * `noInterruption` asks Retell not to let the caller talk over it, for the
    * opening line, whose disclosure must be heard.
    */
+  /**
+   * Everything to Retell goes out here. What is spoken never carries a
+   * details object or the delimiter (turn.ts, spokenOnly), whatever built it:
+   * transcript 0a45870b heard `{"state": ...}` read aloud.
+   */
+  private send(message: RetellOutbound): void {
+    if ((message.response_type === "response" || message.response_type === "agent_interrupt") && typeof message.content === "string") {
+      const content = spokenOnly(message.content);
+      if (content !== message.content) log.warn("retell structured text kept out of speech", { callId: this.callId });
+      this.sendRaw({ ...message, content });
+      return;
+    }
+    this.sendRaw(message);
+  }
+
   private say(
     responseId: number,
     content: string,
     options: { endCall?: boolean; transferTo?: string | null; spokenBefore?: string | null; noInterruption?: boolean; interruptId?: number | null } = {},
   ): void {
-    this.turns.push({ speaker: "assistant", text: [options.spokenBefore, content].filter(Boolean).join(" ") });
+    this.turns.push({ speaker: "assistant", text: spokenOnly([options.spokenBefore, content].filter(Boolean).join(" ")) });
     if (options.interruptId) {
       // A jump-in (anticipation): said at once, over the caller if they are
       // still talking, and never the end of the call or a transfer.
@@ -1434,7 +1451,15 @@ export class RetellCallSession {
     // business: a refused reply is asked again, then heard as a person losing
     // the thread and moving on, never as the guard's line for a patient
     // (turn.ts, softRefusal). Never in the intro or the role-play.
-    const recovery = this.demoContext && progress && this.demoStage === "pitch" ? demoRecovery(this.demoContext, progress) : null;
+    // In the intro too (084f10d4, 0a45870b): the caller there is the owner as
+    // well, and a patient's guard line in answer to them is a non-sequitur.
+    // Never in the role-play, where the caller plays a patient.
+    const recovery =
+      this.demoContext && progress && this.demoStage === "pitch"
+        ? demoRecovery(this.demoContext, progress)
+        : this.demoContext && progress && this.demoStage === "intro"
+          ? demoIntroRecovery(this.demoContext)
+          : null;
     // The human stall (stall.ts): once per call, never ahead of a line that
     // must come first. The turn after one, a refusal opens with a sorry word.
     const stallOpen = !this.stalled && nothingDue && !jump;
@@ -1543,10 +1568,10 @@ export class RetellCallSession {
         log.warn("demo reply without its state update", { callId: this.callId, kind: stageBefore });
       }
       if (update && turn.source === "model") {
-        if (ambiguousChoice && update.roleplay === "start") {
+        if (ambiguousChoice && (update.roleplay === "start" || handsOver(turn.reply))) {
           // Which one, never a guess: nothing starts.
           roleplayLine = WHICH_ONE_LINE;
-          update = { ...update, roleplay: null, asked: "choice" };
+          update = { ...update, roleplay: "cancel", asked: "choice" };
         } else if (update.roleplay === "cancel" && (stageBefore !== "roleplay" || progress.roleplayTurns > 1)) {
           // A cancel is for a role-play the caller turned down straight away; later, it ends as any other.
           update = { ...update, roleplay: stageBefore === "roleplay" ? "end" : null };
@@ -1570,6 +1595,10 @@ export class RetellCallSession {
         } else if (stageBefore === "roleplay" && this.demoStage === "pitch") {
           roleplayLine = withRoleplayExit(turn.reply, turn.spoken ?? "");
         }
+      }
+      // A role-play offered again, outside one: counted, so the note stops offering it (0a45870b).
+      if (stageBefore !== "roleplay" && this.demoStage !== "roleplay" && /role-?play/i.test(roleplayLine ?? turn.reply)) {
+        this.demoProgress = { ...this.demoProgress, roleplayOffers: (this.demoProgress.roleplayOffers ?? 0) + 1 };
       }
       // What she just listed from the menu, in order, so "the second one" is read in code next turn.
       const listed = listedIn(roleplayLine ?? turn.reply, this.demoContext.clinic.services.map((svc) => svc.name));

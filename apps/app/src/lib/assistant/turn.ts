@@ -406,6 +406,28 @@ function detailsOf(text: string): Omit<ModelAnswer, "reply"> {
  * delimiter arrives, which ends the words and sends what is left. An answer
  * that opens with a brace is the JSON form and is never spoken as it comes.
  */
+/**
+ * Where a call's spoken words end: at the delimiter, or at the first brace,
+ * whichever comes first. Spoken words never hold a brace; a details object
+ * written without the delimiter starts with one (transcript 0a45870b: Aya
+ * said `{"state": {...}}` out loud, again and again, after the role-play
+ * note asked for booking details in her state).
+ */
+function wordsEnd(text: string): number {
+  const marks = [text.indexOf(SPOKEN_END), text.indexOf("{")].filter((at) => at >= 0);
+  return marks.length > 0 ? Math.min(...marks) : -1;
+}
+
+/**
+ * What may be said or kept as said of a call's text: nothing from a brace, a
+ * `"state":` or the delimiter onward. The last line of defence, on every
+ * piece sent to Retell and every line of the record, whatever produced it.
+ */
+export function spokenOnly(text: string): string {
+  const at = text.search(/[{}]|"\s*state"\s*:|#{3}/);
+  return at < 0 ? text : text.slice(0, at).replace(/[\s,:;"'-]+$/, "");
+}
+
 /** Words a spoken piece needs before it goes out on its own: shorter ones ("Sure!") wait for the next; "Yep, we do!" goes. */
 const MIN_SPOKEN_WORDS = 3;
 
@@ -447,7 +469,7 @@ export class SpokenStream {
       }
       this.moodRead = true;
     }
-    const at = this.text.indexOf(SPOKEN_END);
+    const at = wordsEnd(this.text);
     if (at >= 0) {
       this.ended = true;
       this.emit(this.text.slice(this.consumed, at), true);
@@ -473,7 +495,7 @@ export class SpokenStream {
   /** The words written after the last sentence handed out: the end of the reply, said with the turn's last part. */
   remainder(): string {
     if (this.mode !== "words") return "";
-    const at = this.text.indexOf(SPOKEN_END);
+    const at = wordsEnd(this.text);
     return clean(`${this.held} ${this.text.slice(this.consumed, at >= 0 ? at : undefined)}`, MAX_TEXT) ?? "";
   }
 

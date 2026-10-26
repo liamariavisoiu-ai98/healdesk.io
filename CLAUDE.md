@@ -221,7 +221,15 @@ enforceable rather than aspirational.
    the code says no filler while the model thinks (`ACKNOWLEDGEMENTS` is
    empty), and takes the caller's name out as a form of address after two
    uses and a reflex "sorry" after the call's first apology
-   (`shapeVoiceReply`, words only ever removed, before the guard reads them). Only the pitch may quote healdesk's prices, each from the
+   (`shapeVoiceReply`, words only ever removed, before the guard reads them).
+   Nothing of her JSON details is ever spoken: a brace ends the spoken words
+   as the delimiter does, and everything sent to Retell or kept as said is
+   cut at a brace, a `"state":` or the delimiter (`spokenOnly`; transcript
+   0a45870b). Her scripted handover ("you be the patient") starts a role-play
+   even without the signal, a role-play past its wrap-up turn ends in code,
+   a refusal in the intro is heard as a recovery line like the pitch's, a
+   bare "no" is never taken as a yes, the role-play is offered at most twice
+   unless asked, and healdesk is "we", never "they" (084f10d4, 0a45870b). Only the pitch may quote healdesk's prices, each from the
    catalog and let through the guard exactly (`demoPriceList`,
    `AssistantFacts.quotedAmountsUsd`); a clinic's call quotes its own menu
    alone. Spoken text writes "Aya", never

@@ -17,11 +17,14 @@
 export const INBOUND_PREFIX = "mail/";
 
 /**
- * The largest message read: anything over it is kept as a case with no
- * facts but its size (the lane's rule), and is never parsed. SES receiving
- * itself accepts up to 40 MB.
+ * The largest message parsed: anything over it is kept as a case from its
+ * header block alone, with no facts from its body (`oversize`), and is never
+ * parsed whole. 2 MB holds a support email with a screenshot or two; the
+ * words read from any message are cut to MAX_WORDS_CHARS (parse.ts) besides,
+ * so the work per message stays bounded. SES receiving itself accepts up to
+ * 40 MB.
  */
-export const MAX_INBOUND_BYTES = 10 * 1024 * 1024;
+export const MAX_INBOUND_BYTES = 2 * 1024 * 1024;
 
 /** The topic this host trusts for inbound mail, or null when the feature is off here. */
 export function inboundMailTopicArn(): string | null {

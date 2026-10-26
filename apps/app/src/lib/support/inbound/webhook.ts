@@ -51,7 +51,8 @@ export async function inboundMailWebhook(request: Request, deps: InboundWebhookD
   if (!topicArn) return new Response("Not found.", { status: 404 });
 
   const body = await request.text();
-  if (body.length > MAX_BODY_BYTES) return new Response("Too large.", { status: 413 });
+  // In bytes, as the limit is: a string's length counts UTF-16 units.
+  if (Buffer.byteLength(body, "utf8") > MAX_BODY_BYTES) return new Response("Too large.", { status: 413 });
 
   let message;
   try {

@@ -13,7 +13,8 @@ import { attachmentSummary, cappedCount, matchingAddress, messageFields, screenC
 import { bareAddress, dropReason, isProviderConfirmation } from "@/lib/support/inbound/guards";
 import { idForms, refsInSubject } from "@/lib/support/inbound/match";
 import { inboundNoticeFrom } from "@/lib/support/inbound/notice";
-import { MailParseError, parseMail, textOfHtml } from "@/lib/support/inbound/parse";
+import { MAX_INBOUND_BYTES } from "@/lib/support/inbound/config";
+import { MAX_WORDS_CHARS, MailParseError, messageIds, parseMail, textOfHtml } from "@/lib/support/inbound/parse";
 import { headersFrom } from "@/lib/support/inbound/threading";
 import { inboundMailWebhook } from "@/lib/support/inbound/webhook";
 
@@ -64,10 +65,52 @@ describe("reading a message in memory", () => {
     expect(mail.references).toEqual(["<older@mail.example-clinic.test>", "<t-1@mail.example-clinic.test>"]);
   });
 
+  test("only message ids of one strict shape are kept: never a link, a quote, a space or an over-long id", () => {
+    expect(messageIds("<CAB+x=y_z@mail.gmail.com> <0100018f-ab@email.amazonses.com>")).toEqual([
+      "<CAB+x=y_z@mail.gmail.com>",
+      "<0100018f-ab@email.amazonses.com>",
+    ]);
+    expect(messageIds("<https://x.example/y>")).toEqual([]);
+    expect(messageIds("<a:b@x.test> <a/b@x.test> <a\"b@x.test> <no-at-sign>")).toEqual([]);
+    expect(messageIds(`<${"a".repeat(200)}@${"b".repeat(60)}.test>`)).toEqual([]);
+  });
+
   test("an HTML-only body is read as words", () => {
     expect(textOfHtml("<p>Calls <b>ring</b> out</p><script>x()</script>")).toMatch(/Calls\s+ring\s+out/);
     expect(textOfHtml("<style>p{}</style>hi")).not.toContain("p{}");
   });
+
+  test("the HTML stripper is linear: an unclosed script, a run of '<' and nested tags", () => {
+    expect(textOfHtml("a<script>never closed")).toBe("a");
+    expect(textOfHtml("a<b")).toBe("a");
+    expect(textOfHtml("x<SCRIPT type=x>y</Script >z<br/>w</P>v &amp; &lt;b&gt;")).toBe("x z\nw\nv & <b>");
+    const started = performance.now();
+    textOfHtml("<script>".repeat(128 * 1024));
+    textOfHtml("<".repeat(1024 * 1024));
+    textOfHtml("<style>".repeat(64 * 1024) + "</style>".repeat(64 * 1024));
+    // Linear: a few milliseconds each on a quiet machine; the bound only catches the old square.
+    expect(performance.now() - started).toBeLessThan(3_000);
+  });
+
+  test("1 MB of '<script>' and 1 MB of plain text are read, screened and classified within a fixed bound, from at most 64 K characters", async () => {
+    const head = "From: a@b.test\r\nTo: hello@healdesk.io\r\nSubject: Calls ring out\r\nMessage-ID: <x@b.test>\r\nMIME-Version: 1.0\r\n";
+    const inputs = [
+      `${head}Content-Type: text/html\r\n\r\n${"<script>".repeat(128 * 1024)}`,
+      `${head}Content-Type: text/plain\r\n\r\n${"call 555 123 4567 about botox ".repeat(35_000)}`,
+    ];
+    for (const raw of inputs) {
+      const bytes = new TextEncoder().encode(raw);
+      expect(bytes.byteLength).toBeGreaterThan(1024 * 1024);
+      expect(bytes.byteLength).toBeLessThan(MAX_INBOUND_BYTES);
+      const started = performance.now();
+      const mail = await parseMail(bytes);
+      expect(mail.subject.length + mail.body.length).toBeLessThanOrEqual(MAX_WORDS_CHARS);
+      screenCounts(mail.subject, mail.body, { numbers: [], emails: [] });
+      classifyEmail(mail.subject, mail.body);
+      // Under a quarter of a second unloaded; generous for a loaded machine, far below the old 19 s.
+      expect(performance.now() - started).toBeLessThan(10_000);
+    }
+  }, 60_000);
 
   test("a message over the header limit cannot be parsed: MailParseError", async () => {
     const huge = `From: a@b.test\r\nX-Pad: ${"x".repeat(600 * 1024)}\r\nSubject: s\r\n\r\nbody`;

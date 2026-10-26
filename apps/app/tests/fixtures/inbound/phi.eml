@@ -1,0 +1,25 @@
+From: "ZEBRASENTINEL Display" <{{FROM}}>
+To: hello@healdesk.io
+Subject: Patient ZEBRASENTINEL had Botox and swelling, call 415-555-0199
+Date: Mon, 26 Oct 2026 14:00:00 +0000
+Message-ID: <phi-1@mail.example-clinic.test>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="mix"
+
+--mix
+Content-Type: text/plain; charset=utf-8
+
+Hi, our patient ZEBRASENTINEL Jane (jane.zebrasentinel@patient-mail.test, 415-555-0199, 12 Elm Street) had Botox last week and now has swelling and an infection, a complication. AYA did not book her follow-up in the calendar.
+--mix
+Content-Type: image/jpeg; name="ZEBRASENTINEL-chart.jpg"
+Content-Disposition: attachment; filename="ZEBRASENTINEL-chart.jpg"
+Content-Transfer-Encoding: base64
+
+/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP////////////////////////////////////////////////////////////////////////////////////8=
+--mix
+Content-Type: application/pdf; name="ZEBRASENTINEL-id.pdf"
+Content-Disposition: attachment; filename="ZEBRASENTINEL-id.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKJSBaRUJSQVNFTlRJTkVMCg==
+--mix--

@@ -965,6 +965,58 @@ request run again before the service reopens:
    is the old one, so it is always asked for again.
 7. Only then reopen the service.
 
+### Inbound support mail
+
+Built 26 October 2026 (ops automation lane P7g), **off**: `enable_inbound_mail = false` in
+`infra/aws/production.tfvars`. A clinic's email to hello@healdesk.io becomes a support case
+holding facts only, never its words (`apps/app/src/lib/support/inbound/`); the root domain's MX
+is never touched. Owner steps, in order:
+
+1. **Check for an active receipt rule set.** In AWS CloudShell, `aws ses
+   describe-active-receipt-rule-set --region us-east-1`. Empty: leave
+   `inbound_mail_rule_set_name` empty and Terraform creates and activates its own set. If it names
+   a set, put that name in `inbound_mail_rule_set_name`: SES keeps one active set per region, and
+   Terraform must add its rule to that set rather than replace it.
+2. **Read the plan.** Set `enable_inbound_mail = true`, open a PR, and read `infra.yml`'s plan: an
+   MX record for in.healdesk.io, the bucket, the encrypted topic, the receipt rule (and its set),
+   the key policy's new SES statement, the task role's three statements, two environment variables
+   and the CloudTrail data events. Nothing else may change.
+3. **Apply, then deploy.** Merge, let `infra.yml` apply, then run a full `deploy-app.yml` so the
+   tasks carry `HEALDESK_INBOUND_MAIL_TOPIC_ARN` and `HEALDESK_INBOUND_MAIL_BUCKET`.
+4. **Subscribe.** Set `subscribe_inbound_mail = true`, merge, apply. SNS posts a confirmation and
+   the engine confirms it; `aws sns list-subscriptions-by-topic` shows it confirmed.
+5. **Switch the jobs on.** At System > Jobs: `support-inbound-sweep` (hourly), and, for drafts and
+   sends, `support-draft` and `support-send` if not already on. The acknowledgement goes through
+   the outbox, so `billing-notices` must be on too.
+6. **Forward the mailbox.** In the mailbox that receives hello@healdesk.io, add a rule forwarding
+   every message (or only messages to hello@) to `hello@in.healdesk.io`, keeping a copy in the
+   mailbox. Some providers first send a confirmation to the forwarding address. Gmail and Google
+   Workspace do (Settings, Forwarding and POP/IMAP, Add a forwarding address): its confirmation,
+   from forwarding-noreply@google.com, is not turned into a case; it is left in the inbound
+   bucket for a day. Read it in CloudShell with `aws s3 ls s3://<bucket>/mail/` and
+   `aws s3 cp s3://<bucket>/mail/<id> -`, enter the code or open the link it gives, then
+   `aws s3 rm` it. Other providers (Microsoft 365's outbound forwarding policy, for one) may
+   instead need an administrator to allow automatic forwarding to outside addresses; whichever
+   it is, the step is the provider's, not ours.
+7. **Test.** From a clinic's sign-in address (the demo clinic's), email hello@healdesk.io with a
+   subject such as "Calls ring out". Within a minute a case appears in Support (call forwarding,
+   now), the clinic gets "We've got your email (ref HD-xxxxx)", and the bucket is empty. Do not test
+   from an @healdesk.io address: mail from our own domain is dropped as our own.
+
+What it keeps, and for how long: per email, SES's id, an HMAC of the sender's address (to count
+an hour's mail; never the address), the Message-ID and In-Reply-To (opaque ids, for threading),
+the topic, symptom and urgency read from fixed word lists, how the sender matched a clinic, SES's
+verdicts, counts of hidden numbers, addresses, treatment names and clinical words, and the number,
+classes and size bucket of attachments. Never the body, the subject, the sender's name or a file
+name. The rows go with the clinic at destruction (`app_destroy_support_cases`). The raw email
+lives in the bucket for the length of one request, at most a day; the owner's own mailbox keeps
+its copy as it always has.
+
+Cost, at about 200 emails a month: SES receiving $0.10 per 1,000 emails plus $0.09 per 1,000
+incoming 256 KB chunks (about $0.04 together), S3 storage for seconds and a few hundred requests, SNS's
+HTTPS deliveries (the first 100,000 a month are free), KMS requests (a few hundred, under $0.01)
+and CloudTrail data events ($0.10 per 100,000): well under $1 a month.
+
 ### Logs
 
 Every log line on the PHI side goes through `apps/app/src/lib/log.ts`, and

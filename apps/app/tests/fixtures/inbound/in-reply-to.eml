@@ -1,0 +1,11 @@
+From: Front Desk <{{FROM}}>
+To: hello@healdesk.io
+Subject: Re: your reply
+Date: Mon, 26 Oct 2026 14:00:00 +0000
+Message-ID: <thread-1@mail.example-clinic.test>
+MIME-Version: 1.0
+In-Reply-To: {{THREAD}}
+References: <older@mail.example-clinic.test> {{THREAD}}
+Content-Type: text/plain; charset=utf-8
+
+Following up on this.

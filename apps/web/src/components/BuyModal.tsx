@@ -67,7 +67,9 @@ import { site } from "@/lib/site";
  * (plan Part A3). A pricing card opens this flow in place, with its package
  * at its steps and its interval already chosen (plan A1: `plan` and
  * `interval` in the prefill); a `?plan` link reaches /get-started. Opened
- * from the navbar or a demo, the flow starts with the buyer's own choice.
+ * from the navbar, the flow starts with the buyer's own choice. A
+ * personalised demo's "Activate my AYA" opens it the way a card does, on the
+ * package and steps that demo recommended (lib/demo/close.ts).
  *
  * A card's choice is the one prefill that may replace a flow already open:
  * a buyer who closes the purchase, changes the calculator and presses its

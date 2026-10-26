@@ -202,12 +202,12 @@ export function CoverageOffer({
       </ul>
 
       {buy ? (
-        <DemoBuyButton className={WAY_IN}>
+        <DemoBuyButton className={WAY_IN} pressed={{ slug, placement: "closing" }}>
           {site.cta.primary.label}
           {ARROW}
         </DemoBuyButton>
       ) : (
-        <a href={`/demo/${slug}/onboard`} className={WAY_IN}>
+        <a href={`/demo/${slug}/onboard?from=closing`} className={WAY_IN}>
           Book my onboarding
           {ARROW}
         </a>

@@ -15,6 +15,7 @@ import { type DemoCheckout } from "./DemoPackageExtras";
 import { DEMO_INCLUDES, PackageStep } from "./PackageStep";
 import { ReviewStep } from "./ReviewStep";
 import { SetupRequestForm } from "./SetupRequestForm";
+import { CheckoutBrandContext } from "./StepShell";
 
 /**
  * What the four steps actually say, rendered and read as text (plan Part A3,
@@ -545,6 +546,7 @@ describe("the package step", () => {
     const demo: DemoCheckout = {
       clinicName: "Glow Med Spa",
       audience: "patients",
+      logoUrl: null,
       roi: { priceUsd: 450, priceSource: "the clinic's site", bookingRate: 0.3, repeat: null },
     };
     const words = text(
@@ -748,5 +750,77 @@ describe("the agreement step", () => {
     expect(words).toContain("Continue to review");
     expect(words).toContain("Sign again with different answers");
     expect(words).not.toContain("Sign and continue");
+  });
+});
+
+describe("from a personalised demo (26 October 2026)", () => {
+  const demo = {
+    clinicName: "Glow Med Spa",
+    audience: "patients" as const,
+    logoUrl: null,
+    roi: { priceUsd: 425, priceSource: "Botox, from your website", bookingRate: 0.35, repeat: null },
+  };
+  const offer: SetupOffer = { kind: "demo", endsAt: ENDS, percentOfSetupFee: 50 };
+  const branded = (node: ReactElement) =>
+    h(CheckoutBrandContext.Provider, { value: { clinicName: demo.clinicName, logoUrl: null, offer } }, node);
+  const demoPackage = (plan: string | null) =>
+    h(PackageStep, {
+      state: { ...initialFunnel({ plan }), step: 1 },
+      offer,
+      onPackage: noop,
+      onSteps: noop,
+      onInterval: noop,
+      onContinue: noop,
+      demo,
+    });
+
+  test("every step carries the clinic's name as the thing being activated, with the offer's badge", () => {
+    const words = text(branded(demoPackage("voice-metachat-200-100")));
+    expect(words).toContain("Activate Glow Med Spa’s AYA");
+    expect(words).toContain("50% off setup");
+  });
+
+  test("the recommended package is chosen and the rest sit under one tap, without selling", () => {
+    const words = text(demoPackage("voice-metachat-200-100"));
+    expect(words).toContain("Recommended for Glow Med Spa");
+    expect(words).toContain("See other packages");
+    expect(words).not.toMatch(/likely books|× its price|could book|new patients/i);
+  });
+
+  test("the setup saving is in dollars once a package is chosen", () => {
+    const words = text(demoPackage("voice-metachat-200-100"));
+    expect(words).toMatch(/Setup \$1,394 \$697 · you save \$697/);
+  });
+
+  test("with nothing chosen, all five packages are there to choose from", () => {
+    const words = text(demoPackage(null));
+    expect(words).not.toContain("See other packages");
+    for (const pkg of PACKAGES) expect(words).toContain(pkg.name);
+  });
+});
+
+describe("the risk line, on the agreement and at Pay", () => {
+  test("at Pay, for a package with a phone line", () => {
+    const words = text(reviewStep("voice-500", "month"));
+    expect(words).toContain(
+      "Monthly billing starts when AYA answers her first patient · You keep your number · Calls fall back to your own line",
+    );
+  });
+
+  test("a chat-only package promises nothing about a phone", () => {
+    const words = text(reviewStep("webchat-300", "month"));
+    expect(words).toContain("Website chat falls back to a contact form");
+    expect(words).not.toMatch(/keep your number|Calls fall back/);
+  });
+
+  test("on the agreement step, in place of its own line, when the flow gives one", () => {
+    const words = text(agreementStep(answered(), { riskLine: "Monthly billing starts when AYA answers her first patient" }));
+    expect(words).toContain("Monthly billing starts when AYA answers her first patient");
+  });
+
+  test("never a refund, beside a setup fee that is never refunded", () => {
+    for (const plan of plans) {
+      expect(text(reviewStep(plan.id, "month"))).not.toMatch(/money.back|full refund|refund your setup/i);
+    }
   });
 });

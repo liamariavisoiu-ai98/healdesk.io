@@ -14,7 +14,7 @@ import {
   STEP_UNITS,
   USAGE_ALERT_PERCENT,
 } from "@healdesk/catalog";
-import { type Ref, useId, useState } from "react";
+import { type Ref, useId } from "react";
 
 import {
   chosenPackage,
@@ -25,11 +25,10 @@ import {
 } from "@/lib/checkout/funnel";
 import { packageChips, usd } from "@/lib/pricing";
 import { extraBlockPrices, locationsLine, type SetupOffer, setupDueUsd } from "@/lib/checkout/review";
-import { ASSUMED_SHOW_RATE, DEFAULT_MISSED_CALLS_PER_WEEK, DEFAULT_MISSED_MESSAGES_PER_WEEK, type RoiInputs } from "@/lib/demo/roi";
 import { site } from "@/lib/site";
 
 import { DemoPlanPicker } from "./DemoPlanPicker";
-import { type DemoCheckout, RoiPanel } from "./DemoPackageExtras";
+import type { DemoCheckout } from "./DemoPackageExtras";
 import { SetupOfferBanner } from "./SetupOfferBanner";
 import { FIELD_LABEL, PrimaryButton, Reassurance, StepShell } from "./StepShell";
 
@@ -74,7 +73,7 @@ export function PackageStep({
   state: FunnelState;
   /** The setup offer that applies, while it holds; null for none. */
   offer?: SetupOffer | null;
-  /** A buyer from a personalised demo: the packages with estimates from their own numbers. */
+  /** A buyer from a personalised demo: the package it recommended, chosen, and the rest one tap away. */
   demo?: DemoCheckout;
   onPackage: (packageId: string) => void;
   onSteps: (steps: { voiceMinutes?: number; chatConversations?: number }) => void;
@@ -90,17 +89,6 @@ export function PackageStep({
   const pkg = chosenPackage(state);
   const plan = chosenPlan(state);
   const groupLabel = useId();
-  const [roiInputs, setRoiInputs] = useState<RoiInputs | null>(() =>
-    demo
-      ? {
-          ...demo.roi,
-          missedCallsPerWeek: DEFAULT_MISSED_CALLS_PER_WEEK,
-          missedMessagesPerWeek: DEFAULT_MISSED_MESSAGES_PER_WEEK,
-          showRate: ASSUMED_SHOW_RATE,
-        }
-      : null,
-  );
-
   return (
     <StepShell
       step={1}
@@ -120,27 +108,23 @@ export function PackageStep({
         </p>
       ) : null}
 
-      {offer ? <SetupOfferBanner offer={offer} onEnd={onOfferEnd} /> : null}
+      {offer ? <SetupOfferBanner offer={offer} plan={plan} onEnd={onOfferEnd} /> : null}
 
       {/* Monthly or annual, before the packages, because it changes every
           price on them. */}
       <IntervalToggle value={state.interval} onChange={onInterval} />
 
-      {demo && roiInputs ? (
-        <>
-          <RoiPanel clinicName={demo.clinicName} inputs={roiInputs} onChange={setRoiInputs} />
-          <DemoPlanPicker
-            interval={state.interval}
-            steps={state}
-            selectedPackageId={pkg?.id ?? null}
-            onSelect={onPackage}
-            roi={roiInputs}
-            offer={offer}
-            noWebsite={state.noWebsite}
-            includes={DEMO_INCLUDES}
-            audience={demo.audience}
-          />
-        </>
+      {demo ? (
+        <DemoPlanPicker
+          clinicName={demo.clinicName}
+          interval={state.interval}
+          steps={state}
+          selectedPackageId={pkg?.id ?? null}
+          onSelect={onPackage}
+          offer={offer}
+          noWebsite={state.noWebsite}
+          includes={DEMO_INCLUDES}
+        />
       ) : (
         <div role="radiogroup" aria-labelledby={groupLabel} className="mt-5">
           <p id={groupLabel} className="sr-only">

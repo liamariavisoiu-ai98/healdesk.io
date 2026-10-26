@@ -1,20 +1,34 @@
 "use client";
 
+import type { Plan } from "@healdesk/catalog";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
-import { offerHeadline, type SetupOffer } from "@/lib/checkout/review";
+import { offerCredit, offerHeadline, type SetupOffer, setupDueUsd } from "@/lib/checkout/review";
+import { usd } from "@/lib/pricing";
 
 /**
  * The setup offer on the package step: what it takes off and how long it
  * holds, counted down to the second (lib/checkout/review.ts says which offer
- * a buyer sees, and why only one).
+ * a buyer sees, and why only one). Once a package is chosen it says it in
+ * dollars too, the list fee struck through and what is saved: a saving over
+ * $100 reads larger in dollars than as a share.
  *
  * The clock is the offer's own end, the moment /api/checkout stops applying
  * the coupon, so the page never promises a discount past it. When it reaches
  * zero, `onEnd` tells the flow, which drops the offer from every figure.
  */
-export function SetupOfferBanner({ offer, onEnd }: { offer: SetupOffer; onEnd?: () => void }) {
+export function SetupOfferBanner({
+  offer,
+  plan = null,
+  onEnd,
+}: {
+  offer: SetupOffer;
+  /** The plan chosen, for the figures in dollars; null until one is. */
+  plan?: Pick<Plan, "setupFeeUsd"> | null;
+  onEnd?: () => void;
+}) {
+  const due = plan ? setupDueUsd(plan, offer) : null;
   return (
     <div className="bg-brand-gradient shadow-sm mb-5 flex flex-wrap items-center justify-between gap-3 rounded-md px-5 py-4 text-white">
       <span>
@@ -24,11 +38,32 @@ export function SetupOfferBanner({ offer, onEnd }: { offer: SetupOffer; onEnd?: 
         <span className="font-display block text-[24px] leading-tight font-semibold">
           {offerHeadline(offer)}
         </span>
+        {plan && due !== null && due < plan.setupFeeUsd ? (
+          <span className="mt-1 block text-[15px] font-semibold tabular-nums">
+            Setup <s className="opacity-75">{usd.format(plan.setupFeeUsd)}</s> {usd.format(due)} · you save{" "}
+            {usd.format(plan.setupFeeUsd - due)}
+          </span>
+        ) : null}
       </span>
       <span className="rounded-sm bg-white/15 px-3 py-2 text-[14.4px] font-semibold">
         Ends in <OfferCountdown endsAt={offer.endsAt} onEnd={onEnd} />
       </span>
     </div>
+  );
+}
+
+/** The offer as a badge and its clock, for the checkout header beside the clinic's name. */
+export function OfferBadge({ offer, onEnd }: { offer: SetupOffer; onEnd?: () => void }) {
+  const percent = offerCredit(offer).percentOfSetupFee;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-[13.2px] font-semibold tabular-nums">
+      <span className="rounded-full bg-[#87d68d] px-2.5 py-0.5 font-bold text-[#172a3a]">
+        {percent >= 100 ? "Setup on us" : `${percent}% off setup`}
+      </span>
+      <span className="text-muted">
+        ends in <OfferCountdown endsAt={offer.endsAt} onEnd={onEnd} />
+      </span>
+    </span>
   );
 }
 

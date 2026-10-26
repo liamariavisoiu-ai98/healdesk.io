@@ -10,6 +10,7 @@ import {
   overageSentence,
   payLabel,
   planStartLine,
+  riskLine,
   runOutLine,
   SALES_TAX_LINE,
   type SetupOffer,
@@ -20,7 +21,8 @@ import { GUARANTEE_TEXT, LEGAL_VERSION } from "@/lib/legal";
 import { site } from "@/lib/site";
 
 import type { AgreementResult } from "./AgreementStep";
-import { FIELD_LABEL, PrimaryButton, Reassurance, StepShell } from "./StepShell";
+import { SetupOfferBanner } from "./SetupOfferBanner";
+import { FIELD_LABEL, PrimaryButton, RiskLine, StepShell } from "./StepShell";
 
 /**
  * Step 4, review and pay. In order (plan Part A3): what today's charge is
@@ -55,7 +57,10 @@ export function ReviewStep({
   onClose,
   headingRef,
   offer = null,
+  onOfferEnd,
 }: {
+  /** The offer's clock reached zero. */
+  onOfferEnd?: () => void;
   /**
    * The setup offer that applies, while it holds (lib/checkout/review.ts):
    * the same figure the Stripe coupon takes off, which /api/checkout decides.
@@ -104,6 +109,8 @@ export function ReviewStep({
           {notice}
         </p>
       ) : null}
+
+      {offer ? <SetupOfferBanner offer={offer} plan={plan} onEnd={onOfferEnd} /> : null}
 
       <p className="text-muted text-sm">
         <span className="text-ink font-semibold">{clinicName}</span> · {plan.name},{" "}
@@ -233,8 +240,9 @@ export function ReviewStep({
             {submitting ? "Taking you to payment…" : payLabel(plan, offer)}
           </PrimaryButton>
         </div>
+        {/* At Pay, where the risk is felt: the one line, and the wallets a phone pays with. */}
+        <RiskLine text={riskLine(plan, specialty)} className="mt-3" />
       </div>
-      <Reassurance />
     </StepShell>
   );
 }

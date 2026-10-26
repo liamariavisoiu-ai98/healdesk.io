@@ -1,6 +1,7 @@
 "use client";
 
 import { useBuy } from "@/components/BuyModal";
+import { sendDemoEvent } from "@/components/demo/DemoViewed";
 import { site } from "@/lib/site";
 
 /**
@@ -13,10 +14,13 @@ export function DemoBuyButton({
   className,
   style,
   children,
+  pressed,
 }: {
   className: string;
   style?: React.CSSProperties;
   children: React.ReactNode;
+  /** Counted as a press on this demo (lib/demo/events.ts): which demo, and which button. */
+  pressed?: { slug: string; placement: "header" | "closing" };
 }) {
   const buy = useBuy();
   if (!buy) {
@@ -27,7 +31,15 @@ export function DemoBuyButton({
     );
   }
   return (
-    <button type="button" onClick={() => buy.open()} className={className} style={style}>
+    <button
+      type="button"
+      onClick={() => {
+        if (pressed) sendDemoEvent(pressed.slug, "cta_clicked", pressed.placement);
+        buy.open();
+      }}
+      className={className}
+      style={style}
+    >
       {children}
     </button>
   );

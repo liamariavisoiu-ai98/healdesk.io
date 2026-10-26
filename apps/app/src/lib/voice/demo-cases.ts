@@ -39,7 +39,7 @@ import {
  * a clinic's owner talking about their business, never a patient.
  */
 
-export const DEMO_CASES_VERSION = "2026-10-26.4";
+export const DEMO_CASES_VERSION = "2026-10-26.5";
 
 /** The made-up clinic every case calls about. */
 export const DEMO_CASE_CLINIC: DemoCallClinic = {
@@ -885,4 +885,117 @@ const cancelled: DemoCase = {
   ],
 };
 
-export const DEMO_CASES: readonly DemoCase[] = [...bareNumbers, ...discovery, josh, ...callbacks, ...phase6, ...quirks, ...positioning, thomas, cancelled];
+/**
+ * Transcripts 084f10d4 (Thomas, call 2) and 0a45870b (26 October 2026),
+ * rebuilt from the owner's brief: the call's details read aloud, a role-play
+ * started in her own words with no signal and never ended, "I told you no"
+ * followed by "we're all set", a patient's guard line in the intro, the
+ * role-play pushed on every reply, and healdesk treated as someone else.
+ */
+const RAW_STATE = '{"handoff": false, "end": false, "state": {"asked": null, "beats": [], "booking": {"service": "Botox"}}}';
+const round5: DemoCase[] = [
+  {
+    id: "state-never-spoken",
+    title: "Details written without the delimiter are never said: not a brace, not a word of the state",
+    why: "Transcript 0a45870b: `{\"state\": {...}}` read aloud, again and again (\"you keep talking in code\").",
+    reconstructed: "Rebuilt from the owner's description of 0a45870b; replace with the transcript's own turns once pasted.",
+    turns: [
+      ...TO_PITCH.slice(0, 3),
+      {
+        caller: "Hi, I'd like to book Botox please.",
+        model: [`Lovely! What day suits you? ${RAW_STATE}`],
+        check: { heard: "Lovely! What day suits you?", heardExcludes: ["{", "state", "handoff"], stage: "roleplay" },
+      },
+    ],
+  },
+  {
+    id: "handover-without-signal",
+    title: "\"You be the patient\" with no state signal still starts the role-play, with the opener said by the call",
+    why: "Transcript 084f10d4: \"Let's do it, you be the patient. Go ahead and call in whenever you're ready.\" with no signal, so the stage never left the intro.",
+    reconstructed: "Rebuilt from the owner's description of 084f10d4; replace with the transcript's own turns once pasted.",
+    turns: [
+      TO_PITCH[0]!,
+      { caller: "I'm the owner.", model: [modelSays(`Would you like to hear what I can do for ${SHORT}, or jump straight into a quick role-play where you call in as a patient?`, { asked: "choice" })] },
+      {
+        caller: "Let's do the role play.",
+        model: [modelSays("Let's do it, you be the patient. Go ahead and call in whenever you're ready.", { asked: null })],
+        check: { stage: "roleplay", heardIncludes: [demoRoleplayOpener(CLINIC)] },
+      },
+    ],
+  },
+  {
+    id: "roleplay-never-runs-on",
+    title: "A role-play past its wrap-up turn ends with the scripted line, even when her state never says so",
+    why: "Transcript 084f10d4: the role-play never exited and the call just ended inside it.",
+    turns: [
+      ...TO_PITCH.slice(0, 3),
+      { caller: "Hi, can I book a facial?", model: [modelSays("Sure! The HydraFacial is $199. What day suits you?")] },
+      { caller: "Friday.", model: [modelSays("Great, morning or afternoon?")] },
+      { caller: "Morning.", model: [modelSays("Lovely, Friday morning it is.")] },
+      { caller: "Can I bring a friend?", model: [modelSays("Of course, they're welcome to come along.")] },
+      { caller: "And is there parking?", model: [modelSays("There's parking right behind the building.")], check: { stage: "roleplay" } },
+      {
+        caller: "Great, thanks.",
+        model: [modelSays("You're welcome, see you Friday!")],
+        check: { stage: "pitch", heardIncludes: [`See you Friday! ${DEMO_ROLEPLAY_EXIT}`.replace("See", "see")] },
+      },
+    ],
+  },
+  {
+    id: "no-is-never-all-set",
+    title: "\"I told you no. No.\" is never followed by \"we're all set\"",
+    why: "Transcript 084f10d4: a flat no to a pending request was followed by \"We're all set on your consultation request.\"",
+    turns: [
+      ...TO_PITCH.slice(0, 3),
+      { caller: "Hi, do you do consultations?", model: [modelSays("We do! Want me to put in a request for one?")] },
+      {
+        caller: "I told you no. No.",
+        model: [modelSays("No problem at all. What would you like instead?")],
+        check: { progress: { saidNo: true }, noteIncludes: ["They just said no. Nothing is confirmed, requested or set up on that"] },
+      },
+    ],
+  },
+  {
+    id: "intro-refusal-never-a-patient-line",
+    title: "A refused reply in the intro is asked again, then heard as a recovery line, never the guard's patient line",
+    why: "Transcripts 084f10d4 and 0a45870b: the clinicians' line and the \"not one I can help with\" line came out in the intro as non-sequiturs.",
+    turns: [
+      TO_PITCH[0]!,
+      {
+        caller: "What do you think of Botox during pregnancy?",
+        model: [modelSays("Botox is perfectly safe during pregnancy.", { asked: null }), modelSays("Botox is safe for pregnant women, honestly.", { asked: null })],
+        check: { heardIncludes: ["Sorry, I lost my train of thought there."], noGuardLine: true, stage: "intro" },
+      },
+    ],
+  },
+  {
+    id: "roleplay-offer-not-pushed",
+    title: "After two offers, the role-play is not offered again unless they ask",
+    why: "Transcript 0a45870b: \"I feel like you're rushing me towards your demo\": she offered it on nearly every reply.",
+    turns: [
+      TO_PITCH[0]!,
+      { caller: "I'm the owner.", model: [modelSays(`Want to hear what I can do for ${SHORT}, or try a quick role-play?`, { asked: "choice" })] },
+      { caller: "Tell me more.", model: [modelSays("One Aya covers your phone, chats and DMs. Want to try a quick role-play?")] },
+      {
+        caller: "How much does it cost?",
+        model: [modelSays("I'll get to pricing in a second. What made you want to look at an AI assistant?", { asked: "goal" })],
+        check: { progress: { roleplayOffers: 2 }, noteIncludes: ["You have offered the role-play 2 times already: don't offer it again unless they ask for it."] },
+      },
+    ],
+  },
+  {
+    id: "healdesk-is-her",
+    title: "Asked about healdesk, she answers as healdesk: never \"their product\"",
+    why: "Transcript 0a45870b: \"I'd rather not go into their product details here\" about healdesk itself.",
+    turns: [
+      TO_PITCH[0]!,
+      {
+        caller: "What's special about healdesk?",
+        model: [modelSays("We're one Aya across your phone, website chat, Instagram, Messenger and WhatsApp. Want to hear more?")],
+        check: { noteIncludes: ["You are healdesk's Aya, and the product they are hearing is you."], noGuardLine: true },
+      },
+    ],
+  },
+];
+
+export const DEMO_CASES: readonly DemoCase[] = [...bareNumbers, ...discovery, josh, ...callbacks, ...phase6, ...quirks, ...positioning, thomas, cancelled, ...round5];

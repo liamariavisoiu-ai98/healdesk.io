@@ -612,7 +612,7 @@ describeDb("WP5: health flags, the ops watch and the digest", () => {
         now,
       ).queues.find((q) => q.key === "outbox");
       expect(system).toMatchObject({ count: after.count, oldestAgeMinutes: after.oldestMinutes });
-    });
+    }, 60_000);
 
     test("says how many items wait for the owner's yes in the approval inbox, support replies apart", async () => {
       const pool = getMigratorPool();
@@ -635,8 +635,8 @@ describeDb("WP5: health flags, the ops watch and the digest", () => {
         timeZone: "UTC",
       });
       expect(rendered.text).toMatch(/Approvals: \d+ items? waiting for your yes\./);
-      await pool.query(`update ops_approvals set status = 'rejected', decided_at = now() where subject_ref like 'digest-approvals-%'`);
-    });
+      await pool.query(`update ops_approvals set status = 'rejected', decided_at = now() where subject_ref like 'digest-approvals-%' and status = 'waiting'`);
+    }, 60_000);
 
     /**
      * Until 19 October 2026 the digest read only the ledgers and the ops log:

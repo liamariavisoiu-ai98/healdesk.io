@@ -344,8 +344,9 @@ account holds is counted nowhere.
 
 `setup_request_reply_past_due`, `provisioning_follow_up_past_due`, `support_reply_past_due`,
 `assistant_knows_no_services`.
-Queues › Setup requests and Queues › Support: a reply promised by the next business day was
-not marked. Reply from hello@, then mark it. Since lane P7e `support_reply_past_due` is raised
+Queues › Setup requests and Queues › Support (the latter lists only chat requests with no
+support case; a request on a case is on the Support page): a reply promised by the next business
+day was not marked. Reply from hello@, then mark it. Since lane P7e `support_reply_past_due` is raised
 only for a chat request that has no support case; a request on a case raises
 `support_case_past_due` instead (Support cases, below), one alert per promise. A follow-up past due is a paid order whose
 account still does not exist past the day we promised the buyer: the alert opens System ›

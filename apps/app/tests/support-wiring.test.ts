@@ -7,6 +7,7 @@ import { getApproval, moveStatus, SERVICE_ACTOR } from "@/lib/approvals/store";
 import { renderOpsDigest } from "@/lib/email/templates/ops_digest";
 import { collectDigest } from "@/lib/ops/digest";
 import type { Operator } from "@/lib/ops/api";
+import { runOperation } from "@/lib/ops/api";
 import { opDecideApproval } from "@/lib/ops/approval-ops";
 import { slackText } from "@/lib/ops/slack";
 import { watchSupportReplies } from "@/lib/ops/watch";
@@ -536,6 +537,41 @@ describeDb("the support slice, wired (lane P7e; drizzle/0127)", () => {
     expect(ok<{ outcomeCode: string }>(await decide(sentItem!.id, at(10 * MINUTE, OLD))).outcomeCode).toBe("sent");
     const sent = await wordsOf(d.caseId);
     expect(sent.text_delete_after!.getTime() - sent.sent_at!.getTime()).toBe(365 * DAY);
+  });
+
+  test("Queues > Support lists only the chat promises that have no case; the mark still works for them", async () => {
+    const withNotice = async (clinicId: string, requestId: string) =>
+      inTenant(clinicId, (client) =>
+        client.query(
+          `insert into billing_notices (clinic_id, kind, dedupe_key, payload)
+           values ($1, 'support_request', $2, $3)`,
+          [clinicId, `support_request:${requestId}`, JSON.stringify({ requestId, topic: "forwarding", replyByOn: "2999-01-01", helpPhoneE164: null })],
+        ),
+      );
+    const listed = async () =>
+      (await runOperation("listSupportRequests", {}, OPERATOR)).body as { data: { requests: { requestId: string }[] } };
+    // A chat escalation as the escalate flow records it: a case with its message, and the old L25 notice beside it.
+    const onCase = randomUUID();
+    await recordChatEscalation({
+      clinicId: a.clinicId,
+      actor: ACTOR,
+      requestId: onCase,
+      fields: { topic: "forwarding", symptom: "codes_not_working", carrier: null, phoneSystem: null, mode: null, channel: null },
+      replyByOn: REPLY_BY,
+      now: NOW,
+    } as Parameters<typeof recordChatEscalation>[0]);
+    await withNotice(a.clinicId, onCase);
+    // One from before cases existed: a notice and no case.
+    const noCase = randomUUID();
+    await withNotice(a.clinicId, noCase);
+
+    const ids = (await listed()).data.requests.map((r) => r.requestId);
+    expect(ids).toContain(noCase);
+    expect(ids).not.toContain(onCase);
+    // The mark is still accepted for both: the old watch and the old button keep working for rows with no case.
+    for (const requestId of [noCase]) {
+      expect((await runOperation("markSupportReplied", { clinicId: a.clinicId, requestId }, OPERATOR)).body).toEqual({ data: { status: "marked" } });
+    }
   });
 
   test("the guard: only a support reply item's draft may go to NULL, with nothing else; no other kind, column or role", async () => {

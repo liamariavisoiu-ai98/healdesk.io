@@ -82,6 +82,12 @@ describe("/admin/support", () => {
     expect(html).toContain(`/admin/clinics/${CLINIC}/care`);
   });
 
+  test("points at the Support page for the requests that opened a case, and says this list is only those with none", async () => {
+    const html = await render();
+    expect(html).toContain('href="/admin/support"');
+    expect(html).toContain("Only requests with no case are listed here.");
+  });
+
   test("says what the mark did", async () => {
     expect(await render("marked")).toContain("Marked replied.");
   });

@@ -1,6 +1,7 @@
 import { isSafeTypedText } from "@healdesk/catalog";
 
 import type { CheckoutMode } from "@/lib/checkout-mode";
+import { POLICY } from "@/lib/legal";
 import { site } from "@/lib/site";
 
 import {
@@ -160,6 +161,51 @@ export function voiceFollowUpInternal(
       "Do not phone them: the number on a demo call was given for that call only.",
     ]
       .filter((line, i, all) => line !== "" || all[i - 1] !== "")
+      .join("\n"),
+  };
+}
+
+/**
+ * To hello@: a call back a clinic owner asked for on a demo call
+ * (lib/demo/callbacks.ts). Business contact data: the number they gave to
+ * be called on, their first name, the clinic and the one line Aya wrote of
+ * what they want to talk about, never anything else said on the call. No
+ * reply-to: the owner's address is on the demo, linked below, and the
+ * request is answered by phone.
+ */
+export function demoCallbackInternal(input: {
+  clinicName: string;
+  firstName: string;
+  phoneE164: string;
+  topic: string;
+  test: boolean;
+  offerEndsAt: Date | null;
+  /** The demo page itself, which shows what Aya knew. */
+  demoUrl: string;
+  leadEmail: string | null;
+}): RenderedEmail {
+  const opening = `${input.test ? "[Test] " : ""}Demo call: call back ${input.firstName || "them"}, `;
+  const offer =
+    input.offerEndsAt && input.offerEndsAt.getTime() > Date.now()
+      ? `${input.offerEndsAt.toISOString().replace("T", " ").slice(0, 16)} UTC`
+      : "none live";
+  return {
+    subject: `${opening}${nameForSubject(input.clinicName || "a clinic", SUBJECT_MAX - opening.length)}`,
+    text: [
+      input.test ? "An operator's own test call from /admin, not a prospect." : "",
+      `Call:          ${input.phoneE164}`,
+      `Name:          ${input.firstName || "(not given)"}`,
+      `Clinic:        ${input.clinicName || "(not given)"}`,
+      `Email:         ${input.leadEmail ?? "(none on the demo)"}`,
+      `To talk about: ${input.topic || "(not given)"}, in Aya's words`,
+      `Discount ends: ${offer}`,
+      `Demo:          ${input.demoUrl}`,
+      `Queue:         ${site.url}/admin/queues#demo-callbacks`,
+      "",
+      "They asked Aya on the demo call for someone from the team to call them, gave this number and confirmed it when she read it back. Call them on it about this, and nothing else; mark it called in Queues when done, which deletes the number.",
+      `If nobody marks it, the number is deleted after ${POLICY.demoCallbackRetentionDays} days, as the Privacy page says.`,
+    ]
+      .filter((line, i) => line !== "" || i > 0)
       .join("\n"),
   };
 }

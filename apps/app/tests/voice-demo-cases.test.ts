@@ -72,10 +72,18 @@ function scripted() {
 async function run(c: DemoCase) {
   const model = scripted();
   const sent: RetellOutbound[] = [];
+  // apps/web, as the case has it answer: what the call sent it, and whether it took each.
+  const requests: { phoneE164: string; note: string }[] = [];
   const s = new RetellCallSession("demo", `call_${c.id}`, (m) => sent.push(m), {
     responder: model.responder,
     acknowledgeAfterMs: 60_000,
     demo: { secret: SECRET, detailsWaitMs: 200 },
+    demoCallback: async (request) => {
+      expect(request.context.slug).toBe("lumen-aesthetics-austin");
+      expect(request.context.firstName).toBe(DEMO_CASE_FIRST_NAME);
+      requests.push({ phoneE164: request.phoneE164, note: request.note });
+      return c.callbackTaken !== false;
+    },
   });
   const raw = () => sent.filter((m): m is Response => m.response_type === "response");
   const heard = () => spokenResponses(raw());
@@ -109,10 +117,12 @@ async function run(c: DemoCase) {
     if (ck.stage) expect(snap.stage, at).toBe(ck.stage);
     if (ck.asked !== undefined) expect(snap.progress.asked, at).toBe(ck.asked);
     for (const [q, words] of Object.entries(ck.answers ?? {})) expect(snap.progress.answers[q as keyof typeof snap.progress.answers], `${at}: ${q}`).toBe(words);
+    if (ck.callback !== undefined) expect(snap.progress.callback ?? null, `${at}: callback`).toBe(ck.callback);
     for (const words of ck.noteIncludes ?? []) expect(note, `${at}: note`).toContain(words);
     for (const words of ck.noteExcludes ?? []) expect(note, `${at}: note`).not.toContain(words);
   }
   await s.finish();
+  expect(requests, `${c.id}: call-back requests`).toEqual(c.callbacks ?? []);
   return { heard: heard() };
 }
 

@@ -91,6 +91,22 @@ export type DemoCallContext = {
   buyButton: string | null;
 };
 
+/**
+ * The call back Aya offers a hesitant clinic owner on a demo call, word for
+ * word (owner, 26 October 2026), and the version apps/web records beside the
+ * number in its consent row (apps/web lib/demo/callbacks.ts). One string for
+ * both, so the record shows the words the owner actually heard: apps/app's
+ * demo note tells her to say exactly this (lib/voice/demo-facts.ts). Bump the
+ * version whenever the words change, in the same commit.
+ *
+ * The call it offers is a person on the team ringing a business number its
+ * owner gave and asked to be called on, not an automated or AI call.
+ */
+export const DEMO_CALLBACK_OFFER = {
+  version: "2026-10-26.1",
+  text: "No problem at all. Want someone from our team to give you a quick call? What's the best number to reach you on?",
+} as const;
+
 export const DEMO_CALL_LIMITS = {
   services: 40,
   providers: 15,

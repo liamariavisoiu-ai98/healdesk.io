@@ -24,6 +24,7 @@ import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
 import { nextCallLanguage, START_LANGUAGE, type CallLanguageState } from "./call-language";
+import { CALLBACK_FAILED_LINE, callbackSentLine, sendDemoCallback, type DemoCallbackRequest } from "./demo-callback";
 import {
   afterDemoReply,
   DEMO_OPENED_PROGRESS,
@@ -353,6 +354,11 @@ export type RetellSessionDeps = {
    * redial and cacheFacts are all left unused.
    */
   demo?: { secret: string | null; detailsWaitMs?: number };
+  /**
+   * Where a demo call's call-back request goes (demo-callback.ts): apps/web,
+   * signed, unless a test sets it. True only once it was taken.
+   */
+  demoCallback?: (request: DemoCallbackRequest) => Promise<boolean>;
 };
 
 /** How long a clinic's facts read by one call may open the next. */
@@ -1299,6 +1305,10 @@ export class RetellCallSession {
       : null;
     // These words as the answer to the demo's last question, kept once the reply is said.
     const progress = this.demoContext ? withDemoAnswer(this.demoProgress, this.demoStage, words) : null;
+    // The turn that takes a demo's call back (demo-callback.ts): her words in
+    // it are replaced by the call's own line once it is known whether the team
+    // has it, so none of them is spoken as it is written.
+    const takingCallback = Boolean(progress && this.demoStage === "pitch" && progress.asked === "callbackNote" && !progress.callback);
     // After the role-play the call is with a clinic's owner about their own
     // business: a refused reply is asked again, then heard as a person losing
     // the thread and moving on, never as the guard's line for a patient
@@ -1325,7 +1335,7 @@ export class RetellCallSession {
             },
           }
         : null,
-      speak: nothingDue
+      speak: nothingDue && !takingCallback
         ? (sentence: string) => {
             stopAck();
             if (responseId !== this.latestResponseId || this.closing) return;
@@ -1373,15 +1383,29 @@ export class RetellCallSession {
     // inside the role-play, its "patient" signing off included, never ends
     // the call: the pitch comes after it.
     const stageBefore = this.demoStage;
+    // The line said in place of her words when a call back was taken.
+    let callbackLine: string | null = null;
     if (this.demoContext && progress && turn.source !== "fallback") {
       // Her structured state update, or the recovery line's own question.
       const recovered = recovery && turn.source === "guard" && [recovery.line, recovery.alternate, recovery.bridge].some((line) => turn.reply.endsWith(line));
-      const update = recovered ? { asked: recovery.asks, beats: [] } : demoStateFrom(turn.state, turn.reply);
+      const update = recovered ? { asked: recovery.asks, beats: [], callback: null } : demoStateFrom(turn.state, turn.reply);
       if (!update && turn.source === "model" && stageBefore !== "roleplay") {
         log.warn("demo reply without its state update", { callId: this.callId, kind: stageBefore });
       }
       this.demoStage = nextDemoStage(stageBefore, turn.reply, update?.asked ?? null);
       this.demoProgress = afterDemoReply(progress, stageBefore, this.demoStage, update);
+      // A call back, only in the turn that takes it and only from her state:
+      // sent to apps/web, and the caller told the team has it only once it
+      // does (demo-callback.ts). Kept in the progress either way, so it is
+      // never offered again.
+      if (takingCallback && turn.source === "model" && update?.callback) {
+        const context = this.demoContext;
+        const sent = await (this.deps.demoCallback ?? sendDemoCallback)({ ...update.callback, context, at: this.now() }).catch(() => false);
+        log.info("retell demo callback", { callId: this.callId, status: sent ? "sent" : "failed" });
+        this.demoProgress = { ...this.demoProgress, asked: null, callback: sent ? "sent" : "failed" };
+        callbackLine = sent ? callbackSentLine(update.callback.phoneE164) : CALLBACK_FAILED_LINE;
+        if (responseId !== this.latestResponseId || this.closing) return;
+      }
     }
     const ends = turn.end && !(this.demoContext && stageBefore === "roleplay");
 
@@ -1425,7 +1449,7 @@ export class RetellCallSession {
     }
 
     if (turn.source !== "fallback") this.answered = true;
-    let reply0 = turn.reply;
+    let reply0 = callbackLine ?? turn.reply;
     if (turn.source === "fallback") {
       this.failures += 1;
       const line = this.usable(this.directLine);

@@ -30,8 +30,8 @@ import {
  * the bump fails the build.
  */
 
-export const LEGAL_VERSION = "2026-10-23.2";
-export const LEGAL_LAST_UPDATED = "23 October 2026";
+export const LEGAL_VERSION = "2026-10-26.1";
+export const LEGAL_LAST_UPDATED = "26 October 2026";
 
 export const ENTITY = {
   /** Full legal name, e.g. "Healdesk, Inc." Empty until the founder supplies it. */
@@ -171,6 +171,13 @@ export const POLICY = {
    * is kept for that and then purged (api/cron/purge-leads).
    */
   callConsentRetentionYears: 4,
+  /**
+   * The longest a call back asked for on a demo call is kept: the number and
+   * the one line about what to discuss go once the team has called, or after
+   * this many days, whichever comes first (lib/demo/callbacks.ts; owner,
+   * 26 October 2026).
+   */
+  demoCallbackRetentionDays: 30,
 } as const;
 
 /**

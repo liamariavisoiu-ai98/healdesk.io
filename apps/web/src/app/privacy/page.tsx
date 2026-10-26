@@ -235,7 +235,19 @@ export default function PrivacyPage() {
             your clinic, the email address you spelled out, a time that suits you, and a short
             summary of what you told her about your phones, so we do not ask twice. We use it to
             answer that request and for nothing else: it is not added to a marketing list, and we
-            never phone the number you called from or were called on.
+            never phone the number you called from or were called on, unless you ask her for a call
+            back on it (below).
+          </li>
+          <li id="demo-callback">
+            {/* Added 26 Oct 2026 (LEGAL_VERSION 2026-10-26.1) with the demo
+                call's call back (lib/demo/callbacks.ts). */}
+            <strong>If you ask {site.agent}, on a demo call, for someone to call you back.</strong>{" "}
+            Only if you ask, and only on the number you give her for it, which she reads back to
+            you. We keep that number, your first name, your clinic&apos;s name and one line about
+            what you would like to talk about, and nothing else from the call, and email them to
+            our team so a person can call you about that. We record that you asked, in the same
+            way as the consent for a demo call. The number is used for that call alone: it is not
+            added to a marketing list, and section 6 says when it is deleted.
           </li>
           <li>
             <strong>If we contacted you first.</strong> We research practices before we send a
@@ -457,6 +469,7 @@ export default function PrivacyPage() {
           <li>Your website's pages, read at checkout: not stored by us at all; our AI model provider's own retention applies to its processing. What was read from them, once you press Pay: kept with your purchase, and deleted 14 days after you last pressed Pay if the purchase is not completed, otherwise 90 days after your account is created.</li>
           <li>The demo call itself: no recording or transcript is kept by us or by our voice provider, which keeps the call&apos;s basic record (time, length, how it ended) for 30 days. We hold the number only in the consent record above.</li>
           <li>A follow-up you asked for on the demo call: as ordinary email correspondence, until the request is answered and closed.</li>
+          <li>A call back you asked for on a demo call: the number and the line about what to discuss are deleted once our team has called you, or after {POLICY.demoCallbackRetentionDays} days, whichever comes first. The record that you asked is kept with the demo-call consent records above.</li>
           <li>Contact-form messages: as ordinary email correspondence, until the enquiry is closed.</li>
           <li>Customer billing records: for as long as tax and accounting law require.</li>
           <li>The record of a signed Business Associate Agreement: for six years after the relationship ends, as HIPAA requires.</li>

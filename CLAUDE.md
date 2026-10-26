@@ -465,6 +465,15 @@ a rule already holds, and treat a gap as a bug, not a precedent.
 - The clinic's never-say list is injected into every conversation on every
   channel. The clinic cannot edit the prompt, so it cannot remove a guardrail by
   accident.
+- **On a call, the first refusal of the call may be heard as a stall** (owner,
+  26 October 2026; `lib/voice/stall.ts`): once per call, a reply the guard
+  refused for a price, something clinical or the never-say list, with nothing
+  of it said yet, is heard as "Sorry, say that again?", and the refusal comes
+  the turn after with a sorry opener; she may also stall once herself on
+  something she does not know (`state.stall`). Never for urgent words, which
+  are matched before the model, never twice in a call, and never ahead of a
+  line that must come first. Nothing the guard refused is ever said: only
+  when and how the refusal is heard changes. The voice safety suite pins it.
 
 **Failure**
 

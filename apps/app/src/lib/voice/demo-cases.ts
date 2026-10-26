@@ -3,7 +3,18 @@ import { DEMO_CALLBACK_OFFER, type DemoCallClinic } from "@healdesk/catalog";
 import { SPOKEN_END } from "@/lib/assistant/prompt";
 
 import { CALLBACK_FAILED_LINE, callbackSentLine } from "./demo-callback";
-import { demoRoleplayOpener, type DemoBeat, type DemoProgress, type DemoQuestion, type DemoStage } from "./demo-facts";
+import {
+  demoRoleplayOpener,
+  LOVE_THAT,
+  shortClinicName,
+  SKIPPED_ANSWER,
+  talkSoonLine,
+  type DemoBeat,
+  type DemoProgress,
+  type DemoQuestion,
+  type DemoQuirk,
+  type DemoStage,
+} from "./demo-facts";
 
 /**
  * A personalised demo call's regression cases (owner, 25 October 2026: "every
@@ -26,7 +37,7 @@ import { demoRoleplayOpener, type DemoBeat, type DemoProgress, type DemoQuestion
  * a clinic's owner talking about their business, never a patient.
  */
 
-export const DEMO_CASES_VERSION = "2026-10-26.1";
+export const DEMO_CASES_VERSION = "2026-10-26.3";
 
 /** The made-up clinic every case calls about. */
 export const DEMO_CASE_CLINIC: DemoCallClinic = {
@@ -54,10 +65,29 @@ export const DEMO_CASE_FIRST_NAME = "Josh";
 /** What the model writes for a call: the words, the delimiter, then the details with her state update. */
 export function modelSays(
   words: string,
-  state: { asked?: DemoQuestion | null; beats?: DemoBeat[]; callback?: { phone: string; note: string } } | null = {},
+  state: {
+    asked?: DemoQuestion | null;
+    beats?: DemoBeat[];
+    callback?: { phone: string; note: string };
+    pushback?: string;
+    skip?: DemoQuestion;
+    resume?: boolean;
+    quirk?: DemoQuirk;
+    end?: boolean;
+  } | null = {},
 ): string {
-  const details: Record<string, unknown> = { handoff: false, end: false };
-  if (state) details.state = { asked: state.asked ?? null, beats: state.beats ?? [], ...(state.callback ? { callback: state.callback } : {}) };
+  const details: Record<string, unknown> = { handoff: false, end: state?.end === true };
+  if (state) {
+    details.state = {
+      asked: state.asked ?? null,
+      beats: state.beats ?? [],
+      ...(state.callback ? { callback: state.callback } : {}),
+      ...(state.pushback ? { pushback: state.pushback } : {}),
+      ...(state.skip ? { skip: state.skip } : {}),
+      ...(state.resume ? { resume: true } : {}),
+      ...(state.quirk ? { quirk: state.quirk } : {}),
+    };
+  }
   return `${words}\n${SPOKEN_END}\n${JSON.stringify(details)}`;
 }
 
@@ -76,6 +106,12 @@ export type DemoCaseCheck = {
   answers?: Partial<Record<DemoQuestion, string>>;
   /** Where a call back stands after the turn (DemoProgress.callback; absent reads as null). */
   callback?: DemoProgress["callback"];
+  /** The pushback move the call holds after the turn (DemoProgress.pushback). */
+  pushback?: DemoProgress["pushback"];
+  /** Whether the answer ended the call. */
+  ends?: boolean;
+  /** The signature touches the call has said after the turn (DemoProgress.quirks; absent reads as none). */
+  quirks?: readonly DemoQuirk[];
   /** Words in the turn context the model was given first on this turn. */
   noteIncludes?: readonly string[];
   noteExcludes?: readonly string[];
@@ -105,9 +141,11 @@ export type DemoCase = {
 };
 
 const CLINIC = DEMO_CASE_CLINIC.clinicName;
+/** The short name the notes use after the opening line (demo-facts.ts, shortClinicName): "Lumen". */
+const SHORT = shortClinicName(CLINIC);
 
 /** The words close to the close and the live discount, none of which may reach a note before coverage is answered. */
-export const CLOSE_WORDS: readonly string[] = [`Want to get ${CLINIC} set up?`, "% off the setup fee", "discount", "Book Onboarding", "checkout"];
+export const CLOSE_WORDS: readonly string[] = [`Want to get ${SHORT} set up?`, "% off the setup fee", "discount", "Book Onboarding", "checkout"];
 
 /** The start every case walks: who they are, their role, the choice, a short role-play, and out of it. */
 const TO_PITCH: DemoCaseTurn[] = [
@@ -268,7 +306,7 @@ const discovery: DemoCase[] = [
         caller: "Is it phone only?",
         model: [
           modelSays(
-            `Not at all: healdesk's Aya comes as Aya Voice for your phone line, Aya Web Chat on your website, and Aya Meta Chat for Instagram, Messenger and WhatsApp, website chat included. What made you want to look at an AI assistant for ${CLINIC}?`,
+            `Not at all: Aya Voice for your phone, Aya Web Chat for your site, and Aya Meta Chat for Instagram, Messenger and WhatsApp. What brought you to an AI assistant?`,
             { asked: "goal" },
           ),
         ],
@@ -370,7 +408,7 @@ const josh: DemoCase = {
     {
       caller: "Is it phone only?",
       model: [
-        modelSays("Not at all: Aya Voice for your phone, Aya Web Chat on your website, and Aya Meta Chat for Instagram, Messenger and WhatsApp, website chat included. So, what made you look into this?", { asked: "goal" }),
+        modelSays("Not at all: Aya Voice for your phone, Aya Web Chat for your site, and Aya Meta Chat for Instagram, Messenger and WhatsApp. So, what made you look into this?", { asked: "goal" }),
       ],
       check: { noGuardLine: true, noteIncludes: ["If channels come up at any point"] },
     },
@@ -407,7 +445,7 @@ const josh: DemoCase = {
     {
       caller: "After hours, mostly.",
       model: [modelSays("So those after-hours calls that go to voicemail, those are the ones I'd be picking up.", { beats: ["pain"] })],
-      check: { noGuardLine: true, answers: { coverage: "After hours, mostly." }, noteIncludes: [`Want to get ${CLINIC} set up?`, "50% off the setup fee, for the next 46 hours"] },
+      check: { noGuardLine: true, answers: { coverage: "After hours, mostly." }, noteIncludes: [`Want to get ${SHORT} set up?`, "50% off the setup fee, for the next 46 hours"] },
     },
   ],
 };
@@ -464,8 +502,14 @@ const callbacks: DemoCase[] = [
       },
       {
         caller: "No, that's all, thanks.",
-        model: [modelSays("Thanks so much, Josh! Talk soon.")],
-        check: { noteIncludes: ["The team already has their call-back request: never offer a call-back again"], noteExcludes: [OFFER_CALL] },
+        model: [modelSays(`Thanks so much for your time. ${talkSoonLine("Josh")}`, { quirk: "talkSoon", end: true })],
+        check: {
+          heardIncludes: ["Talk soon, Josh!"],
+          ends: true,
+          quirks: ["talkSoon"],
+          noteIncludes: ["The team already has their call-back request: never offer a call-back again", 'your last words are exactly "Talk soon, Josh!"'],
+          noteExcludes: [OFFER_CALL],
+        },
       },
     ],
   },
@@ -484,8 +528,9 @@ const callbacks: DemoCase[] = [
       },
       {
         caller: "Okay, thanks.",
-        model: [modelSays("Thanks so much, Josh! Talk soon.")],
-        check: { noteIncludes: ["They already have hello at healdesk dot io: never offer a call-back again"] },
+        model: [modelSays("Thanks so much, Josh. Have a great day!")],
+        // No sign-off after a call back that did not get through (6h, D).
+        check: { noteIncludes: ["They already have hello at healdesk dot io: never offer a call-back again"], noteExcludes: ['your last words are exactly "Talk soon'] },
       },
     ],
   },
@@ -505,4 +550,195 @@ const callbacks: DemoCase[] = [
   },
 ];
 
-export const DEMO_CASES: readonly DemoCase[] = [...bareNumbers, ...discovery, josh, ...callbacks];
+/** The words of every stage's shared rules (demo-facts.ts, TALK, DEFLECT, the pushback moves) the cases look for. */
+const LENGTH_RULE = "Every reply is at most one short sentence of reaction, and often none, then one short sentence of content";
+const NO_REFLECTION_RULE = 'never open with "Sounds like...", "It sounds like...", "I hear you"';
+const SAY_AGAIN_RULE = 'say only something like "Sorry, say that again?" and wait; never repeat your question in its place';
+
+/** Phase 6 (owner, 26 October 2026): what the last two test calls still did wrong. */
+const phase6: DemoCase[] = [
+  {
+    id: "reply-length",
+    title: "One short reaction at most, then one short sentence of content, in every stage",
+    why: "6a: the transcripts opened nearly every reply with a reflection and a reassurance before the point; the cap is in every stage's note.",
+    turns: [
+      { ...TO_PITCH[0]!, check: { ...TO_PITCH[0]!.check, noteIncludes: [LENGTH_RULE] } },
+      TO_PITCH[1]!,
+      TO_PITCH[2]!,
+      { ...TO_PITCH[3]!, check: { ...TO_PITCH[3]!.check, noteIncludes: [LENGTH_RULE] } },
+      TO_PITCH[4]!,
+      { caller: "Pretty good.", model: [modelSays(`Glad you liked it. What made you want to look at an AI assistant for ${SHORT}?`, { asked: "goal" })], check: { noteIncludes: [LENGTH_RULE] } },
+    ],
+  },
+  {
+    id: "no-reflection-opener",
+    title: "A reply that opens by reflecting the caller's words back is noticed, and the next is told to skip it",
+    why: `6c: "Sounds like you're losing business on calls you can't pick up" and "I hear you, Lia" opened nearly every reply.`,
+    turns: [
+      ...TO_VOLUME.slice(0, -1),
+      {
+        caller: "We miss calls when we're busy.",
+        model: [modelSays("Sounds like you're losing business on calls you can't pick up. Generally, how many calls do you get a day?", { asked: "volume" })],
+        check: { noteIncludes: [NO_REFLECTION_RULE, "Only when they voice something negative"] },
+      },
+      {
+        caller: "Five.",
+        model: [modelSays(volumeCheck("Five", 5).replace("a month?", "calls a month?"), { asked: "volumeCheck" })],
+        check: { noteIncludes: ["Your recent replies opened by reflecting their words back"] },
+      },
+    ],
+  },
+  {
+    id: "repeat-the-caller",
+    title: 'Unclear words: "Sorry, say that again?", the question still asked, and their retry answers it',
+    why: `6e: "sorry, I didn't catch that" followed by the whole question again; a person asks them to say it again and waits.`,
+    turns: [
+      ...TO_VOLUME,
+      {
+        caller: "Uh, the, the—",
+        model: [modelSays("Sorry, say that again?")],
+        check: { heard: "Sorry, say that again?", asked: "volume", noteIncludes: [SAY_AGAIN_RULE] },
+      },
+      {
+        caller: "Five.",
+        model: [modelSays(volumeCheck("Five", 5).replace("a month?", "calls a month?"), { asked: "volumeCheck" })],
+        check: { answers: { volume: "Five." }, asked: "volumeCheck" },
+      },
+    ],
+  },
+  {
+    id: "pushback-rotation",
+    title: "Pushback: a move instead of the same question, the dropped question never asked again, and another move next time",
+    why: "6f: after resistance she re-asked the same question; the moves rotate (skip, proof, permission, shortcut) and the call keeps which was used.",
+    turns: [
+      ...TO_VOLUME,
+      {
+        caller: "Why does that even matter? Just tell me what it does.",
+        model: [modelSays("Fair enough, skip the numbers: every call after hours gets answered, and booked.", { pushback: "skip", skip: "volume" })],
+        check: { answers: { volume: SKIPPED_ANSWER }, pushback: "skip", noteIncludes: ['"skip", drop the question and go straight to the point it was for'], noGuardLine: true },
+      },
+      {
+        caller: "Okay, and?",
+        model: [modelSays("What happens with those calls after hours right now?", { asked: "missed" })],
+        check: { noteIncludes: ['and not "skip", which you used last'], noteExcludes: ['Next: react to what they said in a few words, then ask: "Generally, how many calls do you get a day?"'] },
+      },
+    ],
+  },
+  {
+    id: "disinterest-then-contact-ask",
+    title: "Not interested: the call back asked for once, then a warm close; a firm no gets only the goodbye",
+    why: "6g: a clear disinterest signal ended the call outright; now one ask for a number, in the offer's own words, before a warm close.",
+    turns: [
+      TO_PITCH[0]!,
+      {
+        caller: "Honestly, I'm not interested.",
+        model: [modelSays(DEMO_CALLBACK_OFFER.text, { asked: "callback" })],
+        check: { heard: DEMO_CALLBACK_OFFER.text, asked: "callback", noteIncludes: [`answer with exactly: "${DEMO_CALLBACK_OFFER.text}" (asked: callback), once in the call`, "Never push past a firm no"] },
+      },
+      {
+        caller: "No thanks.",
+        model: [modelSays("No worries at all, thanks for giving me a try, Josh. Have a great day!", { end: true })],
+        check: { ends: true, noteIncludes: ["close on one short, genuinely warm note"] },
+      },
+    ],
+  },
+  {
+    id: "firm-no-goodbye",
+    title: "A firm refusal to go on: no ask, just a brief positive goodbye",
+    why: "6g: never push past a hard no.",
+    turns: [
+      TO_PITCH[0]!,
+      {
+        caller: "Leave me alone.",
+        model: [modelSays("Of course. Take care, Josh!", { end: true })],
+        check: {
+          ends: true,
+          quirks: [],
+          noteIncludes: ['If they firmly refuse to go on at all ("leave me alone", "stop calling", "I said no"), skip that question', 'one brief, positive goodbye with no "Talk soon"'],
+        },
+      },
+    ],
+  },
+  {
+    id: "disinterest-then-number",
+    title: "Not interested, but a number given: the call back goes to the team from the intro, too",
+    why: "6g with the delivery of DEMO-LEAD: the read-back and the one line work outside the pitch.",
+    callbacks: [{ phoneE164: "+15125550147", note: "Pricing for two locations" }],
+    turns: [
+      TO_PITCH[0]!,
+      { caller: "Honestly, I'm not interested right now.", model: [modelSays(DEMO_CALLBACK_OFFER.text, { asked: "callback" })] },
+      { caller: "Fine, it's 512 555 0147.", model: [modelSays("That's five one two, five five five, oh one four seven, right? And what should the team come prepared with?", { asked: "callbackNote" })], check: { asked: "callbackNote" } },
+      {
+        caller: "Yes. Pricing for two locations.",
+        model: [modelSays("Perfect.", { callback: { phone: "512 555 0147", note: "Pricing for two locations" } })],
+        check: { heard: callbackSentLine("+15125550147"), callback: "sent", stage: "intro" },
+      },
+    ],
+  },
+  {
+    id: "roleplay-resume",
+    title: '"Wait, continue": the same role-play resumed with a recap, never refused and never restarted',
+    why: `6d: after "how was that?" a caller who wanted to carry on was refused, or the role-play began again from "Ring ring!".`,
+    turns: [
+      ...TO_PITCH,
+      {
+        caller: "Wait, continue.",
+        model: [modelSays("Right, you'd just booked Friday morning. Anything you'd like to know before your visit?", { resume: true })],
+        check: {
+          stage: "roleplay",
+          heardExcludes: ["Ring ring"],
+          noteIncludes: [
+            'never refusing and never starting over with "Ring ring"',
+            `Where it stopped: they said "Sure, Friday morning.", and you said "Perfect, the team will confirm Friday morning. Take care!"`,
+          ],
+        },
+      },
+    ],
+  },
+];
+
+/** Aya's signature touches (owner, 26 October 2026, 6h: C and a revised D; demo-facts.ts, DEMO_QUIRKS). */
+const LOVE_THAT_RULE = `your reaction may be exactly "${LOVE_THAT}"`;
+const quirks: DemoCase[] = [
+  {
+    id: "quirk-love-that-once",
+    title: `"${LOVE_THAT}" when they share good news, once in the call, and never in the role-play`,
+    why: "6h, C: a warm micro-affirmation is recognisable once and a tic twice, so it leaves the note the moment it is said.",
+    turns: [
+      ...TO_PITCH,
+      {
+        caller: "Pretty good. And we just opened a second location in Round Rock!",
+        model: [modelSays(`${LOVE_THAT} What made you want to look at an AI assistant for ${CLINIC}?`, { asked: "goal", quirk: "loveThat" })],
+        check: { heardIncludes: [LOVE_THAT], quirks: ["loveThat"], asked: "goal", noteIncludes: [LOVE_THAT_RULE], noGuardLine: true },
+      },
+      {
+        caller: "We also just hired two new injectors.",
+        model: [modelSays("Busy times. Generally, how many calls do you get a day?", { asked: "volume" })],
+        check: { quirks: ["loveThat"], noteIncludes: [`You already said "${LOVE_THAT}" on this call: never again.`], noteExcludes: [LOVE_THAT_RULE] },
+      },
+    ],
+  },
+];
+
+/** "Better than competitors, never named" (owner, 26 October 2026; demo-facts.ts, POSITIONING). */
+const positioning: DemoCase[] = [
+  {
+    id: "better-never-named",
+    title: "Why healdesk over the others: confident, true, and no company named",
+    why: `Owner, 26 October 2026: "AYA needs to say that we're better than competitors but should never name competition."`,
+    turns: [
+      ...TO_PITCH,
+      {
+        caller: "Why would I pick you over the other AI receptionists out there?",
+        model: [modelSays("Unlike a phone-only bot, I answer your phone, website chat, Instagram, Messenger and WhatsApp together. What happens with your missed calls today?", { asked: "missed" })],
+        check: {
+          noGuardLine: true,
+          heardIncludes: ["Unlike a phone-only bot"],
+          noteIncludes: ["Say with confidence that Aya does more than the usual options", 'never name, describe or quote any company, and never say "the only"', "designed to send the clinic's own deposit link"],
+        },
+      },
+    ],
+  },
+];
+
+export const DEMO_CASES: readonly DemoCase[] = [...bareNumbers, ...discovery, josh, ...callbacks, ...phase6, ...quirks, ...positioning];

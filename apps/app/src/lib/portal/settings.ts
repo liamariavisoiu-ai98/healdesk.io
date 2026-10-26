@@ -86,6 +86,7 @@ export const SETTING_KEYS = [
   "tone",
   "phone_greeting",
   "chat_greeting",
+  "short_name",
   "languages",
   "suggest_add_ons",
   "mention_promotions",
@@ -126,6 +127,8 @@ export const SETTING_CHANNELS: Readonly<Record<SettingKey, readonly Channel[]>> 
   // Website chat's alone: a Meta reply opens with the channel's fixed line
   // instead (lib/setup/greetings.ts, GREETING_LABELS).
   chat_greeting: ["web"],
+  // Every channel: after the first message, AYA calls the clinic this.
+  short_name: ["web", "meta", "voice"],
   // Instagram, Messenger and WhatsApp answer in English only: the Meta front
   // door's reply guard reads English, so its language is not a choice.
   languages: ["web", "voice"],
@@ -154,6 +157,7 @@ const PRACTICE_SETTINGS: Partial<Record<SettingKey, PracticeSection>> = {
   tone: "how_aya_talks",
   phone_greeting: "how_aya_talks",
   chat_greeting: "how_aya_talks",
+  short_name: "how_aya_talks",
   languages: "how_aya_talks",
   suggest_add_ons: "how_aya_talks",
   mention_promotions: "promotions",
@@ -313,6 +317,14 @@ async function write(
       return saved[field] === null
         ? `Greeting back to the default. ${which} it after the line that says AYA is an AI assistant.`
         : `Greeting saved. ${which} it after the line that says AYA is an AI assistant.`;
+    }
+
+    case "short_name": {
+      if (value !== null && typeof value !== "string") throw new Refusal(key, "Write the name as text.");
+      const saved = await save({ shortName: value as string | null });
+      return saved.shortName === null
+        ? "Back to the name AYA works out from your full name. She says your full name once, then that."
+        : `Saved. AYA says your full name once, then calls you "${saved.shortName}".`;
     }
 
     case "languages": {

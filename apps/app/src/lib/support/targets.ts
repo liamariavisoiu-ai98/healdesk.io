@@ -88,6 +88,11 @@ export const SETTING_PLACES: Readonly<Record<SettingKey, SettingPlace>> = {
     label: GREETING_LABELS.chat,
     does: `What AYA writes first in a website chat. The line saying she is an AI assistant is always there and can't be edited out. ${META_GREETING_NOTE}`,
   },
+  short_name: {
+    card: "how-aya-talks",
+    label: "What patients call you",
+    does: "The short name AYA uses after saying your full name once, on every channel. Leave it empty and she works one out from your full name.",
+  },
   languages: {
     card: "how-aya-talks",
     label: "Languages",

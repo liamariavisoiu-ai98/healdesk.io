@@ -301,6 +301,15 @@ function PhoneForm({ view, onSave }: { view: OnboardingView; onSave: Actions["sa
           The clinic chooses this in its setup or Settings, from the three modes. It is not set here.
         </span>
       </div>
+      <div className="text-sm">
+        <span className="text-muted block text-xs font-bold uppercase">What AYA calls the clinic</span>
+        <p className="mt-1 py-2">{view.clinic.callName ?? "Not reported"}</p>
+        <span className="text-muted block text-xs">
+          {view.clinic.shortNameSet
+            ? "The clinic's own short name, from its setup or Settings. It is not set here."
+            : "Worked out from the clinic's name; the clinic can set its own in Settings."}
+        </span>
+      </div>
       <label className="text-sm">
         <span className="text-muted block text-xs font-bold uppercase">Assistant number (E.164)</span>
         <input name="assistantNumberE164" defaultValue={view.clinic.assistantNumberE164 ?? ""} placeholder="+14155550100" className="border-line mt-1 w-full rounded-sm border px-3 py-2" />

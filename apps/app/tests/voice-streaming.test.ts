@@ -394,7 +394,7 @@ describe("a declined idea, a known menu, and a peer on the line (owner, 24 Octob
     expect(prompt).toMatch(/You may say what a listed service generally is/);
     expect(prompt).toMatch(/never anything about risks, safety, downtime or results/);
     expect(prompt).toMatch(/Do not invent facts about the practice: its staff, equipment, brands/);
-    expect(prompt).toMatch(/Start every reply with what you have to say, never with a sound or a one-word filler/);
+    expect(prompt).toMatch(/Start every reply's words with what you have to say, never with a filler sound or a one-word filler/);
     expect(prompt).not.toMatch(/Think out loud/);
     expect(prompt).toMatch(/Be the person callers love talking to/);
     expect(prompt).toMatch(/no flirting, no compliments on how they look/);

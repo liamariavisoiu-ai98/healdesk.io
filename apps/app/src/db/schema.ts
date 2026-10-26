@@ -4332,6 +4332,13 @@ export const clinicSettings = pgTable(
     phoneGreeting: text("phone_greeting"),
     /** The first line in chat and DMs after the locked AI line; null means the default. */
     chatGreeting: text("chat_greeting"),
+    /**
+     * What patients call the clinic, said after its full name has been said
+     * once ("Lumen" for "Lumen Aesthetics & Wellness"; owner, 26 October 2026,
+     * docs/design/clinic-nickname-2026-10-26.md). Null means the short form
+     * worked out from the name (@healdesk/catalog shortClinicName).
+     */
+    shortName: text("short_name"),
     /** The languages AYA answers in. It answers in the caller's language and stays in it. */
     languages: text("languages")
       .array()
@@ -4412,6 +4419,7 @@ export const clinicSettings = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
+    check("clinic_settings_short_name_check", sql`${t.shortName} is null or char_length(${t.shortName}) between 1 and 40`),
     check(
       "clinic_settings_uncollectable_check",
       sql`${t.depositUncollectable} in ('book_and_flag', 'hold_and_alert', 'decline_and_alert')`,
@@ -8301,7 +8309,7 @@ export const supportMessages = pgTable(
     nextSendAt: timestamp("next_send_at", { withTimezone: true }),
     sendStoppedAt: timestamp("send_stopped_at", { withTimezone: true }),
     sendStoppedReason: text("send_stopped_reason").$type<SupportSendStoppedReason>(),
-    /** When the approved text is deleted: 12 months after it was sent, or after the sending stopped without it going (0128; the row stays). */
+    /** When the approved text is deleted: 12 months after it was sent, or after the sending stopped without it going (0129; the row stays). */
     textDeleteAfter: timestamp("text_delete_after", { withTimezone: true }),
     /** Names, types and sizes only: an attachment is never opened or kept. */
     attachmentsJson: jsonb("attachments_json"),

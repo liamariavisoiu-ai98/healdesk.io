@@ -274,6 +274,7 @@ describe("Settings → Sign-in", () => {
 describe("Knowledge and setup's Basics", () => {
   const initial = {
     name: "Paws & Claws",
+    shortName: "",
     address: "1 Main St, Austin, TX",
     phone: "(512) 555-0100",
     website: "pawsandclaws.test",

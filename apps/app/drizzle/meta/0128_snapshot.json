@@ -1,5 +1,5 @@
 {
-  "id": "a181862e-ac54-4e3c-a0cf-2c26162c3450",
+  "id": "1a087fdf-935e-42a5-9dab-0e851fc71a6d",
   "prevId": "14ec668f-2f71-49d6-ab02-b1de2ae7df26",
   "version": "7",
   "dialect": "postgresql",
@@ -4665,6 +4665,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "short_name": {
+          "name": "short_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "languages": {
           "name": "languages",
           "type": "text[]",
@@ -4814,6 +4820,10 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
+        "clinic_settings_short_name_check": {
+          "name": "clinic_settings_short_name_check",
+          "value": "\"clinic_settings\".\"short_name\" is null or char_length(\"clinic_settings\".\"short_name\") between 1 and 40"
+        },
         "clinic_settings_uncollectable_check": {
           "name": "clinic_settings_uncollectable_check",
           "value": "\"clinic_settings\".\"deposit_uncollectable\" in ('book_and_flag', 'hold_and_alert', 'decline_and_alert')"
@@ -14301,7 +14311,7 @@
         },
         "support_messages_send_check": {
           "name": "support_messages_send_check",
-          "value": "(\"support_messages\".\"kind\" = 'reply' or (\"support_messages\".\"reply_subject\" is null and \"support_messages\".\"approved_hash\" is null and \"support_messages\".\"send_attempts\" = 0 and \"support_messages\".\"next_send_at\" is null and \"support_messages\".\"send_stopped_at\" is null and \"support_messages\".\"text_delete_after\" is null)) and \"support_messages\".\"send_attempts\" between 0 and 6 and (\"support_messages\".\"approved_hash\" is null or \"support_messages\".\"approved_hash\" ~ '^[0-9a-f]{64}$') and (\"support_messages\".\"reply_subject\" is null or char_length(\"support_messages\".\"reply_subject\") between 1 and 200) and (\"support_messages\".\"send_stopped_at\" is null) = (\"support_messages\".\"send_stopped_reason\" is null) and (\"support_messages\".\"send_stopped_reason\" is null or \"support_messages\".\"send_stopped_reason\" in ('dead', 'case_closed', 'clinic_left')) and not (\"support_messages\".\"send_stopped_at\" is not null and \"support_messages\".\"sent_at\" is not null) and (\"support_messages\".\"text_delete_after\" is null or \"support_messages\".\"sent_at\" is not null or \"support_messages\".\"send_stopped_at\" is not null)"
+          "value": "(\"support_messages\".\"kind\" = 'reply' or (\"support_messages\".\"reply_subject\" is null and \"support_messages\".\"approved_hash\" is null and \"support_messages\".\"send_attempts\" = 0 and \"support_messages\".\"next_send_at\" is null and \"support_messages\".\"send_stopped_at\" is null and \"support_messages\".\"text_delete_after\" is null)) and \"support_messages\".\"send_attempts\" between 0 and 6 and (\"support_messages\".\"approved_hash\" is null or \"support_messages\".\"approved_hash\" ~ '^[0-9a-f]{64}$') and (\"support_messages\".\"reply_subject\" is null or char_length(\"support_messages\".\"reply_subject\") between 1 and 200) and (\"support_messages\".\"send_stopped_at\" is null) = (\"support_messages\".\"send_stopped_reason\" is null) and (\"support_messages\".\"send_stopped_reason\" is null or \"support_messages\".\"send_stopped_reason\" in ('dead', 'case_closed', 'clinic_left')) and not (\"support_messages\".\"send_stopped_at\" is not null and \"support_messages\".\"sent_at\" is not null) and (\"support_messages\".\"text_delete_after\" is null or \"support_messages\".\"sent_at\" is not null)"
         },
         "support_messages_approved_check": {
           "name": "support_messages_approved_check",

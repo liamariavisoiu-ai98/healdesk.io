@@ -338,7 +338,7 @@ async function stop(messageId: string, reason: SupportSendStoppedReason, now: Da
       sendStoppedAt: now,
       sendStoppedReason: reason,
       nextSendAt: null,
-      // The words of a reply that never went are forgotten on the same 12-month rule, counted from the stop (0128).
+      // The words of a reply that never went are forgotten on the same 12-month rule, counted from the stop (0129).
       textDeleteAfter: new Date(now.getTime() + REPLY_TEXT_KEPT_DAYS * DAY_MS),
     })
     .where(and(eq(supportMessages.id, messageId), isNull(supportMessages.sentAt), isNull(supportMessages.sendStoppedAt)));
@@ -628,7 +628,7 @@ export async function retrySupportReplies(
 /**
  * Delete the text of every reply sent, or stopped without going (dead, its
  * case closed, its clinic left), more than 12 months ago (design E5 §2.2; the
- * stopped ones since lane P7f, 0128): the row stays, with its subject, hash,
+ * stopped ones since lane P7f, 0129): the row stays, with its subject, hash,
  * approval and delivery or stop, as the record that a reply went, or did not,
  * and what it was approved as. Returns how many.
  */

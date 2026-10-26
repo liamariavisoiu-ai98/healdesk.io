@@ -1,6 +1,7 @@
 import {
   COVERAGE_MODES,
   isBookingSystemId,
+  shortClinicName,
   type AssistantTone,
   type BookingSystemId,
   type CoverageModeId,
@@ -187,6 +188,14 @@ async function writeScreen(
         },
         now,
       );
+      // What patients call the practice: kept only when it differs from the
+      // one worked out from the name, so a later correction of the name
+      // carries the worked-out one with it.
+      if (input.shortName !== undefined) {
+        const worked = typeof input.name === "string" ? shortClinicName(input.name.trim()) : null;
+        const typed = typeof input.shortName === "string" ? input.shortName.trim() : input.shortName;
+        await saveSetupSettings(tx, { shortName: typed === worked ? null : (typed as string | null) }, ctx.actorLabel, now);
+      }
       // "Which one is your main location?": the chosen location's hours become
       // the starting point of the hours screen, until the clinic confirms them.
       const index = typeof input.location === "number" ? input.location : null;

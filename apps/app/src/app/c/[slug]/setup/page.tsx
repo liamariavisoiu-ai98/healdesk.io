@@ -298,6 +298,7 @@ function renderScreen(state: SetupState, screen: SetupScreenId, nav: Nav) {
           {...common}
           initial={{
             name: clinic.name,
+            shortName: settings.shortName ?? "",
             address: clinic.address ?? "",
             phone: clinic.publishedPhoneE164 ? formatPhone(clinic.publishedPhoneE164) : "",
             website: clinic.website ?? "",

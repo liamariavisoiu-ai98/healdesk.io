@@ -32,6 +32,7 @@ export * from "./booking-systems";
 export * from "./calendar-terms";
 export * from "./central-assistant-acknowledgement";
 export * from "./checkout-intent";
+export * from "./clinic-name";
 export * from "./clinic-profile";
 export * from "./clinical-content";
 export * from "./connection-steps";

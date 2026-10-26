@@ -10,6 +10,7 @@ import {
   getBookingSystem,
   GREETING_MAX_CHARS,
   isCalendarAccount,
+  isSafeTypedText,
   type AssistantLanguage,
   type AssistantTone,
   type BookingDetail,
@@ -23,7 +24,7 @@ import { and, eq, sql } from "drizzle-orm";
 
 import type { Transaction } from "@/db";
 import { clinicProviders, clinics, clinicSettings, clinicSettingsHistory } from "@/db/schema";
-import { guardGreeting, type GreetingRefusal } from "@/lib/assistant/guard";
+import { guardGreeting, neverSayIn, type GreetingRefusal } from "@/lib/assistant/guard";
 import { normaliseE164, updateClinicSettings } from "@/lib/billing/settings";
 import { notifySettingChanged } from "@/lib/notices/setting-changed";
 import { completeStep } from "@/lib/onboarding/steps";
@@ -61,6 +62,8 @@ export type SetupSettings = {
   /** Null: the default, built from the clinic's name. */
   phoneGreeting: string | null;
   chatGreeting: string | null;
+  /** What patients call the clinic (Settings, "What patients call you"); null: worked out from its name. */
+  shortName: string | null;
   languages: AssistantLanguage[];
   suggestAddOns: boolean;
   mentionPromotions: boolean;
@@ -84,6 +87,7 @@ export const DEFAULT_SETUP_SETTINGS: Readonly<SetupSettings> = Object.freeze({
   tone: "warm",
   phoneGreeting: null,
   chatGreeting: null,
+  shortName: null,
   languages: ["en"],
   suggestAddOns: false,
   mentionPromotions: true,
@@ -120,6 +124,7 @@ function fromRow(row: Row | undefined): SetupSettings {
     tone: row.tone,
     phoneGreeting: row.phoneGreeting,
     chatGreeting: row.chatGreeting,
+    shortName: row.shortName,
     languages: [...row.languages],
     suggestAddOns: row.suggestAddOns,
     mentionPromotions: row.mentionPromotions,
@@ -153,6 +158,7 @@ export type SetupSettingsPatch = Partial<{
   tone: AssistantTone;
   phoneGreeting: string | null;
   chatGreeting: string | null;
+  shortName: string | null;
   languages: AssistantLanguage[];
   suggestAddOns: boolean;
   mentionPromotions: boolean;
@@ -420,6 +426,7 @@ function validate(patch: SetupSettingsPatch): Partial<SetupSettings> {
     if (patch[field] === undefined) continue;
     out[field] = greeting(field, patch[field]);
   }
+  if (patch.shortName !== undefined) out.shortName = shortName(patch.shortName);
   if (patch.languages !== undefined) {
     const list = Array.isArray(patch.languages) ? [...new Set(patch.languages)] : [];
     if (list.length === 0) {
@@ -502,6 +509,35 @@ function greeting(field: "phoneGreeting" | "chatGreeting", raw: unknown): string
   return text;
 }
 
+/** The longest short name: a word or two, as patients say it. */
+export const SHORT_NAME_MAX_CHARS = 40;
+
+/**
+ * What patients call the clinic (docs/design/clinic-nickname-2026-10-26.md):
+ * plain words, said aloud after the full name, so never a link, a number or
+ * markup (the catalog's isSafeTypedText), and nothing clinical. Empty or
+ * null means the form worked out from the name.
+ */
+function shortName(raw: unknown): string | null {
+  if (raw === null) return null;
+  if (typeof raw !== "string") throw new SetupSettingsError("shortName", "Write the name as text.");
+  // eslint-disable-next-line no-control-regex
+  const text = raw.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!text) return null;
+  if (text.length > SHORT_NAME_MAX_CHARS) {
+    throw new SetupSettingsError("shortName", `Keep it to ${SHORT_NAME_MAX_CHARS} characters: the word or two patients use.`);
+  }
+  if (!isSafeTypedText(text, SHORT_NAME_MAX_CHARS) || !/\p{L}/u.test(text)) {
+    throw new SetupSettingsError("shortName", "Use the name as patients say it, in plain words: no links, numbers on their own or symbols.");
+  }
+  // With everyday conditions too ("Acne"), as the Meta screen reads replies:
+  // a part of the clinic's name the screens read past must name none.
+  if (findClinicalContent({ greeting: text }, { conditions: true }).length > 0) {
+    throw new SetupSettingsError("shortName", "Use the name as patients say it, not a treatment or medical term.");
+  }
+  return text;
+}
+
 /** What the clinic is told when the guard refuses its greeting, by the guard's reason. */
 const GREETING_REFUSED: Record<GreetingRefusal, string> = {
   undoes_disclosure:
@@ -528,7 +564,8 @@ const GREETING_REFUSED: Record<GreetingRefusal, string> = {
 };
 
 /**
- * Each greeting in the patch through the guard every reply passes, with the
+ * Each greeting in the patch through the guard every reply passes, and the
+ * short name through its never-say list, with the
  * clinic's menu, never-say list, name, address and providers. The channel
  * asks it again each time it opens (lib/assistant/opening.ts), since the
  * menu and the list can change after the greeting is saved.
@@ -537,7 +574,8 @@ async function screenGreetings(tx: TenantTx, wanted: Partial<SetupSettings>): Pr
   const fields = (["phoneGreeting", "chatGreeting"] as const).filter(
     (field) => typeof wanted[field] === "string",
   );
-  if (fields.length === 0) return;
+  const short = typeof wanted.shortName === "string" ? wanted.shortName : null;
+  if (fields.length === 0 && short === null) return;
   const [clinic] = await tx.db
     .select({ name: clinics.name, address: clinics.address })
     .from(clinics)
@@ -563,6 +601,11 @@ async function screenGreetings(tx: TenantTx, wanted: Partial<SetupSettings>): Pr
     neverSay: neverSayWithDefaults(knowledge.neverSay),
     providerNames: providers.map((p) => p.name),
   };
+  // The short name is said on every channel, and no never-say entry is
+  // excused in it (guard.ts, clinicOwnWords), so none may be in it.
+  if (short !== null && neverSayIn(short, facts.neverSay)) {
+    throw new SetupSettingsError("shortName", "That name has a word on your never-say list in it, so AYA couldn't say it. Use the name as patients say it without that word.");
+  }
   for (const field of fields) {
     const verdict = guardGreeting(wanted[field] as string, facts);
     if (!verdict.ok) throw new SetupSettingsError(field, GREETING_REFUSED[verdict.reason]);

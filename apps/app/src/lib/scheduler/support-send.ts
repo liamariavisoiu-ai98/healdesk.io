@@ -31,7 +31,7 @@ import { getJob, JOB_SUPPORT_SEND, runSwitchedJob, type JobOutcome } from "./job
  * kept 12 months in both places and no longer. The rows stay, without the
  * words, with their hashes and every approval event. The text of an approved
  * reply that never went (stopped dead, case closed, clinic left) is swept on
- * the same rule, 12 months from the stop (0128, lane P7f); its approval item's
+ * the same rule, 12 months from the stop (0129, lane P7f); its approval item's
  * copy goes 12 months from the decision, as for any reply.
  *
  * Neither throws into the queue: a failure is the job's note.

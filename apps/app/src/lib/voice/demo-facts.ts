@@ -17,6 +17,8 @@ import {
 import type { AssistantFacts, AssistantService } from "@/lib/assistant/facts";
 import { defaultChatGreeting, defaultPhoneGreeting } from "@/lib/setup/greetings";
 
+import { callbackFrom, type DemoCallback } from "./demo-callback";
+
 /**
  * A personalised demo call's facts (owner, 24 October 2026: "the demo AYAs
  * and the client AYA should be THE SAME, only difference should be the
@@ -305,7 +307,7 @@ export function nextDemoStage(stage: DemoStage, reply: string, asked: DemoQuesti
  * "before getting into selling healdesk to us she should ask questions, to
  * understand what the caller is after").
  */
-export const DEMO_QUESTIONS = ["identity", "role", "choice", "goal", "volume", "volumeCheck", "missed", "coverage", "tiedown", "ask"] as const;
+export const DEMO_QUESTIONS = ["identity", "role", "choice", "goal", "volume", "volumeCheck", "missed", "coverage", "tiedown", "ask", "callback", "callbackNote"] as const;
 export type DemoQuestion = (typeof DEMO_QUESTIONS)[number];
 
 /**
@@ -344,9 +346,15 @@ export type DemoProgress = {
   roleplayTurns: number;
   /** The pitch's beats already said (DemoBeat). */
   said: readonly DemoBeat[];
+  /**
+   * A call back they asked for (demo-callback.ts): "sent" once apps/web took
+   * it and they heard so, "failed" once they heard hello@ instead, null
+   * before either. Either way it is not offered again.
+   */
+  callback?: "sent" | "failed" | null;
 };
 
-export const DEMO_START_PROGRESS: DemoProgress = { asked: null, answers: {}, roleplayTurns: 0, said: [] };
+export const DEMO_START_PROGRESS: DemoProgress = { asked: null, answers: {}, roleplayTurns: 0, said: [], callback: null };
 
 /** A demo's progress once its opening line is said: that line asks who they are. */
 export const DEMO_OPENED_PROGRESS: DemoProgress = { ...DEMO_START_PROGRESS, asked: "identity" };
@@ -357,22 +365,27 @@ export const DEMO_OPENED_PROGRESS: DemoProgress = { ...DEMO_START_PROGRESS, aske
  * reply asks, and the pitch beats it says. Every value is checked against
  * the lists here, and a question counts only in a reply that asks one.
  */
-export type DemoStateUpdate = { asked: DemoQuestion | null; beats: DemoBeat[] };
+export type DemoStateUpdate = {
+  asked: DemoQuestion | null;
+  beats: DemoBeat[];
+  /** A call back with a number that can be called (demo-callback.ts, callbackFrom); the session sends it. */
+  callback: DemoCallback | null;
+};
 
 /** The state update in an answer's details; null when the answer carried none. */
 export function demoStateFrom(raw: unknown, reply: string): DemoStateUpdate | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const state = raw as { asked?: unknown; beats?: unknown };
+  const state = raw as { asked?: unknown; beats?: unknown; callback?: unknown };
   const asked =
     typeof state.asked === "string" && (DEMO_QUESTIONS as readonly string[]).includes(state.asked) && state.asked !== "identity" && reply.includes("?")
       ? (state.asked as DemoQuestion)
       : null;
   const beats = Array.isArray(state.beats) ? DEMO_BEATS.filter((beat) => (state.beats as unknown[]).includes(beat)) : [];
-  return { asked, beats };
+  return { asked, beats, callback: callbackFrom(state.callback) };
 }
 
 /** The instruction for the state update, in each note that tracks one. */
-const STATE_RULE = `With every reply, add to the JSON details a "state" object: {"asked": the one scripted question this reply asks, or null, "beats": the pitch beats this reply says, or []}. The questions are role, choice, goal, volume, volumeCheck, missed, coverage, tiedown and ask; the beats are pain, reveal, number, finish, anchor, value, recommend, noStrings and refund, as named in this note. Name only what the reply actually says.`;
+const STATE_RULE = `With every reply, add to the JSON details a "state" object: {"asked": the one scripted question this reply asks, or null, "beats": the pitch beats this reply says, or []}. The questions are role, choice, goal, volume, volumeCheck, missed, coverage, tiedown, ask, callback and callbackNote; the beats are pain, reveal, number, finish, anchor, value, recommend, noStrings and refund, as named in this note. Name only what the reply actually says.`;
 
 /** Answers longer than this are cut: what is kept is a reminder, not a record. */
 const ANSWER_MAX = 200;
@@ -413,6 +426,8 @@ const ANSWER_LABELS: Readonly<Record<DemoQuestion, string>> = {
   coverage: "how they want you to help",
   tiedown: "when you asked what would stop them getting it running today",
   ask: "when you asked them to get set up",
+  callback: "when you asked for the best number for the team to call",
+  callbackNote: "when you read the number back and asked what the team should come prepared with",
 };
 
 /** The answers so far, as the note lists them; null before any. */
@@ -690,7 +705,20 @@ export function demoStageNote(
     `- They already have someone on the phones: "Great, I'm not replacing them. I pick up what they can't get to, after hours and while they're with a patient, so nothing goes to voicemail."`,
     `- Not convinced: ask what they'd need to see, and offer another quick role-play on exactly that.`,
   ].join("\n");
-  const next = !a.goal
+  // The page's button and hello@: what a hesitant owner hears when they turn
+  // a call back down, or once a call back has been dealt with.
+  const noCall = `No problem at all. Whenever you're ready, ${button ? `${button} is right there on your demo page` : "the healdesk team can get you started"}, and you can reach the team at hello at healdesk dot io if you'd like to talk it through.`;
+  // A call back being taken (demo-callback.ts): the read-back, then the one
+  // line, each ahead of anything else the pitch would do next.
+  const callbackStep =
+    progress.asked === "callback" && !progress.callback
+      ? `Next: you asked for the best number for the team to call. If they gave one, read it back digit by digit in groups and, in the same reply, ask what the team should come prepared with, close to: "That's five one two, five five five, oh one oh oh, right? And what should the team come prepared with?" (asked: callbackNote). If they gave no number or would rather not, say: "${noCall}" Then thank them and say a warm goodbye.`
+      : progress.asked === "callbackNote" && !progress.callback
+      ? `Next: they answered your read-back. If they confirmed the number, or corrected it, and said what they would like to talk about, add to the state a "callback" object: {"phone": the number as digits, as corrected if they corrected it, "note": what they want to talk about, as one short line in your own words}, and reply with only "Perfect." This reply is not said: the call tells them itself whether the team has it. If they changed their mind, answer them normally, with no "callback" in the state.`
+      : null;
+  const next = callbackStep
+    ? callbackStep
+    : !a.goal
     ? `Next: take their reaction to the role-play in a few words (if they are unsure or not convinced, ask what would make it convincing for them), then find out what they are after: ${goalQuestion}`
     : !a.volume
     ? `Next: react to what they said in a few words, then ask: "Generally, how many calls do you get a day?"`
@@ -718,7 +746,10 @@ export function demoStageNote(
     ...(covered
       ? [
           `Close: "Want to get ${clinic} set up?" ${close}${discountWords ? ` Say the discount exactly so: ${discountWords}.` : ""}`,
-          `If they are still hesitant, or ask to speak to a person: "No problem at all. Whenever you're ready, ${button ? `${button} is right there on your demo page` : "the healdesk team can get you started"}, and you can reach the team at hello at healdesk dot io if you'd like to talk it through."${discountWords ? " Mention the discount window once." : ""} Then thank them and say a warm goodbye. Never offer a call-back, never take a phone number for one, and never say the team has been told or will call: nothing on this call reaches them.`,
+          progress.callback
+            ? `If they are still hesitant: "${noCall}"${discountWords ? " Mention the discount window once." : ""} Then thank them and say a warm goodbye. ${progress.callback === "sent" ? "The team already has their call-back request" : "They already have hello at healdesk dot io"}: never offer a call-back again or take another number.`
+            : `If they are still hesitant, or ask to speak to a person: "No problem at all. Want someone from our team to give you a quick call? What's the best number to reach you on?" (asked: callback). If they would rather not: "${noCall}"${discountWords ? " Mention the discount window once." : ""} Then thank them and say a warm goodbye.`,
+          `Never say the team has been told, has their number or will call: when they have, the call says so itself.`,
         ]
       : []),
     `Never say you will send a link, an email or a text, and never take payment details on the call. Deposit links go only in website chat or social messages, never on a call and never by text message.`,

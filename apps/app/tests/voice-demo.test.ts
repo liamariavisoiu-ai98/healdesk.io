@@ -391,10 +391,14 @@ describe("a demo call's facts", () => {
     // After every beat: the tie-down, then the ask.
     expect(at([...DEMO_BEATS])).toContain(`Next, the tie-down: "Anything that'd stop you from getting that running today?"`);
     expect(at([...DEMO_BEATS], { tiedown: "not really" })).toContain('then ask for it plainly: "Want to get Lumen Aesthetics set up?"');
-    // The close repeats the live discount; a hesitant owner gets a way to reach the team, never a call-back nothing would deliver.
+    // The close repeats the live discount; a hesitant owner is offered a call
+    // from the team (demo-callback.ts), and turning it down gets the page's
+    // button and hello@. The note never lets her say the team has it: the
+    // call says so itself, once apps/web took it.
     expect(start).toContain("Say the discount exactly so: 50% off the setup fee, for the next 47 hours.");
     expect(start).toContain("you can reach the team at hello at healdesk dot io");
-    expect(start).toContain("Never offer a call-back, never take a phone number for one, and never say the team has been told or will call");
+    expect(start).toContain(`"No problem at all. Want someone from our team to give you a quick call? What's the best number to reach you on?" (asked: callback)`);
+    expect(start).toContain("Never say the team has been told, has their number or will call: when they have, the call says so itself.");
     // No live discount: none is named.
     const noOffer = demoStageNote(context({ offer: null }), "pitch", now, { asked: null, answers: discovered, roleplayTurns: 0, said: [] });
     expect(noOffer).not.toMatch(/real discount|% off the setup fee/);
@@ -430,12 +434,12 @@ describe("a demo call's facts", () => {
 
   test("the session keeps each answer from her structured state update and the caller's next words, never from her prose", () => {
     // The state update in the details, each value checked against the lists.
-    expect(demoStateFrom({ asked: "volume", beats: [] }, "Generally, how many calls do you get a day?")).toEqual({ asked: "volume", beats: [] });
-    expect(demoStateFrom({ asked: "coverage", beats: ["pain", "nonsense"] }, "How do you see me helping you best?")).toEqual({ asked: "coverage", beats: ["pain"] });
+    expect(demoStateFrom({ asked: "volume", beats: [] }, "Generally, how many calls do you get a day?")).toEqual({ asked: "volume", beats: [], callback: null });
+    expect(demoStateFrom({ asked: "coverage", beats: ["pain", "nonsense"] }, "How do you see me helping you best?")).toEqual({ asked: "coverage", beats: ["pain"], callback: null });
     // A question counts only in a reply that asks one; an unknown or the opening's own question never.
-    expect(demoStateFrom({ asked: "volume" }, "Got it, five a day.")).toEqual({ asked: null, beats: [] });
-    expect(demoStateFrom({ asked: "bogus" }, "What?")).toEqual({ asked: null, beats: [] });
-    expect(demoStateFrom({ asked: "identity" }, "Is this Josh?")).toEqual({ asked: null, beats: [] });
+    expect(demoStateFrom({ asked: "volume" }, "Got it, five a day.")).toEqual({ asked: null, beats: [], callback: null });
+    expect(demoStateFrom({ asked: "bogus" }, "What?")).toEqual({ asked: null, beats: [], callback: null });
+    expect(demoStateFrom({ asked: "identity" }, "Is this Josh?")).toEqual({ asked: null, beats: [], callback: null });
     // No state at all is not a state.
     expect(demoStateFrom(null, "Generally, how many calls do you get a day?")).toBeNull();
     expect(demoStateFrom(["volume"], "How many?")).toBeNull();
@@ -443,14 +447,14 @@ describe("a demo call's facts", () => {
     // Her prose alone moves nothing: "how many calls" with no state asks nothing.
     let p = afterDemoReply(DEMO_START_PROGRESS, "pitch", "pitch", null);
     expect(p.asked).toBeNull();
-    p = afterDemoReply(p, "pitch", "pitch", { asked: "volume", beats: [] });
+    p = afterDemoReply(p, "pitch", "pitch", { asked: "volume", beats: [], callback: null });
     expect(p.asked).toBe("volume");
     p = withDemoAnswer(p, "pitch", "Five.");
     expect(p.answers.volume).toBe("Five.");
-    p = afterDemoReply(p, "pitch", "pitch", { asked: null, beats: [] });
+    p = afterDemoReply(p, "pitch", "pitch", { asked: null, beats: [], callback: null });
     expect(p).toMatchObject({ asked: null, answers: { volume: "Five." } });
     // A role-play counts the caller's turns from its start.
-    p = afterDemoReply(p, "pitch", "roleplay", { asked: null, beats: [] });
+    p = afterDemoReply(p, "pitch", "roleplay", { asked: null, beats: [], callback: null });
     p = withDemoAnswer(withDemoAnswer(p, "roleplay", "hi"), "roleplay", "botox please");
     expect(p.roleplayTurns).toBe(2);
     expect(p.answers.volume).toBe("Five.");

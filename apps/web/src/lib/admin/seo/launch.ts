@@ -59,6 +59,15 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     blocksGoLive: true,
   },
   {
+    id: "deposit-link-meta",
+    promise: "On Instagram, Messenger and WhatsApp AYA is designed to send the clinic's own deposit link",
+    where: "The demo call (Aya's description of what she does and where healdesk sits)",
+    status: "building",
+    left: "The Meta front door takes booking requests and sends no link yet. It needs the booking engine and the clinic's payment link on Meta replies, inside the 24-hour window, with nothing clinical in the message (owner, 26 October 2026: \"this is what we will launch\").",
+    evidence: "apps/app/src/lib/meta/front-door.ts, apps/app/src/lib/voice/demo-facts.ts (DEPOSIT_CLAIM)",
+    blocksGoLive: true,
+  },
+  {
     id: "web-chat-on-paste",
     promise: "You paste one line on your website, and AYA is designed to start answering there",
     where: "Set-up wizard and welcome email (website chat)",

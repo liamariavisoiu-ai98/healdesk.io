@@ -4,8 +4,10 @@ import { SPOKEN_END } from "@/lib/assistant/prompt";
 
 import { CALLBACK_FAILED_LINE, callbackSentLine } from "./demo-callback";
 import {
+  DEMO_ROLEPLAY_EXIT,
   demoRoleplayOpener,
   LOVE_THAT,
+  WHICH_ONE_LINE,
   shortClinicName,
   SKIPPED_ANSWER,
   talkSoonLine,
@@ -37,7 +39,7 @@ import {
  * a clinic's owner talking about their business, never a patient.
  */
 
-export const DEMO_CASES_VERSION = "2026-10-26.3";
+export const DEMO_CASES_VERSION = "2026-10-26.4";
 
 /** The made-up clinic every case calls about. */
 export const DEMO_CASE_CLINIC: DemoCallClinic = {
@@ -73,6 +75,10 @@ export function modelSays(
     skip?: DemoQuestion;
     resume?: boolean;
     quirk?: DemoQuirk;
+    roleplay?: "start" | "cancel" | "end";
+    answered?: DemoQuestion[];
+    impatient?: boolean;
+    booking?: { service?: string; day?: string; time?: string };
     end?: boolean;
   } | null = {},
 ): string {
@@ -86,6 +92,10 @@ export function modelSays(
       ...(state.skip ? { skip: state.skip } : {}),
       ...(state.resume ? { resume: true } : {}),
       ...(state.quirk ? { quirk: state.quirk } : {}),
+      ...(state.roleplay ? { roleplay: state.roleplay } : {}),
+      ...(state.answered ? { answered: state.answered } : {}),
+      ...(state.impatient ? { impatient: true } : {}),
+      ...(state.booking ? { booking: state.booking } : {}),
     };
   }
   return `${words}\n${SPOKEN_END}\n${JSON.stringify(details)}`;
@@ -112,6 +122,8 @@ export type DemoCaseCheck = {
   ends?: boolean;
   /** The signature touches the call has said after the turn (DemoProgress.quirks; absent reads as none). */
   quirks?: readonly DemoQuirk[];
+  /** Any other part of what the call kept after the turn (DemoProgress), matched as a subset. */
+  progress?: Partial<DemoProgress>;
   /** Words in the turn context the model was given first on this turn. */
   noteIncludes?: readonly string[];
   noteExcludes?: readonly string[];
@@ -741,4 +753,136 @@ const positioning: DemoCase[] = [
   },
 ];
 
-export const DEMO_CASES: readonly DemoCase[] = [...bareNumbers, ...discovery, josh, ...callbacks, ...phase6, ...quirks, ...positioning];
+/**
+ * Test call 72dc66b7 (Thomas, Lumen, 26 October 2026, on the PR 58 deploy),
+ * replayed with his words verbatim where the call allows and the model's as
+ * the fixed Aya would write them: each turn pins what the code itself now
+ * does (docs/design/demo-call-72dc66b7-review-2026-10-26.md, faults 2 to 17).
+ */
+const ALL_CHANNELS = "One Aya covers your phone, website chat, Instagram, Messenger and WhatsApp, designed to send your deposit link in chat and DMs.";
+const thomas: DemoCase = {
+  id: "thomas-lumen-72dc66b7",
+  title: "The employee who was confused, never got a clean role-play, re-asked, and hung up",
+  why: "Test call 72dc66b7: a bare \"Ring ring!\" on an ambiguous yes, an exit line with no role-play, channels and deposit links only when pushed, \"the second one\" read as the third, the service asked four times, a rich answer read for one question, volume asked again, and \"Talk soon!\" as he hung up.",
+  turns: [
+    TO_PITCH[0]!,
+    {
+      caller: "I'm an employee, actually.",
+      model: [modelSays(`Great, thanks! Would you like to hear what I can do for ${SHORT}, or jump straight into a quick role-play where you call in as a patient?`, { asked: "choice" })],
+      // An employee gets the same call as an owner (owner, 26 October 2026: "it should be the same importance").
+      check: { asked: "choice", stage: "intro", noGuardLine: true },
+    },
+    {
+      caller: "Tell me what you can do first.",
+      model: [modelSays(`${ALL_CHANNELS} More, or a quick role-play?`)],
+      check: { heardIncludes: ["WhatsApp", "Instagram", "Messenger", "deposit link"], noteIncludes: ["website chat, Instagram, Messenger and WhatsApp", "designed to send the clinic's own deposit link"], noGuardLine: true },
+    },
+    {
+      caller: "Yes, please.",
+      model: [modelSays("Let's do it, you be the patient.", { roleplay: "start" })],
+      // A bare yes to an either/or chooses neither: the call asks which, and nothing starts.
+      check: { heard: WHICH_ONE_LINE, stage: "intro", asked: "choice", noteIncludes: ["ask which one they mean in a few words instead of choosing for them"] },
+    },
+    {
+      caller: "Go through the channels first.",
+      model: [modelSays("Phone, website chat, Instagram, Messenger and WhatsApp, all the same Aya, with the same answers. Ready for the role-play?")],
+      check: { stage: "intro", noGuardLine: true },
+    },
+    {
+      caller: "Yes, let's do the role play now.",
+      model: [modelSays("Let's do it, you be the patient.", { roleplay: "start" })],
+      // The call says the opener itself, word for word, with its AI notice.
+      check: { heardIncludes: [`Let's do it, you be the patient. ${demoRoleplayOpener(CLINIC)}`], stage: "roleplay" },
+    },
+    {
+      caller: "Hi. I'd like to book an appointment at your clinic, please.",
+      model: [modelSays("Lovely! Which treatment are you thinking of?")],
+      check: { stage: "roleplay", noteIncludes: ["Still needed: the treatment and a preferred day and time"], noGuardLine: true },
+    },
+    {
+      caller: "Something for my skin. How much does it cost?",
+      model: [modelSays("The HydraFacial is $199, or there's Botox at $12 a unit. Which sounds closer?")],
+      check: { progress: { lastListed: ["HydraFacial", "Botox"] }, noGuardLine: true },
+    },
+    {
+      caller: "I don't understand.",
+      model: [modelSays("Which part?")],
+      check: { heard: "Which part?", progress: { confused: 1 }, noteIncludes: ['Ask which part in a few words ("Which part?")'] },
+    },
+    {
+      caller: "The second one.",
+      model: [modelSays("Botox it is, at $12 a unit. What day and time suit you?", { booking: { service: "Botox" } })],
+      // The position is read in code: the second item she listed, named back.
+      check: { noteIncludes: ['They just said "second": that is the Botox, number 2 of what you listed (HydraFacial, Botox)'], progress: { rpBooking: { service: "Botox" }, confused: 0 } },
+    },
+    {
+      caller: "Let's say, Monday, ten PM.",
+      model: [modelSays("We're open 9 to 6 on Mondays: would 4 or 5pm work?", { booking: { service: "Botox", day: "Monday" } })],
+      check: {
+        noteIncludes: ["On file for this booking: the treatment: Botox", "Opening hours: Mon-Fri 9am-6pm", "offer two real times inside them on the day they asked for"],
+        noteExcludes: ["Still needed: the treatment"],
+        progress: { rpBooking: { service: "Botox", day: "Monday" } },
+        noGuardLine: true,
+      },
+    },
+    {
+      caller: "Five PM.",
+      model: [modelSays("Perfect, the team will confirm Monday at 5pm within a day. Take care!", { roleplay: "end", booking: { service: "Botox", day: "Monday", time: "5pm" } })],
+      // The call steps out with the scripted line, after a role-play that ran.
+      check: { heardIncludes: [`Take care! ${DEMO_ROLEPLAY_EXIT}`], stage: "pitch" },
+    },
+    {
+      caller: "It was okay.",
+      model: [modelSays(`What made you want to look at an AI assistant for ${SHORT}?`, { asked: "goal" })],
+      check: { asked: "goal", noGuardLine: true },
+    },
+    {
+      caller: "So I'm basically looking for Aya to answer the phone, answer questions, upsell, book my clients and send deposit links. Also answer chats on the website and on WhatsApp, Instagram, and so on.",
+      model: [modelSays("That's the full set. Generally, how many calls do you get a day?", { asked: "volume", answered: ["goal", "coverage"] })],
+      // A rich answer counts for every question it answered.
+      check: {
+        answers: {
+          goal: "So I'm basically looking for Aya to answer the phone, answer questions, upsell, book my clients and send deposit links. Also answer chats on the website and on WhatsApp, Instagram, and so on.",
+          coverage: "So I'm basically looking for Aya to answer the phone, answer questions, upsell, book my clients and send deposit links. Also answer chats on the website and on WhatsApp, Instagram, and so on.",
+        },
+        noteIncludes: ['add "answered": [each of goal, volume, missed and coverage those words answered]'],
+      },
+    },
+    {
+      caller: "I don't know. Like, five.",
+      model: [modelSays("What happens with those calls after hours, or when your team's busy?", { asked: "missed" })],
+      // A hedged count is his answer: no maths walked through on it.
+      check: { answers: { volume: "I don't know. Like, five." }, noteExcludes: ["Check the total with them"], noteIncludes: ['Next: ask: "What happens with those calls after hours'] },
+    },
+    {
+      caller: "You tired me, honestly. It's not straight to the point. I'm done with repeating myself.",
+      model: [modelSays("I'll get straight to it: Voice plus Meta Chat covers everything you listed. Want to get Lumen set up?", { impatient: true })],
+      check: { progress: { impatient: true }, answers: { missed: SKIPPED_ANSWER }, noGuardLine: true },
+    },
+    {
+      caller: "No, I will just hang up on you.",
+      model: [modelSays(`Sorry it wasn't smoother. Thanks for your time. ${talkSoonLine(DEMO_CASE_FIRST_NAME)}`, { end: true })],
+      // A frustrated caller never hears "Talk soon!", whatever the model wrote.
+      check: { heard: "Sorry it wasn't smoother. Thanks for your time.", heardExcludes: ["Talk soon"], ends: true, noteIncludes: ['no "Talk soon", nothing chipper'] },
+    },
+  ],
+};
+
+/** A role-play the caller turns down at once goes back, with no exit line (fault 4). */
+const cancelled: DemoCase = {
+  id: "roleplay-cancelled-at-once",
+  title: "\"No, I didn't mean that\" right after the opener: back to where it was, never \"And that's the role-play!\"",
+  why: "Test call 72dc66b7: after an unwanted start, the four-turn cap forced the exit line when no role-play had happened.",
+  turns: [
+    TO_PITCH[0]!,
+    { caller: "I'm the owner.", model: [modelSays(`Would you like to hear what I can do for ${SHORT}, or jump straight into a quick role-play where you call in as a patient?`, { asked: "choice" })] },
+    { caller: "Let's do the role-play.", model: [modelSays("Let's do it, you be the patient.", { roleplay: "start" })], check: { stage: "roleplay" } },
+    {
+      caller: "No. No. I didn't mean that. Tell me about the channels.",
+      model: [modelSays(`My mistake! ${ALL_CHANNELS}`, { roleplay: "cancel" })],
+      check: { stage: "intro", heardExcludes: ["that's the role-play"], noGuardLine: true },
+    },
+  ],
+};
+
+export const DEMO_CASES: readonly DemoCase[] = [...bareNumbers, ...discovery, josh, ...callbacks, ...phase6, ...quirks, ...positioning, thomas, cancelled];

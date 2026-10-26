@@ -760,3 +760,41 @@ says (drafted, waiting for an edit, or new for the drafter) and closes, silently
 `no_further_reply`, a case that has waited on the clinic 14 days since our reply: nothing is sent.
 The morning digest carries one line: "Support: N need you, M past their day, K waiting on a
 clinic".
+
+### Inbound support mail
+
+No event of its own: inbound support mail (ops automation lane P7g, `apps/app/src/lib/support/inbound/`,
+`infra/aws/ses-inbound.tf`) turns a clinic's email to hello@healdesk.io, forwarded by the owner's
+mailbox to hello@in.healdesk.io, into a support case holding facts only (topic, urgency, how it
+matched a clinic, counts of what looked like patient details, attachment counts), never the email's
+words. The email is deleted from the bucket as soon as it is read.
+
+- **A clinic says it emailed and no case appeared.** Open System > Jobs and read the
+  `support-inbound-sweep` job's last note: "N handled, N already recorded, N dropped, N older than a
+  day deleted, N left, N failed". Dropped means a loop guard (an auto-reply, a list, a bounce, our
+  own address, SES's spam or virus verdict); the engine's log line `support inbound dropped` names
+  SES's id and the reason. Search the owner's mailbox for the email: if it was never forwarded, the
+  forwarding rule is the problem, not the engine.
+- **The sweep keeps finding objects (handled above zero every hour).** The webhook is not getting
+  SES's notices, or failing on them. Check that `/api/webhooks/inbound-mail` answers 404 only while
+  `HEALDESK_INBOUND_MAIL_TOPIC_ARN` is unset; in AWS CloudShell `aws sns list-subscriptions-by-topic
+  --topic-arn <terraform output inbound_mail.topic_arn>` must show the HTTPS subscription
+  confirmed (if it is missing, an `infra.yml` apply with `subscribe_inbound_mail = true` while the
+  engine answers makes it again). Log lines `inbound mail not recorded` (a database or S3 failure;
+  SNS retries for about 45 minutes, then the sweep takes it) and `inbound mail notice refused`
+  (another topic or a bad signature: someone else is posting) name the ids, never the mail.
+- **"N left" stays above zero.** One of them may be a mail provider's forwarding confirmation,
+  which is left on purpose for the owner to read once (`docs/handover.md`, "Inbound support mail");
+  the sweep deletes it once it is a day old. Anything else left is a key the sweep does not
+  recognise.
+- **"N failed" above zero.** S3 or the database refused the sweep; the next hour tries again, and
+  the bucket's one-day lifecycle rule is the backstop (S3 applies it asynchronously, up to about
+  two days after the email arrived), so an email can be lost after a day of failures: read the
+  engine's log for `support inbound sweep` lines and fix the cause the same day.
+- **`inbound mail: HEALDESK_INBOUND_MAIL_BUCKET is not set`.** The topic is set on the task but
+  the bucket is not: a configuration error. The webhook answers 503, so SNS keeps retrying the
+  notice (about 45 minutes) and the email waits in the bucket; run a full `deploy-app.yml` so the
+  tasks carry both variables, then the sweep takes what waited.
+- **A clinic's email became a case with no clinic.** Its fields say `authenticated: no`: the
+  sender's domain did not pass DKIM aligned with its From, nor DMARC, at SES, so the address
+  alone was not trusted. Match the case to the clinic by hand once you are sure it is theirs.

@@ -167,6 +167,8 @@ export const TOOLS: readonly ToolDef[] = [
   { id: "kms", name: "Key safe", role: "Amazon KMS: locks logins and waiting transcripts", kind: "aws", category: "vault", icon: "lock", side: "patient" },
   { id: "ses", name: "Amazon email", role: "SES: sends transcripts", kind: "aws", category: "vault", icon: "mail", side: "patient" },
   { id: "exports", name: "Export bucket", role: "Amazon S3: a leaving clinic's records", kind: "aws", category: "vault", icon: "archive", side: "patient" },
+  // Lane P7g: support mail received on in.healdesk.io, deleted as soon as it is read (infra/aws/ses-inbound.tf).
+  { id: "ses-in", name: "Support mail in", role: "SES receiving: clinics' emails to support", kind: "aws", category: "vault", icon: "mail", side: "patient" },
   { id: "aws-console", name: "AWS console", role: "CloudShell, stored keys, alarms", kind: "aws", category: "vault", icon: "terminal", side: "patient" },
   { id: "claude-baa", name: "Claude", role: "Anthropic, patient account, under a BAA", kind: "vendor", category: "brain", icon: "sparkles", side: "patient" },
   { id: "gcal", name: "Google Calendar", role: "Each clinic's own diary", kind: "vendor", category: "bookings", icon: "calendar", side: "patient" },
@@ -694,6 +696,28 @@ export const KEYS: readonly KeyDef[] = [
   },
   { id: "aws.HEALDESK_SES_CONFIGURATION_SET", env: "HEALDESK_SES_CONFIGURATION_SET", home: "aws", label: "Amazon email's \"encryption required\" setting", need: "required", rotation: { kind: "public" } },
   { id: "aws.HEALDESK_SES_EVENTS_TOPIC_ARN", env: "HEALDESK_SES_EVENTS_TOPIC_ARN", home: "aws", label: "Where Amazon reports deliveries", need: "required", rotation: { kind: "public" } },
+  // Lane P7g: inbound support mail. Not secrets: Terraform sets both, only
+  // with enable_inbound_mail (infra/aws/ses-inbound.tf, locals.tf); the topic
+  // on the web task, the bucket on web and worker.
+  {
+    id: "aws.HEALDESK_INBOUND_MAIL_TOPIC_ARN",
+    env: "HEALDESK_INBOUND_MAIL_TOPIC_ARN",
+    home: "aws",
+    label: "Where Amazon tells the engine a support email arrived",
+    need: "later",
+    waitsFor:
+      "you have read the plan for inbound support mail: set enable_inbound_mail = true in production.tfvars, merge, run infra.yml apply and a full deploy-app.yml, then set subscribe_inbound_mail = true and apply again, and forward hello@healdesk.io to hello@in.healdesk.io",
+    rotation: { kind: "public" },
+  },
+  {
+    id: "aws.HEALDESK_INBOUND_MAIL_BUCKET",
+    env: "HEALDESK_INBOUND_MAIL_BUCKET",
+    home: "aws",
+    label: "Where Amazon holds a support email until it is read",
+    need: "later",
+    waitsFor: "enable_inbound_mail, with the topic above",
+    rotation: { kind: "public" },
+  },
 
   // --- Not visible to any running app -------------------------------------------
   {
@@ -1600,6 +1624,24 @@ export const BRIDGES: readonly BridgeDef[] = [
     buildNote: "Phase two, half built: our side (sync, reconciliation, the connect page, the webhook) is kept and switched off; no Mindbody or Boulevard adapter has been written.",
   },
   {
+    // Lane P7g (owner decision D13): built, off until enable_inbound_mail.
+    id: "ses-in-app",
+    theme: "serving",
+    from: "ses-in",
+    to: "app",
+    title: "A clinic's email to support becomes a case",
+    carries: "Facts only: the topic and urgency read from fixed word lists, how it matched a clinic, counts of what looked like patient details, and the number and kind of attachments. Never the email's words, subject, sender's name or file names",
+    example:
+      "A clinic emails hello@ that calls ring out; your mailbox forwards it to hello@in.healdesk.io, Amazon holds it, the engine reads it in memory, opens a case \"call forwarding, now\" for that clinic, deletes the email, and the clinic gets \"We've got your email\" with its reference.",
+    keys: ["aws.HEALDESK_INBOUND_MAIL_TOPIC_ARN", "aws.HEALDESK_INBOUND_MAIL_BUCKET"],
+    keyless: "No password: Amazon signs each notice and the engine checks it; the engine reads and deletes the email because of the role it runs as.",
+    phi: true,
+    phiNote: "A clinic may paste a patient's details despite every warning, so it is received under the AWS agreement and never kept: the email is deleted as soon as it is read, the hourly sweep deletes anything a day old, and Amazon's one-day expiry, which can take up to about another day, is the backstop.",
+    build: "built",
+    buildNote:
+      "Off until enable_inbound_mail and the second apply that subscribes the engine, and until your mailbox forwards to hello@in.healdesk.io; the hourly support-inbound-sweep job, which ships off, picks up any email the engine missed. An unmatched or unauthenticated sender (no aligned DKIM or DMARC pass) becomes a case with no clinic and no reply, closed after 30 quiet days and deleted 30 days after it closes; nothing goes to the address an email came from.",
+  },
+  {
     id: "app-exports",
     theme: "serving",
     from: "app",
@@ -1945,6 +1987,8 @@ const AWS_TERRAFORM = new Set([
   "aws.HEALDESK_EMAIL_FROM",
   "aws.HEALDESK_SES_CONFIGURATION_SET",
   "aws.HEALDESK_SES_EVENTS_TOPIC_ARN",
+  "aws.HEALDESK_INBOUND_MAIL_TOPIC_ARN",
+  "aws.HEALDESK_INBOUND_MAIL_BUCKET",
   "aws.META_APP_ID",
   "aws.META_LOGIN_CONFIG_ID",
   "aws.META_WHATSAPP_CONFIG_ID",

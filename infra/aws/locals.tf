@@ -114,6 +114,12 @@ locals {
     },
     # Only the web tier answers SNS (app/api/webhooks/ses).
     var.enable_ses ? { HEALDESK_SES_EVENTS_TOPIC_ARN = aws_sns_topic.ses_events[0].arn } : {},
+    # Inbound support mail (ses-inbound.tf): the web tier answers the topic's
+    # notices (app/api/webhooks/inbound-mail) and reads the bucket.
+    var.enable_inbound_mail ? {
+      HEALDESK_INBOUND_MAIL_BUCKET    = local.inbound_bucket
+      HEALDESK_INBOUND_MAIL_TOPIC_ARN = aws_sns_topic.inbound_mail[0].arn
+    } : {},
     # Tells /admin/map that the voice endpoint exists (lib/ops/key-presence.ts).
     # HEALDESK_RETELL_LLM_SECRET cannot: the web tier gets every app/*
     # parameter, so it reads as present the moment it is pasted, with the voice
@@ -156,6 +162,9 @@ locals {
     # provision-job.ts, workers/index.ts), in either placement. The voice task
     # runs neither.
     var.voice_provision_enabled ? { HEALDESK_VOICE_PROVISION_ENABLED = "1" } : {},
+    # The hourly support-inbound-sweep job reads the inbound bucket for what
+    # a failed handler left (lib/support/inbound/sweep.ts); no topic here.
+    var.enable_inbound_mail ? { HEALDESK_INBOUND_MAIL_BUCKET = local.inbound_bucket } : {},
   )
 
   # The voice endpoint (enable_voice, src/voice/server.ts): the common
@@ -188,6 +197,8 @@ locals {
     "HEALDESK_EMAIL_FROM",
     "HEALDESK_EMAIL_TRANSPORT",
     "HEALDESK_EXPORT_BUCKET",
+    "HEALDESK_INBOUND_MAIL_BUCKET",
+    "HEALDESK_INBOUND_MAIL_TOPIC_ARN",
     "HEALDESK_KMS_KEY_ID",
     "HEALDESK_KMS_PROVIDER",
     "HEALDESK_OPS_EMAIL",

@@ -661,6 +661,40 @@ variable "ses_domain" {
   }
 }
 
+variable "enable_inbound_mail" {
+  description = "Receive support mail on SES (ses-inbound.tf): the MX record for inbound_mail_domain, a receipt rule for hello@ on it (TLS required, spam and virus scan), the inbound bucket (SSE-KMS under our key, TLS only, a one-day lifecycle) and the encrypted topic SES tells the app on, the key-policy grant SES needs for that one rule, the task role's read and delete on the bucket's mail/ prefix, and HEALDESK_INBOUND_MAIL_BUCKET (web and worker) and HEALDESK_INBOUND_MAIL_TOPIC_ARN (web). Off until the owner has read the plan. Needs enable_ses."
+  type        = bool
+  default     = false
+}
+
+variable "subscribe_inbound_mail" {
+  description = "Subscribe the app's /api/webhooks/inbound-mail to the inbound topic. A second step: the app confirms only once its tasks carry HEALDESK_INBOUND_MAIL_TOPIC_ARN, which the deploy after the apply that set enable_inbound_mail gives them, and SNS refuses an endpoint that does not answer. Off, mail still lands in the bucket and the hourly support-inbound-sweep job reads it; on, each message is read within seconds. Standby removes the subscription with the host it posts to."
+  type        = bool
+  default     = false
+}
+
+variable "inbound_mail_domain" {
+  description = "The subdomain SES receives support mail on. Its MX points at SES; healdesk.io's own MX is never touched. The owner's mailbox forwards hello@healdesk.io to hello@ on this domain."
+  type        = string
+  default     = "in.healdesk.io"
+
+  validation {
+    condition     = can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\\.healdesk\\.io$", var.inbound_mail_domain))
+    error_message = "inbound_mail_domain must be a lowercase subdomain of healdesk.io, never healdesk.io itself: an MX on the root domain would take hello@healdesk.io away from the owner's mailbox."
+  }
+}
+
+variable "inbound_mail_rule_set_name" {
+  description = "Empty (the default): ses-inbound.tf creates its own receipt rule set and makes it the region's active one. SES keeps ONE active set per region, so if `aws ses describe-active-receipt-rule-set` already names a set, put its name here: the rule is added to that set and nothing is activated or deactivated."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.inbound_mail_rule_set_name == "" || can(regex("^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$", var.inbound_mail_rule_set_name))
+    error_message = "inbound_mail_rule_set_name must be empty or an SES receipt rule set name (letters, digits, dots, underscores and hyphens, up to 64)."
+  }
+}
+
 # ---------------------------------------------------------------------------
 # Deploy pipeline
 # ---------------------------------------------------------------------------

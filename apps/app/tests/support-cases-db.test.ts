@@ -301,21 +301,15 @@ describeDb("support cases (drizzle/0125)", () => {
         [email.id, randomUUID()],
       ),
     ).rejects.toMatchObject({ code: "23514", message: expect.stringMatching(/came from the chat/) });
-    // Inbound text is only ever deleted, never rewritten.
-    const [inbound] = (await asApp(
-      clinic.clinicId,
-      `insert into support_messages (case_id, direction, kind, text) values ($1, 'in', 'email', 'screened words') returning id`,
-      [email.id],
-    )) as { id: string }[];
-    expect(inbound).toBeDefined();
-    const { rows: kept } = await getMigratorPool().query<{ id: string }>(
-      `insert into support_messages (case_id, direction, kind, text) values ($1, 'in', 'email', 'screened words') returning id`,
-      [email.id],
-    );
+    // Inbound text: since lane P7g (0129) an inbound email holds facts only, and its words are refused outright.
     await expect(
-      asApp(null, `update support_messages set text = 'rewritten' where id = $1`, [kept[0]!.id]),
-    ).rejects.toMatchObject({ code: "42501" });
-    await asApp(null, `update support_messages set text = null where id = $1`, [kept[0]!.id]);
+      asApp(
+        clinic.clinicId,
+        `insert into support_messages (case_id, direction, kind, inbound_mail_id, sender_ref, fields_json, received_at, text)
+         values ($1, 'in', 'email', 'sescases1', repeat('a', 64), '{"source":"email"}', now(), 'screened words')`,
+        [email.id],
+      ),
+    ).rejects.toMatchObject({ code: "23514", message: expect.stringMatching(/support_messages_email_check/) });
 
     // The runtime role cannot delete or truncate either table.
     await expect(asApp(null, `delete from support_cases where id = $1`, [c.caseId])).rejects.toMatchObject({ code: "42501" });

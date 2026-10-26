@@ -1,0 +1,17 @@
+Return-Path: <forwarding-noreply@google.com>
+Received: from mail.example-clinic.test (mail.example-clinic.test [192.0.2.10]) by inbound-smtp.us-east-1.amazonaws.com with SMTP id ses0001 for hello@in.healdesk.io; Mon, 26 Oct 2026 14:00:01 +0000 (UTC)
+X-SES-Spam-Verdict: PASS
+X-SES-Virus-Verdict: PASS
+Authentication-Results: amazonses.com;
+ spf=pass (spfCheck: domain of google.com designates 209.85.220.41 as permitted sender) client-ip=209.85.220.41; envelope-from=forwarding-noreply@google.com;
+ dkim=pass header.i=@google.com;
+ dmarc=pass header.from=google.com;
+From: Gmail Team <forwarding-noreply@google.com>
+To: hello@in.healdesk.io
+Subject: (#123456789) Gmail Forwarding Confirmation - Receive Mail from hello@healdesk.io
+Date: Mon, 26 Oct 2026 14:00:00 +0000
+Message-ID: <confirm-1@google.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Confirmation code: 123456789

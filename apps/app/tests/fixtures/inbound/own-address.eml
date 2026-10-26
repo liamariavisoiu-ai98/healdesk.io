@@ -1,0 +1,9 @@
+From: Front Desk <hello@healdesk.io>
+To: hello@healdesk.io
+Subject: We've got your request
+Date: Mon, 26 Oct 2026 14:00:00 +0000
+Message-ID: <own-1@mail.example-clinic.test>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Our own mail coming back.

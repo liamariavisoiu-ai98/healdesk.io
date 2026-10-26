@@ -19,6 +19,7 @@ import { withTenant } from "@/lib/tenant";
 import { canMove, printRef } from "./case-vocab";
 import type { FactsUsed } from "./draft/checks";
 import { readReplyCheckContext } from "./draft/run";
+import { threadingHeadersFor } from "./inbound/threading";
 import { runSupportReplyChecks, type ReplyCheckResult } from "./send-checks";
 import { SUPPORT_SEND_MAX_ATTEMPTS, supportReplySubject, type SupportSendStoppedReason } from "./send-vocab";
 
@@ -440,6 +441,8 @@ export async function deliverReply(
   const attempts = message.sendAttempts + 1;
   let failure: string;
   try {
+    // Lane P7g: on a case that came by email, the reply threads under the newest one before the approval.
+    const headers = await threadingHeadersFor(supportCase.id, message.approvedAt);
     const rendered = renderSupportReplyWith(subject)(payload, {
       clinicName,
       audience: audienceFor(claim.clinic.specialty),
@@ -461,6 +464,7 @@ export async function deliverReply(
         deliveryId: claim.deliveryId,
         // The same on every try: the text is frozen, so a try Resend has seen is not sent twice.
         idempotencyKey: `hd-support_reply-${messageId}-1`,
+        ...(headers ? { headers } : {}),
       },
       { ...options, now },
     );

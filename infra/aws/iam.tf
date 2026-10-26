@@ -201,6 +201,58 @@ data "aws_iam_policy_document" "app_task" {
     }
   }
 
+  # Inbound support mail (ses-inbound.tf): read, list and delete the
+  # messages SES wrote under mail/, and nothing else in the bucket; S3 asks
+  # the key with this role's permissions, the bucket's ARN as the context
+  # (S3 Bucket Keys). No PutObject: only SES writes there.
+  dynamic "statement" {
+    for_each = var.enable_inbound_mail ? [1] : []
+
+    content {
+      sid       = "InboundMailObjects"
+      actions   = ["s3:GetObject", "s3:DeleteObject"]
+      resources = ["${local.inbound_bucket_arn}/${local.inbound_prefix}*"]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = var.enable_inbound_mail ? [1] : []
+
+    content {
+      sid       = "InboundMailList"
+      actions   = ["s3:ListBucket"]
+      resources = [local.inbound_bucket_arn]
+
+      condition {
+        test     = "StringLike"
+        variable = "s3:prefix"
+        values   = [local.inbound_prefix, "${local.inbound_prefix}*"]
+      }
+    }
+  }
+
+  dynamic "statement" {
+    for_each = var.enable_inbound_mail ? [1] : []
+
+    content {
+      sid       = "S3UsesTheKeyForInboundMail"
+      actions   = ["kms:Decrypt"]
+      resources = [aws_kms_key.main.arn]
+
+      condition {
+        test     = "StringEquals"
+        variable = "kms:ViaService"
+        values   = ["s3.${var.region}.amazonaws.com"]
+      }
+
+      condition {
+        test     = "StringEquals"
+        variable = "kms:EncryptionContext:aws:s3:arn"
+        values   = [local.inbound_bucket_arn]
+      }
+    }
+  }
+
   # SES only through the configuration set that requires TLS, as the domain
   # identity. lib/reporting/deliver.ts reads the set back and refuses to send
   # unless its policy is REQUIRE, hence GetConfigurationSet; attachments go

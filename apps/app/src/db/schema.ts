@@ -8323,7 +8323,7 @@ export const supportMessages = pgTable(
     senderRef: text("sender_ref"),
     /**
      * Lane P7h (drizzle/0131): the inbound bucket's key of this email's raw
-     * message while it waits for the support drafter to read it once.
+     * message while it waits for the support drafter to read it.
      * Cleared when the object is deleted:
      * by the draft job in its finally, or by the hourly sweep after six hours.
      * Only ever 'mail/' || inbound_mail_id, and only ever set to null.

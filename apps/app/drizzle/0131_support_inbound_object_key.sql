@@ -7,16 +7,16 @@ ALTER TABLE "support_messages" ADD CONSTRAINT "support_messages_object_key_check
 -- were generated from schema.ts; everything below is the part drizzle
 -- cannot express.
 --
--- The inbound handler no longer deletes a clinic's raw message in the same
--- request: it records the case from
--- facts as before (0130's CHECKs still hold: no word of the email in any
--- column) and leaves the object in the KMS-encrypted inbound bucket for the
--- support-draft job, which reads it once in memory, gives its text to the
--- model (healdesk's key, the Anthropic organisation the BAA covers; owner-
--- confirmed 26 October 2026) inside the untrusted-data block, and deletes
--- it in a finally. The
--- hourly sweep deletes any object six hours old, and the bucket's one-day
--- lifecycle rule is the backstop.
+-- While the support-draft job is on and the case is new after the email,
+-- the inbound handler no longer deletes a clinic's raw message in the same
+-- request: it records the case from facts as before (0130's CHECKs still
+-- hold: no word of the email in any column) and leaves the object in the
+-- KMS-encrypted inbound bucket for the support-draft job, which reads it in
+-- memory, keeps nothing of it, gives its text to the model (healdesk's key,
+-- the Anthropic organisation the BAA covers; owner-confirmed 26 October
+-- 2026) inside the untrusted-data block, and deletes it in a finally. The
+-- hourly sweep deletes any object older than six hours, and the bucket's
+-- one-day lifecycle rule is the backstop.
 --
 --   support_messages.inbound_object_key
 --                        the object's key while it waits, always
@@ -32,6 +32,11 @@ ALTER TABLE "support_messages" ADD CONSTRAINT "support_messages_object_key_check
 -- =============================================================================
 
 GRANT UPDATE (inbound_object_key) ON support_messages TO healdesk_app;--> statement-breakpoint
+
+-- The owner reads this line at System > Jobs before he switches the job on:
+-- it must say that it sends a clinic's email to Anthropic.
+UPDATE scheduled_jobs SET cadence = 'Every minute, from the support-draft queue: drafts up to three new support cases that name a practice, each from the case''s fields, the practice''s account and, for a case that came by email, the email''s subject and body as the clinic wrote them, unmasked, sent to Anthropic under the business associate agreement and then deleted from the inbound bucket. Checked by the reply rules, for the owner to edit and send; a draft from an email that fails a rule is not kept. While it is off, a clinic''s email is deleted when it arrives and is not drafted. Sends nothing. Off until the owner switches it on, with ANTHROPIC_API_KEY set'
+ WHERE name = 'support-draft';--> statement-breakpoint
 
 CREATE OR REPLACE FUNCTION app_support_messages_object_key_guard()
 RETURNS trigger

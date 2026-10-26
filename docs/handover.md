@@ -1066,6 +1066,49 @@ incoming 256 KB chunks (about $0.04 together), S3 storage for seconds and a few 
 HTTPS deliveries (the first 100,000 a month are free), KMS requests (a few hundred, under $0.01)
 and CloudTrail data events ($0.10 per 100,000): well under $1 a month.
 
+### Support replies in Slack
+
+Lane P7i (owner, 26 October 2026: "Show the draft reply text in Slack so I can read and approve
+it there with the passcode. I accept that Slack has no BAA."). Each support reply waiting for
+your yes is posted to one Slack channel with the drafted reply (never the clinic's own email) and
+buttons; Review and send approves it there with the approval passcode (`docs/on-call.md`, "The
+same replies in Slack"). Code: `apps/app/src/lib/support/slack-reply.ts` (the message and the
+worker's `support-slack` sweep), `slack-actions.ts` (the interactivity endpoint
+`/api/webhooks/slack`), `slack-passcode.ts` (the console's verifier from
+`@healdesk/catalog/approval-passcode`). Off until all four Slack values below are set; the console
+works the same either way. Not yet tried against Slack itself: try it on the demo clinic first.
+
+1. **Make the Slack app.** At api.slack.com/apps, Create New App, From scratch, in your workspace.
+   OAuth & Permissions: add the bot scope `chat:write` and install the app; copy the Bot User
+   OAuth Token (`xoxb-...`). Basic Information: copy the Signing Secret. Interactivity &
+   Shortcuts: turn it on and set the Request URL to `https://app.healdesk.io/api/webhooks/slack`.
+2. **Pick the channel.** Make a private channel for support replies (not #alerts), invite the app
+   (`/invite @<app name>`), and copy its id (channel details, at the bottom: `C...`).
+3. **Who may act.** Each person allowed to press the buttons: their profile, the ... menu, Copy
+   member ID (`U...`).
+4. **Paste them** in AWS CloudShell, one at a time:
+   `bash put-external-secrets.sh SLACK_BOT_TOKEN`, `... SLACK_SIGNING_SECRET`,
+   `... SLACK_SUPPORT_CHANNEL`, `... SLACK_OPERATOR_IDS` (ids separated by commas), and
+   `... HEALDESK_APPROVAL_PASSCODE_HASH` (the SAME hash as the Vercel variable of that name,
+   from `node apps/web/scripts/hash-approval-passcode.mjs`; change it in both places together).
+   The parameters exist once the infra apply that adds them has run. Then restart
+   (`deploy-app.yml`, `restart_only`), so the web and worker tasks read them.
+5. **Check.** `/admin/map` shows the five keys present. Within a minute of a reply waiting, its
+   message appears in the channel. Try Edit only first, then Review and send on the demo clinic.
+
+To turn it off: put `__unset__` back in any one of the four Slack parameters
+(`bash put-external-secrets.sh SLACK_BOT_TOKEN` and paste `__unset__`) and restart. Nothing posts;
+old messages keep their buttons but pressing one gets a 404. To stop someone acting, take their id
+out of `SLACK_OPERATOR_IDS` and restart. A leaked token: revoke it in the app's OAuth & Permissions,
+reinstall, paste the new one.
+
+What Slack holds: the case's ref, the clinic's name, the urgency, the reply-by day, the drafted
+reply while it waits (the message is edited to remove the words once it is sent, rejected,
+expired or closed; Slack's own retention keeps what it keeps of the edit) and the names of failing
+checks; and from the dialog, your edits and the passcode you type (Slack has no hidden input:
+the passcode crosses Slack in the dialog's state and is shown as you type it). Slack signs no
+business associate agreement; by your decision it carries our drafted reply only.
+
 ### Logs
 
 Every log line on the PHI side goes through `apps/app/src/lib/log.ts`, and

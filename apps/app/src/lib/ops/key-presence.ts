@@ -50,6 +50,15 @@ export const KEY_PRESENCE_NAMES = [
   "GOOGLE_OAUTH_CLIENT_SECRET",
   // The Slack webhook ops alerts are posted through (lib/ops/slack.ts).
   "SLACK_WEBHOOK_URL",
+  // The Slack app that shows drafted support replies and takes the owner's
+  // acts on them (lane P7i; lib/support/slack-api.ts): two secrets and two
+  // settings, all four needed. And the approval passcode's hash, the same
+  // value as Vercel's, which the Slack dialog checks (lib/support/slack-passcode.ts).
+  "SLACK_BOT_TOKEN",
+  "SLACK_SIGNING_SECRET",
+  "SLACK_SUPPORT_CHANNEL",
+  "SLACK_OPERATOR_IDS",
+  "HEALDESK_APPROVAL_PASSCODE_HASH",
   // Generated inside AWS by the db-bootstrap task.
   "BETTER_AUTH_SECRET",
   "HEALDESK_IDENTIFIER_REF_KEY",

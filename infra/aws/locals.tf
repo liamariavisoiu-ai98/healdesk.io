@@ -242,7 +242,10 @@ locals {
   # Stripe, Google for the calendar watch, sync and connection health, and
   # Retell's key for the voice call backstop, which reads a call back, and for
   # the hourly fallback-number sync (lib/voice/retell-fallback-sync.ts), and
-  # the Slack webhook ops alerts are posted through (lib/ops/slack.ts).
+  # the Slack webhook ops alerts are posted through (lib/ops/slack.ts), and
+  # the four Slack app settings the support-slack sweep posts and updates a
+  # drafted support reply's message with (lib/support/slack-reply.ts; it is
+  # on only when all four are set, so the worker carries all four).
   worker_secret_names = [
     "BETTER_AUTH_SECRET",
     "DATABASE_URL",
@@ -252,6 +255,10 @@ locals {
     "HEALDESK_PROVISION_SECRET",
     "HEALDESK_RETELL_API_KEY",
     "RESEND_API_KEY",
+    "SLACK_BOT_TOKEN",
+    "SLACK_OPERATOR_IDS",
+    "SLACK_SIGNING_SECRET",
+    "SLACK_SUPPORT_CHANNEL",
     "SLACK_WEBHOOK_URL",
     "STRIPE_SECRET_KEY",
   ]

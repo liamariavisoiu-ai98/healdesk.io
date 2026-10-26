@@ -94,6 +94,18 @@ locals {
   # Vercel (the owner's #alerts channel, 23 October 2026), stored in both
   # places, so a leak means changing it in both. Each side tags its posts
   # ([app], [web]). While it is unset, Slack is off and alerts are emailed only.
+  # SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET, SLACK_SUPPORT_CHANNEL and
+  # SLACK_OPERATOR_IDS are the Slack app that shows each drafted support
+  # reply in the owner's channel and takes Review and send, Edit only,
+  # Snooze and Close from it (lane P7i; lib/support/slack-api.ts): the bot
+  # token posts and updates the message, the signing secret checks every
+  # request to /api/webhooks/slack, the channel id and the operators' Slack
+  # user ids are settings, kept here because the host has nowhere else for
+  # them. HEALDESK_APPROVAL_PASSCODE_HASH is the SAME scrypt hash as the
+  # Vercel variable of that name (apps/web), so the Slack dialog checks the
+  # same approval passcode as the console; never the passcode itself. Any
+  # one of the four Slack values unset: the feature is off; the hash unset:
+  # nothing approves from Slack.
   external_parameter_names = [
     "HEALDESK_PROVISION_SECRET",
     "STRIPE_SECRET_KEY",
@@ -107,6 +119,11 @@ locals {
     "GOOGLE_OAUTH_CLIENT_ID",
     "GOOGLE_OAUTH_CLIENT_SECRET",
     "SLACK_WEBHOOK_URL",
+    "SLACK_BOT_TOKEN",
+    "SLACK_SIGNING_SECRET",
+    "SLACK_SUPPORT_CHANNEL",
+    "SLACK_OPERATOR_IDS",
+    "HEALDESK_APPROVAL_PASSCODE_HASH",
   ]
 
   parameter_paths = merge(

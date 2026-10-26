@@ -706,6 +706,28 @@ leaves the list unsent after 14 days, and at once, as `case_closed`, when its ca
 There is no Reject on a support reply: Close the case to not send it (the case view says so);
 the item is then expired unsent, and a clinic that writes again opens a new case.
 
+**The same replies in Slack** (lane P7i; owner, 26 October 2026: "Show the draft reply text in
+Slack so I can read and approve it there with the passcode. I accept that Slack has no BAA.").
+Once the four Slack settings are pasted (handover, "Support replies in Slack"), each waiting reply
+appears in the support channel within a minute: the ref, the clinic's name, urgency, reply-by day,
+the drafted reply (never the clinic's email) and the failing checks' names, with Review and send,
+Edit only, Open in console, Snooze 1 day and Close. Review and send opens a box with the reply,
+read fresh, and the approval passcode: an edit is checked by the eight rules first (a failing
+rule is named under the box and nothing is saved or sent), saved as the next draft and approved;
+an unchanged text approves the waiting item. The decision is the console's own, recorded with
+`factor: passcode via slack` and your Slack member id in the actor; the outcome arrives as the
+message's update and a note only you see. Edit only saves a passing edit without sending. Close
+closes the case as `no_reply_needed`. A draft over Slack's 3,000-character box can only be
+approved unchanged there: edit it in the console. Five wrong passcodes in Slack lock Slack
+approvals on that web task for fifteen minutes (logged as `approval_code_locked` with the member
+id; the console's lock on Vercel is separate). Anyone not on `SLACK_OPERATOR_IDS` who presses a
+button is told no, and a log line names their member id. The message is updated when a newer
+draft replaces it and turned final, with the buttons and the reply's words removed, once it is
+sent, rejected, expired or closed; if Slack is down the console is unaffected and the sweep
+retries at 1, 5 and 30 minutes, then every six hours. To turn it off, set any of the four Slack
+parameters back to `__unset__` and restart: nothing posts, and the buttons on old messages get
+a 404.
+
 ### Compliance pack
 
 `compliance_pack_ready`, `compliance_pack_failed`. The weekly compliance pack

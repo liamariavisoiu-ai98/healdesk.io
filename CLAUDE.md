@@ -656,6 +656,14 @@ the spec edits the owner approved.
 - **The support chat** carries a permanent line telling staff not to paste
   patient information, and stores nothing: the browser holds the conversation,
   and an escalation emails hello@ structured fields, never chat text.
+- **Slack carries ids, counts, dates, closed words and a clinic's name
+  only, with one exception** (owner, 26 October 2026: "Show the draft reply
+  text in Slack so I can read and approve it there with the passcode. I
+  accept that Slack has no BAA."): a support reply waiting for approval
+  (`support_reply_send`) is posted with its ref, the clinic's name, urgency,
+  reply-by day and the reply WE drafted, never the clinic's own email
+  (`apps/app/src/lib/support/slack-reply.ts`, `slack-actions.ts`). Every
+  other Slack post stays on the allow-list in `lib/ops/slack.ts`.
 - **It must never grow** prompt or script editing, a flow builder, per-channel
   behaviour differences, a live staff inbox, outbound campaigns, raw analytics
   dashboards, immediate in-app cancellation, or direct calendar or EMR
@@ -808,7 +816,9 @@ What these rules never relax: a code typed at the moment of an irreversible
 admin act (a fresh authenticator code; for an approval decision or an
 agreement answer, the one static approval passcode or a fresh authenticator
 code, five wrong tries locking approvals for fifteen minutes per warm Vercel
-instance; owner, 26 October 2026), the PHI boundary, real-database tests, CI on the exact tree that
+instance; owner, 26 October 2026; the support reply's Slack dialog takes the
+same passcode through the same verifier, `@healdesk/catalog/approval-passcode`,
+locking per web task, lane P7i), the PHI boundary, real-database tests, CI on the exact tree that
 lands, and the owner's approval before a landing or a deploy.
 
 - **Verify before claiming something is built.** Read it out of the code, not

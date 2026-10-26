@@ -48,6 +48,11 @@ KEYS=(
   HEALDESK_RETELL_LLM_SECRET
   HEALDESK_RETELL_API_KEY
   SLACK_WEBHOOK_URL
+  SLACK_BOT_TOKEN
+  SLACK_SIGNING_SECRET
+  SLACK_SUPPORT_CHANNEL
+  SLACK_OPERATOR_IDS
+  HEALDESK_APPROVAL_PASSCODE_HASH
   CLOUDFLARE_API_TOKEN
 )
 
@@ -78,6 +83,11 @@ hint_for() {
     HEALDESK_RETELL_LLM_SECRET) echo "the secret in every clinic's Retell agent URL (wss://app.healdesk.io/llm-websocket/<this>/<clinic id>): 32 to 200 random letters, digits, - or _, such as the output of openssl rand -hex 32; the same value goes into each agent" ;;
     HEALDESK_RETELL_API_KEY) echo "the API key (key_...) of the Retell workspace the clinics' agents are in, under Retell's BAA, the one with the webhook badge (Settings, API Keys): it signs the call-ended webhook, reads a call back, and keeps each AYA number's fallback on the clinic's direct line. Never the marketing site's RETELL_API_KEY or the demo line's workspace" ;;
     SLACK_WEBHOOK_URL) echo "a Slack Incoming Webhook (https://hooks.slack.com/services/...) for the #alerts channel: the SAME address as SLACK_WEBHOOK_URL on Vercel, copied from there. It lives in both places, so if it leaks, change it in both" ;;
+    SLACK_BOT_TOKEN) echo "the bot token (xoxb-...) of the healdesk support Slack app (OAuth & Permissions, scope chat:write); it posts each drafted support reply to the support channel and opens the Review and send dialog" ;;
+    SLACK_SIGNING_SECRET) echo "that Slack app's signing secret (Basic Information, App Credentials): checks every request to https://app.healdesk.io/api/webhooks/slack" ;;
+    SLACK_SUPPORT_CHANNEL) echo "the id (C...) of the Slack channel support replies are posted to, with the app invited (channel details, at the bottom)" ;;
+    SLACK_OPERATOR_IDS) echo "the Slack member ids (U..., comma separated, no spaces needed) of the people allowed to press the support reply buttons (profile, ... menu, Copy member ID)" ;;
+    HEALDESK_APPROVAL_PASSCODE_HASH) echo "the SAME scrypt hash (scrypt\$...) as HEALDESK_APPROVAL_PASSCODE_HASH on Vercel, from node apps/web/scripts/hash-approval-passcode.mjs; never the passcode itself. Change it in both places together" ;;
     CLOUDFLARE_API_TOKEN) echo "Cloudflare API token (Edit zone DNS, healdesk.io), read by infra.yml and host.yml only" ;;
   esac
 }
@@ -139,6 +149,12 @@ shape_problem() {
     HEALDESK_RETELL_API_KEY) [[ "$2" =~ ^key_[A-Za-z0-9_-]{16,196}$ ]] || echo "a Retell API key is one word starting key_, of letters, digits, - or _" ;;
     # apps/app refuses to post anywhere else (lib/ops/slack.ts).
     SLACK_WEBHOOK_URL) [[ "$2" =~ ^https://hooks\.slack\.com/services/[A-Za-z0-9_/-]{10,200}$ ]] || echo "a Slack Incoming Webhook starts with https://hooks.slack.com/services/" ;;
+    # apps/app refuses anything else and stays off (lib/support/slack-api.ts).
+    SLACK_BOT_TOKEN) [[ "$2" =~ ^xoxb-[A-Za-z0-9-]{10,250}$ ]] || echo "a Slack bot token starts with xoxb-" ;;
+    SLACK_SIGNING_SECRET) [[ "$2" =~ ^[A-Za-z0-9]{16,128}$ ]] || echo "a Slack signing secret is 16 to 128 letters and digits" ;;
+    SLACK_SUPPORT_CHANNEL) [[ "$2" =~ ^[CG][A-Z0-9]{2,30}$ ]] || echo "a Slack channel id starts with C (or G) and is capital letters and digits, not the channel's #name" ;;
+    SLACK_OPERATOR_IDS) [[ "$2" =~ ^[UW][A-Z0-9]{2,30}(,[UW][A-Z0-9]{2,30}){0,19}$ ]] || echo "Slack member ids start with U (or W), capital letters and digits, separated by commas without spaces" ;;
+    HEALDESK_APPROVAL_PASSCODE_HASH) [[ "$2" =~ ^scrypt\$[0-9]{1,10}\$[0-9]{1,4}\$[0-9]{1,4}\$[A-Za-z0-9+/]+={0,2}\$[A-Za-z0-9+/]+={0,2}$ ]] || echo "it must be the hash the script prints (scrypt\$N\$r\$p\$salt\$key), never the 6-digit passcode" ;;
   esac
 }
 

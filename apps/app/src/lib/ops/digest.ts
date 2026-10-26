@@ -1,6 +1,6 @@
 import { USAGE_ALERT_PERCENT } from "@healdesk/catalog";
 import { GOOGLE_CALENDAR_PROVIDER } from "@healdesk/connectors";
-import { and, count, eq, gte, isNull, min, ne, notInArray, sql } from "drizzle-orm";
+import { and, count, eq, gte, isNull, min, notInArray, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import {
@@ -191,18 +191,6 @@ export async function collectDigest(now: Date = new Date()): Promise<OpsDigestPa
   });
 
   await tally.read("ops_alerts", async () => {
-    const [unsent] = await unsafeDb
-      .select({ n: count(), oldest: min(opsAlerts.raisedAt) })
-      .from(opsAlerts)
-      .where(
-        and(
-          ne(opsAlerts.event, DIGEST_EVENT),
-          isNull(opsAlerts.sentAt),
-          sql`${opsAlerts.lastError} is not null`,
-          gte(opsAlerts.raisedAt, new Date(now.getTime() - DEAD_LETTER_DAYS * DAY_MS)),
-        ),
-      );
-    tally.queue("ops_alerts_unsent", unsent?.n ?? 0, unsent?.oldest);
     // I1's own sends, and I4's (a flag's ticket), which have no ledger row:
     // their state is the ops log, each under its own kind.
     const sends = async (events: { only: string } | { except: readonly string[] }) => {

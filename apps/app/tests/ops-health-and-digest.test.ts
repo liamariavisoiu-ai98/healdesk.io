@@ -612,6 +612,15 @@ describeDb("WP5: health flags, the ops watch and the digest", () => {
         now,
       ).queues.find((q) => q.key === "outbox");
       expect(system).toMatchObject({ count: after.count, oldestAgeMinutes: after.oldestMinutes });
+      // Every queue the screens list with something in it is the digest's count too, none told twice.
+      const digest = await collectDigest(now);
+      const screens = machineQueuesOf(
+        await readMachineQueues({ now, actor: { type: "service", serviceName: "test" }, request: {} }),
+        now,
+      ).queues.filter((q) => q.count > 0 && q.key !== "outbox_dead" && q.key !== "emails_undeliverable");
+      for (const q of screens) {
+        expect(digest.queueRows.filter((r) => r.kind === q.key), q.key).toEqual([expect.objectContaining({ count: q.count })]);
+      }
     }, 60_000);
 
     test("says how many items wait for the owner's yes in the approval inbox, support replies apart", async () => {

@@ -1,3 +1,5 @@
+import { requestIdsOnCases } from "@/lib/support/watch";
+
 import { listSupportRequests } from "../support-replies";
 
 import type { InboxRow, InboxSource } from "./types";
@@ -6,14 +8,17 @@ import type { InboxRow, InboxSource } from "./types";
  * The support chat's escalations with no reply marked (listSupportRequests),
  * one row per clinic, due the earliest day L25 promised. The topic is not
  * carried: it is the clinic's own category, and the queue page shows it.
+ * A request recorded on a support case is the case's promise, told by the
+ * case's own alert and Support console, so it is left out here (lane P7e).
  */
 export const supportRepliesSource: InboxSource = {
   name: "the support replies",
   async read(ctx) {
     const { rows: requests, failures } = await listSupportRequests(ctx.now);
+    const onCases = await requestIdsOnCases(requests.map((r) => r.requestId));
     const byClinic = new Map<string, { count: number; replyByOn: string; pastDue: boolean }>();
     for (const request of requests) {
-      if (request.repliedAt !== null) continue;
+      if (request.repliedAt !== null || onCases.has(request.requestId)) continue;
       const seen = byClinic.get(request.clinicId);
       if (!seen) {
         byClinic.set(request.clinicId, { count: 1, replyByOn: request.replyByOn, pastDue: request.pastDue });

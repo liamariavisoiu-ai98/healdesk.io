@@ -17,9 +17,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     steps: [
       "Open the clinic's Deliveries tab and find the support reply under Reports and alerts: its status and reason say why the last try failed.",
       "Check the clinic's address on the Account tab if the reason is a bounce or a suppressed address, and correct it with the clinic first.",
-      "Open the Queues page and find the case under Support: it names the topic the clinic asked about.",
-      "Write to the clinic from hello@ today with the same answer, and leave patient details out. Nothing on the Queues page sends the approved reply again.",
-      "Close the case under Support once you have written. You are done when the clinic has its answer and the case is closed.",
+      "Open Support and find the case: it names the topic the clinic asked about.",
+      "Write to the clinic from hello@ today with the same answer, and leave patient details out. Nothing in Support sends the approved reply again.",
+      "Press Close the case once you have written, with the reason replied by hand. You are done when the clinic has its answer and the case is closed.",
     ],
   },
 };

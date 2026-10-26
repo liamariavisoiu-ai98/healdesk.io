@@ -17,10 +17,10 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     whyItMatters:
       "The clinic is waiting on a written promise that has now passed, and it does not know whether anyone has read its request. Nothing is ever sent without your approval, so the case waits on you.",
     steps: [
-      "Open the Queues page and go to Support: find the case[ {supportRef}]. It shows the topic and the state, never the clinic's words.",
-      "Read the draft reply beside the case if one is waiting for your yes, edit it if it needs it, and press Approve with the code from your authenticator. It goes to the clinic's one sign-in address, once.",
-      "Write to the clinic from hello@ today if no draft is there or it cannot be fixed, and leave patient details out. Then close the case under Support as replied by hand.",
-      "Check the case under Support again. You are done when it shows waiting on the clinic or closed.",
+      "Open Support and find the case[ {supportRef}] under Needs you. It shows the topic and the state, never the clinic's words.",
+      "Open the case, read the draft reply, edit it if it needs it, and press Send the reply with the code from your authenticator. It goes to the clinic's one sign-in address, once.",
+      "Write to the clinic from hello@ today if no draft is there or it cannot be fixed, and leave patient details out. Then press Close the case, with the reason replied by hand.",
+      "Check Support again. You are done when the case shows under Waiting on the clinic or Closed.",
     ],
   },
   // lib/support/watch.ts, from the ops watch every minute, once per case,
@@ -36,10 +36,10 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     whyItMatters:
       "While this waits, callers may be reaching no one, or the clinic's money or account may be at risk. A draft reply may follow, but nothing is sent without your approval, so a person has to act.",
     steps: [
-      "Open the Queues page and go to Support: find the case[ {supportRef}]. It shows the topic and what the clinic chose in the chat, never its words.",
+      "Open Support and find the case[ {supportRef}] under Needs you. It shows the topic and what the clinic chose in the chat, never its words.",
       "Phone the clinic today on the number on its Account tab if calls are not reaching AYA or are ringing out, and check its Phone line card on the Setup tab while you talk.",
-      "Read the draft reply beside the case if one is waiting for your yes, and press Approve with the code from your authenticator, or write to the clinic from hello@ yourself and close the case as replied by hand. Leave patient details out.",
-      "Check the case under Support again. You are done when the clinic has an answer and the case shows waiting on the clinic or closed.",
+      "Open the case and read the draft reply, then press Send the reply with the code from your authenticator, or write to the clinic from hello@ yourself and press Close the case with the reason replied by hand. Leave patient details out.",
+      "Check Support again. You are done when the clinic has an answer and the case shows under Waiting on the clinic or Closed.",
     ],
   },
 };

@@ -662,7 +662,7 @@ ops automation lane P7c; owner decision D12), the one email whose body is prose.
 there only when its draft passes every reply check: by Save draft on the case (the operator's own
 text, saved as the next version) or Propose, and later by the drafter. The item shows the reply as
 the clinic would read it, under a subject fixed for its topic with the case's ref, signed The
-Healdesk Team. Approve asks for the code from your authenticator; you may edit the body (never the
+Healdesk Team. Send asks for the code from your authenticator; you may edit the body (never the
 subject) first, and the checks run again on exactly the text approved: if one fails, nothing is
 sent and the card names the rule, never the words. A case closed since, or a newer draft, sends
 nothing. The reply goes to the practice's one sign-in address, once; a failed try is tried again on
@@ -753,9 +753,9 @@ in New York raises `support_case_past_due`, once per case; a chat request on a c
 raises `support_reply_past_due`, so one promise is one alert. A case the chat triaged `now`
 (calls not reaching AYA or ringing out, a charge questioned, a lost device, sign-in security)
 raises `support_case_now` within the minute, once per case, and Slack posts it. Each names the
-clinic, the case's ref and its reply-by day, never the clinic's words. Open Queues › Support,
-find the case by its ref, approve its draft with your code or write from hello@ and close it as
-replied by hand. The same watch, hourly, puts a case whose snooze ran out back where its draft
+clinic, the case's ref and its reply-by day, never the clinic's words. Open Support,
+find the case by its ref, send its draft with your code (the Send button) or write from hello@
+and close it as replied by hand. The same watch, hourly, puts a case whose snooze ran out back where its draft
 says (drafted, waiting for an edit, or new for the drafter) and closes, silently, as
 `no_further_reply`, a case that has waited on the clinic 14 days since our reply: nothing is sent.
 The morning digest carries one line: "Support: N need you, M past their day, K waiting on a

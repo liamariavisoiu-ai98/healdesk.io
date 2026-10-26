@@ -16,11 +16,15 @@ channel. The spec's "Every switch in the portal" carries the field.
 - Saved through `saveSetupSettings`. It must be plain words with a letter
   (`isSafeTypedText`), name no clinical term or everyday condition
   (`findClinicalContent` with conditions), and hold nothing on the clinic's
-  never-say list unless it is a part of the full name.
+  never-say list.
+- It never excuses a never-say entry: the screen excuses nothing when an own
+  word is itself an entry, so "Painless" as an own word would cost "Painless
+  Laser Studio" its own excuse (CI caught this on PR 58). The assistant says
+  the full name instead of any short name the list would refuse.
 - `AssistantFacts.shortName`; the prompt's `callName` falls back to
   `shortClinicName`.
-- **The guards read a short name as the clinic's own words only when it is a
-  part of the full name** (`ownShortName`). A short name typed into Settings
+- **The clinical and Meta screens read a short name as the clinic's own
+  words only when it is a part of the full name** (`ownShortName`). A short name typed into Settings
   can never excuse a word the full name did not already, and any other short
   name is screened like every word of a reply. On Meta the prompt uses it only
   under that rule and when it names no treatment (`metaCallName`), because

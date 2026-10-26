@@ -720,7 +720,7 @@ export const KEYS: readonly KeyDef[] = [
     label: "Where Amazon tells the engine a support email arrived",
     need: "later",
     waitsFor:
-      "you have read the plan for inbound support mail: set enable_inbound_mail = true in production.tfvars, merge, run infra.yml apply and a full deploy-app.yml, then set subscribe_inbound_mail = true and apply again, and forward support@healdesk.io and hello@healdesk.io to support@in.healdesk.io and hello@in.healdesk.io",
+      "you have read the plan for inbound support mail: set enable_inbound_mail = true in production.tfvars, merge, run infra.yml apply and a full deploy-app.yml, then set subscribe_inbound_mail = true and apply again, and have your mailbox forward its support@ and hello@ aliases to support@in.healdesk.io and hello@in.healdesk.io",
     rotation: { kind: "public" },
   },
   {

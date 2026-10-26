@@ -23,12 +23,30 @@ const GENERIC_NAME_WORDS = new Set([
  */
 export function shortClinicName(fullName: string): string {
   const full = fullName.trim();
-  const head = full.split(/\s+(?:of|at|in|by)\s+|\s[-–—|]\s|,/i)[0]!.trim();
-  const words = head.split(/\s+/).filter(Boolean);
+  // Read word by word rather than by one pattern over the whole name, which
+  // backtracks on a long run of spaces (CodeQL, polynomial regex).
+  const words: string[] = [];
+  for (const token of full.split(/\s+/)) {
+    if (!token) continue;
+    if (words.length > 0 && (PLACE_WORDS.has(token.toLowerCase()) || DASHES.has(token))) break;
+    const comma = token.indexOf(",");
+    if (comma >= 0) {
+      if (comma > 0) words.push(token.slice(0, comma));
+      break;
+    }
+    words.push(token);
+  }
   if (words[0]?.toLowerCase() === "the") words.shift();
   while (words.length > 0 && GENERIC_NAME_WORDS.has(words[words.length - 1]!.toLowerCase().replace(/[^a-z&+]/g, ""))) words.pop();
-  const short = words.join(" ").replace(/[\s&+,-]+$/, "");
+  let short = words.join(" ");
+  while (short && TRAILING.has(short[short.length - 1]!)) short = short.slice(0, -1);
   if (!short || (words.length === 1 && short.length < 3)) return full;
   return short;
 }
 
+/** Words after which a name goes on to say where the clinic is ("Glow Med Spa of Austin"). */
+const PLACE_WORDS = new Set(["of", "at", "in", "by"]);
+/** A dash or bar standing alone between words ("Glow - Austin"). */
+const DASHES = new Set(["-", "–", "—", "|"]);
+/** What a short name never ends on. */
+const TRAILING = new Set([" ", "&", "+", ",", "-"]);

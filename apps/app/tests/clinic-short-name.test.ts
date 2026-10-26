@@ -85,6 +85,16 @@ describe("the prompt", () => {
     expect(buildAssistantPrompt({ ...FACTS, clinicName: "Lumen Aesthetics & Wellness" }, "web_chat")).toContain('say "Lumen"');
     expect(buildAssistantPrompt({ ...FACTS, clinicName: "Radiance" }, "voice")).not.toContain("What patients call it");
   });
+
+  test("works a name out word by word, in linear time on a name full of spaces (CodeQL, polynomial regex)", () => {
+    expect(shortClinicName("Glow Med Spa of Austin")).toBe("Glow");
+    expect(shortClinicName("The Skin Deep Med Spa - Round Rock")).toBe("Skin Deep");
+    expect(shortClinicName("Radiance Aesthetics, Austin TX")).toBe("Radiance");
+    expect(shortClinicName("Of Course Aesthetics")).toBe("Of Course");
+    const started = Date.now();
+    expect(shortClinicName(`Glow${" \t".repeat(50_000)}x`)).toBe("Glow x");
+    expect(Date.now() - started).toBeLessThan(500);
+  });
 });
 
 describe("the Meta front door", () => {

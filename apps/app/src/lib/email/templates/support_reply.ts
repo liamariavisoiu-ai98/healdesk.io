@@ -66,7 +66,7 @@ export function renderSupportReplyWith(subject: string): EmailTemplate<SupportRe
     const blocks: Block[] = [
       ...paragraphs.map((text): Block => ({ type: "paragraph", text })),
       { type: "paragraph", text: SUPPORT_SIGN_OFF },
-      { type: "paragraph", text: `Your reference: ${payload.supportRef}. Reply to this email and it reaches the same request.` },
+      { type: "paragraph", text: `Your reference: ${payload.supportRef}. Reply to this email and quote this reference.` },
     ];
     const first = paragraphs[0]!.replace(/\s+/g, " ");
     return compose(

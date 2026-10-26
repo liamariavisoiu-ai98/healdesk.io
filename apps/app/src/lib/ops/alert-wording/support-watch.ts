@@ -18,8 +18,8 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "The clinic is waiting on a written promise that has now passed, and it does not know whether anyone has read its request. Nothing is ever sent without your approval, so the case waits on you.",
     steps: [
       "Open Support and find the case[ {supportRef}] under Needs you. It shows the topic and the state, never the clinic's words.",
-      "Open the case, read the draft reply, edit it if it needs it, and press Send the reply with the code from your authenticator. It goes to the clinic's one sign-in address, once.",
-      "Write to the clinic from hello@ today if no draft is there or it cannot be fixed, and leave patient details out. Then press Close the case, with the reason replied by hand.",
+      "Open the case, read the draft reply, edit it if it needs it, and use Send the reply (the button reads Send) with the code from your authenticator. It goes to the clinic's one sign-in address, once. If the case says its reply was already approved, it is being tried again and needs nothing from you; if it says the sending stopped, write to the clinic yourself.",
+      "Write to the clinic from hello@ today if no draft is there or it cannot be fixed, and leave patient details out. Then use Close the case (the button reads Close) and pick Replied by hand from the mailbox.",
       "Check Support again. You are done when the case shows under Waiting on the clinic or Closed.",
     ],
   },
@@ -38,7 +38,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     steps: [
       "Open Support and find the case[ {supportRef}] under Needs you. It shows the topic and what the clinic chose in the chat, never its words.",
       "Phone the clinic today on the number on its Account tab if calls are not reaching AYA or are ringing out, and check its Phone line card on the Setup tab while you talk.",
-      "Open the case and read the draft reply, then press Send the reply with the code from your authenticator, or write to the clinic from hello@ yourself and press Close the case with the reason replied by hand. Leave patient details out.",
+      "Open the case and read the draft reply, then use Send the reply (the button reads Send) with the code from your authenticator, or write to the clinic from hello@ yourself and use Close the case (the button reads Close) with the reason Replied by hand from the mailbox. Leave patient details out.",
       "Check Support again. You are done when the clinic has an answer and the case shows under Waiting on the clinic or Closed.",
     ],
   },

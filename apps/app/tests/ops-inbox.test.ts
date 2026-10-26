@@ -418,7 +418,7 @@ describeDb("opsInbox (lane A2)", () => {
       count: 2,
       sentence: "Support replies past the day promised.",
       clinic: { id: a.clinicId, name: "inbox-a Clinic" },
-      button: { label: "Open support", kind: "link", href: "/admin/queues#support" },
+      button: { label: "Open support", kind: "link", href: "/admin/support#needs-you" },
       tone: "warn",
       dueAt: "2000-01-03",
     });

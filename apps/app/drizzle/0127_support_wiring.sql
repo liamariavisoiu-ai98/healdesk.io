@@ -96,6 +96,7 @@ BEGIN
 END;
 $$;--> statement-breakpoint
 REVOKE ALL ON FUNCTION app_ops_approvals_guard() FROM PUBLIC;--> statement-breakpoint
+ALTER TABLE support_cases ENABLE ALWAYS TRIGGER support_cases_guard;--> statement-breakpoint
 ALTER TABLE ops_approvals ENABLE ALWAYS TRIGGER ops_approvals_guard;--> statement-breakpoint
 ALTER TABLE ops_approvals ENABLE ALWAYS TRIGGER ops_approvals_no_truncate;--> statement-breakpoint
 
@@ -198,13 +199,13 @@ BEGIN
   END LOOP;
   FOR trig IN
     SELECT t.tgname, t.tgenabled FROM pg_trigger t
-     WHERE t.tgname IN ('ops_approvals_guard', 'ops_approvals_no_truncate', 'ops_approval_events_add_only', 'ops_approval_events_no_truncate')
+     WHERE t.tgname IN ('support_cases_guard', 'ops_approvals_guard', 'ops_approvals_no_truncate', 'ops_approval_events_add_only', 'ops_approval_events_no_truncate')
   LOOP
     IF trig.tgenabled <> 'A' THEN
       RAISE EXCEPTION 'trigger % is not ENABLE ALWAYS', trig.tgname;
     END IF;
   END LOOP;
-  IF (SELECT count(*) FROM pg_trigger WHERE tgname IN ('ops_approvals_guard', 'ops_approvals_no_truncate', 'ops_approval_events_add_only', 'ops_approval_events_no_truncate')) <> 4 THEN
+  IF (SELECT count(*) FROM pg_trigger WHERE tgname IN ('support_cases_guard', 'ops_approvals_guard', 'ops_approvals_no_truncate', 'ops_approval_events_add_only', 'ops_approval_events_no_truncate')) <> 5 THEN
     RAISE EXCEPTION 'an approval inbox guard trigger is missing';
   END IF;
 END

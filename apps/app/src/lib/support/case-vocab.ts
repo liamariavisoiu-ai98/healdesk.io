@@ -46,7 +46,7 @@ export const SUPPORT_CASE_MOVES: Readonly<Record<SupportCaseState, readonly Supp
   drafted: ["drafting", "needs_edit", "waiting_clinic", "snoozed", "closed", "new"],
   needs_edit: ["drafting", "drafted", "waiting_clinic", "snoozed", "closed", "new"],
   waiting_clinic: ["new", "snoozed", "closed"],
-  snoozed: ["new", "drafted", "needs_edit", "closed", "snoozed"],
+  snoozed: ["new", "drafted", "needs_edit", "waiting_clinic", "closed", "snoozed"],
   closed: [],
 };
 

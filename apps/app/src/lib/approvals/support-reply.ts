@@ -190,7 +190,7 @@ export async function expireOlderVersions(caseId: string, currentMessageId: stri
   let expired = 0;
   for (const item of waiting) {
     const p = parseSupportReplyPayload(item.payload);
-    if (p && (p.caseId !== caseId || p.messageId === currentMessageId)) continue;
+    if (!p || p.caseId !== caseId || p.messageId === currentMessageId) continue;
     if (await moveStatus(item.id, "waiting", "expired", "expired", SERVICE_ACTOR, now, { outcomeCode: "no_longer_needed" })) {
       expired += 1;
     }

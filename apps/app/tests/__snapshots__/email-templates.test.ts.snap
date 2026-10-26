@@ -8065,7 +8065,7 @@ exports[`each template's output > support_reply, for clients: the snapshot 1`] =
 <p style="margin:0 0 16px;">Hi, calls aren&#39;t reaching AYA yet because forwarding on your main line isn&#39;t set, so callers reach your line as before and nobody is missed.</p>
 <p style="margin:0 0 16px;">The codes for your carrier are in Settings, under Channels; they take about two minutes. If they don&#39;t take, reply here and we&#39;ll call you on Monday.</p>
 <p style="margin:0 0 16px;">The Healdesk Team</p>
-<p style="margin:0 0 16px;">Your reference: HD-7F3KQ. Reply to this email and it reaches the same request.</p>
+<p style="margin:0 0 16px;">Your reference: HD-7F3KQ. Reply to this email and quote this reference.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out your clients&#39; details.</p>
@@ -8081,7 +8081,7 @@ The codes for your carrier are in Settings, under Channels; they take about two 
 
 The Healdesk Team
 
-Your reference: HD-7F3KQ. Reply to this email and it reaches the same request.
+Your reference: HD-7F3KQ. Reply to this email and quote this reference.
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.
@@ -8114,7 +8114,7 @@ exports[`each template's output > support_reply, for patients: the snapshot 1`] 
 <p style="margin:0 0 16px;">Hi, calls aren&#39;t reaching AYA yet because forwarding on your main line isn&#39;t set, so callers reach your line as before and nobody is missed.</p>
 <p style="margin:0 0 16px;">The codes for your carrier are in Settings, under Channels; they take about two minutes. If they don&#39;t take, reply here and we&#39;ll call you on Monday.</p>
 <p style="margin:0 0 16px;">The Healdesk Team</p>
-<p style="margin:0 0 16px;">Your reference: HD-7F3KQ. Reply to this email and it reaches the same request.</p>
+<p style="margin:0 0 16px;">Your reference: HD-7F3KQ. Reply to this email and quote this reference.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
@@ -8130,7 +8130,7 @@ The codes for your carrier are in Settings, under Channels; they take about two 
 
 The Healdesk Team
 
-Your reference: HD-7F3KQ. Reply to this email and it reaches the same request.
+Your reference: HD-7F3KQ. Reply to this email and quote this reference.
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.

@@ -27,9 +27,12 @@ import { getJob, JOB_SUPPORT_SEND, runSwitchedJob, type JobOutcome } from "./job
  * it only deletes (like the redial sweep): the text of every reply sent more
  * than 12 months ago, and the reply's copy in its approval item
  * (`ops_approvals.draft`, support_reply_send only, through the database's
- * own app_forget_support_reply_drafts()), so the prose is kept 12 months in
- * both places and no longer. The rows stay, without the words, with their
- * hashes and every approval event.
+ * own app_forget_support_reply_drafts()), so the prose of a reply that WENT is
+ * kept 12 months in both places and no longer. The rows stay, without the
+ * words, with their hashes and every approval event. KNOWN GAP: the text of an
+ * approved reply that never went (stopped dead, case closed, clinic left) stays
+ * on its row until the clinic is destroyed; widening the sweep to it needs a
+ * change to support_messages_send_check (0126), left for the next slice.
  *
  * Neither throws into the queue: a failure is the job's note.
  */

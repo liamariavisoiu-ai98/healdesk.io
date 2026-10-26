@@ -624,6 +624,38 @@ describeDb("approve and send a support reply (drizzle/0126)", () => {
     expect(await replyRow(c2.caseId)).toMatchObject({ send_stopped_reason: "case_closed", sent_at: null });
   });
 
+  test("a retry later than the idempotency window is never sent: stopped dead with the alert (review finding)", async () => {
+    const c = await chatCase("send-retry-stale");
+    const saved = await saveAndPropose(c.caseId, GOOD);
+    send.mockResolvedValue(DOWN);
+    await decide(saved.approvalId!, {}, NOW);
+    const before = replySends().length;
+    // Resend honours a key for 24 hours; a try 25 hours on could repeat an email whose first answer was lost.
+    const outcome = await retrySupportReplies(at(25 * 60 * MINUTE));
+    expect(outcome).toEqual({ sent: 0, retrying: 0, stopped: 1 });
+    expect(replySends()).toHaveLength(before);
+    expect(await replyRow(c.caseId)).toMatchObject({ send_stopped_reason: "dead", sent_at: null, next_send_at: null });
+    const { rows: alerts } = await getMigratorPool().query(
+      `select count(*)::int as n from ops_alerts where event = 'support_reply_dead' and fields->>'clinicId' = $1`,
+      [c.clinicId],
+    );
+    expect(alerts[0].n).toBe(1);
+  });
+
+  test("a reply that goes while its case is snoozed moves the case to waiting on the clinic (review finding)", async () => {
+    const c = await chatCase("send-while-snoozed");
+    const saved = await saveAndPropose(c.caseId, GOOD);
+    send.mockResolvedValueOnce(DOWN);
+    await decide(saved.approvalId!, {}, NOW);
+    await getMigratorPool().query(
+      `update support_cases set state = 'snoozed', snoozed_until = $2 where id = $1`,
+      [c.caseId, at(48 * 60 * MINUTE)],
+    );
+    expect(await retrySupportReplies(at(MINUTE))).toEqual({ sent: 1, retrying: 0, stopped: 0 });
+    const { rows } = await getMigratorPool().query(`select state, snoozed_until from support_cases where id = $1`, [c.caseId]);
+    expect(rows[0]).toMatchObject({ state: "waiting_clinic", snoozed_until: null });
+  });
+
   test("nothing is proposed or sent while P7b's checks are not installed", async () => {
     installReplyChecks(null);
     const c = await chatCase("send-uninstalled");

@@ -47,7 +47,9 @@ import { SUPPORT_SEND_MAX_ATTEMPTS, supportReplySubject, type SupportSendStopped
  * (report_deliveries, kind support_reply, period = the row's id) so the
  * webhook relay marks delivery; under the idempotency key
  * `hd-support_reply-<message id>-1`, the same on every try because the text
- * is frozen, so a retry Resend has seen sends nothing new. A failed try is
+ * is frozen, so a retry Resend has seen sends nothing new, for the 24 hours Resend
+ * keeps a key (a retry later than SUPPORT_RETRY_WINDOW_MS after the approval is
+ * stopped as `dead` rather than risk a second email). A failed try is
  * tried again by `retrySupportReplies` on the outbox's rule (one try, then
  * after 1, 5, 30, 120 and 360 minutes: RETRY_DELAYS_MINUTES), and after the
  * sixth the sending stops as `dead` and ops is told (`support_reply_dead`).
@@ -62,6 +64,13 @@ import { SUPPORT_SEND_MAX_ATTEMPTS, supportReplySubject, type SupportSendStopped
 
 const MINUTE_MS = 60 * 1000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
+
+/**
+ * Resend honours an idempotency key for 24 hours. A retry older than this
+ * after the approval could send a reply twice if an earlier try reached
+ * Resend and its answer was lost, so it is stopped instead (`dead`, ops told).
+ */
+export const SUPPORT_RETRY_WINDOW_MS = 23 * 60 * MINUTE_MS;
 
 /** A try that started this long ago and never answered is tried again. */
 export const SEND_LEASE_MS = 10 * MINUTE_MS;
@@ -365,6 +374,13 @@ export async function deliverReply(
     return { status: "stopped", reason: "case_closed" };
   }
   const clinicId = supportCase.subjectClinicId;
+  if (message.approvedAt && message.sendAttempts > 0 && now.getTime() - message.approvedAt.getTime() > SUPPORT_RETRY_WINDOW_MS) {
+    // A try may have reached Resend and lost its answer; its key no longer protects a repeat. Never sent twice.
+    log.error("support reply retry past the idempotency window; not sent", { clinicId: clinicId ?? null });
+    await stop(messageId, "dead", now);
+    await notifyOps("support_reply_dead", { clinicId: clinicId ?? null, count: message.sendAttempts });
+    return { status: "stopped", reason: "dead" };
+  }
   const text = message.text;
   const subject = message.replySubject;
   if (

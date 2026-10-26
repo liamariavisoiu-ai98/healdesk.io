@@ -1,6 +1,7 @@
 import {
   DEMO_CALL_VARIABLE,
   DEMO_CALLBACK_OFFER,
+  shortClinicName,
   FIRST_PERIOD_REFUND_DAYS,
   NEVER_SAY_DEFAULTS,
   openDaysPerWeek,
@@ -615,39 +616,8 @@ function examplePrice(context: Pick<DemoCallContext, "clinic">): { name: string;
  * today?"), carrying the two facts every patient's call opens with (an AI
  * assistant, and transcribed), so the owner hears what a patient would.
  */
-/**
- * Words a clinic's name ends with that say what kind of place it is, not
- * which one: dropped from the end for the short name a person would use
- * after the greeting (shortClinicName).
- */
-const GENERIC_NAME_WORDS = new Set([
-  "aesthetic", "aesthetics", "wellness", "spa", "spas", "medspa", "medispa", "med", "medical", "clinic", "clinics", "center", "centre",
-  "studio", "studios", "lounge", "institute", "group", "beauty", "laser", "lasers", "skin", "skincare", "care", "dermatology", "derm",
-  "cosmetic", "cosmetics", "surgery", "surgical", "plastic", "plastics", "health", "rejuvenation", "body", "face", "bar", "boutique",
-  "collective", "co", "company", "llc", "inc", "pllc", "pc", "ltd", "and", "&", "+",
-]);
-
-/**
- * The short name a person uses for a clinic once its full name has been
- * said (owner, 26 October 2026, 6i): "Lumen Aesthetics & Wellness" is
- * "Lumen", "Glow Med Spa of Austin" is "Glow", "Skin Deep Med Spa" is "Skin
- * Deep". A place after "of", "at", "in" or "by", or after a dash, bar or
- * comma, goes; a leading "The" goes; then generic words from the end. A name
- * with nothing left, or a single word under three letters, stays whole.
- * For a demo call only, from the scraped public name: a clinic's own short
- * name is a portal setting still to be designed
- * (docs/design/clinic-nickname-2026-10-26.md).
- */
-export function shortClinicName(fullName: string): string {
-  const full = fullName.trim();
-  const head = full.split(/\s+(?:of|at|in|by)\s+|\s[-–—|]\s|,/i)[0]!.trim();
-  const words = head.split(/\s+/).filter(Boolean);
-  if (words[0]?.toLowerCase() === "the") words.shift();
-  while (words.length > 0 && GENERIC_NAME_WORDS.has(words[words.length - 1]!.toLowerCase().replace(/[^a-z&+]/g, ""))) words.pop();
-  const short = words.join(" ").replace(/[\s&+,-]+$/, "");
-  if (!short || (words.length === 1 && short.length < 3)) return full;
-  return short;
-}
+/** The short name after the greeting (6i): the catalog's, shared with a clinic's own calls. */
+export { shortClinicName };
 
 export function demoRoleplayOpener(clinicName: string): string {
   return `Ring ring! Hi, thanks for calling ${clinicName}, this is Aya, the AI assistant, and this call's transcribed. How can I help you today?`;

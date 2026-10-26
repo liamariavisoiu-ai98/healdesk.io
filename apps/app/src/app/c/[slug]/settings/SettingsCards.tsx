@@ -268,6 +268,21 @@ export function TalkCard({ view }: { view: SettingsView }) {
           resetLabel="Use the default"
         />
       ))}
+      <TextSetting
+        slug={view.slug}
+        settingKey="short_name"
+        label="What patients call you"
+        initial={talk.shortName.value}
+        placeholder={talk.shortName.worked}
+        hint={
+          talk.shortName.value
+            ? "AYA says your full name once, at the start, then this."
+            : "AYA says your full name once, at the start, then the name shown in the box. Write the one your patients use to replace it."
+        }
+        applies={view.applies.short_name}
+        maxLength={40}
+        resetLabel="Use the name AYA works out"
+      />
       <ChecklistSetting
         slug={view.slug}
         settingKey="languages"

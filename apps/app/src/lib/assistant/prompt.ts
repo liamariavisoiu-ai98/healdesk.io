@@ -1,6 +1,7 @@
 import {
   ASSISTANT_LANGUAGE_NAMES,
   audienceFor,
+  shortClinicName,
   type AssistantTone,
   type Audience,
   type SpecialtyId,
@@ -287,6 +288,11 @@ export function closureLines(closures: AssistantFacts["closures"]): string[] {
  * changes only when the location's booking mode does, so the prefix stays
  * cacheable.
  */
+/** What the conversation calls the practice after its opening: the clinic's own short name, else one worked out from the full name. */
+export function callName(facts: Pick<AssistantFacts, "clinicName" | "shortName">): string {
+  return facts.shortName?.trim() || shortClinicName(facts.clinicName);
+}
+
 export function buildAssistantPrompt(
   facts: AssistantFacts,
   channel: AssistantChannel,
@@ -303,6 +309,10 @@ export function buildAssistantPrompt(
 
   lines.push(`\nThe practice:`);
   lines.push(`- Name: ${facts.clinicName}`);
+  const short = callName(facts);
+  if (short !== facts.clinicName) {
+    lines.push(`- What patients call it: ${short}. The opening line says the full name once; after it, say "${short}", as people do.`);
+  }
   const phone = phoneFor(channel, facts.phone);
   if (phone) lines.push(`- Main number: ${phone}`);
   if (facts.address) lines.push(`- Address: ${facts.address}`);

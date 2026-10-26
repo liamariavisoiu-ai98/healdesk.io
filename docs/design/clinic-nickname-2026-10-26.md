@@ -1,10 +1,34 @@
-# A clinic's short name, said after the greeting (design note, not built)
+# A clinic's short name, said after the greeting (design note, built)
 
-Status: proposal for the owner's decision, 26 October 2026 (VOICE-T17, Phase 6i).
-The portal field and the schema change are not built: they are a product
-change, which needs this note, a spec edit and the owner's sign-off. Demo
-calls already use a heuristic short name (`lib/voice/demo-facts.ts`,
-`shortClinicName`), described under "Already shipped".
+Status: built 26 October 2026 (PORTAL-SHORTNAME), on the owner's word
+("build it. Update v1-product-spec.md"), with the recommended answers to the
+three decisions below: build it, the label "What patients call you", and every
+channel. The spec's "Every switch in the portal" carries the field.
+
+## As built
+
+- `clinic_settings.short_name` (migration 0128), null or 1 to 40 characters.
+- Settings › How AYA talks, "What patients call you" (`short_name`): empty
+  shows the worked-out name as its placeholder, and "Use the name AYA works
+  out" clears it. The wizard's Basics screen pre-fills it from the name and
+  keeps it only when the clinic changed it, so a corrected name carries the
+  worked-out one with it.
+- Saved through `saveSetupSettings`. It must be plain words with a letter
+  (`isSafeTypedText`), name no clinical term or everyday condition
+  (`findClinicalContent` with conditions), and hold nothing on the clinic's
+  never-say list unless it is a part of the full name.
+- `AssistantFacts.shortName`; the prompt's `callName` falls back to
+  `shortClinicName`.
+- **The guards read a short name as the clinic's own words only when it is a
+  part of the full name** (`ownShortName`). A short name typed into Settings
+  can never excuse a word the full name did not already, and any other short
+  name is screened like every word of a reply. On Meta the prompt uses it only
+  under that rule and when it names no treatment (`metaCallName`), because
+  that channel's guard refuses treatment names and staff names.
+- `/api/ops` `getOnboarding` returns `callName` and `shortNameSet`, shown on
+  the console's setup panel.
+- Tests: `tests/clinic-short-name.test.ts` and `tests/settings-screen.test.ts`
+  ("What patients call you ...").
 
 ## The problem
 

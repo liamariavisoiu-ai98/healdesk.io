@@ -312,7 +312,7 @@ Four steps, in this order, because each one is more likely to be abandoned than 
 
 | Step | What the clinic does | Time |
 | --- | --- | --- |
-| 1. Confirm the basics | Reviews the pre-filled name, address, hours, services and prices. Edits anything wrong | 3 to 5 min |
+| 1. Confirm the basics | Reviews the pre-filled name, what patients call the practice, address, hours, services and prices. Edits anything wrong | 3 to 5 min |
 | 2. Set behaviour | Tone, greeting, deposit toggles, voice coverage mode, the direct line and the urgent-help number | 3 min |
 | 3. Connect the calendar | One Google login | 30 sec |
 | 4. Connect the channels | One login per channel bought. Skippable individually | 1 to 3 min |
@@ -590,6 +590,7 @@ Settings shows the Channels, Behaviour and Escalation switches below as cards on
 | Tone | Clinical and professional / Warm and welcoming | Warm | Changes how the assistant speaks on every channel |
 | Phone greeting | Text field | Pre-filled from the clinic name | The first line a caller hears |
 | Chat greeting | Text field | Pre-filled | The first line in chat and DMs |
+| What patients call you | Text field, up to 40 characters, plain words | Worked out from the clinic name ("Lumen" for "Lumen Aesthetics & Wellness"), pre-filled in step 1 | The short name the assistant uses after saying the full name once, on every channel. The opening line, emails, the agreement and billing keep the full name. Screened like a greeting: no clinical words, nothing on the never-say list. On Instagram, Messenger and WhatsApp it is used only when it is a part of the full name and names no treatment |
 | Suggest add-on treatments | On / Off | Off | On lets the assistant suggest complementary treatments and products during a booking. Off keeps it to what was asked |
 | Mention promotions | On / Off | On | Whether the promotions box is used in conversation |
 | Take deposits | On / Off | Off until a gateway is connected | Whether the assistant can send a payment link at all |

@@ -11,6 +11,7 @@ import {
   FORWARDING_PASS_THROUGH_DAYS,
   forwardingInstructions,
   isCarrier,
+  shortClinicName,
   type Carrier,
   type Channel,
   type CoverageModeId,
@@ -106,6 +107,8 @@ export type SettingsView = {
       text: string;
       isDefault: boolean;
     }[];
+    /** What patients call the clinic: the saved short name ("" when unset) and the one AYA works out otherwise. */
+    shortName: { value: string; worked: string };
     languages: string[];
     languageOptions: { id: string; label: string }[];
     suggestAddOns: boolean;
@@ -282,6 +285,7 @@ export async function readSettingsView(input: {
       tone: settings.tone,
       toneOptions: ASSISTANT_TONE_OPTIONS,
       greetings,
+      shortName: { value: settings.shortName ?? "", worked: shortClinicName(clinic.name) },
       // Only the languages the screens read are offered, and shown as chosen.
       languages: settings.languages.filter(isScreenedLanguage),
       languageOptions: SCREENED_LANGUAGES.map((id) => ({

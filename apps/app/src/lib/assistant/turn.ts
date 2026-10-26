@@ -280,9 +280,9 @@ export function refusalLine(
  * Tuesday?" or the name of its signature facial never turns a message away.
  */
 export function languageTerms(
-  facts: Pick<AssistantFacts, "clinicName" | "address" | "services"> & Partial<Pick<AssistantFacts, "providerNames">>,
+  facts: Pick<AssistantFacts, "clinicName" | "address" | "services"> & Partial<Pick<AssistantFacts, "shortName" | "providerNames">>,
 ): string[] {
-  return [facts.clinicName, facts.address ?? "", ...facts.services.map((s) => s.name), ...(facts.providerNames ?? [])].filter(
+  return [facts.clinicName, facts.shortName ?? "", facts.address ?? "", ...facts.services.map((s) => s.name), ...(facts.providerNames ?? [])].filter(
     (term) => term.trim().length > 0,
   );
 }

@@ -88,9 +88,9 @@ output "ses_configuration_set" {
 }
 
 output "inbound_mail" {
-  description = "Inbound support mail, while enable_inbound_mail is on; null otherwise: the address the owner's mailbox forwards to, the bucket, the topic and the receipt rule set the rule is in."
+  description = "Inbound support mail, while enable_inbound_mail is on; null otherwise: the addresses the owner's mailbox may forward to (support@ and hello@ on the inbound subdomain), the bucket, the topic and the receipt rule set the rule is in."
   value = var.enable_inbound_mail ? {
-    forward_to = local.inbound_recipient
+    forward_to = local.inbound_recipients
     bucket     = local.inbound_bucket
     topic_arn  = aws_sns_topic.inbound_mail[0].arn
     rule_set   = local.inbound_rule_set

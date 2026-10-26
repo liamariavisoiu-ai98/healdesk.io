@@ -310,10 +310,10 @@ run "inbound_mail_on" {
     error_message = "The MX must be in.healdesk.io -> inbound-smtp.us-east-1.amazonaws.com, priority 10, DNS only, with a comment Cloudflare accepts."
   }
 
-  # --- the rule: hello@ on the subdomain only, TLS required, scanned, S3 then the topic ---
+  # --- the rule: support@ and hello@ on the subdomain only, TLS required, scanned, S3 then the topic ---
   assert {
     condition = (
-      aws_ses_receipt_rule.support_mail[0].recipients == toset(["hello@in.healdesk.io"]) &&
+      aws_ses_receipt_rule.support_mail[0].recipients == toset(["support@in.healdesk.io", "hello@in.healdesk.io"]) &&
       aws_ses_receipt_rule.support_mail[0].tls_policy == "Require" && aws_ses_receipt_rule.support_mail[0].scan_enabled &&
       aws_ses_receipt_rule.support_mail[0].enabled &&
       length(aws_ses_receipt_rule.support_mail[0].s3_action) == 1 &&
@@ -324,7 +324,7 @@ run "inbound_mail_on" {
       length(aws_ses_receipt_rule.support_mail[0].sns_action) == 0 && length(aws_ses_receipt_rule.support_mail[0].lambda_action) == 0 &&
       aws_ses_active_receipt_rule_set.inbound[0].rule_set_name == "healdesk-production-inbound"
     )
-    error_message = "The receipt rule takes hello@in.healdesk.io only, requires TLS, scans, and writes to the bucket's mail/ prefix with the topic told; no SNS action carrying the message."
+    error_message = "The receipt rule takes support@in.healdesk.io and hello@in.healdesk.io only, requires TLS, scans, and writes to the bucket's mail/ prefix with the topic told; no SNS action carrying the message."
   }
 
   # --- the bucket: our key, no public access, TLS only, a day at most ---
@@ -425,8 +425,8 @@ run "inbound_mail_on" {
   }
 
   assert {
-    condition     = output.inbound_mail.forward_to == "hello@in.healdesk.io" && output.inbound_mail.rule_set == "healdesk-production-inbound"
-    error_message = "The output names the forwarding address and the rule set."
+    condition     = output.inbound_mail.forward_to == ["support@in.healdesk.io", "hello@in.healdesk.io"] && output.inbound_mail.rule_set == "healdesk-production-inbound"
+    error_message = "The output names both forwarding addresses and the rule set."
   }
 }
 
@@ -513,4 +513,62 @@ run "inbound_mail_needs_ses" {
   }
 
   expect_failures = [aws_ses_receipt_rule.support_mail]
+}
+
+run "inbound_mail_recipients_follow_the_list" {
+  command = plan
+
+  variables {
+    enable_inbound_mail          = true
+    inbound_mail_recipient_names = ["support"]
+  }
+
+  assert {
+    condition     = aws_ses_receipt_rule.support_mail[0].recipients == toset(["support@in.healdesk.io"]) && output.inbound_mail.forward_to == ["support@in.healdesk.io"]
+    error_message = "The rule's recipients and the output come from inbound_mail_recipient_names, on the inbound subdomain."
+  }
+}
+
+run "inbound_mail_refuses_an_uppercase_local_part" {
+  command = plan
+
+  variables {
+    enable_inbound_mail          = true
+    inbound_mail_recipient_names = ["Support"]
+  }
+
+  expect_failures = [var.inbound_mail_recipient_names]
+}
+
+run "inbound_mail_refuses_a_full_address" {
+  command = plan
+
+  variables {
+    enable_inbound_mail          = true
+    inbound_mail_recipient_names = ["support@healdesk.io"]
+  }
+
+  expect_failures = [var.inbound_mail_recipient_names]
+}
+
+run "inbound_mail_refuses_no_recipient_and_duplicates" {
+  command = plan
+
+  variables {
+    enable_inbound_mail          = true
+    inbound_mail_recipient_names = ["hello", "hello"]
+  }
+
+  expect_failures = [var.inbound_mail_recipient_names]
+}
+
+run "inbound_mail_refuses_an_empty_list" {
+  command = plan
+
+  variables {
+    enable_inbound_mail          = true
+    inbound_mail_recipient_names = []
+  }
+
+  expect_failures = [var.inbound_mail_recipient_names]
 }

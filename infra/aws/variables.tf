@@ -662,7 +662,7 @@ variable "ses_domain" {
 }
 
 variable "enable_inbound_mail" {
-  description = "Receive support mail on SES (ses-inbound.tf): the MX record for inbound_mail_domain, a receipt rule for hello@ on it (TLS required, spam and virus scan), the inbound bucket (SSE-KMS under our key, TLS only, a one-day lifecycle) and the encrypted topic SES tells the app on, the key-policy grant SES needs for that one rule, the task role's read and delete on the bucket's mail/ prefix, and HEALDESK_INBOUND_MAIL_BUCKET (web and worker) and HEALDESK_INBOUND_MAIL_TOPIC_ARN (web). Off until the owner has read the plan. Needs enable_ses."
+  description = "Receive support mail on SES (ses-inbound.tf): the MX record for inbound_mail_domain, a receipt rule for inbound_mail_recipient_names on it (TLS required, spam and virus scan), the inbound bucket (SSE-KMS under our key, TLS only, a one-day lifecycle) and the encrypted topic SES tells the app on, the key-policy grant SES needs for that one rule, the task role's read and delete on the bucket's mail/ prefix, and HEALDESK_INBOUND_MAIL_BUCKET (web and worker) and HEALDESK_INBOUND_MAIL_TOPIC_ARN (web). Off until the owner has read the plan. Needs enable_ses."
   type        = bool
   default     = false
 }
@@ -674,13 +674,24 @@ variable "subscribe_inbound_mail" {
 }
 
 variable "inbound_mail_domain" {
-  description = "The subdomain SES receives support mail on. Its MX points at SES; healdesk.io's own MX is never touched. The owner's mailbox forwards hello@healdesk.io to hello@ on this domain."
+  description = "The subdomain SES receives support mail on. Its MX points at SES; healdesk.io's own MX is never touched. The owner's mailbox forwards support@healdesk.io and hello@healdesk.io to the same names on this domain (inbound_mail_recipient_names)."
   type        = string
   default     = "in.healdesk.io"
 
   validation {
     condition     = can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\\.healdesk\\.io$", var.inbound_mail_domain))
     error_message = "inbound_mail_domain must be a lowercase subdomain of healdesk.io, never healdesk.io itself: an MX on the root domain would take hello@healdesk.io away from the owner's mailbox."
+  }
+}
+
+variable "inbound_mail_recipient_names" {
+  description = "The local parts SES receives support mail for on inbound_mail_domain: support@ and hello@ by default (owner, 26 October 2026: support@healdesk.io is an alias of the owner's mailbox beside hello@, and the mailbox forwards either to the same name on the inbound subdomain). Lowercase local parts only, at least one, no duplicates."
+  type        = list(string)
+  default     = ["support", "hello"]
+
+  validation {
+    condition     = length(var.inbound_mail_recipient_names) > 0 && length(var.inbound_mail_recipient_names) == length(distinct(var.inbound_mail_recipient_names)) && alltrue([for n in var.inbound_mail_recipient_names : can(regex("^[a-z0-9]([a-z0-9._-]{0,62}[a-z0-9])?$", n))])
+    error_message = "inbound_mail_recipient_names must be one or more distinct lowercase local parts (letters, digits, dots, underscores and hyphens, no @), such as [\"support\", \"hello\"]."
   }
 }
 

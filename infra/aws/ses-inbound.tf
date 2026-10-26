@@ -1,28 +1,35 @@
 # Inbound support mail on SES (ops automation Phase 7, lane P7g; design E5
-# §2.1; owner decision D13): a clinic's email to hello@healdesk.io becomes a
-# support case without anyone retyping it. Off (enable_inbound_mail = false)
+# §2.1; owner decision D13): a clinic's email to support@healdesk.io or
+# hello@healdesk.io becomes a support case without anyone retyping it. Off (enable_inbound_mail = false)
 # until the owner has read the plan: every resource here is counted on it.
 #
 # The path, one hop per resource below:
 #
-#   the owner's mailbox (outside this stack) auto-forwards to
-#   hello@<inbound_mail_domain>, a subdomain whose MX points at SES receiving
-#   (the root domain's MX is untouched, so hello@healdesk.io keeps working as
-#   it does today) -> one receipt rule, TLS required and spam/virus scan on,
+#   the owner's mailbox (outside this stack; support@ is an alias of it
+#   beside hello@) auto-forwards to support@ or hello@ on
+#   <inbound_mail_domain> (inbound_mail_recipient_names), a subdomain whose
+#   MX points at SES receiving (the root domain's MX is untouched, so both
+#   addresses on healdesk.io keep working as they do today) -> one receipt
+#   rule for those addresses, TLS required and spam/virus scan on,
 #   whose one action writes the raw message to the inbound bucket and then
 #   publishes a notice to the inbound topic -> SNS posts the notice to
 #   apps/app's /api/webhooks/inbound-mail, which checks SNS's signature,
-#   reads the object, reduces the message in memory to facts from fixed lists
-#   (lib/support/inbound) and deletes the object in the same request.
+#   reads the object, records the case from facts in fixed lists
+#   (lib/support/inbound) and leaves the object for the support-draft job,
+#   which reads it once in memory to draft a reply for ops and deletes it
+#   (owner, 26 October 2026). A message the drafter will never read (one
+#   about no clinic, one that cannot be parsed, one over the size cap) is
+#   still deleted in the same request.
 #
 # Under the AWS BAA end to end (SES, S3, SNS, KMS): a clinic's mail may carry
-# a patient's details despite every warning. Nothing of the message is kept:
-# no body, no subject, no display name, no attachment name. The bucket holds a
-# message for as long as the handler takes: the handler deletes it at once.
-# What a failed handler leaves, the hourly support-inbound-sweep job handles,
-# and it deletes anything a day old. The one-day lifecycle rule below is only
-# the backstop behind both: S3 applies it asynchronously, so an object can
-# outlive it by up to about another day.
+# a patient's details despite every warning. Nothing of the message is kept
+# in the database: no body, no subject, no display name, no attachment name.
+# The bucket holds a message until the draft job has read it (deleted in the
+# job's finally), or for as long as the handler takes when the drafter will
+# not read it. What a failed handler leaves, the hourly support-inbound-
+# sweep job handles, and it deletes anything six hours old. The one-day
+# lifecycle rule below is only the backstop behind both: S3 applies it
+# asynchronously, so an object can outlive it by up to about another day.
 #
 # Encryption: the bucket's default encryption is SSE-KMS under the project's
 # key with S3 Bucket Keys, as the export bucket; SES writes without naming an
@@ -55,7 +62,7 @@ locals {
   inbound_prefix       = "mail/"
   inbound_topic_name   = "${local.name}-inbound-mail"
   inbound_endpoint     = "${local.app_url}/api/webhooks/inbound-mail"
-  inbound_recipient    = "hello@${var.inbound_mail_domain}"
+  inbound_recipients   = [for n in var.inbound_mail_recipient_names : "${n}@${var.inbound_mail_domain}"]
   inbound_rule_name    = "${local.name}-support-mail"
   inbound_own_rule_set = var.inbound_mail_rule_set_name == ""
   inbound_rule_set     = local.inbound_own_rule_set ? "${local.name}-inbound" : var.inbound_mail_rule_set_name
@@ -328,7 +335,7 @@ resource "aws_ses_receipt_rule" "support_mail" {
 
   name          = local.inbound_rule_name
   rule_set_name = local.inbound_own_rule_set ? aws_ses_receipt_rule_set.inbound[0].rule_set_name : var.inbound_mail_rule_set_name
-  recipients    = [local.inbound_recipient]
+  recipients    = local.inbound_recipients
   enabled       = true
   scan_enabled  = true
   tls_policy    = "Require"

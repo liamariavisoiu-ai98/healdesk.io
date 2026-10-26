@@ -266,9 +266,9 @@ describe("the draft's closed lists have words", () => {
   });
 
   test("Send's outcome, true to the executor (lib/approvals/support-reply.ts) and the send (lib/support/send.ts recordSent)", () => {
-    // A sent reply moves the case to waiting on the clinic only where case-vocab.ts allows the move (not from snoozed), so the line claims the send alone.
+    // A sent reply moves the case to waiting on the clinic where case-vocab.ts allows the move (since the Phase 7 review, from snoozed too), so the line claims the send alone.
     expect(source("lib/support/send.ts")).toContain('canMove(c.state, "waiting_clinic")');
-    expect(source("lib/support/case-vocab.ts")).toContain('snoozed: ["new", "drafted", "needs_edit", "closed", "snoozed"],');
+    expect(source("lib/support/case-vocab.ts")).toContain('snoozed: ["new", "drafted", "needs_edit", "waiting_clinic", "closed", "snoozed"],');
     expect(sendOutcomeWords({ status: "executed", outcomeCode: "sent", message: null, auditRecorded: true })).toEqual({
       ok: true,
       text: "Sent to the practice's one sign-in address.",

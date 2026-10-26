@@ -81,10 +81,10 @@ describe("the addresses apps/app's inbox sources carry", () => {
     // Phase 6: the approval inbox and the patient-rights tracker.
     expect(hrefs).toContain("/admin/queues#approvals");
     expect(hrefs).toContain("/admin/rights");
-    // Phase 7: a support reply waiting for the owner's Send opens the Support console (lane P7d); the chat's
-    // dated promises still open Queues › Support, where their mark is.
+    // Phase 7: a support reply waiting for the owner's Send opens the Support console (lane P7d), and so does
+    // Home's row for the cases and chat promises we owe a reply on (its Needs you section).
     expect(hrefs).toContain("/admin/support");
-    expect(hrefs).toContain("/admin/queues#support");
+    expect(hrefs).toContain("/admin/support#needs-you");
   });
 
   test("each opens a page that exists and an anchor that is rendered", () => {

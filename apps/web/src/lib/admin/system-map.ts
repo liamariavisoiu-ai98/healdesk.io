@@ -305,6 +305,8 @@ export const KEYS: readonly KeyDef[] = [
       when: "anyone else may have seen it, or approvals locked when you were not typing",
       how: `Run node apps/web/scripts/hash-approval-passcode.mjs on your own machine, type the new passcode, and paste the hash it prints as a Sensitive variable. ${VERCEL_HOW} Unset, only your authenticator code approves.`,
     },
+    // The engine holds the same hash for the Slack dialog (lane P7i).
+    sameAs: "aws.HEALDESK_APPROVAL_PASSCODE_HASH",
   },
   {
     id: "vercel.HEALDESK_ADMIN_SECRET",
@@ -671,6 +673,48 @@ export const KEYS: readonly KeyDef[] = [
       kind: "only-if",
       when: "the address leaks: anyone holding it can post in #alerts",
       how: `This is the SAME address as SLACK_WEBHOOK_URL in Vercel, stored in both places, so change it in BOTH: make a new incoming webhook in Slack, put it in Vercel and redeploy, then in AWS CloudShell run bash put-external-secrets.sh SLACK_WEBHOOK_URL and restart (deploy-app.yml, restart_only), and remove the old webhook.`,
+    },
+  },
+  // Lane P7i (owner, 26 October 2026): the Slack app that shows each drafted
+  // support reply in your channel and takes Review and send, Edit only,
+  // Snooze and Close from it. All four needed; any one unset turns it off.
+  {
+    id: "aws.SLACK_BOT_TOKEN",
+    env: "SLACK_BOT_TOKEN",
+    home: "aws",
+    label: "The support Slack app's bot token (posts each drafted reply)",
+    need: "optional",
+    rotation: {
+      kind: "only-if",
+      when: "it leaks: anyone holding it can post as the app in channels it is in",
+      how: `In the Slack app's settings, OAuth & Permissions, revoke the token and reinstall the app to get a new one. ${AWS_HOW("SLACK_BOT_TOKEN")}`,
+    },
+  },
+  {
+    id: "aws.SLACK_SIGNING_SECRET",
+    env: "SLACK_SIGNING_SECRET",
+    home: "aws",
+    label: "The support Slack app's signing secret (proves a button press came from Slack)",
+    need: "optional",
+    rotation: {
+      kind: "only-if",
+      when: "it leaks",
+      how: `In the Slack app's settings, Basic Information, regenerate the signing secret. ${AWS_HOW("SLACK_SIGNING_SECRET")} Buttons pressed in between are refused; press them again after the restart.`,
+    },
+  },
+  { id: "aws.SLACK_SUPPORT_CHANNEL", env: "SLACK_SUPPORT_CHANNEL", home: "aws", label: "The Slack channel support replies go to (its id, C...)", need: "optional", rotation: { kind: "public" } },
+  { id: "aws.SLACK_OPERATOR_IDS", env: "SLACK_OPERATOR_IDS", home: "aws", label: "Who may press the support reply buttons in Slack (member ids, U...)", need: "optional", rotation: { kind: "public" } },
+  {
+    id: "aws.HEALDESK_APPROVAL_PASSCODE_HASH",
+    env: "HEALDESK_APPROVAL_PASSCODE_HASH",
+    home: "aws",
+    label: "Your 6-digit approval passcode, for Slack (the engine's copy of Vercel's, stored scrambled)",
+    need: "optional",
+    sameAs: "vercel.HEALDESK_APPROVAL_PASSCODE_HASH",
+    rotation: {
+      kind: "only-if",
+      when: "anyone else may have seen the passcode, or approvals locked when you were not typing",
+      how: `This is the SAME hash as HEALDESK_APPROVAL_PASSCODE_HASH in Vercel, so change it in BOTH: run node apps/web/scripts/hash-approval-passcode.mjs, paste the hash in Vercel and redeploy, then in AWS CloudShell run bash put-external-secrets.sh HEALDESK_APPROVAL_PASSCODE_HASH and restart (deploy-app.yml, restart_only). Unset here, nothing approves from Slack.`,
     },
   },
   {
@@ -1549,6 +1593,26 @@ export const BRIDGES: readonly BridgeDef[] = [
     build: "built",
     buildNote:
       "The worker posts each alert once, from its every-minute sweep, retries at 1, 5 and 30 minutes, and records the outcome on the alert's row; only alerts from the last 24 hours are posted, so pasting the key never floods the channel. What it may carry is an allow-list in apps/app lib/ops/alert-wording/allow-list.ts, shared by the Slack post and the email. Without the key nothing posts and every alert is still emailed.",
+  },
+  {
+    // Lane P7i (owner, 26 October 2026: "Show the draft reply text in Slack
+    // so I can read and approve it there with the passcode. I accept that
+    // Slack has no BAA.").
+    id: "app-slack-support",
+    theme: "running",
+    from: "app",
+    to: "slack",
+    both: true,
+    title: "Support replies to approve, in your Slack",
+    carries:
+      "Out: a support case's ref, the practice's name, its urgency and reply-by day, the reply WE drafted (never the practice's own email) and the names of the checks it fails, with five buttons. Back: which button you pressed, your Slack member id, your edit of the reply and the approval passcode you typed",
+    example:
+      "A practice asks why its invoice changed: the drafted answer appears in your support channel; you press Review and send, fix a word, type your passcode, and it goes, checked again exactly as the console would.",
+    keys: ["aws.SLACK_BOT_TOKEN", "aws.SLACK_SIGNING_SECRET", "aws.SLACK_SUPPORT_CHANNEL", "aws.SLACK_OPERATOR_IDS", "aws.HEALDESK_APPROVAL_PASSCODE_HASH"],
+    phi: false,
+    build: "built",
+    buildNote:
+      "The worker's every-minute sweep posts one message per case once its reply waits for your yes, updates the same message when a new draft replaces it or you snooze it, and turns it final (no buttons, no draft words) once it is sent, rejected, expired or closed (apps/app lib/support/slack-reply.ts). Pressing a button calls https://app.healdesk.io/api/webhooks/slack, which checks Slack's signature and that you are on SLACK_OPERATOR_IDS (lib/support/slack-actions.ts). Review and send checks your passcode with the console's own verifier and five-tries lock, runs the eight reply checks on any edit (naming a failing rule, never sending), saves it as the next draft, and approves it through the console's own decision, recorded as \"passcode via slack\" with your member id. Edit only saves a passing edit without sending; Snooze puts the case aside a day; Close closes it as no reply needed. Slack has no business associate agreement: by your decision it carries our drafted reply, never the practice's words, and every other Slack post still carries no prose. Not tried against Slack itself yet. Without the four Slack settings nothing posts and the console works as before.",
   },
   {
     id: "app-ses",

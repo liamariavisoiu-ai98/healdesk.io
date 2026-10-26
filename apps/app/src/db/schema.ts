@@ -8404,3 +8404,58 @@ export const supportMessages = pgTable(
   ],
 );
 export type SupportMessage = typeof supportMessages.$inferSelect;
+
+/**
+ * The Slack message each support case's reply is shown in (ops automation
+ * Phase 7, lane P7i; lib/support/slack-reply.ts). One row per case: the
+ * channel and the message's ts, so a new draft version UPDATES the one
+ * message (chat.update) and a decided, expired or closed item turns it into
+ * its final state with the buttons gone. Ids, Slack's own ids, a version, a
+ * state key of ids and codes, and the outcome of the last Slack call; never
+ * the reply's words (those live on support_messages and in Slack). Not a
+ * tenant table: written by the worker's sweep and the Slack route, outside
+ * any clinic, like support_cases.
+ */
+export const supportSlackMessages = pgTable(
+  "support_slack_messages",
+  {
+    caseId: uuid("case_id")
+      .primaryKey()
+      .references(() => supportCases.id, { onDelete: "cascade" }),
+    /** Slack's channel id (C…), set once the first post is taken. */
+    channel: text("channel"),
+    /** Slack's id of the message ("1700000000.000100"), set once the first post is taken. */
+    ts: text("ts"),
+    /** The approval item the message shows now, and its draft version. */
+    approvalId: uuid("approval_id"),
+    draftVersion: integer("draft_version"),
+    /** What the message shows: ids, statuses and codes joined; a new key means an update is owed. */
+    shownKey: text("shown_key"),
+    /** The message is in its final state: no buttons left. */
+    final: boolean("final").notNull().default(false),
+    /** Who holds the row while a Slack call is in flight (a lease), and when the next try may run. */
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    nextAt: timestamp("next_at", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
+    /** The last Slack call's failure: Slack's error code or an HTTP status, never a token. */
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("support_slack_messages_open_idx").on(t.final, t.nextAt),
+    check(
+      "support_slack_messages_ids_check",
+      sql`(${t.channel} is null) = (${t.ts} is null) and (${t.channel} is null or ${t.channel} ~ '^[CDG][A-Z0-9]{2,30}$') and (${t.ts} is null or ${t.ts} ~ '^[0-9]{1,12}[.][0-9]{1,8}$')`,
+    ),
+    check(
+      "support_slack_messages_key_check",
+      sql`(${t.shownKey} is null or (char_length(${t.shownKey}) <= 300 and ${t.shownKey} ~ '^[A-Za-z0-9_:|.-]+$')) and (${t.draftVersion} is null or ${t.draftVersion} >= 1) and ${t.attempts} between 0 and 1000`,
+    ),
+    check(
+      "support_slack_messages_error_check",
+      sql`${t.lastError} is null or (char_length(${t.lastError}) <= 120 and ${t.lastError} ~ '^[a-z0-9_ ]+$')`,
+    ),
+  ],
+);
+export type SupportSlackMessage = typeof supportSlackMessages.$inferSelect;

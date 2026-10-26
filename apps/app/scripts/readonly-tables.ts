@@ -138,6 +138,9 @@ export const READONLY_WITHHELD: Record<string, "patient" | "credential" | "unrev
 
   // Not yet read column by column. Fail closed until someone does.
   agreement_resigns: "unreviewed",
+  // Lane P7i (drizzle/0132): a support case's Slack channel id and message
+  // ts, ids, a version and codes; no words. Not yet reviewed for the role.
+  support_slack_messages: "unreviewed",
   clinic_locations: "unreviewed",
   location_acknowledgements: "unreviewed",
   retell_recording_alerts: "unreviewed",

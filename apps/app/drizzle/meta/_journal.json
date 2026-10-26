@@ -925,6 +925,13 @@
       "when": 1793035803410,
       "tag": "0131_support_inbound_object_key",
       "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "7",
+      "when": 1793044531080,
+      "tag": "0132_support_slack_messages",
+      "breakpoints": true
     }
   ]
 }

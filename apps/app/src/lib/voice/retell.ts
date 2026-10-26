@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { audienceFor, messageLanguage, openDemoCallContext, SENDER_IDENTITY, type DemoCallContext } from "@healdesk/catalog";
+import { audienceFor, findUrgentContent, messageLanguage, openDemoCallContext, SENDER_IDENTITY, type DemoCallContext } from "@healdesk/catalog";
 import { eq } from "drizzle-orm";
 
 import { clinics, clinicSettings } from "@/db/schema";
@@ -25,6 +25,7 @@ import { withTenant } from "@/lib/tenant";
 
 import { nextCallLanguage, START_LANGUAGE, type CallLanguageState } from "./call-language";
 import { CALLBACK_FAILED_LINE, callbackSentLine, sendDemoCallback, type DemoCallbackRequest } from "./demo-callback";
+import { afterStallNote, isStallReply, pickUnsaid, STALL_LINES, STALL_REASONS, STALL_SORRY, stallNote } from "./stall";
 import {
   afterDemoReply,
   DEMO_OPENED_PROGRESS,
@@ -287,6 +288,8 @@ type RetellEvent = {
   interaction_type?: unknown;
   response_id?: unknown;
   transcript?: unknown;
+  /** On update_only: whose turn Retell thinks it is ("agent_turn" or "user_turn"). */
+  turntaking?: unknown;
   timestamp?: unknown;
   call?: {
     from_number?: unknown;
@@ -308,6 +311,14 @@ export type RetellOutbound =
       content_complete: boolean;
       end_call: boolean;
       transfer_number?: string;
+      no_interruption_allowed?: boolean;
+    }
+  | {
+      /** Spoken at once, over the caller if they are still talking (anticipation, below). */
+      response_type: "agent_interrupt";
+      interrupt_id: number;
+      content: string;
+      content_complete: boolean;
       no_interruption_allowed?: boolean;
     };
 
@@ -359,7 +370,49 @@ export type RetellSessionDeps = {
    * signed, unless a test sets it. True only once it was taken.
    */
   demoCallback?: (request: DemoCallbackRequest) => Promise<boolean>;
+  /**
+   * Anticipation (see "Jumping in", below): now and then Aya answers at the
+   * end of a caller's sentence, before they have finished. On by default on
+   * a demo call only, the first slice the owner hears; off on a clinic's.
+   */
+  anticipate?: boolean;
 };
+
+/**
+ * Jumping in (owner, 26 October 2026: "from time to time, dynamically
+ * sparsed, Aya should predict the caller's logic during their response ...
+ * and should interrupt the caller at the end of their sentence when she
+ * understands where the caller's logic is going"). Retell sends the caller's
+ * words as they come (update_only); at the end of a sentence, now and then,
+ * the session asks the model with the words so far whether a person would
+ * jump in here, and if it writes the jump-in rather than WAIT, says it at
+ * once with agent_interrupt. The gates, all in code:
+ *
+ *   - sparse: at most one try every ANTICIPATE_EVERY caller turns, and a try
+ *     only by chance (ANTICIPATE_CHANCE) at a sentence of at least
+ *     ANTICIPATE_MIN_WORDS words; never in the first two caller turns;
+ *   - safe: never on words the urgent screen matches (they get the fixed
+ *     urgent reply by the ordinary turn), never while a reply is being
+ *     written, a call back taken, a stall answered or the call closing;
+ *   - right: the model writes WAIT whenever it is not clear, everything it
+ *     writes goes through the guard as any reply does, and a guess is dropped
+ *     unsaid if Retell asks for the ordinary reply first or the caller has
+ *     already said more than ANTICIPATE_LATE_WORDS words past the sentence.
+ *
+ * Never tested against Retell itself: whether update_only carries the words
+ * mid-utterance, and how agent_interrupt sounds over a caller, are for the
+ * owner's first demo call with it (logged as "retell anticipation").
+ */
+const ANTICIPATE_EVERY = 3;
+const ANTICIPATE_CHANCE = 0.35;
+const ANTICIPATE_MIN_WORDS = 7;
+const ANTICIPATE_LATE_WORDS = 6;
+
+/** Said to the model on a jump-in try (anticipation). */
+const ANTICIPATE_NOTE =
+  "The caller has NOT finished talking: their last words above are what they have said so far, and they may well go on. Only if it is already clear where they are going and a person would naturally jump in right here (to answer the question they are obviously building to, finish an obvious thought, or say yes to what they are clearly asking), write that short jump-in: one sentence, opening with a quick natural lead-in that fits (\"Oh, totally -\", \"Yes! We do -\", \"Saturday works -\"). Otherwise, and whenever you are not sure, write exactly WAIT and nothing else.";
+
+const wordCount = (text: string) => text.split(/\s+/).filter(Boolean).length;
 
 /** How long a clinic's facts read by one call may open the next. */
 const FACTS_FRESH_MS = 2 * 60_000;
@@ -610,6 +663,15 @@ export class RetellCallSession {
   private demoStage: DemoStage = "intro";
   /** What a demo call has found out (demo-facts.ts, DemoProgress); in memory only. */
   private demoProgress: DemoProgress = DEMO_OPENED_PROGRESS;
+  /** The human stall (stall.ts): whether this call has used it, and whether the last reply was it. */
+  private stalled = false;
+  private stallPending = false;
+  /** Anticipation ("Jumping in"): the caller's words as they come, the try in flight, and the last tried. */
+  private liveCallerWords = "";
+  private jumping = false;
+  private jumpTried = "";
+  private jumpedAtTurn = 0;
+  private interruptSeq = 0;
   /**
    * The demo's stage and progress before each reply that moved them, by the
    * record's length then: a reply dropped unheard (heardTurns) takes back
@@ -662,9 +724,15 @@ export class RetellCallSession {
   private say(
     responseId: number,
     content: string,
-    options: { endCall?: boolean; transferTo?: string | null; spokenBefore?: string | null; noInterruption?: boolean } = {},
+    options: { endCall?: boolean; transferTo?: string | null; spokenBefore?: string | null; noInterruption?: boolean; interruptId?: number | null } = {},
   ): void {
     this.turns.push({ speaker: "assistant", text: [options.spokenBefore, content].filter(Boolean).join(" ") });
+    if (options.interruptId) {
+      // A jump-in (anticipation): said at once, over the caller if they are
+      // still talking, and never the end of the call or a transfer.
+      this.send({ response_type: "agent_interrupt", interrupt_id: options.interruptId, content, content_complete: true, no_interruption_allowed: false });
+      return;
+    }
     if (options.endCall || options.transferTo) this.final = { content, endCall: Boolean(options.endCall), transferTo: options.transferTo ?? null };
     this.send({
       response_type: "response",
@@ -1088,6 +1156,7 @@ export class RetellCallSession {
         this.callDetails(event);
         return;
       case "update_only":
+        this.anticipate(event);
         return;
       case "reminder_required":
       case "response_required":
@@ -1160,7 +1229,35 @@ export class RetellCallSession {
     return this.redial;
   }
 
-  private async respond(event: RetellEvent): Promise<void> {
+  /**
+   * A jump-in try (anticipation): the caller's words so far, and whether the
+   * gates let one start now. Never awaited by the event chain: a try runs
+   * beside it, and the ordinary reply, if Retell asks first, wins.
+   */
+  private anticipate(event: RetellEvent): void {
+    const words = latestCallerWords(event.transcript);
+    this.liveCallerWords = words;
+    if (!(this.deps.anticipate ?? Boolean(this.deps.demo))) return;
+    if (!this.facts || !this.deps.responder || this.closing || this.answering || this.jumping || !this.answered || this.openingOwed) return;
+    if (event.turntaking === "agent_turn" || this.stallPending) return;
+    if (this.demoContext && (this.demoProgress.asked === "callback" || this.demoProgress.asked === "callbackNote")) return;
+    if (wordCount(words) < ANTICIPATE_MIN_WORDS || !/[.?!]["'’”)\]]*$/.test(words) || words === this.jumpTried) return;
+    const callerTurns = this.turns.filter((t) => t.speaker === "person").length;
+    if (callerTurns < 2 || callerTurns - this.jumpedAtTurn < ANTICIPATE_EVERY) return;
+    if (findUrgentContent(words, this.facts.specialty, { clinicName: this.facts.clinicName })) return;
+    this.jumpTried = words;
+    if ((this.deps.random ?? Math.random)() >= ANTICIPATE_CHANCE) return;
+    this.jumping = true;
+    this.interruptSeq += 1;
+    const jump = { interruptId: this.interruptSeq, words };
+    void this.respond({ interaction_type: "response_required", response_id: this.latestResponseId, transcript: event.transcript }, jump)
+      .catch((error) => log.error("retell anticipation failed", { callId: this.callId, error: describeError(error) }))
+      .finally(() => {
+        this.jumping = false;
+      });
+  }
+
+  private async respond(event: RetellEvent, jump: { interruptId: number; words: string } | null = null): Promise<void> {
     const responseId = typeof event.response_id === "number" ? event.response_id : NaN;
     if (!Number.isInteger(responseId) || responseId < 0) return;
     this.latestResponseId = Math.max(this.latestResponseId, responseId);
@@ -1265,6 +1362,7 @@ export class RetellCallSession {
       !(resumed && !this.welcomedBack);
     const acknowledgeable =
       nothingDue &&
+      !jump &&
       // Never two turns running (ACKNOWLEDGEMENTS).
       !this.acknowledgedLastTurn &&
       // In the caller's own language only: no English "Okay." to Spanish words.
@@ -1309,11 +1407,23 @@ export class RetellCallSession {
     // it are replaced by the call's own line once it is known whether the team
     // has it, so none of them is spoken as it is written.
     const takingCallback = Boolean(progress && this.demoStage === "pitch" && progress.asked === "callbackNote" && !progress.callback);
+    // A jump-in try is written whole and said whole, or not at all.
+    const quiet = takingCallback || jump !== null;
     // After the role-play the call is with a clinic's owner about their own
     // business: a refused reply is asked again, then heard as a person losing
     // the thread and moving on, never as the guard's line for a patient
     // (turn.ts, softRefusal). Never in the intro or the role-play.
     const recovery = this.demoContext && progress && this.demoStage === "pitch" ? demoRecovery(this.demoContext, progress) : null;
+    // The human stall (stall.ts): once per call, never ahead of a line that
+    // must come first. The turn after one, a refusal opens with a sorry word.
+    const stallOpen = !this.stalled && nothingDue && !jump;
+    const afterStall = this.stallPending && !jump;
+    const turnNotes = [
+      ...(this.demoContext ? [demoStageNote(this.demoContext, this.demoStage, this.now().getTime(), progress ?? undefined)] : []),
+      ...(stallOpen ? [stallNote(language.language)] : []),
+      ...(afterStall ? [afterStallNote(language.language)] : []),
+      ...(jump ? [ANTICIPATE_NOTE] : []),
+    ];
     const turn = await answerTurn({
       // A demo's pitch may quote healdesk's own prices; nothing else may (demo-facts.ts).
       facts: this.demoContext && progress && this.demoStage === "pitch" ? demoPitchFacts(facts, this.demoContext, this.now().getTime(), progress) : facts,
@@ -1335,7 +1445,7 @@ export class RetellCallSession {
             },
           }
         : null,
-      speak: nothingDue && !takingCallback
+      speak: nothingDue && !quiet
         ? (sentence: string) => {
             stopAck();
             if (responseId !== this.latestResponseId || this.closing) return;
@@ -1360,7 +1470,7 @@ export class RetellCallSession {
       urgentTransferTo: this.deps.demo ? null : this.urgentLine(facts),
       // The note for the stage the demo is in (demo-facts.ts), so no stage's
       // instructions are ever repeated into another, a role-play above all.
-      notes: this.demoContext ? [demoStageNote(this.demoContext, this.demoStage, this.now().getTime(), progress ?? undefined)] : null,
+      notes: turnNotes.length > 0 ? turnNotes : null,
       softRefusal: recovery ? { line: recovery.line, alternate: recovery.alternate, bridge: recovery.bridge } : null,
       callerFirstName: this.demoContext?.firstName ?? null,
     }).finally(() => {
@@ -1370,7 +1480,22 @@ export class RetellCallSession {
     });
     // The caller spoke again while this was being answered: the newer
     // request carries these words too, so this answer is dropped unsaid.
-    if (responseId !== this.latestResponseId || this.closing) return;
+    if (responseId !== this.latestResponseId || this.closing) {
+      if (jump) log.info("retell anticipation", { callId: this.callId, status: "superseded" });
+      return;
+    }
+    if (jump) {
+      // A jump-in only when the model wrote one, the guard passed it, and the
+      // caller has not already gone well past the sentence it answers.
+      const waited = turn.source !== "model" || /^\s*WAIT\b/i.test(turn.reply) || turn.end || turn.handoff || turn.urgent;
+      const late = wordCount(this.liveCallerWords) - wordCount(jump.words) > ANTICIPATE_LATE_WORDS;
+      if (waited || late) {
+        log.info("retell anticipation", { callId: this.callId, status: waited ? "waited" : "late" });
+        return;
+      }
+      this.jumpedAtTurn = this.turns.filter((t) => t.speaker === "person").length + 1;
+      log.info("retell anticipation", { callId: this.callId, status: "jumped" });
+    }
     this.callLanguage = language;
     this.acknowledgedLastTurn = acknowledgement !== null;
 
@@ -1448,8 +1573,29 @@ export class RetellCallSession {
       }
     }
 
+    // The human stall (stall.ts). A reply the guard refused for something
+    // they asked that cannot be answered, with nothing of it said yet and no
+    // demo recovery line in its place, is heard as a stall line instead; a
+    // stall she wrote herself is kept as said. Either way the call's question
+    // stays asked, so what they say again answers it.
+    this.stallPending = false;
+    let stallLine: string | null = null;
+    const said = this.turns.filter((t) => t.speaker === "assistant").map((t) => t.text);
+    const pick = this.deps.random ?? Math.random;
+    const guardStall = stallOpen && !callbackLine && !recovery && turn.source === "guard" && !turn.spoken && !turn.handoff && turn.guard !== undefined && STALL_REASONS.has(turn.guard);
+    const ownStall = stallOpen && turn.source === "model" && turn.state?.stall === true && isStallReply(turn.reply);
+    if (guardStall || ownStall) {
+      if (guardStall) stallLine = pickUnsaid(STALL_LINES[language.language], said, pick);
+      this.stalled = true;
+      this.stallPending = true;
+      if (this.demoContext && progress) this.demoProgress = { ...this.demoProgress, asked: progress.asked };
+      log.info("retell stall", { callId: this.callId, kind: guardStall ? `guard_${turn.guard}` : "model" });
+    }
+    const sorry =
+      afterStall && turn.source === "guard" && !turn.spoken && !recovery && !callbackLine ? pickUnsaid(STALL_SORRY[language.language], said, pick) : null;
+
     if (turn.source !== "fallback") this.answered = true;
-    let reply0 = callbackLine ?? turn.reply;
+    let reply0 = callbackLine ?? stallLine ?? (sorry ? `${sorry} ${turn.reply}` : turn.reply);
     if (turn.source === "fallback") {
       this.failures += 1;
       const line = this.usable(this.directLine);
@@ -1513,6 +1659,7 @@ export class RetellCallSession {
       endCall: ends && !transferTo,
       transferTo,
       spokenBefore: [acknowledgement, already].filter(Boolean).join(" ") || null,
+      interruptId: jump?.interruptId ?? null,
     });
     heard();
     log.info("retell turn timing", {

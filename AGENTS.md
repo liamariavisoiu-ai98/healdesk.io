@@ -36,7 +36,7 @@ The one rule to carry even if you read nothing else:
 | Branch / HEAD | `main` at 4f23b019 (PR 58). Session branch `claude/blissful-wright-zqa81f` restarted from `main` for this handoff |
 | Worktree | Main checkout clean. Many `../healdesk-*` worktrees hold package branches (see below); remove with `git worktree remove` once landed |
 | Approved scope | Owner (24 Oct, in chat) approved VOICE-T7's full feedback batch and said "yes merge commit and deploy" — done. Earlier 22 Oct approval (merge everything to `main`, SEC-02 "go", locations rollout wording, `enable_voice` via Terraform after the code is deployed) still stands; see "Owner rulings (2026-10-22)" |
-| Next action | Owner: a demo test call from `/demo/<slug>` (quirks, positioning, shorter replies, resume, call back) and Settings › How AYA talks › What patients call you on the demo clinic. Owner: say whether to run competitive research to verify "the only ones" claims before Aya makes them |
+| Next action | Owner: answer the decisions in `docs/design/demo-call-72dc66b7-review-2026-10-26.md` section 4 (Meta/WhatsApp deposit-link claim, the non-owner caller, paste transcript c53e5c3e), then hand its section 3 prompt (VOICE-T19) to Claude Code. Test call 72dc66b7 ran on the PR 58 deploy and showed 19 faults, each mapped to a cause in that note |
 | Blocker | Live voice test call (clinic-side, real patient path) not yet taken; Spanish speech and the en-US/es-419 agent not heard; Anthropic key in AWS: owner to confirm it is the HIPAA organisation's; Claude Docs (spec source, Launch plan) are not readable from the session account |
 
 ## Last verified / reported evidence

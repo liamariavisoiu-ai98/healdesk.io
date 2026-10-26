@@ -337,9 +337,12 @@ describeDb("/sign-in/help", () => {
     expect(message.text).toContain(clinic.clinicId);
     expect(message.text).toContain("did not match the account's");
     expect(message.text).toContain("a card");
+    // The ids are random and hex, so one can hold the four digits typed
+    // ("...-798768288a0b"): the digits are looked for with the ids taken out.
+    const UUIDS = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
     for (const body of [message.text, message.html]) {
       expect(body).not.toContain("Somewhere");
-      expect(body).not.toContain("9876");
+      expect(body.replace(UUIDS, "")).not.toContain("9876");
       expect(body).not.toContain(clinic.staffEmail);
     }
     // Ops still hears, once an hour per clinic and code.

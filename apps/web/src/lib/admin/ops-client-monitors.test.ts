@@ -216,6 +216,7 @@ const WRITE = {
   attempts: 2,
   nextAttemptAt: "2026-10-24T10:10:00.000Z",
   slotInDays: 4,
+  slotPassed: false,
   retryable: true,
 };
 
@@ -246,8 +247,11 @@ describe("fetchStuckCalendarWrites", () => {
 
   test("a row with a field missing, an extra field (a time, a name) or a reason off the list is malformed", async () => {
     const { slotInDays: _slot, ...missing } = WRITE;
+    const { slotPassed: _passed, ...missingPassed } = WRITE;
     for (const row of [
       missing,
+      missingPassed,
+      { ...WRITE, slotPassed: "yes" },
       { ...WRITE, scheduledFor: "2026-10-28T14:00:00.000Z" },
       { ...WRITE, patient: "Synthetic" },
       { ...WRITE, reason: "backendError" },

@@ -15,13 +15,18 @@ import { isDemoClinic } from "@/lib/booking/terms";
 import { describeError, log } from "@/lib/log";
 import { withTenant } from "@/lib/tenant";
 
+import { ALERT_LOOKBACK_DAYS } from "./calendar-write-alerts";
 import { actorFor, booleanArg, clinicById, ok, opsProblem, UUID_SHAPED, type Operator, type OpsOutcome } from "./api";
 import { listClinics } from "./clinics";
 
 /**
  * `listStuckCalendarWrites` (ops automation Phase 5, lane P5a; design E3
  * §2.3): every desk booking, across clinics, whose Google Calendar write has
- * not settled and whose slot has not started. A hand-written projection of
+ * not settled and whose slot has not started, or started within the last
+ * ALERT_LOOKBACK_DAYS (`slotPassed`: the alert calendar_write_stuck is raised
+ * for such a write, so the list must show it; the sweep no longer takes it,
+ * so it is never `retryable`, and only an operator's Retry or marking the
+ * booking showed or cancelled on Bookings takes it off). A hand-written projection of
  * ids, codes, counts and the clinic's own name; the slot as whole days from
  * now, never its time (`nextAttemptAt` is the time of our next retry, not of
  * anything the patient booked); never the person, the service, the
@@ -54,8 +59,10 @@ export type StuckCalendarWrite = {
   attempts: number;
   /** When the sweep tries it next; null when it is due now or will not be tried again. */
   nextAttemptAt: string | null;
-  /** Whole days until the slot: 0 within the next 24 hours. */
+  /** Whole days until the slot: 0 within the next 24 hours, and 0 once it has passed. */
   slotInDays: number;
+  /** The slot started before this was settled: nothing retries it on its own any more. */
+  slotPassed: boolean;
   /** Whether the sweep will try it again on its own: never while the sweep is switched off. */
   retryable: boolean;
 };
@@ -89,6 +96,8 @@ export async function listStuckCalendarWrites(options: {
   const now = options.now ?? new Date();
   const max = options.max ?? MAX_LISTED;
   const sweepOn = await deskSweepOn();
+  // A write whose slot has passed is listed for as long as its alert looks back.
+  const passedSince = new Date(now.getTime() - ALERT_LOOKBACK_DAYS * DAY_MS);
   const clinics = options.clinics ?? (await listClinics()).filter((c) => !c.destroyedAt);
   const found: (StuckCalendarWrite & { changedAt: number })[] = [];
   let unreadClinics = 0;
@@ -114,7 +123,7 @@ export async function listStuckCalendarWrites(options: {
               and(
                 eq(appointments.clinicId, tx.clinicId),
                 inArray(appointments.status, [...WRITABLE_APPOINTMENT_STATUSES]),
-                sql`${appointments.scheduledFor} > ${now}`,
+                sql`(${appointments.scheduledFor} > ${now} or ${appointments.updatedAt} > ${passedSince})`,
                 sql`(${appointments.calendarWriteStatus} in ('failed', 'unknown')
                      or (${appointments.calendarWriteStatus} = 'writing'
                          and coalesce(${appointments.calendarWriteClaimedAt}, ${appointments.updatedAt})
@@ -136,8 +145,10 @@ export async function listStuckCalendarWrites(options: {
       for (const row of rows) {
         const status = row.status === "failed" ? "failed" : "unknown";
         const reason = writeReasonCode(row.error);
+        const slotPassed = row.scheduledFor <= now;
         const retryable =
           sweepOn &&
+          !slotPassed &&
           status === "unknown" &&
           row.attempts < MAX_WRITE_ATTEMPTS &&
           (reason === "other" || CALENDAR_WRITE_REASONS[reason] !== "settled");
@@ -151,6 +162,7 @@ export async function listStuckCalendarWrites(options: {
           attempts: row.attempts,
           nextAttemptAt: waiting ? row.nextAt!.toISOString() : null,
           slotInDays: Math.max(0, Math.floor((row.scheduledFor.getTime() - now.getTime()) / DAY_MS)),
+          slotPassed,
           retryable,
           changedAt: row.updatedAt.getTime(),
         });

@@ -1959,8 +1959,10 @@ export type StuckCalendarWriteView = {
   attempts: number;
   /** When our sweep next retries the write (a time of ours, not the booking's); null when due now or never again on its own. */
   nextAttemptAt: string | null;
-  /** Whole days until the slot (0: within 24 hours). Never the slot's time. */
+  /** Whole days until the slot (0: within 24 hours, or already passed). Never the slot's time. */
   slotInDays: number;
+  /** The slot started before the write settled: still listed for 14 days, and nothing retries it on its own. */
+  slotPassed: boolean;
   /** Whether the sweep will try it again by itself: always false while the sweep is switched off. */
   retryable: boolean;
 };
@@ -1989,12 +1991,13 @@ const STUCK_WRITE_KEYS = [
   "attempts",
   "nextAttemptAt",
   "slotInDays",
+  "slotPassed",
   "retryable",
 ] as const;
 
 /**
  * Every desk booking, across clinics, whose calendar write has not settled
- * and whose slot is ahead; newest problem first. With `clinicId`, one
+ * and whose slot is ahead or passed in the last 14 days; newest problem first. With `clinicId`, one
  * clinic's alone (its tenant only is read, demo or not).
  */
 export function fetchStuckCalendarWrites(
@@ -2022,6 +2025,7 @@ export function fetchStuckCalendarWrites(
             attempts: count(r.attempts, `${at}.attempts`),
             nextAttemptAt: optionalIsoInstant(r.nextAttemptAt, `${at}.nextAttemptAt`),
             slotInDays: count(r.slotInDays, `${at}.slotInDays`),
+            slotPassed: bool(r.slotPassed, `${at}.slotPassed`),
             retryable: bool(r.retryable, `${at}.retryable`),
           };
         }),

@@ -347,8 +347,8 @@ Queues › Setup requests and Queues › Support: a reply promised by the next b
 not marked. Reply from hello@, then mark it. Since lane P7e `support_reply_past_due` is raised
 only for a chat request that has no support case; a request on a case raises
 `support_case_past_due` instead (Support cases, below), one alert per promise. A follow-up past due is a paid order whose
-account still does not exist past the day we promised the buyer: Home counts paid orders
-without an account. Write to the buyer from hello@ today and get the cause fixed (see
+account still does not exist past the day we promised the buyer: the alert opens System ›
+Requires your attention, which counts paid orders without an account (so does Home). Write to the buyer from hello@ today and get the cause fixed (see
 Provisioning). `assistant_knows_no_services` is AYA answering a
 clinic that has no approved service or price in Knowledge: add the services in its Knowledge page
 or get the practice questions approved, then the alert stops.
@@ -393,7 +393,9 @@ never automated.
 the watch; the clinic's Setup tab, "Calendar", shows the connection and offers the link and a
 disconnect, and keeps the history of every write attempted with Google's own word where it
 gave one; "Calendar writes" (apps/web `setup/CalendarWrites.tsx`, Phase 5) lists this clinic's
-writes not settled whose slot has not started, each with the reason in words
+writes not settled whose slot has not started or started within the last 14 days (marked "Slot
+has passed": the sweep no longer takes it, and `calendar_write_stuck` is raised for it, so it is
+listed), each with the reason in words
 (`components/admin/queue-words.ts`), the tries so far of five and the next try, and a "Retry"
 per row (`opRetryCalendarWrite`: reads Google back first, may go past the five, refuses a
 booking staff cancelled or marked). A write Google did not answer (a timeout, a lost reply, a
@@ -406,7 +408,11 @@ starts (`WRITE_BACKOFF_MINUTES`; the fifth step, 6 h, is recorded and never run,
 `MAX_WRITE_ATTEMPTS`); settled reasons (deleted in the calendar, event id taken, not ours, no calendar connected, the
 target calendar refused, an access or connection break) are never retried by the sweep
 (`lib/booking/calendar.ts`, `CALENDAR_WRITE_REASONS`). `calendar_write_stuck` fires only for a
-write the sweep no longer takes. System › "Requires your attention", "Calendar writes stuck",
+write the sweep no longer takes: a failed one at once, an unanswered one at five tries, past its
+slot, with a settled reason, or (whatever the switch says) untouched for 24 hours, a rule a
+working sweep never trips. With the switch off that last rule is the only one that catches a
+write Google never answered, so its alert can come a day after the failure, even after the
+slot; the lists on the Setup tab and the System page show it at once and say so. System › "Requires your attention", "Calendar writes stuck",
 lists the stuck writes across clinics, one row per clinic, linking to its "Calendar writes". A
 broken connection already flipped the clinic to manual booking in the same turn: the clinic
 takes booking requests and is not down. Google refusing our OAuth client is every clinic at

@@ -115,7 +115,7 @@ describeDb("cross-clinic monitors (lane P5a)", () => {
     expect(data.writes.map((w) => w.appointmentId)).toEqual([failed, waiting]);
     for (const w of data.writes) {
       expect(Object.keys(w).sort()).toEqual(
-        ["appointmentId", "attempts", "clinicId", "clinicName", "nextAttemptAt", "reason", "retryable", "slotInDays", "status"].sort(),
+        ["appointmentId", "attempts", "clinicId", "clinicName", "nextAttemptAt", "reason", "retryable", "slotInDays", "slotPassed", "status"].sort(),
       );
     }
     expect(data.writes[0]).toMatchObject({
@@ -153,7 +153,7 @@ describeDb("cross-clinic monitors (lane P5a)", () => {
     expect((await runOperation("listStuckCalendarWrites", { other: 1 }, OPERATOR)).status).toBe(400);
   }, 120_000);
 
-  test("listStuckCalendarWrites: a slot already started is not listed; five of five is listed and not retryable", async () => {
+  test("listStuckCalendarWrites: a slot already started is listed as passed for as long as its alert looks back, never retryable; five of five is listed and not retryable", async () => {
     const a = await deskLocation(google, "stuck-five");
     const five = await confirmWith(a.clinicId, { status: 503, reason: "backendError" }, 4, 9);
     await inTenant(a.clinicId, (c) => c.query(`update appointments set calendar_write_attempts = 5 where id = $1`, [five]));
@@ -161,8 +161,21 @@ describeDb("cross-clinic monitors (lane P5a)", () => {
     await getMigratorPool().query(`update scheduled_jobs set enabled = true where name = 'calendar-watch'`);
     const listed = await listStuckCalendarWrites({ actor: ACTOR });
     expect(listed.writes).toEqual([expect.objectContaining({ appointmentId: five, attempts: 5, retryable: false, nextAttemptAt: null })]);
+    expect(listed.writes[0]).toMatchObject({ slotPassed: false });
+    // Its slot has started (alerted by calendar_write_stuck, so listed): marked passed, and out of the sweep's hands.
     const later = await listStuckCalendarWrites({ actor: ACTOR, now: new Date(Date.now() + 5 * 24 * HOUR) });
-    expect(later.writes).toEqual([]);
+    expect(later.writes).toEqual([
+      expect.objectContaining({ appointmentId: five, slotPassed: true, slotInDays: 0, retryable: false, nextAttemptAt: null }),
+    ]);
+    // A fresh unknown write with attempts left, the sweep on: retryable while the slot is ahead, not once it has passed.
+    const fresh = await confirmWith(a.clinicId, { status: 503, reason: "backendError" }, 4, 10);
+    const ahead = await listStuckCalendarWrites({ actor: ACTOR });
+    expect(ahead.writes.find((w) => w.appointmentId === fresh)).toMatchObject({ slotPassed: false, retryable: true });
+    const after = await listStuckCalendarWrites({ actor: ACTOR, now: new Date(Date.now() + 5 * 24 * HOUR) });
+    expect(after.writes.find((w) => w.appointmentId === fresh)).toMatchObject({ slotPassed: true, retryable: false });
+    // Past the alert's look-back (14 days since its last change) it leaves the list, as it leaves the alert.
+    const muchLater = await listStuckCalendarWrites({ actor: ACTOR, now: new Date(Date.now() + 20 * 24 * HOUR) });
+    expect(muchLater.writes).toEqual([]);
   }, 60_000);
 
   /* ------------------------------------------- undelivered transcripts */

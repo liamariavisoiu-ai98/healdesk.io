@@ -1,5 +1,7 @@
 import { scrypt, timingSafeEqual } from "node:crypto";
 
+import { sendSafely } from "@/lib/email";
+
 import { checkFreshOperatorCode } from "./fresh-code";
 import { pastedSetting } from "./pasted";
 
@@ -40,8 +42,9 @@ import { pastedSetting } from "./pasted";
  *     per operator account and across all of them, counted here before any
  *     derivation, the same in-process kind of throttle the sign-in route
  *     keeps (app/api/admin/session/route.ts): no database, no store. So the
- *     real ceiling is five per warm instance per window, and a cold start
- *     resets it; a successful code does not reset a count;
+ *     real ceiling is five per warm instance per window, and a cold start or
+ *     a redeploy resets it; a successful code does not reset a count; and a
+ *     lock is logged (`approval_code_locked`) and emailed to the owner;
  *   - one derivation in flight per instance, claimed in the same synchronous
  *     turn as the budget check, so a burst cannot all read an unspent budget;
  *   - scrypt (slow) and a constant-time compare;
@@ -113,14 +116,56 @@ function spend(window: Window | undefined, now: number): Window {
 }
 
 function recordFailure(account: string, now: number): void {
+  // Read before the delete that moves the account to the newest place in the map.
+  const mine = spend(perAccount.get(account), now);
   perAccount.delete(account);
-  perAccount.set(account, spend(perAccount.get(account), now));
+  perAccount.set(account, mine);
   while (perAccount.size > MAX_ACCOUNTS) {
     const oldest = perAccount.keys().next().value;
     if (oldest === undefined) break;
     perAccount.delete(oldest);
   }
   global = spend(global, now);
+  // The try that locks: once per lock, whichever counter reached the limit first.
+  if (mine.count === PASSCODE_ATTEMPT_LIMIT) reportLock(account, "account", now);
+  else if (global.count === PASSCODE_ATTEMPT_LIMIT) reportLock(account, "global", now);
+}
+
+/**
+ * A lock is five wrong tries inside fifteen minutes from a signed-in
+ * session: somebody guessing, or the owner mistyping. Said twice, as the
+ * sign-in route says an attempt (app/api/admin/session/route.ts): one log
+ * line, and the owner's own email through apps/web's sender, the same path
+ * and address as the sign-in alert (lib/admin/sign-in-alert.ts). Neither
+ * carries a code. Never throws, never delays the refusal.
+ */
+function reportLock(account: string, reason: "account" | "global", now: number): void {
+  const at = new Date(now).toISOString();
+  console.warn(`[healdesk] approval code ${JSON.stringify({ event: "approval_code_locked", account, reason, at })}`);
+  const to = pastedSetting("HEALDESK_ADMIN_EMAIL")?.trim().toLowerCase();
+  if (!to) return;
+  void sendSafely({
+    to,
+    subject: `healdesk admin: approvals locked at ${at.replace("T", " ").slice(0, 16)} UTC`,
+    text: [
+      `Five wrong approval codes (passcode or authenticator) were typed in the console within fifteen minutes${reason === "global" ? ", across accounts" : ""}.`,
+      `Approvals are locked on that server for fifteen minutes. Nothing was approved or changed.`,
+      ``,
+      `Account: ${account}`,
+      `Time:    ${at.replace("T", " ").slice(0, 16)} UTC`,
+      ``,
+      `If that was you, wait fifteen minutes.`,
+      ``,
+      `If it was not, someone has a console session. Rotate HEALDESK_ADMIN_SECRET in Vercel`,
+      `(it ends every session; the redeploy also clears this lock), make a new approval`,
+      `passcode with apps/web/scripts/hash-approval-passcode.mjs, and change the admin password.`,
+    ].join("\n"),
+    tag: "admin-approvals-locked",
+  })
+    .then((result) => {
+      if (result.status !== "sent") console.warn(`[healdesk] approval code ${JSON.stringify({ event: "approval_lock_alert_not_sent", status: result.status })}`);
+    })
+    .catch(() => {});
 }
 
 /** Whether the passcode is set (and well formed) on this deployment: the console says so beside the box. */

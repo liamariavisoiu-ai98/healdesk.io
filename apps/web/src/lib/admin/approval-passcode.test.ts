@@ -17,6 +17,13 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const session = vi.hoisted(() => ({ operator: "ops@healdesk.test" as string | null }));
 vi.mock("@/lib/admin/operator", () => ({ requireOperator: async () => session.operator }));
+const mail = vi.hoisted(() => ({ sent: [] as { to: string; subject: string; text: string; tag?: string }[] }));
+vi.mock("@/lib/email", () => ({
+  sendSafely: async (message: { to: string; subject: string; text: string; tag?: string }) => {
+    mail.sent.push(message);
+    return { status: "sent", providerId: null };
+  },
+}));
 vi.mock("next/headers", () => ({
   headers: async () => new Headers({ "user-agent": "vitest", "x-forwarded-for": "203.0.113.9" }),
 }));
@@ -152,6 +159,23 @@ describe("five wrong tries lock approvals for fifteen minutes", () => {
     // The authenticator is locked out too: the lock is on approvals, not on one factor.
     expect(await checkApprovalCode(totp(NOW + 10), "ops@healdesk.test", NOW + 10)).toMatchObject({ ok: false });
     expect(await checkApprovalCode(PASSCODE, "ops@healdesk.test", NOW + PASSCODE_LOCK_MS + 1)).toEqual({ ok: true, factor: "passcode" });
+  });
+
+  test("the lock is logged and emailed to the owner once, naming the account and never a code", async () => {
+    vi.stubEnv("HEALDESK_ADMIN_EMAIL", "owner@healdesk.test");
+    mail.sent.length = 0;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (let i = 0; i < PASSCODE_ATTEMPT_LIMIT + 2; i += 1) await checkApprovalCode("444444", "ops@healdesk.test", NOW + i);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const locked = warn.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('"approval_code_locked"'));
+    expect(locked).toHaveLength(1);
+    expect(locked[0]).toContain('"account":"ops@healdesk.test"');
+    expect(locked[0]).toContain('"reason":"account"');
+    expect(mail.sent).toHaveLength(1);
+    expect(mail.sent[0]).toMatchObject({ to: "owner@healdesk.test", tag: "admin-approvals-locked" });
+    expect(mail.sent[0]!.subject).toMatch(/approvals locked/);
+    expect(JSON.stringify(mail.sent)).not.toContain("444444");
+    expect(JSON.stringify(mail.sent)).not.toContain(PASSCODE);
   });
 
   test("globally: wrong tries spread across accounts lock every account", async () => {

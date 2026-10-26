@@ -362,7 +362,38 @@ export type DemoProgress = {
   lastRoleplay?: { caller: string; aya: string } | null;
   /** The pushback move her last reply used (DemoPushback), so the next resistance gets another. */
   pushback?: DemoPushback | null;
+  /** Her signature touches already said on this call (DemoQuirk): each at most once. */
+  quirks?: readonly DemoQuirk[];
 };
+
+/**
+ * Aya's two signature touches (owner, 26 October 2026, 6h: "I want to
+ * proceed only with C and a revised D (only "Talk soon, [name]!")";
+ * docs/design/aya-personality-2026-10-26.md): a warm "Oh, love that." when
+ * the caller shares something good about their business, and "Talk soon,
+ * <name>!" as the last words of a call that ends warmly. Each is said once a
+ * call at most, kept from her words (quirksIn) so a quirk said without being
+ * declared still counts, and neither goes in a role-play, where she is the
+ * clinic's front desk, nor after a firm no or a call back that failed.
+ */
+export const DEMO_QUIRKS = ["loveThat", "talkSoon"] as const;
+export type DemoQuirk = (typeof DEMO_QUIRKS)[number];
+
+/** Quirk C, word for word. */
+export const LOVE_THAT = "Oh, love that.";
+
+/** Quirk D, word for word: their first name when the call has it. */
+export function talkSoonLine(firstName: string | null | undefined): string {
+  return firstName?.trim() ? `Talk soon, ${firstName.trim()}!` : "Talk soon!";
+}
+
+/** The quirks a reply says, read from its words. */
+export function quirksIn(reply: string): DemoQuirk[] {
+  const out: DemoQuirk[] = [];
+  if (/\blove that\b/i.test(reply)) out.push("loveThat");
+  if (/\btalk soon\b/i.test(reply)) out.push("talkSoon");
+  return out;
+}
 
 /**
  * The moves for a caller's pushback (owner, 26 October 2026, 6f), rotated so
@@ -401,6 +432,8 @@ export type DemoStateUpdate = {
   skip?: DemoQuestion | null;
   /** The reply resumes the last role-play in character (6d). */
   resume?: boolean;
+  /** The signature touches the reply says (DemoQuirk), from its words. */
+  quirks?: DemoQuirk[];
 };
 
 /** The state update in an answer's details; null when the answer carried none. */
@@ -414,11 +447,11 @@ export function demoStateFrom(raw: unknown, reply: string): DemoStateUpdate | nu
   const beats = Array.isArray(state.beats) ? DEMO_BEATS.filter((beat) => (state.beats as unknown[]).includes(beat)) : [];
   const pushback = typeof state.pushback === "string" && (DEMO_PUSHBACKS as readonly string[]).includes(state.pushback) ? (state.pushback as DemoPushback) : null;
   const skip = typeof state.skip === "string" && SKIPPABLE.has(state.skip as DemoQuestion) ? (state.skip as DemoQuestion) : null;
-  return { asked, beats, callback: callbackFrom(state.callback), pushback, skip, resume: state.resume === true };
+  return { asked, beats, callback: callbackFrom(state.callback), pushback, skip, resume: state.resume === true, quirks: quirksIn(reply) };
 }
 
 /** The instruction for the state update, in each note that tracks one. */
-const STATE_RULE = `With every reply, add to the JSON details a "state" object: {"asked": the one scripted question this reply asks, or null, "beats": the pitch beats this reply says, or []}, plus "pushback", "skip" or "resume" only when a rule below asks for one. The questions are role, choice, goal, volume, volumeCheck, missed, coverage, tiedown, ask, callback and callbackNote; the beats are pain, reveal, number, finish, anchor, value, recommend, noStrings and refund, as named in this note. Name only what the reply actually says.`;
+const STATE_RULE = `With every reply, add to the JSON details a "state" object: {"asked": the one scripted question this reply asks, or null, "beats": the pitch beats this reply says, or []}, plus "pushback", "skip", "resume" or "quirk" only when a rule below asks for one. The questions are role, choice, goal, volume, volumeCheck, missed, coverage, tiedown, ask, callback and callbackNote; the beats are pain, reveal, number, finish, anchor, value, recommend, noStrings and refund, as named in this note. Name only what the reply actually says.`;
 
 /** Answers longer than this are cut: what is kept is a reminder, not a record. */
 const ANSWER_MAX = 200;
@@ -446,7 +479,36 @@ export function afterDemoReply(progress: DemoProgress, stageBefore: DemoStage, s
     roleplayTurns: stageAfter === "roleplay" && stageBefore !== "roleplay" ? 0 : progress.roleplayTurns,
     said: beats.length > 0 ? [...progress.said, ...beats] : progress.said,
     pushback: update?.pushback ?? progress.pushback ?? null,
+    // Outside a role-play only: in one she is the clinic's front desk, not herself.
+    quirks:
+      stageBefore !== "roleplay" && update?.quirks?.some((q) => !(progress.quirks ?? []).includes(q))
+        ? [...(progress.quirks ?? []), ...update.quirks.filter((q) => !(progress.quirks ?? []).includes(q))]
+        : (progress.quirks ?? []),
   };
+}
+
+/**
+ * The note's lines for Aya's signature touches (DemoQuirk), outside a
+ * role-play: each offered until it is said, then named as said so it never
+ * comes twice. The sign-off is never offered once a call back failed: that
+ * call already heard it did not get through.
+ */
+export function quirkRules(progress: DemoProgress, firstName: string | null | undefined): string[] {
+  const said = progress.quirks ?? [];
+  const out: string[] = [];
+  out.push(
+    said.includes("loveThat")
+      ? `You already said "${LOVE_THAT}" on this call: never again.`
+      : `Once in this call at most, only when they share something good about their business (a win, a new location, a launch, growth): your reaction may be exactly "${LOVE_THAT}", in place of any other reaction, then your one sentence; add "quirk": "loveThat" to the state. Never after a worry, a complaint, pushback or a no.`,
+  );
+  if (said.includes("talkSoon")) {
+    out.push(`You already signed off with "Talk soon" on this call: never again.`);
+  } else if (progress.callback !== "failed") {
+    out.push(
+      `When the call ends warmly (they are going ahead, the team has their call-back request, or they say a friendly goodbye after a soft "not now"), your last words are exactly "${talkSoonLine(firstName)}" (their name is fine here) and you add "quirk": "talkSoon" to the state. Never after a firm refusal ("leave me alone", "stop calling"): that gets a brief goodbye without it.`,
+    );
+  }
+  return out;
 }
 
 /** The caller's turns after which a role-play is wrapped up, after one exchange to resolve where they are. */
@@ -707,7 +769,7 @@ export function demoStageNote(
   // but the role-play.
   const callbackStep =
     progress.asked === "callback" && !progress.callback
-      ? `Next: you asked for the best number for the team to call. If they gave one, read it back digit by digit in groups and, in the same reply, ask what the team should come prepared with, close to: "That's five one two, five five five, oh one oh oh, right? And what should the team come prepared with?" (asked: callbackNote). If they gave no number or would rather not, close on one short, genuinely warm note ("No worries at all, thanks for giving me a try${context.firstName ? `, ${context.firstName}` : ""}. Have a great day!") and set "end" to true.`
+      ? `Next: you asked for the best number for the team to call. If they gave one, read it back digit by digit in groups and, in the same reply, ask what the team should come prepared with, close to: "That's five one two, five five five, oh one oh oh, right? And what should the team come prepared with?" (asked: callbackNote). If they gave no number or would rather not, close on one short, genuinely warm note ("No worries at all, thanks for giving me a try. ${(progress.quirks ?? []).includes("talkSoon") ? "Have a great day!" : talkSoonLine(context.firstName)}") and set "end" to true.`
       : progress.asked === "callbackNote" && !progress.callback
       ? `Next: they answered your read-back. If they confirmed the number, or corrected it, and said what they would like to talk about, add to the state a "callback" object: {"phone": the number as digits, as corrected if they corrected it, "note": what they want to talk about, as one short line in your own words}, and reply with only "Perfect." This reply is not said: the call tells them itself whether the team has it. If they changed their mind, answer them normally, with no "callback" in the state.`
       : null;
@@ -716,7 +778,7 @@ export function demoStageNote(
   const offered = Boolean(a.callback) || Boolean(progress.callback);
   const leaving = offered
     ? `If they say they're not interested or have to go, close on one short, genuinely warm note and set "end" to true.`
-    : `If they clearly say they're not interested or have to go, answer with exactly: "${DEMO_CALLBACK_OFFER.text}" (asked: callback), once in the call; if they decline, close on one short, genuinely warm note and set "end" to true. If they firmly refuse to go on at all ("leave me alone", "stop calling", "I said no"), skip that question: one brief, positive goodbye, and "end" true. Never push past a firm no.`;
+    : `If they clearly say they're not interested or have to go, answer with exactly: "${DEMO_CALLBACK_OFFER.text}" (asked: callback), once in the call; if they decline, close on one short, genuinely warm note and set "end" to true. If they firmly refuse to go on at all ("leave me alone", "stop calling", "I said no"), skip that question: one brief, positive goodbye with no "Talk soon", and "end" true. Never push past a firm no.`;
   const resume = progress.lastRoleplay
     ? `If they want to carry on that same role-play ("wait, continue", "keep going"), resume it in character, never refusing and never starting over with "Ring ring": open with a one-line recap of where it was, close to "Right, you'd just asked about...", then answer as ${clinic}'s front desk again, and add "resume": true to the state. Where it stopped: they said "${progress.lastRoleplay.caller.replace(/"/g, "'")}", and you said "${progress.lastRoleplay.aya.replace(/"/g, "'")}".`
     : null;
@@ -737,6 +799,7 @@ export function demoStageNote(
       `If they would rather skip the role-play, or ask about price or getting started, find out what they need first, by asking: ${goalQuestion}`,
       ...(resume ? [resume] : []),
       leaving,
+      ...quirkRules(progress, context.firstName),
       DEFLECT,
       POSITIONING,
       pushbackRule(progress.pushback),
@@ -849,6 +912,7 @@ export function demoStageNote(
     `Never say the team has been told, has their number or will call: when they have, the call says so itself.`,
     ...(resume ? [resume] : []),
     leaving,
+    ...quirkRules(progress, context.firstName),
     DEFLECT,
     POSITIONING,
     pushbackRule(progress.pushback),

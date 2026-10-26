@@ -198,7 +198,13 @@ enforceable rather than aspirational.
    is asked once for a number to call (the offer's own words), a firm no
    only a goodbye; "wait, continue" resumes the last role-play; and after
    the opening line the clinic is called by its short name
-   (`shortClinicName`; owner, 26 October 2026, Phase 6). Only the pitch may quote healdesk's prices, each from the
+   (`shortClinicName`; owner, 26 October 2026, Phase 6). Her two signature
+   touches, each once a call and never in a role-play: "Oh, love that." at
+   good news, and "Talk soon, <name>!" closing a warm ending, never after a
+   firm no or a failed call back (`DEMO_QUIRKS`; owner, 26 October 2026, 6h).
+   A clinic's own calls use the short name it sets in Settings ("What
+   patients call you"), read by the guards as its own words only when it is a
+   part of its full name (`ownShortName`). Only the pitch may quote healdesk's prices, each from the
    catalog and let through the guard exactly (`demoPriceList`,
    `AssistantFacts.quotedAmountsUsd`); a clinic's call quotes its own menu
    alone. Spoken text writes "Aya", never

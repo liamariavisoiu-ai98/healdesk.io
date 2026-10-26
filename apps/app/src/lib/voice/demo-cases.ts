@@ -3,7 +3,18 @@ import { DEMO_CALLBACK_OFFER, type DemoCallClinic } from "@healdesk/catalog";
 import { SPOKEN_END } from "@/lib/assistant/prompt";
 
 import { CALLBACK_FAILED_LINE, callbackSentLine } from "./demo-callback";
-import { demoRoleplayOpener, shortClinicName, SKIPPED_ANSWER, type DemoBeat, type DemoProgress, type DemoQuestion, type DemoStage } from "./demo-facts";
+import {
+  demoRoleplayOpener,
+  LOVE_THAT,
+  shortClinicName,
+  SKIPPED_ANSWER,
+  talkSoonLine,
+  type DemoBeat,
+  type DemoProgress,
+  type DemoQuestion,
+  type DemoQuirk,
+  type DemoStage,
+} from "./demo-facts";
 
 /**
  * A personalised demo call's regression cases (owner, 25 October 2026: "every
@@ -26,7 +37,7 @@ import { demoRoleplayOpener, shortClinicName, SKIPPED_ANSWER, type DemoBeat, typ
  * a clinic's owner talking about their business, never a patient.
  */
 
-export const DEMO_CASES_VERSION = "2026-10-26.2";
+export const DEMO_CASES_VERSION = "2026-10-26.3";
 
 /** The made-up clinic every case calls about. */
 export const DEMO_CASE_CLINIC: DemoCallClinic = {
@@ -61,6 +72,7 @@ export function modelSays(
     pushback?: string;
     skip?: DemoQuestion;
     resume?: boolean;
+    quirk?: DemoQuirk;
     end?: boolean;
   } | null = {},
 ): string {
@@ -73,6 +85,7 @@ export function modelSays(
       ...(state.pushback ? { pushback: state.pushback } : {}),
       ...(state.skip ? { skip: state.skip } : {}),
       ...(state.resume ? { resume: true } : {}),
+      ...(state.quirk ? { quirk: state.quirk } : {}),
     };
   }
   return `${words}\n${SPOKEN_END}\n${JSON.stringify(details)}`;
@@ -97,6 +110,8 @@ export type DemoCaseCheck = {
   pushback?: DemoProgress["pushback"];
   /** Whether the answer ended the call. */
   ends?: boolean;
+  /** The signature touches the call has said after the turn (DemoProgress.quirks; absent reads as none). */
+  quirks?: readonly DemoQuirk[];
   /** Words in the turn context the model was given first on this turn. */
   noteIncludes?: readonly string[];
   noteExcludes?: readonly string[];
@@ -487,8 +502,14 @@ const callbacks: DemoCase[] = [
       },
       {
         caller: "No, that's all, thanks.",
-        model: [modelSays("Thanks so much, Josh! Talk soon.")],
-        check: { noteIncludes: ["The team already has their call-back request: never offer a call-back again"], noteExcludes: [OFFER_CALL] },
+        model: [modelSays(`Thanks so much for your time. ${talkSoonLine("Josh")}`, { quirk: "talkSoon", end: true })],
+        check: {
+          heardIncludes: ["Talk soon, Josh!"],
+          ends: true,
+          quirks: ["talkSoon"],
+          noteIncludes: ["The team already has their call-back request: never offer a call-back again", 'your last words are exactly "Talk soon, Josh!"'],
+          noteExcludes: [OFFER_CALL],
+        },
       },
     ],
   },
@@ -507,8 +528,9 @@ const callbacks: DemoCase[] = [
       },
       {
         caller: "Okay, thanks.",
-        model: [modelSays("Thanks so much, Josh! Talk soon.")],
-        check: { noteIncludes: ["They already have hello at healdesk dot io: never offer a call-back again"] },
+        model: [modelSays("Thanks so much, Josh. Have a great day!")],
+        // No sign-off after a call back that did not get through (6h, D).
+        check: { noteIncludes: ["They already have hello at healdesk dot io: never offer a call-back again"], noteExcludes: ['your last words are exactly "Talk soon'] },
       },
     ],
   },
@@ -629,7 +651,11 @@ const phase6: DemoCase[] = [
       {
         caller: "Leave me alone.",
         model: [modelSays("Of course. Take care, Josh!", { end: true })],
-        check: { ends: true, noteIncludes: ['If they firmly refuse to go on at all ("leave me alone", "stop calling", "I said no"), skip that question'] },
+        check: {
+          ends: true,
+          quirks: [],
+          noteIncludes: ['If they firmly refuse to go on at all ("leave me alone", "stop calling", "I said no"), skip that question', 'one brief, positive goodbye with no "Talk soon"'],
+        },
       },
     ],
   },
@@ -671,4 +697,27 @@ const phase6: DemoCase[] = [
   },
 ];
 
-export const DEMO_CASES: readonly DemoCase[] = [...bareNumbers, ...discovery, josh, ...callbacks, ...phase6];
+/** Aya's signature touches (owner, 26 October 2026, 6h: C and a revised D; demo-facts.ts, DEMO_QUIRKS). */
+const LOVE_THAT_RULE = `your reaction may be exactly "${LOVE_THAT}"`;
+const quirks: DemoCase[] = [
+  {
+    id: "quirk-love-that-once",
+    title: `"${LOVE_THAT}" when they share good news, once in the call, and never in the role-play`,
+    why: "6h, C: a warm micro-affirmation is recognisable once and a tic twice, so it leaves the note the moment it is said.",
+    turns: [
+      ...TO_PITCH,
+      {
+        caller: "Pretty good. And we just opened a second location in Round Rock!",
+        model: [modelSays(`${LOVE_THAT} What made you want to look at an AI assistant for ${CLINIC}?`, { asked: "goal", quirk: "loveThat" })],
+        check: { heardIncludes: [LOVE_THAT], quirks: ["loveThat"], asked: "goal", noteIncludes: [LOVE_THAT_RULE], noGuardLine: true },
+      },
+      {
+        caller: "We also just hired two new injectors.",
+        model: [modelSays("Busy times. Generally, how many calls do you get a day?", { asked: "volume" })],
+        check: { quirks: ["loveThat"], noteIncludes: [`You already said "${LOVE_THAT}" on this call: never again.`], noteExcludes: [LOVE_THAT_RULE] },
+      },
+    ],
+  },
+];
+
+export const DEMO_CASES: readonly DemoCase[] = [...bareNumbers, ...discovery, josh, ...callbacks, ...phase6, ...quirks];

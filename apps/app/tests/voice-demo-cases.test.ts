@@ -123,6 +123,7 @@ async function run(c: DemoCase) {
     if (ck.callback !== undefined) expect(snap.progress.callback ?? null, `${at}: callback`).toBe(ck.callback);
     if (ck.pushback !== undefined) expect(snap.progress.pushback ?? null, `${at}: pushback`).toBe(ck.pushback);
     if (ck.ends !== undefined) expect(said.end_call, `${at}: ends`).toBe(ck.ends);
+    if (ck.quirks !== undefined) expect(snap.progress.quirks ?? [], `${at}: quirks`).toEqual(ck.quirks);
     for (const words of ck.noteIncludes ?? []) expect(note, `${at}: note`).toContain(words);
     for (const words of ck.noteExcludes ?? []) expect(note, `${at}: note`).not.toContain(words);
   }
@@ -177,7 +178,7 @@ describe("the demo's regression cases, through the real demo pipeline", () => {
   });
 
   test("the cases cover what the owner asked for, and the Josh case says it is rebuilt until the transcript is in", () => {
-    for (const id of ["reply-length", "no-reflection-opener", "repeat-the-caller", "pushback-rotation", "disinterest-then-contact-ask", "firm-no-goodbye", "roleplay-resume"]) {
+    for (const id of ["reply-length", "no-reflection-opener", "repeat-the-caller", "pushback-rotation", "disinterest-then-contact-ask", "firm-no-goodbye", "roleplay-resume", "quirk-love-that-once"]) {
       expect(DEMO_CASES.map((c) => c.id)).toContain(id);
     }
     const ids = DEMO_CASES.map((c) => c.id);

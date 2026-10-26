@@ -1,8 +1,22 @@
-# Aya's personality: one or two signature touches (design note, not built)
+# Aya's personality: one or two signature touches (design note, built in part)
 
-Status: proposal for the owner's decision, 26 October 2026 (VOICE-T17, Phase 6h).
-Nothing here is built. Like Phase 4's lead capture, it gets a design pass
-before any stage note changes.
+Status: decided and built 26 October 2026 (VOICE-T18a). The owner chose
+"only C and a revised D (only "Talk soon, [name]!")", not the recommendation
+below (A and D). Built on demo calls only:
+
+- C, "Oh, love that.", when the caller shares something good about their
+  business.
+- D, "Talk soon, <first name>!" ("Talk soon!" without one), as the last
+  words of a call that ends warmly.
+
+Each is offered in the intro and pitch notes until it is said, then named as
+said: "never again" (`lib/voice/demo-facts.ts`, `DEMO_QUIRKS`, `quirkRules`).
+The call keeps which were said in `DemoProgress.quirks`, read from her words
+(`quirksIn`), so an undeclared one still counts. Neither is kept or offered in
+a role-play. D is never offered after a call back that failed, and the firm-no
+goodbye says "no Talk soon". The regression cases are `quirk-love-that-once`,
+`callback-taken` (D), `callback-not-taken` and `firm-no-goodbye` (no D).
+Clinic calls carry neither.
 
 ## The ask
 

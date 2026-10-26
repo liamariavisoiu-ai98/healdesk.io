@@ -351,7 +351,7 @@ describe("a report's choices through the fresh-code wrapper", () => {
       data: { status: "executed", outcomeCode: "sent" },
     });
     expect(sent).toEqual([
-      { op: "decideApproval", args: { id: ITEM, action: "approve", reasonCode: "owner_checked", codeChecked: true, editedFields: CHOICES } },
+      { op: "decideApproval", args: { id: ITEM, action: "approve", reasonCode: "owner_checked", codeChecked: true, editedFields: CHOICES, codeKind: "authenticator" } },
     ]);
     expect(JSON.stringify(sent)).not.toContain(code);
 

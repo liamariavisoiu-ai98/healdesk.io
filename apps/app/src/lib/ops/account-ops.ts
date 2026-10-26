@@ -28,6 +28,7 @@ import {
   type Operator,
   type OpsOutcome,
 } from "./api";
+import { codeFactor } from "./code-factor";
 
 /**
  * The operator console's account operations (plan Part K), each a
@@ -242,6 +243,8 @@ export async function opSetCoveredEntity(
     coveredEntity: outcome.isCoveredEntity,
     agreementKind: outcome.agreementKind,
     covered: outcome.covered,
+    // Which factor apps/web checked before it set the mark (lane P7h).
+    factor: codeFactor(args),
   });
   return ok({
     status: "recorded",

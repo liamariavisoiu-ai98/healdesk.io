@@ -1,4 +1,4 @@
-import { checkFreshOperatorCode } from "./fresh-code";
+import { checkApprovalCode } from "./approval-passcode";
 import { requireOperator } from "./operator";
 import {
   APPROVE_REASONS,
@@ -48,7 +48,8 @@ export async function decideApprovalWithCode(
   /** An incident report's choices (lane P6i): codes from the catalog's lists only, never typed words. */
   editedFields?: IncidentReportChoices,
 ): Promise<OpsResult<ApprovalDecisionEntry>> {
-  if (!(await requireOperator())) return UNAUTHENTICATED;
+  const operator = await requireOperator();
+  if (!operator) return UNAUTHENTICATED;
   if (!UUID.test(approvalId)) return { ok: true, data: { status: "refused", message: "No such approval." } };
   if (action !== "approve" && action !== "reject") {
     return { ok: true, data: { status: "refused", message: "Choose Approve or Reject." } };
@@ -57,7 +58,7 @@ export async function decideApprovalWithCode(
   if (!reasons.includes(reasonCode)) {
     return { ok: true, data: { status: "refused", message: "Pick one of the reasons listed." } };
   }
-  const fresh = checkFreshOperatorCode(code);
-  if (!fresh.ok) return { ok: true, data: { status: "code_refused", message: fresh.message } };
-  return sendDecideApproval(approvalId, action, reasonCode, editedDraft, editedFields);
+  const checked = await checkApprovalCode(code, operator);
+  if (!checked.ok) return { ok: true, data: { status: "code_refused", message: checked.message } };
+  return sendDecideApproval(approvalId, action, reasonCode, editedDraft, editedFields, checked.factor);
 }

@@ -81,6 +81,13 @@ function constList(file: string, name: string): string[] {
   return [...match[1]!.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]!);
 }
 
+/** The quoted word of `export const NAME = "word" as const`. */
+function constValue(file: string, name: string): string {
+  const match = new RegExp(`export const ${name} = "([a-z_]+)" as const`).exec(source(file));
+  if (!match) throw new Error(`apps/app's ${name} was not found in ${file}`);
+  return match[1]!;
+}
+
 /** The keys of `const NAME ... = { a: "...", b: "..." }` with their words. */
 function wordTable(file: string, name: string): Record<string, string> {
   const block = new RegExp(`const ${name}[^{]*\\{([\\s\\S]*?)\\};`).exec(source(file))?.[1] ?? "";
@@ -166,6 +173,8 @@ describe("the draft's closed lists have words", () => {
   test("every check id (lib/support/draft/checks.ts CHECK_IDS) and the send path's own (lib/support/send-checks.ts)", () => {
     const ids = constList("lib/support/draft/checks.ts", "CHECK_IDS");
     expect(ids).toHaveLength(8);
+    // The ninth, run only on a draft written from an email (lane P7h).
+    ids.push(constValue("lib/support/draft/checks.ts", "EMAIL_CHECK_ID"));
     const floor = [...source("lib/support/send-checks.ts").matchAll(/id: "([a-z_]+)"/g)].map((m) => m[1]!);
     expect(floor).toContain("send_shape");
     expect(floor).toContain("reply_checks");

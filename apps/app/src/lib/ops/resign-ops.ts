@@ -20,6 +20,7 @@ import { withTenant } from "@/lib/tenant";
 // helpers: safe, because nothing here touches them while the modules load.
 import { actorFor, audit, booleanArg, clinicById, ok, opsProblem, stringArg, type Operator, type OpsOutcome } from "./api";
 import { opDecideAgreementReview } from "./account-ops";
+import { codeFactor } from "./code-factor";
 
 /**
  * The agreement side of the clinic-contact approvals (ops automation lane
@@ -185,7 +186,7 @@ export async function opRecordAgreementAnswer(args: Record<string, unknown>, ope
   // The fresh code is checked on apps/web, which holds the secret; only its
   // wrapper sets the mark (lib/admin/agreement-answer.ts).
   if (booleanArg(args, "codeChecked") !== true) {
-    return ok({ status: "refused", message: "This needs the code from your authenticator. Nothing was changed." });
+    return ok({ status: "refused", message: "This needs the approval passcode or the code from your authenticator. Nothing was changed." });
   }
   if (!isCoveredAnswer(args.answer)) return ok({ status: "refused", message: "The answer is yes, no or not_sure." });
   const clinicId = stringArg(args, "clinicId");
@@ -196,6 +197,7 @@ export async function opRecordAgreementAnswer(args: Record<string, unknown>, ope
     answer: args.answer,
     reviewId: reviewId ?? null,
     freshCode: true,
+    factor: codeFactor(args),
     outcome: typeof data?.status === "string" ? data.status : "error",
     ...(clinicId ? { clinicId } : {}),
   });

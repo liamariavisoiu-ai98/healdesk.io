@@ -144,7 +144,7 @@ describe("a drafted case", () => {
     expect(page).toContain(SNOOZE_NOTE);
     expect(page).toContain(CLOSE_NOTE);
     expect(page).not.toContain(MATCH_NOTE);
-    expect(page.match(/Code from your authenticator/g)).toHaveLength(1);
+    expect(page.match(/Approval passcode \(or authenticator code\)/g)).toHaveLength(1);
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Send<\/button>/);
     // The snooze choices and the close reasons from the closed lists; the people from the view.
     expect(page).toContain("Tomorrow, 09:00 New York");
@@ -195,7 +195,7 @@ describe("the other states", () => {
     expect(html).toMatch(/<button[^>]*>Match<\/button>/);
     expect(page).toContain(MATCH_NOTE);
     expect(page).toContain("Glow (synthetic)");
-    expect(page).not.toContain("Code from your authenticator");
+    expect(page).not.toContain("Approval passcode (or authenticator code)");
     // The clinics not read: Match is not offered, and the line says so.
     expect(text(render(unmatched, { clinics: null }))).toContain("The clinics could not be read, so Match is not offered.");
   });
@@ -258,7 +258,7 @@ describe("the other states", () => {
     for (const label of ["Save draft", "Check", "Regenerate", "Send", "Snooze", "Assign", "Match", "Close"]) expect(html).not.toMatch(new RegExp(`<button[^>]*>${label}</button>`));
     expect(html.match(/<button/g)).toHaveLength(1);
     expect(page).toContain("Copy id");
-    expect(page).not.toContain("Code from your authenticator");
+    expect(page).not.toContain("Approval passcode (or authenticator code)");
   });
 
   test("a part of the facts that could not be read says so, never a zero; hidden counts show when set", () => {
@@ -395,7 +395,7 @@ describe("the controls", () => {
     await click("Yes, send");
     const refused = statuses().find((s) => s.startsWith("Nothing was sent"));
     expect(refused).toBe("Nothing was sent: the reply fails The reply names no person. Edit it and propose it again.");
-    expect(container.textContent).toContain("Code from your authenticator");
+    expect(container.textContent).toContain("Approval passcode (or authenticator code)");
     expect(container.textContent).not.toContain("Dana");
 
     answer = { ok: true, data: { status: "code_refused", message: "That code is not right. Check the clock on your phone and try the next one. Nothing was changed." } };

@@ -240,7 +240,7 @@ describe("the edits and the answer", () => {
     reply({ status: "recorded", agreementKind: "baa", isCoveredEntity: true, covered: true, supersedeStarted: true, linkSent: true, auditRecorded: true });
     const code = fresh();
     expect(await recordAgreementAnswerWithCode(CLINIC, REVIEW, "yes", code)).toMatchObject({ ok: true, data: { status: "recorded", supersedeStarted: true } });
-    expect(sent).toEqual([{ op: "recordAgreementAnswer", args: { clinicId: CLINIC, reviewId: REVIEW, answer: "yes", codeChecked: true } }]);
+    expect(sent).toEqual([{ op: "recordAgreementAnswer", args: { clinicId: CLINIC, reviewId: REVIEW, answer: "yes", codeChecked: true, codeKind: "authenticator" } }]);
     expect(JSON.stringify(sent)).not.toContain(code);
   });
 
@@ -249,7 +249,7 @@ describe("the edits and the answer", () => {
     expect(sent).toEqual([]);
     reply({ status: "recorded", agreementKind: "dpa", isCoveredEntity: true, covered: false, supersedeStarted: true, linkSent: true, auditRecorded: true });
     expect(await setCoveredEntityWithCode(CLINIC, "not_sure", fresh())).toMatchObject({ ok: true, data: { status: "recorded" } });
-    expect(sent).toEqual([{ op: "setCoveredEntity", args: { clinicId: CLINIC, answer: "not_sure", codeChecked: true } }]);
+    expect(sent).toEqual([{ op: "setCoveredEntity", args: { clinicId: CLINIC, answer: "not_sure", codeChecked: true, codeKind: "authenticator" } }]);
   });
 
   test("nothing in apps/web source names the raw recordAgreementAnswer or setCoveredEntity but ops-client.ts and agreement-answer.ts", () => {

@@ -26,6 +26,8 @@ import { getApproval, history, lastEventAt, listByStatus, moveStatus, recordEven
 import { printableClinicName } from "@/lib/email/lint";
 import { describeError, log } from "@/lib/log";
 
+import { codeFactor } from "./code-factor";
+
 // api.ts imports this module for its dispatch, and this module borrows
 // api.ts's helpers: safe, because nothing here touches them while the
 // modules load (the same note as lib/ops/billing.ts).
@@ -45,8 +47,10 @@ import { actorFor, audit, booleanArg, numberArg, ok, opsProblem, stringArg, type
  *     (compare-and-set on `waiting`), an expired item cannot be approved,
  *     and an irreversible kind needs apps/web's fresh-code mark,
  *     `codeChecked: true`, which only apps/web's wrapper sends
- *     (lib/admin/approval-decide.ts, after the operator's authenticator
- *     code; a test there fails if anything else names the raw client).
+ *     (lib/admin/approval-decide.ts, after the operator's approval
+ *     passcode or authenticator code, named in `codeKind` and recorded as
+ *     the event's `factor`; a test there fails if anything else names the
+ *     raw client).
  *     Each decision writes its events and one security event.
  *   - `listApprovalHistory {limit?, kind?}` (read): the add-only record,
  *     newest first, without drafts.
@@ -218,7 +222,7 @@ export async function opDecideApproval(
   // The fresh code is checked on apps/web, which holds the secret; its
   // wrapper is the only caller that sets the mark (D21).
   if (spec.irreversible && booleanArg(args, "codeChecked") !== true) {
-    return refusal("This needs the code from your authenticator. Nothing was changed.");
+    return refusal("This needs the approval passcode or the code from your authenticator. Nothing was changed.");
   }
   if (item.status !== "waiting") return refusal(ALREADY);
   if (item.expiresAt && item.expiresAt.getTime() <= now.getTime()) {
@@ -227,6 +231,8 @@ export async function opDecideApproval(
   }
   const actor = operatorActor(operator);
   const freshCode = booleanArg(args, "codeChecked") === true;
+  // Which factor apps/web checked: the approval passcode or the authenticator (lane P7h).
+  const factor = freshCode ? codeFactor(args) : null;
 
   if (action === "reject") {
     if (!(await moveStatus(item.id, "waiting", "rejected", "rejected", actor, now, { outcomeCode: reasonCode }))) {
@@ -237,6 +243,7 @@ export async function opDecideApproval(
       kind: item.kind,
       reasonCode,
       freshCode,
+      factor,
       ...(item.subjectClinicId ? { clinicId: item.subjectClinicId } : {}),
     });
     return ok({ status: "rejected", outcomeCode: reasonCode, auditRecorded } satisfies DecisionOutcome);
@@ -323,6 +330,7 @@ export async function opDecideApproval(
     outcomeCode: result.outcomeCode,
     moved,
     freshCode,
+    factor,
     ...(item.subjectClinicId ? { clinicId: item.subjectClinicId } : {}),
   });
   const late = moved

@@ -118,7 +118,7 @@ export function DecisionForm({
   return (
     <form className="mt-4 grid gap-3" onSubmit={(event) => event.preventDefault()}>
       {subject.irreversible ? <p className="text-sm font-semibold">{IRREVERSIBLE_CONFIRM[subject.kind]}</p> : null}
-      <CodeField value={code} onChange={setCode} />
+      <CodeField value={code} onChange={setCode} approval />
       {subject.hasPacket ? (
         <div className="flex flex-wrap items-end gap-3">
           <label className="grid gap-1 text-sm">

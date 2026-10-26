@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 
 import { AdminChrome } from "@/components/admin/AdminDashboard";
 import { AdminNav } from "@/components/admin/AdminNav";
+import { ApprovalPasscodeProvider } from "@/components/admin/approval-passcode-context";
+import { approvalPasscodeConfigured } from "@/lib/admin/approval-passcode";
 import {
   OPERATOR_COOKIE,
   operatorCookieOptions,
@@ -196,7 +198,8 @@ export default async function AdminLayout({
         </header>
       </AdminChrome>
 
-      {children}
+      {/* Whether the approval passcode is set here, for every approval's code box (lane P7h). */}
+      <ApprovalPasscodeProvider set={approvalPasscodeConfigured()}>{children}</ApprovalPasscodeProvider>
     </div>
   );
 }

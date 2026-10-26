@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 
+import { useApprovalPasscodeSet } from "./approval-passcode-context";
+
 import type { OpsFailure, OpsResult } from "@/lib/admin/ops-client";
 import type { Tone } from "@/lib/admin/strip-types";
 
@@ -294,15 +296,39 @@ export function ClinicId({ id }: { id: string }) {
 
 /**
  * The fresh authenticator code a step-up act asks for at the moment of the
- * act (lib/admin/fresh-code.ts), as the Account tab's forms draw it: six
+ * act (lib/admin/fresh-code.ts), or, with `approval`, the approval passcode
+ * (lib/admin/approval-passcode.ts), as the Account tab's forms draw it: six
  * digits, numeric keypad, one-time-code autofill. Controlled, so a panel
  * can hand the code to an ActionButton's `run` and keep the button disabled
  * until six digits are typed; the check itself is the server's.
  */
-export function CodeField({ value, onChange, disabled = false }: { value: string; onChange: (code: string) => void; disabled?: boolean }) {
+export function CodeField({
+  value,
+  onChange,
+  disabled = false,
+  approval = false,
+}: {
+  value: string;
+  onChange: (code: string) => void;
+  disabled?: boolean;
+  /**
+   * An approval decision or a covered-entity answer (lane P7h): the box asks
+   * for the approval passcode, the authenticator code still accepted, and
+   * says so when this deployment has no passcode.
+   */
+  approval?: boolean;
+}) {
+  const passcodeSet = useApprovalPasscodeSet();
   return (
     <label className="grid gap-1">
-      <span className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">Code from your authenticator</span>
+      <span className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">
+        {approval ? "Approval passcode (or authenticator code)" : "Code from your authenticator"}
+      </span>
+      {approval && passcodeSet === false ? (
+        <span className="text-muted text-[14.4px]">
+          The approval passcode is not set on this deployment: only your authenticator code works.
+        </span>
+      ) : null}
       <input
         name="code"
         value={value}

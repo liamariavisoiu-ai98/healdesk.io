@@ -251,6 +251,7 @@ export const CHECK_NAMES: Record<SupportCheckId | "send_shape" | "send_tone" | "
   claims: "Claims",
   shape: "Shape",
   other_clinics: "Other practices",
+  email_words: "Quotes the email",
   send_shape: "Plain text",
   send_tone: "Tone",
   send_copy: "Copy",
@@ -272,7 +273,10 @@ export function failedRules(checks: readonly SupportReplyCheckView[]): string[] 
  * Why the drafter wrote no draft (draft/store.ts DRAFT_FAILURES, as
  * draft/run.ts sets each): no model client on this host, the model call
  * failed, the model refused, it proposed no reply, the practice's account
- * could not be read, or the case has had its five drafts (DRAFTS_PER_CASE).
+ * could not be read, or the case has had its five drafts (DRAFTS_PER_CASE);
+ * and for an email case (lane P7h), the email could not be read, or the
+ * draft written from it failed a check and was not kept (read the email in
+ * your own mailbox by the case's reference, and write the reply).
  */
 export const DRAFT_FAILURE_WORDS: Record<NonNullable<SupportDraftView["failure"]>, string> = {
   model_unavailable: "the model is not available on this host",
@@ -281,6 +285,8 @@ export const DRAFT_FAILURE_WORDS: Record<NonNullable<SupportDraftView["failure"]
   no_proposal: "the model proposed no reply",
   account_unreadable: "the practice's account could not be read",
   draft_limit: "the case has had five drafts, the most a case gets",
+  email_unreadable: "the practice's email could not be read, and it is now deleted",
+  checks_failed: "the draft written from the practice's email failed a check, so it was not kept",
 };
 
 /** How many drafts the assistant writes a case at most (draft/store.ts DRAFTS_PER_CASE). */

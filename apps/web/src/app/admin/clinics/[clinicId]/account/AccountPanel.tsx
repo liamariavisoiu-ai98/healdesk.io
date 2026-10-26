@@ -323,7 +323,7 @@ function CoveredEntity({ view, onSet }: { view: ClinicSignInView; onSet: Actions
             {a.label}
           </label>
         ))}
-        <CodeField value={code} onChange={setCode} disabled={pending} />
+        <CodeField value={code} onChange={setCode} disabled={pending} approval />
         <button
           type="submit"
           disabled={pending || !isCompleteCode(code)}

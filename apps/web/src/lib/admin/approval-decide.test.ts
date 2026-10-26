@@ -207,7 +207,7 @@ describe("the decision goes only through the fresh code", () => {
       ok: true,
       data: { status: "executed", outcomeCode: "rearmed", message: "Re-armed: the change is due again.", auditRecorded: true },
     });
-    expect(sent).toEqual([{ op: "decideApproval", args: { id: ITEM, action: "approve", reasonCode: "cause_fixed", codeChecked: true } }]);
+    expect(sent).toEqual([{ op: "decideApproval", args: { id: ITEM, action: "approve", reasonCode: "cause_fixed", codeChecked: true, codeKind: "authenticator" } }]);
     expect(JSON.stringify(sent)).not.toContain(code);
     // The code just used is spent.
     expect(await decideApprovalWithCode(ITEM, "reject", "not_needed", code)).toMatchObject({ ok: true, data: { status: "code_refused" } });

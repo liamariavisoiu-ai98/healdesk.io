@@ -169,12 +169,12 @@ describe("the section", () => {
     const page = text(html);
     expect(html).toContain('id="incident-assistant"');
     expect(page).toContain("Incident assistant");
-    expect(page).toContain("It proposes; you decide here with the code from your authenticator.");
+    expect(page).toContain("It proposes; you decide here with the approval passcode or the code from your authenticator.");
     expect(page).toContain("Waiting for your yes (1)");
     expect(page).toContain("Open an incident at each clinic a vendor's or a channel's incident reached");
     expect(page).toContain("Radiance Med Spa");
     expect(page).toContain(INTERNAL_TARGET_LABEL);
-    expect(page).toContain("Code from your authenticator");
+    expect(page).toContain("Approval passcode (or authenticator code)");
     expect(page).toContain("Approve");
     expect(page).toContain("Reject");
     expect(page).toContain("Find a scope");

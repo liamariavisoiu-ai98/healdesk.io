@@ -65,7 +65,7 @@ describe("Agreement checks", () => {
       data: { status: "code_refused" as const, message: "That code was not right." },
     }));
     await act(async () => root.render(h(AgreementChecks, { reviews: [REVIEW], decide, ask: NO_ASK })));
-    expect(container.textContent).toContain("Code from your authenticator");
+    expect(container.textContent).toContain("Approval passcode (or authenticator code)");
     expect(answerButtons().every((b) => b.disabled)).toBe(true);
     const input = container.querySelector("input[name=code]") as HTMLInputElement;
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;

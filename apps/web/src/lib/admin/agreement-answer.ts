@@ -1,4 +1,4 @@
-import { checkFreshOperatorCode } from "./fresh-code";
+import { checkApprovalCode } from "./approval-passcode";
 import { requireOperator } from "./operator";
 import {
   recordAgreementAnswer as sendRecordAgreementAnswer, // raw: only here (clinic-contact-client.test.ts)
@@ -12,9 +12,10 @@ import {
 /**
  * The owner's answer to the agreement question (ops automation lane P6f;
  * design E6 §3 item 13), entered as an approval decision is
- * (lib/admin/approval-decide.ts): an operator session, then a fresh code
- * from the authenticator, checked here on Vercel, then the signed request
- * carrying the mark that it was checked. A Yes or Not sure starts the BAA
+ * (lib/admin/approval-decide.ts): an operator session, then the approval
+ * passcode or a fresh authenticator code, checked here on Vercel
+ * (lib/admin/approval-passcode.ts; lane P7h), then the signed request
+ * carrying the mark that it was checked and which factor it was. A Yes or Not sure starts the BAA
  * re-sign and pauses AYA at every location of the practice until it is
  * signed, which cannot be taken back from here, so a session alone never
  * records it. The answer is the one the owner heard, never one read off the
@@ -39,14 +40,15 @@ export async function recordAgreementAnswerWithCode(
   answer: AgreementAnswer,
   code: unknown,
 ): Promise<OpsResult<AgreementAnswerEntry>> {
-  if (!(await requireOperator())) return UNAUTHENTICATED;
+  const operator = await requireOperator();
+  if (!operator) return UNAUTHENTICATED;
   if (!UUID.test(clinicId) || !UUID.test(reviewId)) {
     return { ok: true, data: { status: "refused", message: "No such review at this clinic." } };
   }
   if (!ANSWERS.includes(answer)) return { ok: true, data: { status: "refused", message: "Pick Yes, No or Not sure." } };
-  const fresh = checkFreshOperatorCode(code);
-  if (!fresh.ok) return { ok: true, data: { status: "code_refused", message: fresh.message } };
-  return sendRecordAgreementAnswer(clinicId, reviewId, answer);
+  const checked = await checkApprovalCode(code, operator);
+  if (!checked.ok) return { ok: true, data: { status: "code_refused", message: checked.message } };
+  return sendRecordAgreementAnswer(clinicId, reviewId, answer, checked.factor);
 }
 
 /**
@@ -59,10 +61,11 @@ export async function setCoveredEntityWithCode(
   answer: CoveredAnswer,
   code: unknown,
 ): Promise<OpsResult<AgreementAnswerEntry>> {
-  if (!(await requireOperator())) return UNAUTHENTICATED;
+  const operator = await requireOperator();
+  if (!operator) return UNAUTHENTICATED;
   if (!UUID.test(clinicId)) return { ok: true, data: { status: "refused", message: "No such clinic." } };
   if (!ANSWERS.includes(answer)) return { ok: true, data: { status: "refused", message: "Pick Yes, No or Not sure." } };
-  const fresh = checkFreshOperatorCode(code);
-  if (!fresh.ok) return { ok: true, data: { status: "code_refused", message: fresh.message } };
-  return sendSetCoveredEntity(clinicId, answer);
+  const checked = await checkApprovalCode(code, operator);
+  if (!checked.ok) return { ok: true, data: { status: "code_refused", message: checked.message } };
+  return sendSetCoveredEntity(clinicId, answer, checked.factor);
 }

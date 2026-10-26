@@ -73,7 +73,7 @@ export function IncidentAssistant({
     <Section id="incident-assistant" title="Incident assistant">
       <p className="text-muted max-w-[72ch] text-sm">
         Finds which clinics a vendor&rsquo;s or a channel&rsquo;s incident reached, drafts each report from fixed lists, and keeps each
-        incident&rsquo;s checklist. It proposes; you decide here with the code from your authenticator.
+        incident&rsquo;s checklist. It proposes; you decide here with the approval passcode or the code from your authenticator.
       </p>
       <h3 className="text-muted mt-4 text-[13.2px] font-bold tracking-[0.06em] uppercase">Waiting for your yes{items.ok ? ` (${waiting.length})` : ""}</h3>
       {decided.length > 0 ? (

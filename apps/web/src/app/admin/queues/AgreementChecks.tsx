@@ -143,7 +143,7 @@ function AgreementCheckRow({ review, decide, ask }: { review: AgreementReview; d
       ) : null}
       {open ? (
         <div className="mt-4 flex flex-wrap items-end gap-3">
-          <CodeField value={code} onChange={setCode} disabled={pending} />
+          <CodeField value={code} onChange={setCode} disabled={pending} approval />
           {ANSWERS.map((choice) => (
             <button
               key={choice.answer}

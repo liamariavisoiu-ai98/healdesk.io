@@ -367,7 +367,7 @@ export function CaseView({ view, item, waitingRead, clinics, now, actions }: Cas
                   </p>
                 ) : null}
                 <div className="mt-2 flex flex-wrap items-end gap-3">
-                  <CodeField value={code} onChange={setCode} />
+                  <CodeField value={code} onChange={setCode} approval />
                   <ActionButton
                     label="Send"
                     variant="primary"

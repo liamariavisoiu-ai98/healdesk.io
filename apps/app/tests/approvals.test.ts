@@ -634,7 +634,8 @@ describeDb("the approval inbox", () => {
         expect.objectContaining({
           actor_label: OPERATOR.email,
           ip_address: "203.0.113.9",
-          metadata: expect.objectContaining({ kind: "billing_request_retry", outcome: "executed", outcomeCode: "rearmed", freshCode: true }),
+          // No codeKind from the caller: an older apps/web, which checked the authenticator (lane P7h).
+          metadata: expect.objectContaining({ kind: "billing_request_retry", outcome: "executed", outcomeCode: "rearmed", freshCode: true, factor: "authenticator" }),
         }),
       ]);
       for (const action of ["approve", "reject"] as const) {
@@ -697,14 +698,17 @@ describeDb("the approval inbox", () => {
       const { clinic, epoch } = await deadLettered("cancel_now", "ap-reject");
       await proposeApprovals(NOW);
       const [item] = await itemsOfClinic(clinic.clinicId);
-      expect(dataOf(await decide({ id: item!.id, action: "reject", reasonCode: "handled_elsewhere" }))).toEqual({
+      expect(dataOf(await decide({ id: item!.id, action: "reject", reasonCode: "handled_elsewhere", codeKind: "passcode" }))).toEqual({
         status: "rejected",
         outcomeCode: "handled_elsewhere",
         auditRecorded: true,
       });
       expect(await requestRow(clinic.clinicId, "cancel_now")).toMatchObject({ outcome: "dead_letter", epoch });
       expect((await eventsOf(item!.id)).map((e) => e.event)).toEqual(["proposed", "rejected"]);
-      expect(await securityEvents("approval_rejected", item!.id)).toHaveLength(1);
+      // The record names the factor apps/web checked: here the approval passcode (lane P7h).
+      expect(await securityEvents("approval_rejected", item!.id)).toEqual([
+        expect.objectContaining({ actor_label: OPERATOR.email, metadata: expect.objectContaining({ freshCode: true, factor: "passcode" }) }),
+      ]);
     });
 
     test("a replay runs only while the event is parked as proposed; a refused or throwing run records failed", async () => {

@@ -389,10 +389,10 @@ describe("the waiting items", () => {
     const html = render(read([request]));
     const page = text(html);
     const sentence = page.indexOf(IRREVERSIBLE_CONFIRM.billing_request_retry);
-    const field = page.indexOf("Code from your authenticator");
+    const field = page.indexOf("Approval passcode (or authenticator code)");
     expect(sentence).toBeGreaterThan(-1);
     expect(field).toBeGreaterThan(sentence);
-    expect(page.match(/Code from your authenticator/g)).toHaveLength(1);
+    expect(page.match(/Approval passcode \(or authenticator code\)/g)).toHaveLength(1);
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Approve<\/button>/);
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Reject<\/button>/);
   });
@@ -710,7 +710,7 @@ describe("the controls", () => {
     expect(decide).toHaveBeenCalledWith(ITEM, "approve", "owner_checked", "123456", undefined);
     expect(statuses()).toContain(`Approved. ${message}`);
     // The card has gone; the outcome stays; the list is empty.
-    expect(container.textContent).not.toContain("Code from your authenticator");
+    expect(container.textContent).not.toContain("Approval passcode (or authenticator code)");
     expect(container.textContent).toContain(EMPTY_WORDS);
     expect(container.textContent).toContain("Waiting (0)");
   });
@@ -754,14 +754,14 @@ describe("the controls", () => {
     await click("Yes, reject");
     await act(async () => {});
     expect(statuses()).toContain("That code is not right. Nothing was changed.");
-    expect(container.textContent).toContain("Code from your authenticator");
+    expect(container.textContent).toContain("Approval passcode (or authenticator code)");
 
     answer = { status: "refused", message: "This has already been decided, so nothing more was done. Reload to see where it stands." };
     await click("Reject");
     await click("Yes, reject");
     await act(async () => {});
     expect(statuses()).toContain("This has already been decided, so nothing more was done. Reload to see where it stands.");
-    expect(container.textContent).toContain("Code from your authenticator");
+    expect(container.textContent).toContain("Approval passcode (or authenticator code)");
 
     answer = { status: "failed", outcomeCode: "no_longer_needed", message: "This has already been dealt with since it was proposed, so nothing was run.", auditRecorded: true };
     await click("Approve");
@@ -771,7 +771,7 @@ describe("the controls", () => {
     const line = [...container.querySelectorAll('[role="status"]')].find((n) => n.textContent?.startsWith("Approved, but"));
     expect(line?.textContent).toBe("Approved, but it did not go through: This has already been dealt with since it was proposed, so nothing was run.");
     expect(line?.className).toContain("text-red-deep");
-    expect(container.textContent).not.toContain("Code from your authenticator");
+    expect(container.textContent).not.toContain("Approval passcode (or authenticator code)");
   });
 
   test("an email: Edit offers the closed fields, Preview sends them to the read and shows the rendering, Approve carries them once changed and never before", async () => {
@@ -879,7 +879,7 @@ describe("the controls", () => {
     await click("History");
     expect(container.textContent).toContain("approved (the cause is fixed)");
     expect(container.textContent).toContain("by ops@healdesk.test");
-    expect(container.textContent).not.toContain("Code from your authenticator");
+    expect(container.textContent).not.toContain("Approval passcode (or authenticator code)");
   });
 });
 

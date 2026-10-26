@@ -60,6 +60,12 @@ export const READONLY_TABLES = [
   // and user agent their request carried, and hashes. Read column by column
   // on 24 October 2026: no patient. ops_approvals.draft is for email kinds,
   // none of which exists yet; the first one reviews it again.
+  // Reviewed again 25 October 2026 for lane P7c's support_reply_send, whose
+  // draft is prose: a reply the drafter or the operator wrote for a case,
+  // stored there only once it passed every reply check (no number, address,
+  // treatment or person's name; lib/approvals/support-reply.ts never proposes
+  // a failing draft). Never the clinic's own words, which stay withheld on
+  // support_messages. Still no patient.
   "ops_approvals",
   "ops_approval_events",
   // The weekly compliance pack (drizzle/0123): a week's Monday, counts, ids
@@ -67,6 +73,12 @@ export const READONLY_TABLES = [
   // made it. Read column by column on 25 October 2026: no patient, nothing
   // typed, no address.
   "compliance_packs",
+  // The support team's cases (drizzle/0125): a ref, the clinic's id, closed
+  // words for the source, state, topic, symptom, urgency and closing
+  // reason, counts of what an inbound screen hid, dates and the assignee's
+  // label from HEALDESK_OPS_PEOPLE. Read column by column on 25 October
+  // 2026: no patient and no text; the words are on support_messages.
+  "support_cases",
 ] as const;
 
 /** Tables the role can never read, and why. */
@@ -151,6 +163,9 @@ export const READONLY_WITHHELD: Record<string, "patient" | "credential" | "unrev
   security_events: "unreviewed",
   site_rereads: "unreviewed",
   sync_runs: "unreviewed",
+  // Typed correspondence (drizzle/0125): screened inbound email text, the
+  // drafts and the replies the owner approved. Never readable as data.
+  support_messages: "unreviewed",
   webhook_events: "unreviewed",
   website_changes: "unreviewed",
 };

@@ -180,6 +180,26 @@ first clinic's 30th live day: hourly, it asks for a read of each live clinic's w
 days after its last, compares it with the purchase-time baseline, puts what Knowledge does
 not say on the clinic's "Changes on your website" list, and queues L23.
 
+The support drafter (`lib/scheduler/support-draft.ts`, lane P7b) is the `support-draft`
+row, shipped OFF: every minute from its own `support-draft` queue (install it and restart
+the worker, as above), up to three `new` support cases that name a clinic each get a draft
+reply written from the case's fields and the clinic's account, checked by the eight reply
+rules (`lib/support/draft/checks.ts`). It sends nothing: the case moves to `drafted` when
+every rule passes and `needs_edit` when one fails or the model could not be reached, with
+the rule or the reason shown on the case. At most five drafts a case; ops
+`regenerateSupportDraft` asks for another. Switch it on only with `ANTHROPIC_API_KEY` set:
+without the key every case it takes ends `needs_edit` (`model_unavailable`). A draft that passes
+every rule is put in the approval inbox for your yes at once (lane P7e); it still sends nothing.
+
+The support reply's retries (`lib/scheduler/support-send.ts`, lane P7e) are the `support-send`
+row, shipped OFF (drizzle/0127): every minute from its own `support-send` queue (install it and
+restart the worker, as above) and hourly from the tick, each reply you approved whose first try
+did not go is tried again on the email outbox's schedule, and stopped after six with
+`support_reply_dead`. It sends only the text you approved. While it is off, a failed first try
+waits with no retry. At 03 UTC, unswitched because it only deletes, the tick's
+`support-retention` step deletes the words of every reply sent more than 12 months ago, and the
+copy in its approval item; the rows, hashes and approval events stay.
+
 v1 adds jobs that are not built yet: the demo-sandbox purge (7 to 14 days), the 14-day
 zero-inbound flag for an active voice plan, the 48-hour zero-interaction flag, the
 48-hour channel-not-live reminder to the clinic, and the daily summary email to the
@@ -319,7 +339,9 @@ account holds is counted nowhere.
 `setup_request_reply_past_due`, `provisioning_follow_up_past_due`, `support_reply_past_due`,
 `assistant_knows_no_services`.
 Queues › Setup requests and Queues › Support: a reply promised by the next business day was
-not marked. Reply from hello@, then mark it. A follow-up past due is a paid order whose
+not marked. Reply from hello@, then mark it. Since lane P7e `support_reply_past_due` is raised
+only for a chat request that has no support case; a request on a case raises
+`support_case_past_due` instead (Support cases, below), one alert per promise. A follow-up past due is a paid order whose
 account still does not exist past the day we promised the buyer: Home counts paid orders
 without an account. Write to the buyer from hello@ today and get the cause fixed (see
 Provisioning). `assistant_knows_no_services` is AYA answering a
@@ -635,6 +657,20 @@ for a reminder sooner), one per kind; an email leaves the list unsent after 14 d
 sooner after three. The agreement question's answer is recorded by the owner, as he heard it,
 with a fresh code; a Yes or Not sure pauses AYA at every location until the BAA is signed.
 
+The same inbox holds every composed reply to a clinic's support request (`support_reply_send`,
+ops automation lane P7c; owner decision D12), the one email whose body is prose. A reply is put
+there only when its draft passes every reply check: by Save draft on the case (the operator's own
+text, saved as the next version) or Propose, and later by the drafter. The item shows the reply as
+the clinic would read it, under a subject fixed for its topic with the case's ref, signed The
+Healdesk Team. Send asks for the code from your authenticator; you may edit the body (never the
+subject) first, and the checks run again on exactly the text approved: if one fails, nothing is
+sent and the card names the rule, never the words. A case closed since, or a newer draft, sends
+nothing. The reply goes to the practice's one sign-in address, once; a failed try is tried again on
+the email outbox's schedule, and after six the sending stops (`support_reply_dead`). These items
+are drawn beside their case under Support, not under Approvals; Home's row for them opens Support.
+They raise no reminder of their own: the case's `support_case_past_due` already does. An item
+leaves the list unsent after 14 days, and at once, as `case_closed`, when its case is closed.
+
 ### Compliance pack
 
 `compliance_pack_ready`, `compliance_pack_failed`. The weekly compliance pack
@@ -695,3 +731,32 @@ item leaves the list unrun once the incident has been reported, recorded not rep
 resolved from that page. Each incident's checklist records the procedure's steps, once each, by
 the operator account; the email step needs a report or a recorded notice first, and the resolve
 step a resolved incident.
+
+### Support replies
+
+`support_reply_dead`. A support reply the owner approved (ops automation lane P7c,
+`apps/app/src/lib/support/send.ts`) failed every try: one at approval, then after 1, 5, 30, 120
+and 360 minutes, the email outbox's schedule. The sending has stopped; the text stays as approved
+and is never tried again, so the clinic has not heard. The clinic's Deliveries tab lists the reply
+under Reports and alerts (kind support_reply) with the last try's status and reason. Check the
+clinic's address if it bounced, then write to the clinic from hello@ with the same answer and
+close the case. The retries run from the `support-send` job (Jobs, above), which ships off:
+until it is on, only the first try at approval happens, and a failed first try stays waiting
+with no alert.
+
+### Support cases
+
+`support_case_past_due`, `support_case_now`. The support cases' watch (ops automation lane P7e,
+`apps/app/src/lib/support/watch.ts`), run by `ops-watch`. A case that still needs us (new, being
+drafted, drafted and waiting for your yes, or waiting for an edit) whose reply-by day has passed
+in New York raises `support_case_past_due`, once per case; a chat request on a case no longer
+raises `support_reply_past_due`, so one promise is one alert. A case the chat triaged `now`
+(calls not reaching AYA or ringing out, a charge questioned, a lost device, sign-in security)
+raises `support_case_now` within the minute, once per case, and Slack posts it. Each names the
+clinic, the case's ref and its reply-by day, never the clinic's words. Open Support,
+find the case by its ref, send its draft with your code (the Send button) or write from hello@
+and close it as replied by hand. The same watch, hourly, puts a case whose snooze ran out back where its draft
+says (drafted, waiting for an edit, or new for the drafter) and closes, silently, as
+`no_further_reply`, a case that has waited on the clinic 14 days since our reply: nothing is sent.
+The morning digest carries one line: "Support: N need you, M past their day, K waiting on a
+clinic".

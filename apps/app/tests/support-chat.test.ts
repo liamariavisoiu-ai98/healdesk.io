@@ -1,5 +1,13 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { CARRIERS, CARRIER_SERVICE_NUMBERS, COVERAGE_MODES, PATIENT_MODEL_IDS } from "@healdesk/catalog";
+import {
+  CARRIERS,
+  CARRIER_SERVICE_NUMBERS,
+  COVERAGE_MODES,
+  lintSupportTone,
+  PATIENT_MODEL_IDS,
+  SUPPORT_BANNED_PHRASES,
+  SUPPORT_TONE_RULES,
+} from "@healdesk/catalog";
 import { SETTING_KEYS } from "@/lib/portal/settings";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -18,7 +26,7 @@ import { forwardingAnswerFrom, forwardingStepsFrom, type ForwardingFacts } from 
 import { HELP_TEXT } from "@/lib/support/help-text";
 import { SUPPORT_LIMITS, SupportLimiter } from "@/lib/support/limits";
 import { SUPPORT_MODEL, supportRequest, type SupportModelClient } from "@/lib/support/model";
-import { buildSupportPrompt, SUPPORT_PROMPT_STABLE } from "@/lib/support/prompt";
+import { buildSupportPrompt, SUPPORT_PROMPT_STABLE, SUPPORT_TONE } from "@/lib/support/prompt";
 import { linkTo, LINK_TARGETS, SETTING_PLACES } from "@/lib/support/targets";
 import { SUPPORT_TOOLS } from "@/lib/support/tools";
 import type { SupportEvent } from "@/lib/support/turn";
@@ -167,11 +175,21 @@ function capture(): EmailTransport & { sent: Sent[] } {
   } as EmailTransport & { sent: Sent[] };
 }
 
+/** What each escalation handed the case writer (lib/support/cases.ts is the database's; support-cases-db.test.ts). */
+let recordedCases: Parameters<NonNullable<SupportChatContext["recordCase"]>>[0][] = [];
+beforeEach(() => {
+  recordedCases = [];
+});
+
 function context(
   client: SupportModelClient | null,
   over: Partial<SupportChatContext> = {},
 ): SupportChatContext {
   return {
+    recordCase: async (input) => {
+      recordedCases.push(input);
+      return { outcome: "opened", caseId: "7a1b2c3d-0000-4000-8000-000000000000", ref: "7F3KQ" };
+    },
     clinicId: CLINIC_ID,
     slug: "glow",
     deviceKey: "device-a",
@@ -208,7 +226,7 @@ function replyOf(events: readonly SupportEvent[]): string {
 // -----------------------------------------------------------------------------
 
 describe("the request", () => {
-  test("claude-opus-5-5, the help text cached as a static prefix, the clinic after it, four strict tools", () => {
+  test("claude-opus-5-5, the help text cached as a static prefix, the clinic after it, five strict tools", () => {
     const system = buildSupportPrompt({
       clinicName: "Radiance Med Spa",
       audience: "patients",
@@ -249,12 +267,34 @@ describe("the request", () => {
       "get_account_state",
       "get_forwarding_steps",
       "link_to",
+      "get_open_cases",
       "escalate_to_support",
     ]);
     for (const tool of SUPPORT_TOOLS) {
       expect(tool.strict, tool.name).toBe(true);
       expect(tool.input_schema.additionalProperties, tool.name).toBe(false);
     }
+  });
+
+  test("the tone layer: every rule and every banned phrase is in the cached prefix, before the help text", () => {
+    for (const rule of SUPPORT_TONE_RULES) expect(SUPPORT_PROMPT_STABLE, rule).toContain(rule);
+    for (const phrase of SUPPORT_BANNED_PHRASES) expect(SUPPORT_TONE, phrase).toContain(`"${phrase}"`);
+    expect(SUPPORT_PROMPT_STABLE.indexOf(SUPPORT_TONE)).toBeGreaterThan(0);
+    expect(SUPPORT_PROMPT_STABLE.indexOf(SUPPORT_TONE)).toBeLessThan(SUPPORT_PROMPT_STABLE.indexOf(HELP_TEXT));
+    // Signed by the team, never a first name.
+    expect(SUPPORT_TONE).toContain('signed "The Healdesk Team", never with a first name');
+    // The prefix names no clinic and no day, so the tone block keeps it cacheable.
+    expect(SUPPORT_TONE).not.toMatch(/\b20\d\d\b/);
+  });
+
+  test("a scripted reply with an exclamation mark or a banned phrase fails the tone lint; a calm one passes", () => {
+    const calm =
+      "Calls are going to your direct line, so nobody is missed. The forwarding codes are in Settings, Channels; once they are set, AYA answers from the next call.";
+    expect(lintSupportTone(calm)).toEqual([]);
+    expect(lintSupportTone(`${calm} All done!`)).toEqual([{ rule: "exclamation" }]);
+    expect(lintSupportTone(`Unfortunately the calendar disconnected. ${calm}`)).toEqual([
+      { rule: "banned_phrase", phrase: "unfortunately" },
+    ]);
   });
 
   test("the help text is partly generated from the Settings registry: every switch is in it", () => {
@@ -768,6 +808,67 @@ describe("an escalation", () => {
     expect(events.filter((e) => e.type === "escalated")).toEqual([
       { type: "escalated", topic: "forwarding", replyByOn: "2026-10-15", to: null },
     ]);
+
+    // Once I3 has gone, the request becomes a case: its id, the fields and
+    // L25's day, never a word of the chat.
+    expect(recordedCases).toHaveLength(1);
+    expect(recordedCases[0]).toMatchObject({
+      clinicId: CLINIC_ID,
+      requestId: "6f1e2d3c-4b5a-4968-8776-655443322110",
+      replyByOn: "2026-10-15",
+      fields: {
+        topic: "forwarding",
+        symptom: "calls_not_reaching_aya",
+        carrier: "verizon",
+        phoneSystem: "landline",
+        mode: "overflow_after_hours",
+        channel: null,
+      },
+    });
+    for (const word of ["zebra", "quokka", "Marisol", "wombat", "narwhal", "pangolin"]) {
+      expect(JSON.stringify(recordedCases), word).not.toContain(word);
+    }
+  });
+
+  test("a case that cannot be written is logged and the escalation still stands", async () => {
+    const lines: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(" "));
+    });
+    const transport = capture();
+    const model = fakeModel([
+      { tools: [{ name: "escalate_to_support", input: { category: "other", symptom: "other", fields: {} } }] },
+      { text: ["Sent."] },
+    ]);
+    const { events } = await chat(
+      context(model, {
+        email: { transport },
+        recordCase: async () => {
+          throw new Error("database unavailable");
+        },
+      }),
+      "Please get me a person",
+    );
+    expect(transport.sent).toHaveLength(1);
+    expect(events.some((e) => e.type === "escalated")).toBe(true);
+    expect(lines.some((l) => l.includes("support case not recorded"))).toBe(true);
+  });
+
+  test("an escalation that never reached hello@ opens no case", async () => {
+    const model = fakeModel([
+      { tools: [{ name: "escalate_to_support", input: { category: "other", symptom: "other", fields: {} } }] },
+      { text: ["Please call or email us."] },
+    ]);
+    const failing: EmailTransport = {
+      name: "failing",
+      async send(): Promise<DeliveryResult> {
+        return { status: "failed", reason: "transport_down" } as DeliveryResult;
+      },
+    } as EmailTransport;
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await chat(context(model, { email: { transport: failing } }), "Please get me a person");
+    expect(recordedCases).toHaveLength(0);
   });
 
   test("a topic or a symptom off its list sends nothing", async () => {

@@ -363,6 +363,18 @@ export const OPS_EVENTS = [
   // every 4 hours while it waits, one alert per kind with the count. No
   // clinic: the items are listed on one page.
   "incident_step_waiting",
+  // A support reply the owner approved that every try failed to send
+  // (lib/support/send.ts; ops automation lane P7c): six tries on the email
+  // outbox's schedule, then the sending stops and the clinic has not heard.
+  // Once an hour per clinic; the clinic and the count of tries, no words.
+  "support_reply_dead",
+  // The support cases' watch (lib/support/watch.ts; ops automation lane
+  // P7e): a case that still needs us past its reply-by day, once per case
+  // (it replaces support_reply_past_due for every chat escalation that is a
+  // case); and a case of urgency `now`, once per case, which Slack posts.
+  // The clinic, the case's id and ref, and its reply-by day; never words.
+  "support_case_past_due",
+  "support_case_now",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

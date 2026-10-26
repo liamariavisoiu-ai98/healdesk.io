@@ -20,6 +20,7 @@ import {
   type IncidentBatchPayload,
   type IncidentReportPayload,
 } from "./incident-payloads";
+import { parseSupportReplyPayload, type SupportReplyApprovalPayload } from "./support-payload";
 
 export {
   APPROVAL_EVENTS,
@@ -67,7 +68,9 @@ export type KindSpec = {
     | "queueSetupReminder"
     // The incident assistant (lane P6i): the existing openIncident, per clinic, and Send report.
     | "openIncident"
-    | "sendIncidentReport";
+    | "sendIncidentReport"
+    // A support reply (lane P7c, ./support-reply.ts): the checks again, then the send.
+    | "sendSupportReply";
   readonly urgency: ApprovalUrgency;
   /** Past this many hours after it was proposed, a waiting item is past due (one alert; a legal clock re-alerts every 4 hours). */
   readonly dueHours: number;
@@ -227,6 +230,20 @@ export const KIND_SPECS: Readonly<Record<ApprovalKind, KindSpec>> = {
     retriedBy: null,
     fieldsEditable: true,
   },
+  // A composed support reply (lane P7c; design E5 §2.3; owner decision D12):
+  // the one prose email, so a fresh code always, and its body is the
+  // editable draft. Due by the case's reply-by day (at once for a `now`
+  // case: ./support-reply.ts supportReplyDueAt, which overrides dueHours);
+  // after 14 days it leaves the list unsent. Nothing retries it.
+  support_reply_send: {
+    operation: "sendSupportReply",
+    urgency: "routine",
+    dueHours: 24,
+    expiryDays: 14,
+    irreversible: true,
+    hasDraft: true,
+    retriedBy: null,
+  },
 };
 
 /** The kinds that email a clinic (lane P6f): proposed by an operator's button, or the BAA chase by the job. */
@@ -269,7 +286,7 @@ export const RETRIED_BY_REQUEST_KIND: Readonly<Record<BillingRequestKind, string
  * `contact` (lane P6f's kinds, drawn in the Approvals section beside the
  * billing kinds).
  */
-export const APPROVAL_FAMILIES = ["billing", "incident", "contact"] as const;
+export const APPROVAL_FAMILIES = ["billing", "incident", "contact", "support"] as const;
 export type ApprovalFamily = (typeof APPROVAL_FAMILIES)[number];
 export const KIND_FAMILY: Readonly<Record<ApprovalKind, ApprovalFamily>> = {
   billing_request_retry: "billing",
@@ -283,6 +300,8 @@ export const KIND_FAMILY: Readonly<Record<ApprovalKind, ApprovalFamily>> = {
   setup_reminder_now: "contact",
   incident_open_batch: "incident",
   incident_report_send: "incident",
+  // Lane P7c: drawn by the support console (lane P7d), not the Approvals section.
+  support_reply_send: "support",
 };
 
 export function kindsOfFamily(family: ApprovalFamily): ApprovalKind[] {
@@ -330,6 +349,7 @@ export type Payloads = {
   billing_event_replay: { eventType: string; parkedAt: string };
   incident_open_batch: IncidentBatchPayload;
   incident_report_send: IncidentReportPayload;
+  support_reply_send: SupportReplyApprovalPayload;
 } & ContactPayloads;
 
 /**
@@ -368,6 +388,8 @@ export function parsePayload<K extends ApprovalKind>(kind: K, raw: unknown): Pay
       return parseIncidentBatchPayload(p) as Payloads[K] | null;
     case "incident_report_send":
       return parseIncidentReportPayload(p) as Payloads[K] | null;
+    case "support_reply_send":
+      return parseSupportReplyPayload(p) as Payloads[K] | null;
   }
   return null;
 }

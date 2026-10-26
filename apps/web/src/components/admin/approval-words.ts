@@ -12,6 +12,7 @@ import type {
   ContactRecommendation,
   IncidentApprovalKind,
   OpenResignRow,
+  SupportApprovalKind,
   RejectReason,
 } from "@/lib/admin/ops-client";
 import type { Tone } from "@/lib/admin/strip-types";
@@ -38,7 +39,7 @@ import { waited } from "./queue-words";
  */
 
 /** Every kind the inbox holds: the billing and clinic-contact kinds ops-client lists, and the incident assistant's two. */
-export type AnyApprovalKind = ApprovalKind | IncidentApprovalKind;
+export type AnyApprovalKind = ApprovalKind | IncidentApprovalKind | SupportApprovalKind;
 
 export const APPROVAL_KIND_WORDS: Record<AnyApprovalKind, string> = {
   billing_request_retry: "Retry a billing change the billing worker gave up on",
@@ -54,16 +55,19 @@ export const APPROVAL_KIND_WORDS: Record<AnyApprovalKind, string> = {
   // The incident assistant (lane P6i): legal clocks.
   incident_open_batch: "Open an incident at each clinic a vendor's or a channel's incident reached",
   incident_report_send: "Send a practice its incident report",
+  // A support reply (lane P7c), drawn beside its case on the Support section (lane P7d).
+  support_reply_send: "Send a reply to a clinic's support request",
 };
 
 /** The three groups the section draws, in the order the owner reads them: the legal clocks first. */
-export const APPROVAL_FAMILIES = ["incident", "contact", "billing"] as const;
+export const APPROVAL_FAMILIES = ["incident", "contact", "billing", "support"] as const;
 export type ApprovalFamily = (typeof APPROVAL_FAMILIES)[number];
 
 export const FAMILY_WORDS: Record<ApprovalFamily, string> = {
   incident: "Incidents: an agreement's clock is running",
   contact: "Emails to clinics",
   billing: "Billing",
+  support: "Support replies",
 };
 
 const FAMILY_OF: Record<AnyApprovalKind, ApprovalFamily> = {
@@ -78,6 +82,7 @@ const FAMILY_OF: Record<AnyApprovalKind, ApprovalFamily> = {
   setup_reminder_now: "contact",
   incident_open_batch: "incident",
   incident_report_send: "incident",
+  support_reply_send: "support",
 };
 
 export function familyOf(kind: AnyApprovalKind): ApprovalFamily {
@@ -256,6 +261,12 @@ export const OUTCOME_WORDS: Readonly<Record<string, string>> = {
   // The incident assistant's executors (apps/app lib/approvals/incident-kinds.ts, lane P6i).
   opened: "the incidents were opened",
   partly_opened: "some of the incidents were opened, not all",
+  // The support reply's executor (apps/app lib/approvals/support-reply.ts, lane P7c).
+  send_retrying: "approved; the first try did not go, so it is being tried again",
+  checks_failed: "the reply failed a check, so nothing was sent",
+  subject_changed: "the subject was changed, which a support reply does not allow",
+  not_a_reply: "the case had nothing from the clinic to reply to",
+  clinic_left: "the practice has no sign-in address any more",
 };
 
 /** An outcome code in words; one this table does not know is printed as its own words. */
@@ -272,6 +283,8 @@ export function outcomeWords(code: string | null): string | null {
 export function actorWords(label: string): string {
   if (label === "approvals-propose") return "the approvals job";
   if (label === "incident-assistant") return "the incident assistant";
+  // Lane P7c: a support draft that passed every check, proposed by the support side.
+  if (label === "support-drafts") return "the support drafts";
   return label;
 }
 
@@ -296,6 +309,7 @@ export const IRREVERSIBLE_CONFIRM: Record<AnyApprovalKind, string> = {
   setup_reminder_now: "This cannot be undone once the reminder has gone.",
   incident_open_batch: "This cannot be undone once the incidents have been opened.",
   incident_report_send: "This cannot be undone once the report has been emailed.",
+  support_reply_send: "This cannot be undone once the reply has gone.",
 };
 
 /**
@@ -347,6 +361,7 @@ const REJECT_WORDS: Record<Exclude<AnyApprovalKind, "billing_request_retry" | "o
     "Nothing is opened, and this scope is not proposed again. To open an incident at one clinic, use its Care tab; a new scope can be proposed from the Incidents page.",
   incident_report_send:
     "Nothing is sent, and the agreement's clock keeps running. The report can be proposed again from the Incidents page, or sent from there with Send report; the hourly job does not propose it again.",
+  support_reply_send: "Nothing is sent. The case keeps its draft, which can be edited and proposed again from the case.",
 };
 
 /** Where to retry an item that has a clinic by hand: its Billing tab has the same button. */

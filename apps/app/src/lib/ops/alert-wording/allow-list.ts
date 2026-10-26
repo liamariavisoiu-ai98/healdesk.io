@@ -41,6 +41,8 @@ export const DAY_KEYS: ReadonlySet<string> = new Set([
   "serviceEndedAt",
   "expiresOn",
 ]);
+/** A support case's printed ref (lane P7e): "HD-" and five characters of Crockford base32, never a word. */
+const SUPPORT_REF = /^HD-[0-9ABCDEFGHJKMNPQRSTVWXYZ]{5}$/;
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?(?:Z|[+-]\d{2}:\d{2}))?$/;
 
 // <business-name-rule>
@@ -102,6 +104,8 @@ export function allowedAlertFields(fields: Readonly<Record<string, unknown>>): R
     } else if (key === "business") {
       const name = printableBusinessName(value);
       if (name) out.business = name;
+    } else if (key === "supportRef") {
+      if (typeof value === "string" && SUPPORT_REF.test(value)) out.supportRef = value;
     } else if (Object.hasOwn(CLOSED_WORDS, key)) {
       if (closedWord(key, value) !== null) out[key] = value as string;
     } else if (Object.hasOwn(EVENT_WORDS, key)) {
@@ -141,6 +145,7 @@ export const NAMED_PLACEHOLDERS: ReadonlySet<string> = new Set([
   "clinicName",
   "business",
   "percent",
+  "supportRef",
   ...Object.keys(CLOSED_WORDS),
   ...Object.keys(EVENT_WORDS),
   ...DAY_KEYS,

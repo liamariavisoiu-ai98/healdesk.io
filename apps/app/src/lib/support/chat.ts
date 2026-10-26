@@ -8,7 +8,8 @@ import { helpContacts } from "@/lib/setup/help";
 import type { SetupState } from "@/lib/setup/state";
 
 import type { AccountState } from "./account-state";
-import { escalateToSupport } from "./escalate";
+import { readOpenCases, type OpenCase } from "./draft/open-cases";
+import { escalateToSupport, type EscalationContext } from "./escalate";
 import { supportLines } from "./lines";
 import type { ForwardingAnswer } from "./forwarding";
 import type { SupportLimiter } from "./limits";
@@ -35,7 +36,7 @@ export { supportLines } from "./lines";
  * is screened and shown back to them as the model will see it; the clinic's
  * and the device's limits are taken; the earlier messages are screened again
  * (the browser is not trusted to have kept them screened); and the turn runs
- * with the four read-only tools. Past a limit, on a refusal and when the
+ * with the five read-only tools. Past a limit, on a refusal and when the
  * model can't be reached, the reply is a fixed line with the support phone
  * and hello@healdesk.io, so a person is always one step away.
  */
@@ -79,6 +80,10 @@ export type SupportChatContext = {
   email?: SendEmailOptions;
   now?: Date;
   newId?: () => string;
+  /** The escalation's case writer, for the tests (lib/support/cases.ts otherwise). */
+  recordCase?: EscalationContext["recordCase"];
+  /** get_open_cases's reader, for the tests (lib/support/draft/open-cases.ts otherwise). */
+  readOpenCases?: () => Promise<OpenCase[]>;
 };
 
 /** What the screen lets through: the practice's own numbers, the sign-in's address, healdesk's line. */
@@ -178,6 +183,7 @@ export async function handleSupportChat(
         return steps;
       },
       linkTo: (setting) => (isLinkTarget(setting) ? linkTo(ctx.slug, setting) : null),
+      openCases: () => (ctx.readOpenCases ?? (() => readOpenCases(ctx.clinicId)))(),
       escalate: (input) =>
         escalateToSupport(
           {
@@ -192,6 +198,7 @@ export async function handleSupportChat(
             email: ctx.email,
             now,
             newId: ctx.newId,
+            recordCase: ctx.recordCase,
           },
           input,
         ),

@@ -83,6 +83,7 @@ import { BAA_RESIGN_CHASE_ENTRY } from "./baa_resign_chase";
 import { SETUP_EXTENDED_ENTRY } from "./setup_extended";
 import { SETUP_HELP_OFFER_ENTRY } from "./setup_help_offer";
 import { SETUP_WAITING_ON_US_ENTRY } from "./setup_waiting_on_us";
+import { SUPPORT_REPLY_ENTRY } from "./support_reply";
 
 /**
  * Which kinds have a template, and who owes the rest.
@@ -236,6 +237,9 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   setup_help_offer: SETUP_HELP_OFFER_ENTRY,
   agreement_question: AGREEMENT_QUESTION_ENTRY,
   baa_resign_chase: BAA_RESIGN_CHASE_ENTRY,
+  // Ops automation lane P7c: L37, a support reply, the one prose email, sent
+  // only once the owner approves it (owner decision D12; lib/support/send.ts).
+  support_reply: SUPPORT_REPLY_ENTRY,
 };
 
 /**
@@ -364,6 +368,7 @@ export const PENDING_TEMPLATES: Record<
     | "agreement_copy"
     | "access_request"
     | ContactTemplatedKind
+    | "support_reply"
     | BillingTemplatedKind
   >,
   PendingTemplate

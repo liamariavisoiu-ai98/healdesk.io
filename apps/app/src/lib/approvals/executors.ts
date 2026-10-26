@@ -12,6 +12,7 @@ import { CONTACT_EXECUTORS } from "./contact-executors";
 import type { Draft } from "./drafts";
 import { INCIDENT_EXECUTORS } from "./incident-kinds";
 import { KIND_SPECS, parsePayload, subjectId, type ApprovalKind } from "./kinds";
+import { SUPPORT_REPLY_EXECUTOR } from "./support-reply";
 import { billingSwitches, stillParkedAsProposed } from "./packets";
 
 /**
@@ -182,6 +183,8 @@ export function allExecutors(): Readonly<Record<ApprovalKind, Executor>> {
     // The incident assistant (lane P6i): openIncident per clinic, and Send report.
     incident_open_batch: INCIDENT_EXECUTORS.incident_open_batch,
     incident_report_send: INCIDENT_EXECUTORS.incident_report_send,
+    // A support reply (lane P7c): the checks again on the text approved, then the send.
+    support_reply_send: SUPPORT_REPLY_EXECUTOR,
   };
 }
 

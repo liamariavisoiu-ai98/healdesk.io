@@ -196,6 +196,27 @@ describeDb("the support chat, on a real clinic", () => {
     expect(sent.sent[0]!.message.text).toContain(
       "A person at healdesk will reply to this address by Thursday 15 October.",
     );
+
+    // And it is one support case (lane P7a, drizzle/0125): the request's id
+    // and the fields, L25's day as its reply-by, no words.
+    const cases = await getMigratorPool().query<{ id: string; state: string; category: string; urgency: string; d: string }>(
+      `select id, state, category, urgency, to_char(reply_by_on, 'YYYY-MM-DD') as d from support_cases where subject_clinic_id = $1`,
+      [clinic.clinicId],
+    );
+    expect(cases.rows).toEqual([
+      { id: expect.any(String), state: "new", category: "calendar", urgency: "today", d: "2026-10-15" },
+    ]);
+    const messages = await getMigratorPool().query(
+      `select request_id, text, fields_json from support_messages where case_id = $1`,
+      [cases.rows[0]!.id],
+    );
+    expect(messages.rows).toEqual([
+      {
+        request_id: requestId,
+        text: null,
+        fields_json: { topic: "calendar", symptom: "wont_connect", carrier: null, phoneSystem: null, mode: null, channel: null },
+      },
+    ]);
   });
 
   test("an escalation whose I3 fails tells nobody a person will reply: no L25 is queued", async () => {
@@ -228,6 +249,12 @@ describeDb("the support chat, on a real clinic", () => {
       { category: "other", symptom: "other", fields: {} },
     );
     expect(result).toEqual({ status: "failed" });
+    // Nor is a case opened for a request no person received.
+    const cases = await getMigratorPool().query(
+      `select 1 from support_messages where request_id = $1`,
+      [requestId],
+    );
+    expect(cases.rows).toEqual([]);
     const count = await inTenant(clinic.clinicId, async (c) => {
       const found = await c.query<{ n: string }>(
         `select count(*)::text as n from billing_notices where dedupe_key = $1`,

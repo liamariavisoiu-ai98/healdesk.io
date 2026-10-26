@@ -439,7 +439,27 @@ type OperatorOp =
   | "incidentChecklist"
   | "tickIncidentStep"
   | "proposeIncidentBatch"
-  | "proposeIncidentReport";
+  | "proposeIncidentReport"
+  // The support team's cases (apps/app lib/ops/support-case-ops.ts; ops
+  // automation Phase 7, lane P7a): the cases across clinics, one case with
+  // what passed on it and its facts panel, and the operator's snooze,
+  // reassign, match and close. Refs, closed words, counts, dates, labels and
+  // the clinic's name; never a word of the clinic's text. Nothing sends mail.
+  | "listSupportCases"
+  | "getSupportCase"
+  | "snoozeSupportCase"
+  | "assignSupportCase"
+  | "matchSupportCase"
+  | "closeSupportCase"
+  // A support reply (apps/app lib/ops/support-reply-ops.ts; lane P7c): the
+  // reply checks on an edited text (rule names only), the operator's own
+  // draft as the next version, and a draft proposed into the approval inbox.
+  // Nothing here sends: a reply goes only on the owner's approval, with a
+  // fresh code (lib/admin/approval-decide.ts).
+  | "previewSupportReply"
+  | "saveSupportDraft"
+  | "proposeSupportReply"
+  | "regenerateSupportDraft";
 
 /**
  * The operations a MACHINE asks for, with no browser behind them, and there is
@@ -7539,7 +7559,7 @@ export function fetchApprovals(
     return {
       // The incident assistant's items are fetchIncidentApprovals' (lane P6i): the Approvals section does not draw them.
       items: list(data.items, "listApprovals.items")
-        .filter((row) => !isIncidentApprovalRow(row))
+        .filter((row) => !isIncidentApprovalRow(row) && !isSupportApprovalRow(row))
         .map((row, i) => readApprovalItem(row, `listApprovals.items[${i}]`)),
       partial: list(data.partial, "listApprovals.partial").map((p, i) => id(p, `listApprovals.partial[${i}]`)),
     };
@@ -7556,7 +7576,8 @@ export function fetchApprovalHistory(
   return callOps("listApprovalHistory", "read", args, (value) => {
     const data = exactKeys(value, ["events"], "listApprovalHistory");
     // The incident assistant's events are fetchIncidentApprovalHistory's (lane P6i).
-    return list(data.events, "listApprovalHistory.events").filter((row) => !isIncidentApprovalRow(row)).map((row, i) => {
+    // The support replies' events are fetchSupportReplyHistory's (lane P7c).
+    return list(data.events, "listApprovalHistory.events").filter((row) => !isIncidentApprovalRow(row) && !isSupportApprovalRow(row)).map((row, i) => {
       const at = `listApprovalHistory.events[${i}]`;
       const r = exactKeys(
         row,
@@ -9157,5 +9178,722 @@ export function fetchIncidentApprovalHistory(options: { limit?: number } = {}): 
           at: isoInstant(r.at, `${at}.at`),
         };
       });
+  });
+}
+
+// -----------------------------------------------------------------------------
+// The support team's cases (lane P7a)
+// -----------------------------------------------------------------------------
+
+/** apps/app lib/support/case-vocab.ts, word for word. */
+export const SUPPORT_CASE_STATES = ["new", "drafting", "drafted", "needs_edit", "waiting_clinic", "snoozed", "closed"] as const;
+export type SupportCaseState = (typeof SUPPORT_CASE_STATES)[number];
+export const SUPPORT_CASE_FILTERS = [...SUPPORT_CASE_STATES, "open", "needs_us", "all"] as const;
+export type SupportCaseFilter = (typeof SUPPORT_CASE_FILTERS)[number];
+export const SUPPORT_CASE_SOURCES = ["email", "chat"] as const;
+export const SUPPORT_CASE_CATEGORIES = ["forwarding", "calendar", "channel", "plan", "billing", "transcript", "sign_in", "other"] as const;
+export type SupportCaseCategory = (typeof SUPPORT_CASE_CATEGORIES)[number];
+export const SUPPORT_CASE_URGENCIES = ["now", "today", "this_week"] as const;
+export const SUPPORT_CLOSED_REASONS = [
+  "replied_by_hand",
+  "no_reply_needed",
+  "duplicate",
+  "not_a_clinic",
+  "spam",
+  "no_further_reply",
+] as const;
+export type SupportClosedReason = (typeof SUPPORT_CLOSED_REASONS)[number];
+const SUPPORT_MESSAGE_KINDS = ["email", "chat_escalation", "ack", "reply"] as const;
+
+export type SupportCaseRowView = {
+  id: string;
+  /** Printed: "HD-7F3KQ". */
+  ref: string;
+  clinicId: string | null;
+  clinicName: string | null;
+  source: (typeof SUPPORT_CASE_SOURCES)[number];
+  category: SupportCaseCategory;
+  /** A symptom id from the chat's list (apps/app lib/support/escalation-fields.ts). */
+  symptom: string;
+  urgency: (typeof SUPPORT_CASE_URGENCIES)[number];
+  state: SupportCaseState;
+  assigneeLabel: string | null;
+  openedAt: string;
+  ageHours: number;
+  replyByOn: string;
+  pastDue: boolean;
+  snoozedUntil: string | null;
+  lastInboundAt: string;
+  lastOutboundAt: string | null;
+  closedAt: string | null;
+  closedReason: SupportClosedReason | null;
+  phiSuspected: boolean;
+  hidden: { numbers: number; emails: number; treatments: number; clinical: number };
+  inboundCount: number;
+};
+
+export type SupportCasesView = { rows: SupportCaseRowView[]; count: number; truncated: boolean };
+
+export type SupportMessageView = {
+  id: string;
+  direction: "in" | "out";
+  kind: (typeof SUPPORT_MESSAGE_KINDS)[number];
+  at: string;
+  /** A chat escalation's fields, ids from fixed lists; null on every other kind. */
+  fields: Record<string, string | null> | null;
+  hasDraft: boolean;
+  draftVersion: number | null;
+  approvedAt: string | null;
+  sentAt: string | null;
+};
+
+/** get_account_state's facts, less the clinic's phone numbers (flags say whether each is set). */
+export type SupportAccountFactsView = {
+  clinicId: string;
+  isClosed: boolean;
+  isSetupFinished: boolean;
+  setupStepsLeftCount: number;
+  setupDeadlineAt: string | null;
+  stageRows: { code: string; status: string }[];
+  channelRows: { channel: string; status: string; waitingOn: string | null; isEnabled: boolean; liveAt: string | null }[];
+  isPaused: boolean;
+  pausedUntilAt: string | null;
+  mode: string | null;
+  carrier: string | null;
+  phoneSystem: string | null;
+  isUrgentHelpSet: boolean;
+  isTransferOn: boolean;
+  isDailySummaryOn: boolean;
+  isDepositsOn: boolean;
+  connectionRows: { resource: string; status: string }[];
+  planId: string | null;
+  interval: string | null;
+  status: string | null;
+  isPlanStarted: boolean;
+  planStartedAt: string | null;
+  isAutoRenewOn: boolean | null;
+  closesOn: string | null;
+  overageMode: string | null;
+  isUsageAlertsOn: boolean | null;
+  hasOpenInvoice: boolean;
+  graceEndsAt: string | null;
+  usageRows: { meter: string; used: number; included: number }[];
+  isAddressUndeliverable: boolean;
+  isPublishedPhoneSet: boolean;
+  isDirectLineSet: boolean;
+};
+
+export type SupportCaseFactsView = {
+  days: number;
+  account: SupportAccountFactsView | null;
+  alerts: { event: string; raisedAt: string; lastRaisedAt: string; repeats: number }[] | null;
+  transcripts: Record<string, number> | null;
+};
+
+export type SupportCaseView = {
+  case: SupportCaseRowView;
+  messages: SupportMessageView[];
+  facts: SupportCaseFactsView | null;
+  /** The newest draft, or why the last run wrote none (lane P7b); null until the drafter has run. */
+  draft: SupportDraftView | null;
+  /** The names a case may be given to (HEALDESK_OPS_PEOPLE). */
+  people: string[];
+};
+
+export type SupportCaseMoveOutcome = {
+  outcome: "done" | "unchanged";
+  ref: string;
+  state: SupportCaseState;
+  auditRecorded: boolean;
+};
+
+function supportRef(value: unknown, at: string): string {
+  if (typeof value !== "string" || !/^HD-[0-9ABCDEFGHJKMNPQRSTVWXYZ]{5}$/.test(value)) throw new ShapeError(at);
+  return value;
+}
+
+/** A catalog or closed id: lower case, digits, underscores and hyphens (plan ids carry hyphens). */
+function token64(value: unknown, at: string): string {
+  if (typeof value !== "string" || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(value)) throw new ShapeError(at);
+  return value;
+}
+
+/** A day or an instant, as apps/app's readers give either. */
+function dayOrInstant(value: unknown, at: string): string {
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  return isoInstant(value, at);
+}
+
+function personLabel(value: unknown, at: string): string {
+  if (typeof value !== "string" || !/^[A-Za-z][A-Za-z .'-]{0,59}$/.test(value)) throw new ShapeError(at);
+  return value;
+}
+
+function readSupportCaseRow(value: unknown, at: string): SupportCaseRowView {
+  const r = exactKeys(
+    value,
+    [
+      "id", "ref", "clinicId", "clinicName", "source", "category", "symptom", "urgency", "state", "assigneeLabel",
+      "openedAt", "ageHours", "replyByOn", "pastDue", "snoozedUntil", "lastInboundAt", "lastOutboundAt", "closedAt",
+      "closedReason", "phiSuspected", "hidden", "inboundCount",
+    ],
+    at,
+  );
+  const hidden = exactKeys(r.hidden, ["numbers", "emails", "treatments", "clinical"], `${at}.hidden`);
+  return {
+    id: id(r.id, `${at}.id`),
+    ref: supportRef(r.ref, `${at}.ref`),
+    clinicId: nullable(r.clinicId, (v) => id(v, `${at}.clinicId`)),
+    clinicName: nullable(r.clinicName, (v) => text(v, `${at}.clinicName`)),
+    source: literal(r.source, SUPPORT_CASE_SOURCES, `${at}.source`),
+    category: literal(r.category, SUPPORT_CASE_CATEGORIES, `${at}.category`),
+    symptom: code(r.symptom, `${at}.symptom`),
+    urgency: literal(r.urgency, SUPPORT_CASE_URGENCIES, `${at}.urgency`),
+    state: literal(r.state, SUPPORT_CASE_STATES, `${at}.state`),
+    assigneeLabel: nullable(r.assigneeLabel, (v) => personLabel(v, `${at}.assigneeLabel`)),
+    openedAt: isoInstant(r.openedAt, `${at}.openedAt`),
+    ageHours: count(r.ageHours, `${at}.ageHours`),
+    replyByOn: date(r.replyByOn, `${at}.replyByOn`),
+    pastDue: bool(r.pastDue, `${at}.pastDue`),
+    snoozedUntil: optionalIsoInstant(r.snoozedUntil, `${at}.snoozedUntil`),
+    lastInboundAt: isoInstant(r.lastInboundAt, `${at}.lastInboundAt`),
+    lastOutboundAt: optionalIsoInstant(r.lastOutboundAt, `${at}.lastOutboundAt`),
+    closedAt: optionalIsoInstant(r.closedAt, `${at}.closedAt`),
+    closedReason: nullable(r.closedReason, (v) => literal(v, SUPPORT_CLOSED_REASONS, `${at}.closedReason`)),
+    phiSuspected: bool(r.phiSuspected, `${at}.phiSuspected`),
+    hidden: {
+      numbers: count(hidden.numbers, `${at}.hidden.numbers`),
+      emails: count(hidden.emails, `${at}.hidden.emails`),
+      treatments: count(hidden.treatments, `${at}.hidden.treatments`),
+      clinical: count(hidden.clinical, `${at}.hidden.clinical`),
+    },
+    inboundCount: count(r.inboundCount, `${at}.inboundCount`),
+  };
+}
+
+const ESCALATION_FIELD_KEYS = ["topic", "symptom", "carrier", "phoneSystem", "mode", "channel"] as const;
+
+function readSupportMessage(value: unknown, at: string): SupportMessageView {
+  const m = exactKeys(value, ["id", "direction", "kind", "at", "fields", "hasDraft", "draftVersion", "approvedAt", "sentAt"], at);
+  const kind = literal(m.kind, SUPPORT_MESSAGE_KINDS, `${at}.kind`);
+  let fields: Record<string, string | null> | null = null;
+  if (m.fields !== null) {
+    if (kind !== "chat_escalation") throw new ShapeError(`${at}.fields`);
+    const f = exactKeys(m.fields, ESCALATION_FIELD_KEYS, `${at}.fields`);
+    fields = Object.fromEntries(
+      ESCALATION_FIELD_KEYS.map((key) => [key, nullable(f[key], (v) => token64(v, `${at}.fields.${key}`))]),
+    );
+  }
+  return {
+    id: id(m.id, `${at}.id`),
+    direction: literal(m.direction, ["in", "out"] as const, `${at}.direction`),
+    kind,
+    at: isoInstant(m.at, `${at}.at`),
+    fields,
+    hasDraft: bool(m.hasDraft, `${at}.hasDraft`),
+    draftVersion: nullable(m.draftVersion, (v) => count(v, `${at}.draftVersion`)),
+    approvedAt: optionalIsoInstant(m.approvedAt, `${at}.approvedAt`),
+    sentAt: optionalIsoInstant(m.sentAt, `${at}.sentAt`),
+  };
+}
+
+const ACCOUNT_FACT_KEYS = [
+  "clinicId", "isClosed", "isSetupFinished", "setupStepsLeftCount", "setupDeadlineAt", "stageRows", "channelRows",
+  "isPaused", "pausedUntilAt", "mode", "carrier", "phoneSystem", "isUrgentHelpSet", "isTransferOn",
+  "isDailySummaryOn", "isDepositsOn", "connectionRows", "planId", "interval", "status", "isPlanStarted",
+  "planStartedAt", "isAutoRenewOn", "closesOn", "overageMode", "isUsageAlertsOn", "hasOpenInvoice", "graceEndsAt",
+  "usageRows", "isAddressUndeliverable", "isPublishedPhoneSet", "isDirectLineSet",
+] as const;
+
+function readAccountFacts(value: unknown, at: string): SupportAccountFactsView {
+  const a = exactKeys(value, ACCOUNT_FACT_KEYS, at);
+  const opt = (key: string) => nullable(a[key], (v) => token64(v, `${at}.${key}`));
+  const when = (key: string) => nullable(a[key], (v) => dayOrInstant(v, `${at}.${key}`));
+  return {
+    clinicId: id(a.clinicId, `${at}.clinicId`),
+    isClosed: bool(a.isClosed, `${at}.isClosed`),
+    isSetupFinished: bool(a.isSetupFinished, `${at}.isSetupFinished`),
+    setupStepsLeftCount: count(a.setupStepsLeftCount, `${at}.setupStepsLeftCount`),
+    setupDeadlineAt: when("setupDeadlineAt"),
+    stageRows: list(a.stageRows, `${at}.stageRows`).map((row, i) => {
+      const r = exactKeys(row, ["code", "status"], `${at}.stageRows[${i}]`);
+      return { code: token64(r.code, `${at}.stageRows[${i}].code`), status: token64(r.status, `${at}.stageRows[${i}].status`) };
+    }),
+    channelRows: list(a.channelRows, `${at}.channelRows`).map((row, i) => {
+      const r = exactKeys(row, ["channel", "status", "waitingOn", "isEnabled", "liveAt"], `${at}.channelRows[${i}]`);
+      return {
+        channel: token64(r.channel, `${at}.channelRows[${i}].channel`),
+        status: token64(r.status, `${at}.channelRows[${i}].status`),
+        waitingOn: nullable(r.waitingOn, (v) => token64(v, `${at}.channelRows[${i}].waitingOn`)),
+        isEnabled: bool(r.isEnabled, `${at}.channelRows[${i}].isEnabled`),
+        liveAt: nullable(r.liveAt, (v) => dayOrInstant(v, `${at}.channelRows[${i}].liveAt`)),
+      };
+    }),
+    isPaused: bool(a.isPaused, `${at}.isPaused`),
+    pausedUntilAt: when("pausedUntilAt"),
+    mode: opt("mode"),
+    carrier: opt("carrier"),
+    phoneSystem: opt("phoneSystem"),
+    isUrgentHelpSet: bool(a.isUrgentHelpSet, `${at}.isUrgentHelpSet`),
+    isTransferOn: bool(a.isTransferOn, `${at}.isTransferOn`),
+    isDailySummaryOn: bool(a.isDailySummaryOn, `${at}.isDailySummaryOn`),
+    isDepositsOn: bool(a.isDepositsOn, `${at}.isDepositsOn`),
+    connectionRows: list(a.connectionRows, `${at}.connectionRows`).map((row, i) => {
+      const r = exactKeys(row, ["resource", "status"], `${at}.connectionRows[${i}]`);
+      return { resource: token64(r.resource, `${at}.connectionRows[${i}].resource`), status: token64(r.status, `${at}.connectionRows[${i}].status`) };
+    }),
+    planId: opt("planId"),
+    interval: opt("interval"),
+    status: opt("status"),
+    isPlanStarted: bool(a.isPlanStarted, `${at}.isPlanStarted`),
+    planStartedAt: when("planStartedAt"),
+    isAutoRenewOn: nullable(a.isAutoRenewOn, (v) => bool(v, `${at}.isAutoRenewOn`)),
+    closesOn: when("closesOn"),
+    overageMode: opt("overageMode"),
+    isUsageAlertsOn: nullable(a.isUsageAlertsOn, (v) => bool(v, `${at}.isUsageAlertsOn`)),
+    hasOpenInvoice: bool(a.hasOpenInvoice, `${at}.hasOpenInvoice`),
+    graceEndsAt: when("graceEndsAt"),
+    usageRows: list(a.usageRows, `${at}.usageRows`).map((row, i) => {
+      const r = exactKeys(row, ["meter", "used", "included"], `${at}.usageRows[${i}]`);
+      return {
+        meter: token64(r.meter, `${at}.usageRows[${i}].meter`),
+        used: count(r.used, `${at}.usageRows[${i}].used`),
+        included: count(r.included, `${at}.usageRows[${i}].included`),
+      };
+    }),
+    isAddressUndeliverable: bool(a.isAddressUndeliverable, `${at}.isAddressUndeliverable`),
+    isPublishedPhoneSet: bool(a.isPublishedPhoneSet, `${at}.isPublishedPhoneSet`),
+    isDirectLineSet: bool(a.isDirectLineSet, `${at}.isDirectLineSet`),
+  };
+}
+
+function readCaseFacts(value: unknown, at: string): SupportCaseFactsView {
+  const f = exactKeys(value, ["days", "account", "alerts", "transcripts"], at);
+  return {
+    days: count(f.days, `${at}.days`),
+    account: nullable(f.account, (v) => readAccountFacts(v, `${at}.account`)),
+    alerts: nullable(f.alerts, (v) =>
+      list(v, `${at}.alerts`).map((row, i) => {
+        const r = exactKeys(row, ["event", "raisedAt", "lastRaisedAt", "repeats"], `${at}.alerts[${i}]`);
+        return {
+          event: code(r.event, `${at}.alerts[${i}].event`),
+          raisedAt: isoInstant(r.raisedAt, `${at}.alerts[${i}].raisedAt`),
+          lastRaisedAt: isoInstant(r.lastRaisedAt, `${at}.alerts[${i}].lastRaisedAt`),
+          repeats: count(r.repeats, `${at}.alerts[${i}].repeats`),
+        };
+      }),
+    ),
+    transcripts: nullable(f.transcripts, (v) => {
+      const t = object(v, `${at}.transcripts`);
+      return Object.fromEntries(Object.entries(t).map(([k, n]) => [code(k, `${at}.transcripts`), count(n, `${at}.transcripts.${k}`)]));
+    }),
+  };
+}
+
+/** The support cases across clinics, the ones that need us first. Never a word of text. */
+export function fetchSupportCases(
+  options: { state?: SupportCaseFilter; limit?: number; includeDemo?: boolean } = {},
+): Promise<OpsResult<SupportCasesView>> {
+  const args: Record<string, unknown> = {};
+  if (options.state) args.state = options.state;
+  if (options.limit !== undefined) args.limit = options.limit;
+  if (options.includeDemo) args.includeDemo = true;
+  return callOps("listSupportCases", "read", args, (value) => {
+    const data = exactKeys(value, ["rows", "count", "truncated"], "listSupportCases");
+    return {
+      rows: list(data.rows, "listSupportCases.rows").map((row, i) => readSupportCaseRow(row, `listSupportCases.rows[${i}]`)),
+      count: count(data.count, "listSupportCases.count"),
+      truncated: bool(data.truncated, "listSupportCases.truncated"),
+    };
+  });
+}
+
+/** One case, what passed on it (kinds and times, a chat escalation's fields) and its facts panel. */
+export function fetchSupportCase(caseId: string): Promise<OpsResult<SupportCaseView>> {
+  return callOps("getSupportCase", "read", { caseId }, (value) => {
+    const data = exactKeys(value, ["case", "messages", "facts", "draft", "people"], "getSupportCase");
+    return {
+      case: readSupportCaseRow(data.case, "getSupportCase.case"),
+      messages: list(data.messages, "getSupportCase.messages").map((m, i) => readSupportMessage(m, `getSupportCase.messages[${i}]`)),
+      facts: nullable(data.facts, (v) => readCaseFacts(v, "getSupportCase.facts")),
+      draft: nullable(data.draft, (v) => readSupportDraft(v, "getSupportCase.draft")),
+      people: list(data.people, "getSupportCase.people").map((p, i) => personLabel(p, `getSupportCase.people[${i}]`)),
+    };
+  });
+}
+
+function readCaseMove(op: "snoozeSupportCase" | "assignSupportCase" | "matchSupportCase" | "closeSupportCase") {
+  return (value: unknown): SupportCaseMoveOutcome => {
+    const data = exactKeys(value, ["outcome", "ref", "state", "auditRecorded"], op);
+    return {
+      outcome: literal(data.outcome, ["done", "unchanged"] as const, `${op}.outcome`),
+      ref: supportRef(data.ref, `${op}.ref`),
+      state: literal(data.state, SUPPORT_CASE_STATES, `${op}.state`),
+      auditRecorded: bool(data.auditRecorded, `${op}.auditRecorded`),
+    };
+  };
+}
+
+/** Put a case aside until an instant in the next 30 days. */
+export function snoozeSupportCase(caseId: string, until: string): Promise<OpsResult<SupportCaseMoveOutcome>> {
+  return callOps("snoozeSupportCase", "write", { caseId, until }, readCaseMove("snoozeSupportCase"));
+}
+
+/** Give a case to a name from HEALDESK_OPS_PEOPLE. */
+export function assignSupportCase(caseId: string, label: string): Promise<OpsResult<SupportCaseMoveOutcome>> {
+  return callOps("assignSupportCase", "write", { caseId, label }, readCaseMove("assignSupportCase"));
+}
+
+/** Name the clinic an unmatched case is about, once. */
+export function matchSupportCase(caseId: string, clinicId: string): Promise<OpsResult<SupportCaseMoveOutcome>> {
+  return callOps("matchSupportCase", "write", { caseId, clinicId }, readCaseMove("matchSupportCase"));
+}
+
+/** Close a case with its reason; closed is final. */
+export function closeSupportCase(caseId: string, reason: SupportClosedReason): Promise<OpsResult<SupportCaseMoveOutcome>> {
+  return callOps("closeSupportCase", "write", { caseId, reason }, readCaseMove("closeSupportCase"));
+}
+
+// -----------------------------------------------------------------------------
+// The support reply (lane P7c: apps/app lib/ops/support-reply-ops.ts,
+// lib/approvals/support-reply.ts, lib/support/send.ts)
+// -----------------------------------------------------------------------------
+
+/** apps/app's kind for a support reply waiting for the owner's yes (db/schema.ts APPROVAL_KINDS). */
+export const SUPPORT_APPROVAL_KINDS = ["support_reply_send"] as const;
+export type SupportApprovalKind = (typeof SUPPORT_APPROVAL_KINDS)[number];
+
+function isSupportApprovalRow(row: unknown): boolean {
+  return (
+    typeof row === "object" &&
+    row !== null &&
+    (SUPPORT_APPROVAL_KINDS as readonly unknown[]).includes((row as Record<string, unknown>).kind)
+  );
+}
+
+/** One reply check's result: its id, the rule in words and whether it passed. Never the reply's words. */
+export type SupportReplyCheckView = { id: string; ok: boolean; rule: string };
+
+const CHECK_ID = /^[a-z][a-z0-9_]{0,63}$/;
+
+function readReplyCheck(value: unknown, at: string): SupportReplyCheckView {
+  const c = exactKeys(value, ["id", "ok", "rule"], at);
+  if (typeof c.id !== "string" || !CHECK_ID.test(c.id)) throw new ShapeError(`${at}.id`);
+  return { id: c.id, ok: bool(c.ok, `${at}.ok`), rule: text(c.rule, `${at}.rule`) };
+}
+
+function readChecks(data: Record<string, unknown>, at: string): { ok: boolean; checks: SupportReplyCheckView[]; failed: string[] } {
+  return {
+    ok: bool(data.ok, `${at}.ok`),
+    checks: list(data.checks, `${at}.checks`).map((c, i) => readReplyCheck(c, `${at}.checks[${i}]`)),
+    failed: list(data.failed, `${at}.failed`).map((f, i) => text(f, `${at}.failed[${i}]`)),
+  };
+}
+
+export type SupportReplyPreview = { ref: string; ok: boolean; checks: SupportReplyCheckView[]; failed: string[] };
+
+/** The reply checks on an edited text, as Send runs them: the rules' names, never the words back. Sends nothing. */
+export function previewSupportReply(caseId: string, text: string): Promise<OpsResult<SupportReplyPreview>> {
+  return callOps("previewSupportReply", "read", { caseId, text }, (value) => {
+    const data = exactKeys(value, ["ref", "ok", "checks", "failed"], "previewSupportReply");
+    return { ref: supportRef(data.ref, "previewSupportReply.ref"), ...readChecks(data, "previewSupportReply") };
+  });
+}
+
+export type SupportDraftSaved = {
+  ref: string;
+  draftVersion: number;
+  state: SupportCaseState;
+  /** The approval item a passing draft was proposed as, or null when a check failed. */
+  approvalId: string | null;
+  ok: boolean;
+  checks: SupportReplyCheckView[];
+  failed: string[];
+  auditRecorded: boolean;
+};
+
+/** The operator's own text, saved as the reply's next draft version; a passing one is proposed for the owner's yes. Sends nothing. */
+export function saveSupportDraft(caseId: string, text: string): Promise<OpsResult<SupportDraftSaved>> {
+  return callOps("saveSupportDraft", "write", { caseId, text }, (value) => {
+    const data = exactKeys(
+      value,
+      ["ref", "draftVersion", "state", "approvalId", "ok", "checks", "failed", "auditRecorded"],
+      "saveSupportDraft",
+    );
+    return {
+      ref: supportRef(data.ref, "saveSupportDraft.ref"),
+      draftVersion: count(data.draftVersion, "saveSupportDraft.draftVersion"),
+      state: literal(data.state, SUPPORT_CASE_STATES, "saveSupportDraft.state"),
+      approvalId: nullable(data.approvalId, (v) => id(v, "saveSupportDraft.approvalId")),
+      ...readChecks(data, "saveSupportDraft"),
+      auditRecorded: bool(data.auditRecorded, "saveSupportDraft.auditRecorded"),
+    };
+  });
+}
+
+export type SupportReplyProposal = {
+  outcome: "proposed" | "already_waiting" | "checks_failed";
+  ref: string;
+  approvalId: string | null;
+  draftVersion: number;
+  /** The rules the draft fails, when it was not proposed. */
+  failed: string[];
+  auditRecorded: boolean;
+};
+
+/** The case's current draft into the approval inbox, if every check passes on it now. Sends nothing. */
+export function proposeSupportReply(caseId: string): Promise<OpsResult<SupportReplyProposal>> {
+  return callOps("proposeSupportReply", "write", { caseId }, (value) => {
+    const data = exactKeys(value, ["outcome", "ref", "approvalId", "draftVersion", "failed", "auditRecorded"], "proposeSupportReply");
+    return {
+      outcome: literal(data.outcome, ["proposed", "already_waiting", "checks_failed"] as const, "proposeSupportReply.outcome"),
+      ref: supportRef(data.ref, "proposeSupportReply.ref"),
+      approvalId: nullable(data.approvalId, (v) => id(v, "proposeSupportReply.approvalId")),
+      draftVersion: count(data.draftVersion, "proposeSupportReply.draftVersion"),
+      failed: list(data.failed, "proposeSupportReply.failed").map((f, i) => text(f, `proposeSupportReply.failed[${i}]`)),
+      auditRecorded: bool(data.auditRecorded, "proposeSupportReply.auditRecorded"),
+    };
+  });
+}
+
+export type SupportReplyFactsView = {
+  kind: SupportApprovalKind;
+  ref: string;
+  caseId: string;
+  topic: SupportCaseCategory;
+  symptom: string;
+  caseUrgency: (typeof SUPPORT_CASE_URGENCIES)[number];
+  caseState: SupportCaseState;
+  replyByOn: string;
+  draftVersion: number;
+  currentDraftVersion: number | null;
+  checks: SupportReplyCheckView[];
+};
+
+export type SupportReplyApprovalItem = Omit<ApprovalItem, "kind" | "operation" | "packet"> & {
+  kind: SupportApprovalKind;
+  operation: "sendSupportReply";
+  packet: {
+    operation: "sendSupportReply";
+    irreversible: boolean;
+    stillNeeded: boolean;
+    effect: string;
+    facts: SupportReplyFactsView;
+    /** The reply as the clinic would read it: the subject is fixed, the body is what Approve may edit. */
+    draft: { subject: string; body: string } | null;
+  } | null;
+};
+
+function readSupportReplyFacts(value: unknown, at: string): SupportReplyFactsView {
+  const f = exactKeys(
+    value,
+    ["kind", "ref", "caseId", "topic", "symptom", "caseUrgency", "caseState", "replyByOn", "draftVersion", "currentDraftVersion", "checks"],
+    at,
+  );
+  if (typeof f.replyByOn !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(f.replyByOn)) throw new ShapeError(`${at}.replyByOn`);
+  return {
+    kind: literal(f.kind, SUPPORT_APPROVAL_KINDS, `${at}.kind`),
+    ref: supportRef(f.ref, `${at}.ref`),
+    caseId: id(f.caseId, `${at}.caseId`),
+    topic: literal(f.topic, SUPPORT_CASE_CATEGORIES, `${at}.topic`),
+    symptom: code(f.symptom, `${at}.symptom`),
+    caseUrgency: literal(f.caseUrgency, SUPPORT_CASE_URGENCIES, `${at}.caseUrgency`),
+    caseState: literal(f.caseState, SUPPORT_CASE_STATES, `${at}.caseState`),
+    replyByOn: f.replyByOn,
+    draftVersion: count(f.draftVersion, `${at}.draftVersion`),
+    currentDraftVersion: nullable(f.currentDraftVersion, (v) => count(v, `${at}.currentDraftVersion`)),
+    checks: list(f.checks, `${at}.checks`).map((c, i) => readReplyCheck(c, `${at}.checks[${i}]`)),
+  };
+}
+
+function readSupportReplyItem(value: unknown, at: string): SupportReplyApprovalItem {
+  const r = exactKeys(
+    value,
+    ["id", "kind", "clinic", "subjectRef", "urgency", "status", "proposedAt", "dueAt", "expiresAt", "decidedAt", "outcomeCode", "pastDue", "irreversible", "operation", "hasDraft", "packet"],
+    at,
+  );
+  if (typeof r.subjectRef !== "string" || !APPROVAL_SUBJECT.test(r.subjectRef)) throw new ShapeError(`${at}.subjectRef`);
+  const packet = nullable(r.packet, (v) => {
+    const p = exactKeys(v, ["operation", "irreversible", "stillNeeded", "effect", "facts", "draft"], `${at}.packet`);
+    return {
+      operation: literal(p.operation, ["sendSupportReply"] as const, `${at}.packet.operation`),
+      irreversible: bool(p.irreversible, `${at}.packet.irreversible`),
+      stillNeeded: bool(p.stillNeeded, `${at}.packet.stillNeeded`),
+      effect: text(p.effect, `${at}.packet.effect`),
+      facts: readSupportReplyFacts(p.facts, `${at}.packet.facts`),
+      draft: nullable(p.draft, (d) => readDraft(d, `${at}.packet.draft`)),
+    };
+  });
+  return {
+    id: id(r.id, `${at}.id`),
+    kind: literal(r.kind, SUPPORT_APPROVAL_KINDS, `${at}.kind`),
+    clinic: readApprovalClinic(r.clinic, `${at}.clinic`),
+    subjectRef: r.subjectRef,
+    urgency: literal(r.urgency, APPROVAL_URGENCIES, `${at}.urgency`),
+    status: literal(r.status, APPROVAL_STATUSES, `${at}.status`),
+    proposedAt: isoInstant(r.proposedAt, `${at}.proposedAt`),
+    dueAt: isoInstant(r.dueAt, `${at}.dueAt`),
+    expiresAt: optionalIsoInstant(r.expiresAt, `${at}.expiresAt`),
+    decidedAt: optionalIsoInstant(r.decidedAt, `${at}.decidedAt`),
+    outcomeCode: approvalCode(r.outcomeCode, `${at}.outcomeCode`),
+    pastDue: bool(r.pastDue, `${at}.pastDue`),
+    irreversible: bool(r.irreversible, `${at}.irreversible`),
+    operation: literal(r.operation, ["sendSupportReply"] as const, `${at}.operation`),
+    hasDraft: bool(r.hasDraft, `${at}.hasDraft`),
+    packet,
+  };
+}
+
+/**
+ * The support replies in one status (waiting by default), earliest due
+ * first, each waiting one with its packet: its case, versions, checks and
+ * the reply as the clinic would read it. Decided only through
+ * lib/admin/approval-decide.ts, with a fresh code; an edit there is the
+ * draft with its body changed (`{subject, body}`, the subject as shown).
+ */
+export function fetchSupportReplyApprovals(
+  options: { status?: ApprovalStatus; limit?: number } = {},
+): Promise<OpsResult<{ items: SupportReplyApprovalItem[]; partial: string[] }>> {
+  const args: Record<string, unknown> = { family: "support" };
+  if (options.status) args.status = options.status;
+  if (options.limit !== undefined) args.limit = options.limit;
+  return callOps("listApprovals", "read", args, (value) => {
+    const data = exactKeys(value, ["items", "partial"], "listApprovals");
+    return {
+      items: list(data.items, "listApprovals.items")
+        .filter(isSupportApprovalRow)
+        .map((row, i) => readSupportReplyItem(row, `listApprovals.items[${i}]`)),
+      partial: list(data.partial, "listApprovals.partial").map((p, i) => id(p, `listApprovals.partial[${i}]`)),
+    };
+  });
+}
+
+export type SupportApprovalHistoryEvent = Omit<ApprovalHistoryEvent, "kind"> & { kind: SupportApprovalKind };
+
+/** The add-only record of the support replies' items, newest first: who approved what and when, both hashes, never a draft. */
+export function fetchSupportReplyHistory(options: { limit?: number } = {}): Promise<OpsResult<SupportApprovalHistoryEvent[]>> {
+  const args: Record<string, unknown> = { kind: "support_reply_send" };
+  if (options.limit !== undefined) args.limit = options.limit;
+  return callOps("listApprovalHistory", "read", args, (value) => {
+    const data = exactKeys(value, ["events"], "listApprovalHistory");
+    return list(data.events, "listApprovalHistory.events")
+      .filter(isSupportApprovalRow)
+      .map((row, i) => {
+        const at = `listApprovalHistory.events[${i}]`;
+        const r = exactKeys(
+          row,
+          ["id", "approvalId", "kind", "clinic", "event", "actorLabel", "ip", "userAgent", "draftHashApproved", "draftHashSent", "outcomeCode", "at"],
+          at,
+        );
+        return {
+          id: id(r.id, `${at}.id`),
+          approvalId: id(r.approvalId, `${at}.approvalId`),
+          kind: literal(r.kind, SUPPORT_APPROVAL_KINDS, `${at}.kind`),
+          clinic: readApprovalClinic(r.clinic, `${at}.clinic`),
+          event: literal(r.event, APPROVAL_EVENT_NAMES, `${at}.event`),
+          actorLabel: text(r.actorLabel, `${at}.actorLabel`),
+          ip: optionalText(r.ip, `${at}.ip`),
+          userAgent: optionalText(r.userAgent, `${at}.userAgent`),
+          draftHashApproved: nullable(r.draftHashApproved, (v) => hash(v, `${at}.draftHashApproved`)),
+          draftHashSent: nullable(r.draftHashSent, (v) => hash(v, `${at}.draftHashSent`)),
+          outcomeCode: approvalCode(r.outcomeCode, `${at}.outcomeCode`),
+          at: isoInstant(r.at, `${at}.at`),
+        };
+      });
+  });
+}
+
+// -----------------------------------------------------------------------------
+// The support drafter (lane P7b)
+// -----------------------------------------------------------------------------
+
+/** apps/app lib/support/draft/checks.ts CHECK_IDS, in order. */
+export const SUPPORT_CHECK_IDS = ["facts", "screen", "names", "clinical", "promises", "claims", "shape", "other_clinics"] as const;
+export type SupportCheckId = (typeof SUPPORT_CHECK_IDS)[number];
+/** apps/app lib/support/draft/tools.ts READ_TOOL_NAMES. */
+const SUPPORT_DRAFT_TOOLS = ["get_account_state", "get_forwarding_steps", "get_clinic_signals", "get_case_history"] as const;
+/** apps/app lib/support/draft/store.ts DRAFT_FAILURES. */
+export const SUPPORT_DRAFT_FAILURES = [
+  "model_unavailable",
+  "model_failed",
+  "model_refused",
+  "no_proposal",
+  "account_unreadable",
+  "draft_limit",
+] as const;
+const SUPPORT_DRAFT_CONFIDENCE = ["high", "medium", "low"] as const;
+/** support_messages.draft_text's own limit (apps/app drizzle/0125). */
+const MAX_SUPPORT_DRAFT = 20_000;
+
+/**
+ * A case's newest draft: the text the eight checks read, each check's
+ * verdict and fixed rule, the facts the draft rests on (tool, field, value),
+ * the questions for ops and the model's confidence. Or, when the last run
+ * wrote none, why (`failure`), with no version and no text.
+ */
+export type SupportDraftView = {
+  messageId: string;
+  version: number | null;
+  text: string | null;
+  checks: { id: SupportCheckId; ok: boolean; rule: string }[];
+  factsUsed: { tool: (typeof SUPPORT_DRAFT_TOOLS)[number]; field: string; value: string }[];
+  questionsForOps: string[];
+  confidence: (typeof SUPPORT_DRAFT_CONFIDENCE)[number] | null;
+  createdAt: string;
+  failure: (typeof SUPPORT_DRAFT_FAILURES)[number] | null;
+};
+
+function readSupportDraft(value: unknown, at: string): SupportDraftView {
+  const d = exactKeys(
+    value,
+    ["messageId", "version", "text", "checks", "factsUsed", "questionsForOps", "confidence", "createdAt", "failure"],
+    at,
+  );
+  const failure = nullable(d.failure, (v) => literal(v, SUPPORT_DRAFT_FAILURES, `${at}.failure`));
+  const version = nullable(d.version, (v) => count(v, `${at}.version`));
+  const draftText = nullable(d.text, (v) => editable(v, `${at}.text`, MAX_SUPPORT_DRAFT));
+  // A draft has a version and text and no failure; a failed run has neither.
+  if (failure === null ? version === null || version < 1 || draftText === null : version !== null || draftText !== null) {
+    throw new ShapeError(`${at}.failure`);
+  }
+  return {
+    messageId: id(d.messageId, `${at}.messageId`),
+    version,
+    text: draftText,
+    checks: list(d.checks, `${at}.checks`).map((c, i) => {
+      const r = exactKeys(c, ["id", "ok", "rule"], `${at}.checks[${i}]`);
+      return {
+        id: literal(r.id, SUPPORT_CHECK_IDS, `${at}.checks[${i}].id`),
+        ok: bool(r.ok, `${at}.checks[${i}].ok`),
+        rule: text(r.rule, `${at}.checks[${i}].rule`),
+      };
+    }),
+    factsUsed: list(d.factsUsed, `${at}.factsUsed`).map((f, i) => {
+      const r = exactKeys(f, ["tool", "field", "value"], `${at}.factsUsed[${i}]`);
+      return {
+        tool: literal(r.tool, SUPPORT_DRAFT_TOOLS, `${at}.factsUsed[${i}].tool`),
+        field: text(r.field, `${at}.factsUsed[${i}].field`).slice(0, 120),
+        value: text(r.value, `${at}.factsUsed[${i}].value`).slice(0, 300),
+      };
+    }),
+    questionsForOps: list(d.questionsForOps, `${at}.questionsForOps`).map((q, i) =>
+      text(q, `${at}.questionsForOps[${i}]`).slice(0, 300),
+    ),
+    confidence: nullable(d.confidence, (v) => literal(v, SUPPORT_DRAFT_CONFIDENCE, `${at}.confidence`)),
+    createdAt: isoInstant(d.createdAt, `${at}.createdAt`),
+    failure,
+  };
+}
+
+/** Ask for a new draft of a case: it only queues, and the support-draft job drafts it. At most five a case. */
+export function regenerateSupportDraft(caseId: string): Promise<OpsResult<SupportCaseMoveOutcome>> {
+  return callOps("regenerateSupportDraft", "write", { caseId }, (value) => {
+    const data = exactKeys(value, ["outcome", "ref", "state", "auditRecorded"], "regenerateSupportDraft");
+    return {
+      outcome: literal(data.outcome, ["done", "unchanged"] as const, "regenerateSupportDraft.outcome"),
+      ref: supportRef(data.ref, "regenerateSupportDraft.ref"),
+      state: literal(data.state, ["new"] as const, "regenerateSupportDraft.state"),
+      auditRecorded: bool(data.auditRecorded, "regenerateSupportDraft.auditRecorded"),
+    };
   });
 }

@@ -46,7 +46,7 @@ note_fail() { FAILED=1; echo "verify-local: FAILED: $1" >&2; }
 echo "== starting Postgres on port $PORT ($NAME)"
 docker run -d --name "$NAME" -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=healdesk_test -p "$PORT":5432 postgres:17-alpine >/dev/null || exit 2
 for _ in $(seq 1 60); do
-  docker exec "$NAME" pg_isready -U postgres >/dev/null 2>&1 && break
+  docker exec "$NAME" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 && break
   sleep 1
 done
 docker cp apps/app/scripts/provision-roles.sql "$NAME":/tmp/provision-roles.sql

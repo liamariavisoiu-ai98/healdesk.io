@@ -154,6 +154,16 @@ import {
 } from "@/lib/ops/lifecycle-ops";
 import { opListLifecycleIgnored, opSetLifecycleIgnored } from "@/lib/ops/lifecycle-ops";
 import { opCloseRightsIntake, opListRights, opRecordRightsIntake } from "@/lib/ops/rights-ops";
+import {
+  opAssignSupportCase,
+  opCloseSupportCase,
+  opGetSupportCase,
+  opListSupportCases,
+  opMatchSupportCase,
+  opSnoozeSupportCase,
+} from "@/lib/ops/support-case-ops";
+import { opPreviewSupportReply, opProposeSupportReply, opSaveSupportDraft } from "@/lib/ops/support-reply-ops";
+import { opRegenerateSupportDraft } from "@/lib/ops/support-draft-ops";
 import { opGenerateCompliancePack, opGetCompliancePack, opListCompliancePacks } from "@/lib/ops/pack-ops";
 import {
   opIncidentChecklist,
@@ -739,6 +749,30 @@ const OPERATIONS = [
   "tickIncidentStep",
   "proposeIncidentBatch",
   "proposeIncidentReport",
+  // The support team's cases (ops automation Phase 7, lane P7a;
+  // lib/ops/support-case-ops.ts, lib/support/cases.ts): the cases across
+  // clinics, one case with what passed on it and its facts panel, and the
+  // operator's snooze, reassign, match and close. Ids, refs, closed words,
+  // counts, dates, labels and the clinic's name; never a word of text.
+  // Nothing here sends mail.
+  "listSupportCases",
+  "getSupportCase",
+  "snoozeSupportCase",
+  "assignSupportCase",
+  "matchSupportCase",
+  "closeSupportCase",
+  // A support reply (ops automation Phase 7, lane P7c;
+  // lib/ops/support-reply-ops.ts, lib/support/send.ts): the reply checks on
+  // an edited text (rule names only), the operator's own draft saved as the
+  // next version, and a draft proposed into the approval inbox. Nothing here
+  // sends: a reply goes only when the owner approves its item there, with a
+  // fresh code (decideApproval).
+  "previewSupportReply",
+  "saveSupportDraft",
+  "proposeSupportReply",
+  // The support drafter (lane P7b, lib/ops/support-draft-ops.ts): ask for a
+  // new draft of a case. It only queues; the support-draft job drafts.
+  "regenerateSupportDraft",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -901,6 +935,16 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "tickIncidentStep",
   "proposeIncidentBatch",
   "proposeIncidentReport",
+  // Mutating: a support case snoozed, reassigned, matched to its clinic or closed. Nothing is sent.
+  "snoozeSupportCase",
+  "assignSupportCase",
+  "matchSupportCase",
+  "closeSupportCase",
+  // Mutating: a support reply's draft saved as a new version, or proposed into the inbox. Nothing is sent.
+  "saveSupportDraft",
+  "proposeSupportReply",
+  // Mutating: a new draft of a support case asked for. It only queues; nothing is sent.
+  "regenerateSupportDraft",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -1608,6 +1652,26 @@ export async function runOperation(
       return opProposeIncidentBatch(args, operator);
     case "proposeIncidentReport":
       return opProposeIncidentReport(args, operator);
+    case "listSupportCases":
+      return opListSupportCases(args, operator);
+    case "getSupportCase":
+      return opGetSupportCase(args, operator);
+    case "snoozeSupportCase":
+      return opSnoozeSupportCase(args, operator);
+    case "assignSupportCase":
+      return opAssignSupportCase(args, operator);
+    case "matchSupportCase":
+      return opMatchSupportCase(args, operator);
+    case "closeSupportCase":
+      return opCloseSupportCase(args, operator);
+    case "previewSupportReply":
+      return opPreviewSupportReply(args, operator);
+    case "saveSupportDraft":
+      return opSaveSupportDraft(args, operator);
+    case "proposeSupportReply":
+      return opProposeSupportReply(args, operator);
+    case "regenerateSupportDraft":
+      return opRegenerateSupportDraft(args, operator);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The

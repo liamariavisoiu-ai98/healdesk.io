@@ -475,6 +475,9 @@ describeDb("delivery", () => {
           // The weekly compliance pack (drizzle/0123), hourly behind its
           // switch, which ships off; due from 07:00 New York on Monday.
           "compliance-pack",
+          // The support reply's retries (drizzle/0127), hourly behind their
+          // switch, which ships off: the minute queue's backstop.
+          "support-send",
         ].sort(),
       );
       // Every job that has not been switched on says so rather than working;

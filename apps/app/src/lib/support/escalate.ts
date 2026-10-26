@@ -18,6 +18,7 @@ import { helpContacts } from "@/lib/setup/help";
 import { withTenant } from "@/lib/tenant";
 
 import type { AccountState } from "./account-state";
+import { recordChatEscalation, type ChatCaseOutcome } from "./cases";
 import { readEscalation, type EscalationFields } from "./escalation-fields";
 import type { SupportLimiter } from "./limits";
 
@@ -34,10 +35,17 @@ import type { SupportLimiter } from "./limits";
  *      `hd-support_escalation-<id>-1`. Never the chat's words: nothing here
  *      is given them. No `clinic` tag, because the mail goes to our inbox and
  *      a bounce from it says nothing about the clinic's address.
- *   4. Only once I3 has gone, L25 ("We've got your request", with the reply
- *      date) is queued to the clinic's address through the outbox, deduped on
- *      the same id. The clinic is never told a person will reply to a request
- *      no person received.
+ *   4. Only once I3 has gone, the request becomes a support case (lane P7a,
+ *      lib/support/cases.ts): a new case, or a message on the clinic's open
+ *      case on the same topic, holding the request's id and the fields, never
+ *      a word, with L25's day as its reply-by and an urgency from the topic
+ *      and symptom. Idempotent per request id. A case that cannot be written
+ *      is logged and the escalation goes on: I3 has reached a person, and the
+ *      old reply mark (/admin/support) still covers it.
+ *   5. Then L25 ("We've got your request", with the reply date) is queued to
+ *      the clinic's address through the outbox, deduped on the same id. The
+ *      clinic is never told a person will reply to a request no person
+ *      received.
  *
  * Nothing else is kept: the outbox row is L25's own, and it holds the id, the
  * topic and a date. Every log line carries ids and the topic only.
@@ -60,6 +68,8 @@ export type EscalationContext = {
   now?: Date;
   /** For the tests; a random uuid otherwise. */
   newId?: () => string;
+  /** Records the case; recordChatEscalation (lib/support/cases.ts) unless a test passes its own. */
+  recordCase?: typeof recordChatEscalation;
 };
 
 /** Where escalations go: healdesk's one inbox (Annex X2, "hello@ stays the one inbox"). */
@@ -90,6 +100,8 @@ export async function escalateToSupport(
       now,
     });
     if (!sent) return { status: "failed" };
+
+    await recordCase(ctx, { requestId, fields, replyByOn, now });
 
     let acknowledged = false;
     if (read.address) {
@@ -210,5 +222,33 @@ async function queueAcknowledgement(
       error: describeError(error),
     });
     return false;
+  }
+}
+
+/** The case, or null, logged, if it could not be written: the escalation still stands. */
+async function recordCase(
+  ctx: EscalationContext,
+  input: { requestId: string; fields: EscalationFields; replyByOn: string; now: Date },
+): Promise<ChatCaseOutcome | null> {
+  try {
+    const recorded = await (ctx.recordCase ?? recordChatEscalation)({
+      clinicId: ctx.clinicId,
+      actor: ctx.actor,
+      ...input,
+    });
+    // The case is found by the request's id (support_messages.request_id).
+    log.info("support case recorded", {
+      clinicId: ctx.clinicId,
+      requestId: input.requestId,
+      outcome: recorded.outcome,
+    });
+    return recorded;
+  } catch (error) {
+    log.error("support case not recorded", {
+      clinicId: ctx.clinicId,
+      requestId: input.requestId,
+      error: describeError(error),
+    });
+    return null;
   }
 }

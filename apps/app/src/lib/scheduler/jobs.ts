@@ -201,6 +201,24 @@ export const JOB_LOCATION_QUANTITY = "location-quantity";
  */
 export const JOB_LIFECYCLE_WATCH = "lifecycle-watch";
 /**
+ * The support drafter (lib/scheduler/support-draft.ts; lane P7b, design E5
+ * §2.3), to be seeded OFF by drizzle/0126: every minute from its own
+ * `support-draft` queue, up to three `new` support cases that name a clinic
+ * drafted for the owner to edit and send (lane P7c sends). Off, nothing is
+ * asked of the model; the owner switches it on with ANTHROPIC_API_KEY set.
+ */
+export const JOB_SUPPORT_DRAFT = "support-draft";
+/**
+ * The support reply's retries (lib/scheduler/support-send.ts; lane P7e,
+ * design E5 §2.3), seeded OFF by drizzle/0127: every minute from its own
+ * `support-send` queue, and hourly from the tick, each approved reply whose
+ * first try at approval did not go, tried again on the email outbox's
+ * schedule and stopped after six (`support_reply_dead`). It sends only the
+ * frozen text the owner approved with his code; off, a failed first try
+ * waits with no retry.
+ */
+export const JOB_SUPPORT_SEND = "support-send";
+/**
  * Phase two: the attribution jobs. Their code is kept, but they never run in
  * v1 (env.phaseTwoAttribution()), and the console refuses to switch them on.
  * The 0040 `callback-dialer` job was removed by drizzle/0041.

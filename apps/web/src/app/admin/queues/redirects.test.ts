@@ -26,10 +26,8 @@ describe("the old queue routes", () => {
     expect(() => inbox()).toThrow("308 /admin/queues#approvals");
   });
 
-  test("/admin/support, /admin/recordings and /admin/setup keep a form's outcome in their own key", async () => {
-    const support = (await import("../support/page")).default;
-    await expect(support({ searchParams: Promise.resolve({ result: "marked" }) })).rejects.toThrow("308 /admin/queues?support=marked#support");
-    await expect(support({ searchParams: Promise.resolve({}) })).rejects.toThrow("308 /admin/queues#support");
+  // /admin/support is a page again since lane P7d (the Support console); its own test is app/admin/support/page.test.ts.
+  test("/admin/recordings and /admin/setup keep a form's outcome in their own key", async () => {
     const recordings = (await import("../recordings/page")).default;
     await expect(recordings({ searchParams: Promise.resolve({ result: "deleted" }) })).rejects.toThrow(
       "308 /admin/queues?retell=deleted#retell-deletions",

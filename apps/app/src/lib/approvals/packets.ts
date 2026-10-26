@@ -27,6 +27,7 @@ import {
 } from "./contact-packets";
 import { incidentPacketFor, type IncidentBatchFacts, type IncidentReportFacts } from "./incident-kinds";
 import { KIND_SPECS, parsePayload, subjectId, type ApprovalKind, type ContactKind } from "./kinds";
+import { supportReplyPacket, type SupportReplyFacts } from "./support-reply";
 
 /**
  * Each waiting item's packet: the facts the owner needs to say yes or no,
@@ -81,7 +82,15 @@ export type Packet = {
   stillNeeded: boolean;
   /** What approving does, in plain words. */
   effect: string;
-  facts: BillingRequestFacts | OverageFacts | EventFacts | ContactFacts | IncidentBatchFacts | IncidentReportFacts;
+  facts:
+    | BillingRequestFacts
+    | OverageFacts
+    | EventFacts
+    | ContactFacts
+    | IncidentBatchFacts
+    | IncidentReportFacts
+    // Lane P7c: a support reply's case, versions and checks (./support-reply.ts).
+    | SupportReplyFacts;
 } & Partial<ContactPacketExtra>;
 
 /** Every key a packet carries, for the test that holds it to no free text. */
@@ -336,6 +345,9 @@ export async function packetFor(approval: OpsApproval, ctx: Ctx): Promise<Packet
     case "incident_open_batch":
     case "incident_report_send":
       return incidentPacketFor(approval, ctx);
+    // A support reply (lane P7c): its case, versions, checks and draft.
+    case "support_reply_send":
+      return supportReplyPacket(approval, ctx);
   }
   return null;
 }

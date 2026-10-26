@@ -94,6 +94,23 @@ export const QUEUE_VOICE_CALL_BACKSTOP = "voice-call-backstop";
  * `npm run queue:install`, then restart the worker.
  */
 export const QUEUE_VOICE_PROVISION = "voice-provision";
+/**
+ * The support drafter's minute clock (lib/scheduler/support-draft.ts, lane
+ * P7b): up to three `new` support cases drafted per fire, behind the
+ * support-draft job row's switch. A queue of its own because a draft is a
+ * few model calls, which must not hold up the email outbox or billing.
+ * Added 25 October 2026: re-run `npm run queue:install`, then restart the
+ * worker.
+ */
+export const QUEUE_SUPPORT_DRAFT = "support-draft";
+/**
+ * The support reply's retries (lib/scheduler/support-send.ts, lane P7e):
+ * every minute, each approved reply whose next try is due, behind the
+ * support-send job row's switch. Its own queue, so a slow email provider
+ * never holds up the drafter's model calls, nor they the retries. Added 25
+ * October 2026: re-run `npm run queue:install`, then restart the worker.
+ */
+export const QUEUE_SUPPORT_SEND = "support-send";
 
 /**
  * scripts/install-queue.ts creates exactly these, and pg-boss v10 refuses to
@@ -119,6 +136,8 @@ export const QUEUES = [
   QUEUE_SITE_READS,
   QUEUE_VOICE_CALL_BACKSTOP,
   QUEUE_VOICE_PROVISION,
+  QUEUE_SUPPORT_DRAFT,
+  QUEUE_SUPPORT_SEND,
 ] as const;
 
 export type QueueName = (typeof QUEUES)[number];

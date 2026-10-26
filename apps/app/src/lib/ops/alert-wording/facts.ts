@@ -31,6 +31,8 @@ const LABELS: Record<string, string> = {
   // name, checked by printableBusinessName, and the day our reply was promised by.
   business: "Business",
   promisedOn: "Reply promised by",
+  // A support case (lane P7e): its printed ref, HD-xxxxx.
+  supportRef: "Case",
   jobId: "Job id",
   connectionId: "Connection id",
   code: "Code",

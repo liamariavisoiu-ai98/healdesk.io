@@ -26,7 +26,8 @@ import { accountStateFrom, type AccountState } from "./account-state";
 /** What the support chat and the escalation read for clinic `clinicId`. Null for a clinic that is not there. */
 export async function readAccountState(input: {
   clinicId: string;
-  userId: string;
+  /** The portal's signed-in user (their devices count in the setup state); null from the ops console, which has none. */
+  userId: string | null;
   actor: ActorContext;
   now?: Date;
 }): Promise<{ account: AccountState; state: SetupState } | null> {

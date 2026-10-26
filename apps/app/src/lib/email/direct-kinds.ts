@@ -205,6 +205,21 @@ export const DIRECT_KIND_REGISTRY = {
     locksOut: false,
     ledger: true,
   }),
+  /**
+   * L37, a support reply (ops automation lane P7c; owner decision D12): the
+   * one email whose body is prose, written for a case and sent only once the
+   * owner approves it, with his fresh authenticator code, through the
+   * approval inbox (lib/support/send.ts). To the clinic's one address, on a
+   * case the clinic opened; on the ledger under the reply's message id, so
+   * the webhook relay marks its delivery. Its text is the payload's
+   * `approvedReplyText`, the class lib/email/lint.ts accepts for this kind
+   * alone. No link minted, no token.
+   */
+  support_reply: direct("L37", "transactional", "plan", {
+    linkEmail: false,
+    locksOut: false,
+    ledger: true,
+  }),
 } as const;
 
 export type DirectKind = keyof typeof DIRECT_KIND_REGISTRY;
@@ -224,4 +239,5 @@ export const LEDGER_DIRECT_KINDS = [
   "agreement_to_sign",
   "data_destroyed",
   "baa_resign_chase",
+  "support_reply",
 ] as const;

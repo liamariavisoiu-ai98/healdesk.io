@@ -62,6 +62,8 @@ describe("the support chat in Help", () => {
       expect(rule).toBeTruthy();
       expect(html).toContain(`aria-describedby="${rule}"`);
       expect(html).toContain(`maxLength="2000"`);
+      // The opening message says it again, since the input's helper text is easy to miss.
+      expect(html).toContain(`can pass you to a person. Please don’t paste ${one} information here.`);
     }
   });
 

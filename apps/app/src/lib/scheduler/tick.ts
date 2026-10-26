@@ -34,6 +34,7 @@ import { runApprovalsProposeJob } from "@/lib/approvals/proposers";
 import { runCompliancePackJob } from "@/lib/compliance-pack/job";
 import { runLifecycleWatchJob } from "@/lib/lifecycle/watch";
 import { runRightsWatchJob } from "./rights-watch";
+import { runSupportRetention, runSupportSendJob } from "./support-send";
 import { runAddressChangesJob } from "@/lib/sign-in/address-change";
 import { runWelcomeBackstop } from "@/lib/setup/welcome-email";
 import { runSiteReadsSweep, runWebsiteDriftJob } from "@/lib/website/job";
@@ -326,6 +327,10 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   await record("approvals-propose", () => runApprovalsProposeJob({ now }));
   // The weekly compliance pack (drizzle/0123), behind its switch: due from 07:00 New York on Monday (lib/compliance-pack/week.ts).
   await record("compliance-pack", () => runCompliancePackJob({ now }));
+  // The support reply's retries (drizzle/0127), hourly behind their switch,
+  // which ships off: the minute queue's backstop. Each reply is leased on its
+  // own row, so the overlap sends nothing twice (lib/scheduler/support-send.ts).
+  await record("support-send", () => runSupportSendJob({ now }));
   // L8, hourly behind its switch: each clinic's "request still open" goes at
   // its own opening hour, so the hour it runs is the clinic's, not UTC's.
   await record("requests-still-open", () => runRequestsStillOpenJob({ now }));
@@ -390,6 +395,9 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // hold has run out and it is purged the same day. A second run deletes
   // only what has come due since, so it costs nothing to run for everyone.
   if (hour === 3 || hour === 9) await record("retention-purge", () => runRetentionPurgeJob({ now }));
+  // A support reply's words, sent or in its approval item, 12 months on
+  // (drizzle/0127): a deletion, so never behind a switch, like the redial sweep.
+  if (hour === 3) await record("support-retention", () => runSupportRetention(now));
   // A closed allowance month is invoiced once; the job's own ledger
   // (overage_invoices, one row per window) makes a re-run a no-op.
   if (hour === 5) await record("annual-overage-invoice", () => runAnnualOverageJob({ now }));

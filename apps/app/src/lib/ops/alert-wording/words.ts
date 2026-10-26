@@ -109,6 +109,8 @@ export const EMAIL_KIND_WORDS: Readonly<Record<EmailKind, string>> = {
   setup_help_offer: "a five-minute-call offer",
   agreement_question: "an agreement question",
   baa_resign_chase: "an agreement re-sign chase",
+  // Lane P7c: a support reply the owner approved.
+  support_reply: "a support reply",
 };
 
 /** A billing request's kind (db/schema.ts BILLING_REQUEST_KINDS). */

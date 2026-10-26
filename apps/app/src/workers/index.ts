@@ -14,6 +14,8 @@ import {
   QUEUE_PRACTICE_QUESTIONS,
   QUEUE_PROCESS_WEBHOOK,
   QUEUE_SITE_READS,
+  QUEUE_SUPPORT_DRAFT,
+  QUEUE_SUPPORT_SEND,
   QUEUE_RECONCILE_CLINIC,
   QUEUE_SYNC_CONNECTION,
   QUEUE_TICK,
@@ -37,6 +39,8 @@ import { runOpsWatchJob } from "@/lib/ops/watch";
 import { runSiteReadsJob } from "@/lib/website/job";
 import { handleCallBackstopJob, type CallBackstopPayload } from "@/lib/voice/backstop";
 import { handleVoiceProvisionJob, type VoiceProvisionPayload } from "@/lib/voice/provision-job";
+import { runSupportDraftJob } from "@/lib/scheduler/support-draft";
+import { runSupportSendJob } from "@/lib/scheduler/support-send";
 import { runTick } from "@/lib/scheduler/tick";
 import { syncConnection } from "@/lib/sync/run";
 import { processWebhookEvent } from "@/lib/sync/webhooks";
@@ -272,6 +276,38 @@ async function main(): Promise<void> {
     async () => {
       const outcome = await runSiteReadsJob();
       if (outcome.status === "failed") throw new Error(`site-reads: ${outcome.note}`);
+    },
+    { retryLimit: 0 },
+  );
+
+  // The support drafter (lib/scheduler/support-draft.ts, lane P7b): every
+  // minute, up to three new support cases drafted for the owner to edit and
+  // send, behind the support-draft job row's switch, which ships off because
+  // every run asks the model. Guarded like the clocks above. Never retried at
+  // once: each case is leased on its own row, and the next fire takes the rest.
+  await startGuardedClock(
+    boss,
+    QUEUE_SUPPORT_DRAFT,
+    "* * * * *",
+    async () => {
+      const outcome = await runSupportDraftJob();
+      if (outcome.status === "failed") throw new Error(`support-draft: ${outcome.note}`);
+    },
+    { retryLimit: 0 },
+  );
+
+  // The support reply's retries (lib/scheduler/support-send.ts, lane P7e):
+  // every minute, each approved reply whose next try is due, behind the
+  // support-send job row's switch, which ships off. Guarded like the clocks
+  // above. Never retried at once: each reply is leased on its own row, and
+  // its next try is set by the outbox's schedule.
+  await startGuardedClock(
+    boss,
+    QUEUE_SUPPORT_SEND,
+    "* * * * *",
+    async () => {
+      const outcome = await runSupportSendJob();
+      if (outcome.status === "failed") throw new Error(`support-send: ${outcome.note}`);
     },
     { retryLimit: 0 },
   );

@@ -276,7 +276,6 @@ describe("a demo call's facts", () => {
   test("the intro note asks one thing at a time, the role then the owner's A/B choice, and starts the role-play in the same reply", () => {
     const now = Date.now();
     // The full name once, in the opening line; the short one after it (6i).
-    const opener = demoRoleplayOpener("Lumen");
     const note = demoStageNote(context(), "intro", now);
     expect(note).toContain("live demo for Sam");
     expect(note).toContain('Call the clinic "Lumen": its full name, "Lumen Aesthetics", was said once in your opening line');
@@ -287,7 +286,9 @@ describe("a demo call's facts", () => {
     expect(note).toContain("If channels come up at any point");
     expect(note).toContain('add to the JSON details a "state" object');
     expect(note).toContain("What's your role at Lumen?");
-    expect(note).toContain(`start it in the same reply, never a later one, with exactly: "${opener}"`);
+    expect(note).toContain(`start it in the same reply, never a later one. To start a role-play, write one short handover`);
+    expect(note).toContain(`the call then says the opener itself, word for word ("${demoRoleplayOpener("Lumen Aesthetics")}")`);
+    expect(note).toContain("ask which one they mean in a few words instead of choosing for them");
     expect(note).toContain('Say "your patients", never "our patients"');
     expect(note).toContain('write it exactly "Aya", never "AYA"');
     expect(note).toMatch(/no flirting/);
@@ -315,9 +316,10 @@ describe("a demo call's facts", () => {
     expect(note).toContain("The role-play is on: Sam");
     expect(note).toContain("Every reply is at most one short sentence of reaction, and often none, then one short sentence of content");
     expect(note).toContain("ask only for the treatment and a preferred day and time");
-    expect(note).toContain('never ask "anything else?"');
+    expect(note).toContain("Still needed: the treatment and a preferred day and time");
     expect(note).toContain("never a figure they said");
-    expect(note).toContain('step out of character with exactly: "And that\'s the role-play! So, how was that?"');
+    expect(note).toContain('add "roleplay": "end" to the state; the call then steps out of character itself with "And that\'s the role-play! So, how was that?"');
+    expect(note).toContain('add "roleplay": "cancel"');
     expect(note).toContain('Never set "end" to true during the role-play');
     expect(note).not.toContain("run long enough");
     // No stage's script runs into another.
@@ -345,7 +347,7 @@ describe("a demo call's facts", () => {
     expect(first).not.toContain("The pitch, in this order");
     // Capitals only in the rule against them, so nothing she copies spells it out.
     expect(first.replace('never "AYA"', "")).not.toContain("AYA");
-    expect(first).toContain(`If they want to try another role-play, start it the same way: "${demoRoleplayOpener("Lumen")}"`);
+    expect(first).toContain(`If they want to try another role-play, to start a role-play, write one short handover`);
 
     const goal = at({ goal: "we miss calls when we're busy" });
     expect(goal).toContain(`- what they are after: "we miss calls when we're busy"`);
@@ -451,12 +453,12 @@ describe("a demo call's facts", () => {
 
   test("the session keeps each answer from her structured state update and the caller's next words, never from her prose", () => {
     // The state update in the details, each value checked against the lists.
-    expect(demoStateFrom({ asked: "volume", beats: [] }, "Generally, how many calls do you get a day?")).toEqual({ asked: "volume", beats: [], callback: null, pushback: null, skip: null, resume: false, quirks: [] });
-    expect(demoStateFrom({ asked: "coverage", beats: ["pain", "nonsense"] }, "How do you see me helping you best?")).toEqual({ asked: "coverage", beats: ["pain"], callback: null, pushback: null, skip: null, resume: false, quirks: [] });
+    expect(demoStateFrom({ asked: "volume", beats: [] }, "Generally, how many calls do you get a day?")).toEqual({ asked: "volume", beats: [], callback: null, pushback: null, skip: null, resume: false, quirks: [], roleplay: null, answered: [], impatient: false, booking: null });
+    expect(demoStateFrom({ asked: "coverage", beats: ["pain", "nonsense"] }, "How do you see me helping you best?")).toEqual({ asked: "coverage", beats: ["pain"], callback: null, pushback: null, skip: null, resume: false, quirks: [], roleplay: null, answered: [], impatient: false, booking: null });
     // A question counts only in a reply that asks one; an unknown or the opening's own question never.
-    expect(demoStateFrom({ asked: "volume" }, "Got it, five a day.")).toEqual({ asked: null, beats: [], callback: null, pushback: null, skip: null, resume: false, quirks: [] });
-    expect(demoStateFrom({ asked: "bogus" }, "What?")).toEqual({ asked: null, beats: [], callback: null, pushback: null, skip: null, resume: false, quirks: [] });
-    expect(demoStateFrom({ asked: "identity" }, "Is this Josh?")).toEqual({ asked: null, beats: [], callback: null, pushback: null, skip: null, resume: false, quirks: [] });
+    expect(demoStateFrom({ asked: "volume" }, "Got it, five a day.")).toEqual({ asked: null, beats: [], callback: null, pushback: null, skip: null, resume: false, quirks: [], roleplay: null, answered: [], impatient: false, booking: null });
+    expect(demoStateFrom({ asked: "bogus" }, "What?")).toEqual({ asked: null, beats: [], callback: null, pushback: null, skip: null, resume: false, quirks: [], roleplay: null, answered: [], impatient: false, booking: null });
+    expect(demoStateFrom({ asked: "identity" }, "Is this Josh?")).toEqual({ asked: null, beats: [], callback: null, pushback: null, skip: null, resume: false, quirks: [], roleplay: null, answered: [], impatient: false, booking: null });
     // No state at all is not a state.
     expect(demoStateFrom(null, "Generally, how many calls do you get a day?")).toBeNull();
     expect(demoStateFrom(["volume"], "How many?")).toBeNull();
@@ -619,19 +621,26 @@ describe("a demo call's facts", () => {
     expect(guardAssistantReply("Most people take about 2 a day.", facts)).toMatchObject({ ok: false });
   });
 
-  test("the stage moves on only on the scripted lines, and the open days come from hours it can read", () => {
+  test("the stage moves on her state's signal or the whole scripted line, never a phrase in passing (72dc66b7), and the open days come from hours it can read", () => {
     expect(nextDemoStage("intro", "Would you like to hear more, or jump into a role-play?")).toBe("intro");
     expect(nextDemoStage("intro", demoRoleplayOpener("Lumen Aesthetics"))).toBe("roleplay");
+    expect(nextDemoStage("intro", "Let's do it, you be the patient.", { roleplay: "start" })).toBe("roleplay");
+    // A bare "Ring ring!" no longer starts one, nor a passing "how was that?" ends one.
+    expect(nextDemoStage("intro", "Let's do it, you be the patient. Ring ring!")).toBe("intro");
     expect(nextDemoStage("roleplay", "Sure, Friday at 3 works. Anything else?")).toBe("roleplay");
-    expect(nextDemoStage("roleplay", "See you then! Ok, how was that? Haha!")).toBe("pitch");
+    expect(nextDemoStage("roleplay", "See you then! Ok, how was that? Haha!")).toBe("roleplay");
+    expect(nextDemoStage("roleplay", "See you then!", { roleplay: "end" }, "intro", 2)).toBe("pitch");
+    expect(nextDemoStage("roleplay", "See you then! And that's the role-play! So, how was that?")).toBe("pitch");
+    // An end with no in-character exchange, or a cancel, goes back where it came from, with no exit line.
+    expect(nextDemoStage("roleplay", "Oh, sorry!", { roleplay: "end" }, "intro", 0)).toBe("intro");
+    expect(nextDemoStage("roleplay", "My mistake!", { roleplay: "cancel" }, "pitch", 1)).toBe("pitch");
     // A second role-play from the pitch, and the pitch straight from the intro when the role-play is skipped.
     expect(nextDemoStage("pitch", demoRoleplayOpener("Lumen Aesthetics"))).toBe("roleplay");
     // From the intro to the pitch only on a declared discovery question, never on her words alone.
-    expect(nextDemoStage("intro", "Sure! Generally, how many calls do you get a day?", "volume")).toBe("pitch");
-    expect(nextDemoStage("intro", "Sure! What made you want to look at an AI assistant for Lumen Aesthetics?", "goal")).toBe("pitch");
+    expect(nextDemoStage("intro", "Sure! Generally, how many calls do you get a day?", { asked: "volume" })).toBe("pitch");
+    expect(nextDemoStage("intro", "Sure! What made you want to look at an AI assistant for Lumen Aesthetics?", { asked: "goal" })).toBe("pitch");
     expect(nextDemoStage("intro", "Sure! Generally, how many calls do you get a day?")).toBe("intro");
-    expect(nextDemoStage("intro", "Great! What's your role?", "role")).toBe("intro");
-    expect(nextDemoStage("roleplay", "See you then! And that's the role-play! So, how was that?")).toBe("pitch");
+    expect(nextDemoStage("intro", "Great! What's your role?", { asked: "role" })).toBe("intro");
     expect(nextDemoStage("roleplay", "Generally, how many calls do you get a day?")).toBe("roleplay");
     expect(demoOpenDays(context())).toBe(5);
     expect(demoOpenDays(context({ clinic: { ...context().clinic, hours: [{ days: "Mon-Fri", hours: "9am-6pm" }, { days: "Saturday", hours: "10am-2pm" }, { days: "Sunday", hours: "Closed" }] } }))).toBe(6);
@@ -731,19 +740,20 @@ describe("a demo call on the voice engine", () => {
   });
 
   test("walks intro, role-play and pitch on Aya's own lines, and a goodbye inside the role-play never hangs up", async () => {
-    const replies: [string, boolean][] = [
+    const replies: [string, boolean, Record<string, unknown>?][] = [
       ["Great to meet you, Sam! What's your role at Lumen Aesthetics?", false],
-      [demoRoleplayOpener("Lumen Aesthetics"), false],
-      // The patient says bye and the model marks the end: the demo goes on.
-      ["Perfect, we'll see you Friday! Ok, how was that? Haha!", true],
+      // The start is her state's signal; the call says the opener itself (72dc66b7).
+      ["Let's do it, you be the patient.", false, { asked: null, beats: [], roleplay: "start" }],
+      // The patient says bye and the model marks the end: the demo goes on, and the call says the exit line.
+      ["Perfect, we'll see you Friday!", true, { asked: null, beats: [], roleplay: "end" }],
       ["Generally, how many calls do you get a day?", false],
       ["Thanks so much, Sam, have a great day!", true],
     ];
     const seen: string[] = [];
     const responder: AssistantResponder = async ({ system }) => {
       seen.push((system as { turn: string }).turn);
-      const [text, end] = replies[seen.length - 1]!;
-      return `${text}\n###\n{"handoff": false, "end": ${end}}`;
+      const [text, end, state] = replies[seen.length - 1]!;
+      return `${text}\n###\n${JSON.stringify({ handoff: false, end, ...(state ? { state } : {}) })}`;
     };
     const { s, raw, heard } = demoSession(responder);
     await s.open();
@@ -759,6 +769,8 @@ describe("a demo call on the voice engine", () => {
     expect(seen[3]).toContain("The role-play is over");
     expect(seen[4]).toContain("The role-play is over");
     const spoken = heard();
+    expect(spoken.map((r) => r.content).join(" ")).toContain(`Let's do it, you be the patient. ${demoRoleplayOpener("Lumen Aesthetics")}`);
+    expect(spoken.find((r) => r.content.includes("how was that"))!.content).toContain("Perfect, we'll see you Friday! And that's the role-play! So, how was that?");
     expect(spoken.find((r) => r.content.includes("how was that"))!.end_call).toBe(false);
     expect(spoken.at(-1)).toMatchObject({ content: "Thanks so much, Sam, have a great day!", end_call: true });
     await s.finish();

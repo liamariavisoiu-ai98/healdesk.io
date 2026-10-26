@@ -663,13 +663,53 @@ const DECLINED =
  * repetitive"). Never a word that carries meaning: "Oh no," "Got it," and
  * "Right, that makes sense" stay.
  */
-const LEADING_FILLER = /^(?:(?:m+|h+m+|m+-?h+m+|mhm|uh-?huh|u+m+|u+h+|ha(?:ha)*)[.,!…]+\s*|(?:right|sure|okay|ok|alright)[.!]+\s+)+/i;
+const LEADING_FILLER = /^(?:(?:m+|h+m+|m+-?h+m+|mhm|uh-?huh|u+m+|u+h+|ha(?:ha)*|let(?:'s| me) see|let me (?:check|think|look)|one (?:sec|moment|second))[.,!…]+\s*|(?:right|sure|okay|ok|alright)[.!]+\s+)+/i;
 
 /** `text` without the filler it opens with (LEADING_FILLER); empty when it is nothing else. */
 export function withoutLeadingFiller(text: string): string {
   const rest = text.replace(LEADING_FILLER, "");
   if (rest === text) return text;
   return rest ? rest.charAt(0).toUpperCase() + rest.slice(1) : "";
+}
+
+/** A reply's opening apology ("Sorry, Thomas,", "I'm so sorry,"), with what it opens kept. */
+const LEADING_APOLOGY = /^(?:(?:oh|ah|aw+),?\s+)?(?:i'?m\s+)?(?:so\s+|really\s+)?sorry\b(?:\s+about\s+that)?(?:,\s*[a-z]+)?\s*[,.!—–-]+\s*/i;
+
+/**
+ * What a call says, shaped where a reminder in the prompt was not enough
+ * (test call 72dc66b7: his name in nearly every reply, about twenty times,
+ * "I'm sorry, the address is...", and "Talk soon, Thomas!" as he hung up in
+ * frustration). Sentence by sentence, so what streams and what is kept as
+ * said are shaped alike:
+ *   - after the caller's first name was said twice in the call, it is taken
+ *     out where it is only a form of address ("Sure, Thomas," to "Sure,");
+ *     the "Talk soon, <name>!" sign-off keeps it;
+ *   - once the call has had an apology, a reply's opening "Sorry," goes,
+ *     unless the reply is nothing else or the stall's warm sorry is due;
+ *   - with `noSignOff`, a sentence saying "Talk soon" is left out.
+ * Words are only ever taken out, so the guard, which reads what is left,
+ * screens exactly as it would have.
+ */
+export function shapeVoiceReply(
+  text: string,
+  options: { name: string | null; nameUses: number; apologised: boolean; first: boolean; noSignOff: boolean },
+): string {
+  let out = sentencesOf(text).filter((sentence) => !(options.noSignOff && /\btalk soon\b/i.test(sentence)));
+  if (options.name && options.nameUses >= 2) {
+    const name = options.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.map((sentence) => {
+      if (/\btalk soon\b/i.test(sentence)) return sentence;
+      const dropped = sentence
+        .replace(new RegExp(`,\\s*${name}(?=\\s*[,.!?])`, "gi"), "")
+        .replace(new RegExp(`^${name},\\s*(\\S)`, "i"), (_m, c: string) => c.toUpperCase());
+      return dropped.trim() || sentence;
+    });
+  }
+  if (options.first && options.apologised && out.length > 0) {
+    const rest = out[0]!.replace(LEADING_APOLOGY, "");
+    if (rest && rest !== out[0]) out[0] = rest.charAt(0).toUpperCase() + rest.slice(1);
+  }
+  return out.join(" ").trim();
 }
 
 /** A dollar figure in what was said: "$199", "199 dollars", "a hundred and ninety-nine dollars". */
@@ -914,6 +954,12 @@ export async function answerTurn(input: {
    * model has captured one (a demo's requester), for voiceHabits.
    */
   callerFirstName?: string | null;
+  /**
+   * On a call, never end on "Talk soon": a demo whose caller showed
+   * frustration (lib/voice/demo-facts.ts, `impatient`). A sentence holding it
+   * is left out of what is said.
+   */
+  noSignOff?: boolean;
   /** This is the one second try after a refusal (answerAgain); never set by a caller. */
   retried?: boolean;
   /**
@@ -1020,6 +1066,21 @@ export async function answerTurn(input: {
   const before = channel === "voice" && !askedAgain(personText) ? assistantLines.slice(-1) : null;
   const earlierLines = assistantLines.slice(0, -1);
   const fresh = (text: string) => (before ? withoutRepeats(text, [...before, ...spoken], earlierLines) : text);
+  // A call's register, enforced (shapeVoiceReply): the opening line is fixed and not counted.
+  const callerName = capture.firstName?.trim() || input.callerFirstName?.trim() || null;
+  const nameSaid = (lines: readonly string[]) =>
+    callerName ? lines.filter((line) => new RegExp(`\\b${callerName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(line)).length : 0;
+  const apologisedBefore = assistantLines.slice(1).some((line) => /\b(?:sorry|apologi[sz]e)\b/i.test(line) && !SAY_AGAIN.test(line));
+  const shaped = (text: string, first: boolean) =>
+    channel === "voice"
+      ? shapeVoiceReply(text, {
+          name: callerName,
+          nameUses: nameSaid(assistantLines.slice(1)) + nameSaid(spoken),
+          apologised: apologisedBefore,
+          first,
+          noSignOff: input.noSignOff === true,
+        })
+      : text;
   const stream =
     input.speak && !toolsLive
       ? new SpokenStream((sentence) => {
@@ -1037,6 +1098,11 @@ export async function answerTurn(input: {
               return;
             }
             piece = rest;
+          }
+          piece = shaped(piece, spoken.length === 0);
+          if (!piece) {
+            unplaced = "";
+            return;
           }
           // Read with everything already said, so a rule that needs the
           // sentence before it (a question asked back, the reply's language)
@@ -1099,7 +1165,7 @@ export async function answerTurn(input: {
     // The words went out as they came: what is left is the end of the reply,
     // guarded on its own, or the fixed line for the sentence the guard refused.
     const merged = mergeCapture(capture, answer.booking);
-    const rest = refusedMidway ? null : fresh([unplaced, stream.remainder()].filter(Boolean).join(" "));
+    const rest = refusedMidway ? null : shaped(fresh([unplaced, stream.remainder()].filter(Boolean).join(" ")), spoken.length === 0) || null;
     const restVerdict = rest ? guardAssistantReply([saidSoFar(), rest].filter(Boolean).join(" "), facts, NO_BOOKING_WRITTEN) : null;
     const reason: GuardRefusal | null = refusedMidway ?? (restVerdict && !restVerdict.ok ? restVerdict.reason : null);
     if (reason && (reason === "price" || input.softRefusal) && spoken.length === 0 && channel === "voice" && !input.retried) return answerAgain(input, reason);
@@ -1153,7 +1219,8 @@ export async function answerTurn(input: {
   }
   // A reply that only repeats the turn before is said as written: silence would be worse.
   const unrepeated = (before && fresh(answer.reply)) || answer.reply;
-  const replyText = channel === "voice" ? withoutLeadingFiller(unrepeated) || unrepeated : unrepeated;
+  const unfilled = channel === "voice" ? withoutLeadingFiller(unrepeated) || unrepeated : unrepeated;
+  const replyText = shaped(unfilled, true) || unfilled;
   const verdict = guardAssistantReply(replyText, facts, NO_BOOKING_WRITTEN);
   if (!verdict.ok && (verdict.reason === "price" || input.softRefusal) && channel === "voice" && !input.retried) return answerAgain(input, verdict.reason);
   const soft = verdict.ok ? null : softLine(input);

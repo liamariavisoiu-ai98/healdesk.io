@@ -98,6 +98,7 @@ function session(responder: AssistantResponder | null, facts: AssistantFacts = F
     tools: () => null,
     redial: async () => null,
     acknowledgeAfterMs: 5,
+    acknowledgements: TEST_ACKS,
     random: () => 0,
   });
   const raw = () => sent.filter((m): m is Response => m.response_type === "response");
@@ -111,6 +112,9 @@ const reply = (text: string) => async () => {
   return JSON.stringify({ reply: text, handoff: false, end: false });
 };
 
+/** The words the mechanism says in these tests: production says none (ACKNOWLEDGEMENTS). */
+const TEST_ACKS = ["Mm.", "Hmm.", "Let's see."] as const;
+
 describe("the acknowledgement while the model thinks", () => {
   test("is sent first, unfinished, and the reply is appended to the same response", async () => {
     const { s, raw, heard, seen, recorded } = session(reply("Lovely, which day suits you?"));
@@ -119,14 +123,14 @@ describe("the acknowledgement while the model thinks", () => {
     await s.handle(said(1, [{ role: "agent", content: opening }, { role: "user", content: "I'd like to book my nails please" }]));
     const parts = raw().filter((r) => r.response_id === 1);
     expect(parts).toHaveLength(2);
-    expect(parts[0]).toMatchObject({ content: ACKNOWLEDGEMENTS.en[0], content_complete: false, end_call: false });
+    expect(parts[0]).toMatchObject({ content: TEST_ACKS[0], content_complete: false, end_call: false });
     expect(parts[1]).toMatchObject({ content: " Lovely, which day suits you?", content_complete: true });
-    expect(heard()[1]!.content).toBe(`${ACKNOWLEDGEMENTS.en[0]} Lovely, which day suits you?`);
+    expect(heard()[1]!.content).toBe(`${TEST_ACKS[0]} Lovely, which day suits you?`);
     // The model was told, so it does not open with another.
-    expect(seen[0]!.turn).toContain(`"${ACKNOWLEDGEMENTS.en[0]}" is said out loud for you first`);
+    expect(seen[0]!.turn).toContain(`"${TEST_ACKS[0]}" is said out loud for you first`);
     await s.finish();
     // The clinic's transcript keeps what the caller heard.
-    expect(recorded.turns?.find((t) => t.text.startsWith(ACKNOWLEDGEMENTS.en[0]!))?.text).toBe(`${ACKNOWLEDGEMENTS.en[0]} Lovely, which day suits you?`);
+    expect(recorded.turns?.find((t) => t.text.startsWith(TEST_ACKS[0]!))?.text).toBe(`${TEST_ACKS[0]} Lovely, which day suits you?`);
   });
 
   test("is never said on two turns running, and never the same one twice in a row", async () => {
@@ -221,7 +225,7 @@ describe("around the reply", () => {
     });
     await s.open();
     await s.handle(said(1, [{ role: "agent", content: raw()[0]!.content }, { role: "user", content: "what other services do you have" }]));
-    expect(heard()[1]!.content).toBe(`${ACKNOWLEDGEMENTS.en[0]} ${RETRY_LINE}`);
+    expect(heard()[1]!.content).toBe(`${TEST_ACKS[0]} ${RETRY_LINE}`);
     expect(heard()[1]!.content).not.toMatch(/trouble on my end/);
     await s.finish();
   });
@@ -273,7 +277,8 @@ describe("the thinking sound (owner, 24 October 2026)", () => {
     // At 200 ms nearly every reply began with one (owner's test call, 25 October 2026).
     expect(ACKNOWLEDGE_AFTER_MS).toBeGreaterThanOrEqual(800);
     expect(ACKNOWLEDGE_AFTER_MS).toBeLessThanOrEqual(1_200);
-    expect(ACKNOWLEDGEMENTS.en).toContain("Mm.");
-    expect(ACKNOWLEDGEMENTS.en.some((line) => /okay|sure|right|mm-hmm/i.test(line))).toBe(false);
+    // No filler at all on a real call (owner's brief, 26 October 2026; test call 72dc66b7 heard "Mm." and "Hmm.").
+    expect(ACKNOWLEDGEMENTS.en).toEqual([]);
+    expect(ACKNOWLEDGEMENTS.es).toEqual([]);
   });
 });

@@ -261,15 +261,18 @@ export function liveDiscount(offer: Pick<DemoCallContext, "offer">["offer"], now
 
 /**
  * A demo call's three stages (owner, 25 October 2026), tracked by the call
- * session (retell.ts) from Aya's own scripted lines, never from the model's
- * say-so alone:
+ * session (retell.ts) from her structured state (`"roleplay"`: start, cancel
+ * or end), never from a phrase found in her words (test call 72dc66b7: a
+ * bare "Ring ring!" in an ambiguous reply flipped the stage with no greeting
+ * and no AI notice, and the exit line then came after no role-play):
  *   intro     who they are, their role, then the choice: hear more, or a
  *             role-play;
- *   roleplay  from the reply that says the role-play opener ("Ring ring!",
- *             DEMO_ROLEPLAY_START): they play a patient, Aya is the clinic's
- *             front desk;
- *   pitch     from the reply that steps out of it ("how was that?",
- *             DEMO_ROLEPLAY_END): the pitch and the discovery questions.
+ *   roleplay  from the reply that starts it, whose opener the call says
+ *             itself (demoRoleplayOpener): they play a patient, Aya is the
+ *             clinic's front desk;
+ *   pitch     from the reply that ends it, whose exit line the call says
+ *             itself (DEMO_ROLEPLAY_EXIT): the pitch and the discovery
+ *             questions.
  * Each stage has its own note (demoStageNote), so no stage's instructions
  * are repeated into another: repeating the opening's instructions deep into
  * a role-play is what made Aya seem to forget the caller's name (owner,
@@ -278,29 +281,88 @@ export function liveDiscount(offer: Pick<DemoCallContext, "offer">["offer"], now
 export type DemoStage = "intro" | "roleplay" | "pitch";
 
 /**
- * The fixed words that start and end the role-play, each a line the note
- * gives her to say exactly ("Ring ring!", "how was that?"): the stage moves
- * on them. Every other move a demo makes is read from her structured state
- * update (DemoStateUpdate), never from her prose.
+ * The fixed words that start and end the role-play, which the call says
+ * itself when her state asks for it (withRoleplayOpener, withRoleplayExit).
+ * The stage also moves when the whole scripted line is in her words, so a
+ * reply that wrote it out but forgot the state still counts; a bare "Ring
+ * ring!" or a passing "how was that?" never does.
  */
-export const DEMO_ROLEPLAY_START = /\bring[\s,!.-]*ring\b/i;
-export const DEMO_ROLEPLAY_END = /\bhow was that\b/i;
+export const DEMO_ROLEPLAY_EXIT = "And that's the role-play! So, how was that?";
+export const DEMO_ROLEPLAY_START = /\bring[\s,!.-]*ring!?\s+hi,? thanks for calling\b/i;
+export const DEMO_ROLEPLAY_END = /\band that'?s the role-?play!?\s+so,? how was that\b/i;
+
+/** The roleplay moves her state may ask for. */
+export type RoleplaySignal = "start" | "cancel" | "end";
 
 /** The questions that open the talk after the role-play, and start it when the role-play is skipped. */
 const PITCH_OPENERS: ReadonlySet<DemoQuestion> = new Set(["goal", "volume"]);
 
 /**
- * The stage after a reply: moved on only by the fixed line that opens the
- * next one, or, from the intro, by her declaring a discovery question
- * (`asked`, from her structured state). A role-play may be skipped or run
- * again from the pitch ("Ring ring!" once more).
+ * The stage after a reply: moved on by her state (`roleplay`: start, cancel,
+ * end; `resume`), or by the whole scripted line in her words, or, from the
+ * intro, by her declaring a discovery question (`asked`). A role-play may be
+ * skipped or run again from the pitch. "cancel" takes a role-play that the
+ * caller did not want back to the stage it came from (`from`), with no exit
+ * line; "end" only after at least one in-character exchange (`turns`),
+ * otherwise it is a cancel too.
  */
-export function nextDemoStage(stage: DemoStage, reply: string, asked: DemoQuestion | null = null, resume = false): DemoStage {
-  if (stage !== "roleplay" && (DEMO_ROLEPLAY_START.test(reply) || resume)) return "roleplay";
-  if (stage === "roleplay" && DEMO_ROLEPLAY_END.test(reply)) return "pitch";
-  if (stage === "intro" && asked && PITCH_OPENERS.has(asked)) return "pitch";
+export function nextDemoStage(
+  stage: DemoStage,
+  reply: string,
+  signal: { asked?: DemoQuestion | null; roleplay?: RoleplaySignal | null; resume?: boolean } = {},
+  from: DemoStage = "intro",
+  turns = 1,
+): DemoStage {
+  const { asked = null, roleplay = null, resume = false } = signal;
+  if (stage !== "roleplay") {
+    if (roleplay === "start" || resume || DEMO_ROLEPLAY_START.test(reply)) return "roleplay";
+    if (stage === "intro" && asked && PITCH_OPENERS.has(asked)) return "pitch";
+    return stage;
+  }
+  if (roleplay === "cancel" || (roleplay === "end" && turns < 1)) return from;
+  if (roleplay === "end" || DEMO_ROLEPLAY_END.test(reply)) return "pitch";
   return stage;
 }
+
+/**
+ * The reply that starts a role-play, as it is said: her handover, if she
+ * wrote one before "Ring ring", then the scripted opener word for word
+ * (demoRoleplayOpener), which carries the AI and transcription notice the
+ * owner is meant to hear. `spoken` is what already went out as she wrote it;
+ * the result starts with it, so only the rest is sent.
+ */
+export function withRoleplayOpener(reply: string, opener: string, spoken = ""): string {
+  if (reply.includes(opener)) return reply;
+  const handover = reply.split(/\bring[\s,!.-]*ring\b/i)[0]!.trim();
+  const full = [handover, opener].filter(Boolean).join(" ");
+  if (!spoken || full.startsWith(spoken)) return full;
+  // Some of her own words went out already: they stand, and the opener's
+  // greeting follows them, its "Ring ring!" only if she has not said it.
+  const rest = /\bring[\s,!.-]*ring\b/i.test(spoken) ? opener.replace(/^ring ring!\s*/i, "") : opener;
+  return `${spoken} ${rest}`;
+}
+
+/** The reply that ends a role-play, as it is said: her in-character goodbye, then the scripted exit line, once. */
+export function withRoleplayExit(reply: string, spoken = ""): string {
+  if (DEMO_ROLEPLAY_END.test(reply)) return reply;
+  const bye = reply.replace(/\s*and that'?s the role-?play!?[^]*$/i, "").trim();
+  const full = [bye, DEMO_ROLEPLAY_EXIT].filter(Boolean).join(" ");
+  if (!spoken || full.startsWith(spoken)) return full;
+  return `${spoken} ${DEMO_ROLEPLAY_EXIT}`;
+}
+
+/** A bare yes ("Yes, please.", "Sure", "Yeah okay"): what cannot choose between two offers. */
+export function isBareYes(words: string): boolean {
+  return /^\W*(?:yes|yeah|yep|yup|sure|ok(?:ay)?|please|go ahead|sounds good|absolutely|definitely|of course)(?:[\s,!.]+(?:yes|yeah|please|sure|ok(?:ay)?|thanks|thank you|let'?s do it|go ahead))*\W*$/i.test(words.trim());
+}
+
+/** A reply that offered a role-play as one of two options ("...or jump into a quick role-play?"). */
+export function offeredRoleplayChoice(reply: string | undefined): boolean {
+  return Boolean(reply && /role-?play/i.test(reply) && /\bor\b/i.test(reply) && /\?\s*$/.test(reply.trim()));
+}
+
+/** What a bare yes to that choice hears: which one, never a guess. */
+export const WHICH_ONE_LINE = "Happy to! Which one: the role-play, or more on what I can do?";
 
 /**
  * The questions a demo asks, in order: who they are (the opening line's own
@@ -364,6 +426,23 @@ export type DemoProgress = {
   pushback?: DemoPushback | null;
   /** Her signature touches already said on this call (DemoQuirk): each at most once. */
   quirks?: readonly DemoQuirk[];
+  /** The stage a role-play was started from, which a cancelled one goes back to. */
+  roleplayFrom?: DemoStage;
+  /**
+   * The caller has shown they are impatient or frustrated (test call
+   * 72dc66b7: "You tired me... I'm done with repeating myself"): every open
+   * discovery question is skipped, the note goes straight to the
+   * recommendation and the close, and the call never ends on "Talk soon!".
+   */
+  impatient?: boolean;
+  /** The menu items her last reply named, in the order she said them, so "the second one" is read in code. */
+  lastListed?: readonly string[];
+  /** What the caller's latest words picked from that list by position ("the second one"), resolved in code. */
+  picked?: { said: string; item: string; index: number } | null;
+  /** The role-play's booking so far, from her state: never asked for again. */
+  rpBooking?: { service?: string; day?: string; time?: string };
+  /** "I don't understand" with nothing more, in a row: 1, 2, 3... (0 or absent once they follow). */
+  confused?: number;
 };
 
 /**
@@ -434,12 +513,31 @@ export type DemoStateUpdate = {
   resume?: boolean;
   /** The signature touches the reply says (DemoQuirk), from its words. */
   quirks?: DemoQuirk[];
+  /** A role-play move (RoleplaySignal): the call says the opener or the exit line itself. */
+  roleplay?: RoleplaySignal | null;
+  /** Discovery questions the caller's last words answered, besides the one asked (a rich answer). */
+  answered?: DemoQuestion[];
+  /** The caller is impatient or frustrated: stop asking, recommend, close. */
+  impatient?: boolean;
+  /** The role-play booking details the caller has given so far. */
+  booking?: { service?: string; day?: string; time?: string } | null;
 };
 
 /** The state update in an answer's details; null when the answer carried none. */
 export function demoStateFrom(raw: unknown, reply: string): DemoStateUpdate | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const state = raw as { asked?: unknown; beats?: unknown; callback?: unknown; pushback?: unknown; skip?: unknown; resume?: unknown };
+  const state = raw as {
+    asked?: unknown;
+    beats?: unknown;
+    callback?: unknown;
+    pushback?: unknown;
+    skip?: unknown;
+    resume?: unknown;
+    roleplay?: unknown;
+    answered?: unknown;
+    impatient?: unknown;
+    booking?: unknown;
+  };
   const asked =
     typeof state.asked === "string" && (DEMO_QUESTIONS as readonly string[]).includes(state.asked) && state.asked !== "identity" && reply.includes("?")
       ? (state.asked as DemoQuestion)
@@ -447,19 +545,99 @@ export function demoStateFrom(raw: unknown, reply: string): DemoStateUpdate | nu
   const beats = Array.isArray(state.beats) ? DEMO_BEATS.filter((beat) => (state.beats as unknown[]).includes(beat)) : [];
   const pushback = typeof state.pushback === "string" && (DEMO_PUSHBACKS as readonly string[]).includes(state.pushback) ? (state.pushback as DemoPushback) : null;
   const skip = typeof state.skip === "string" && SKIPPABLE.has(state.skip as DemoQuestion) ? (state.skip as DemoQuestion) : null;
-  return { asked, beats, callback: callbackFrom(state.callback), pushback, skip, resume: state.resume === true, quirks: quirksIn(reply) };
+  const roleplay = state.roleplay === "start" || state.roleplay === "cancel" || state.roleplay === "end" ? state.roleplay : null;
+  const answered = Array.isArray(state.answered) ? [...DISCOVERY].filter((q) => (state.answered as unknown[]).includes(q)) : [];
+  return {
+    asked,
+    beats,
+    callback: callbackFrom(state.callback),
+    pushback,
+    skip,
+    resume: state.resume === true,
+    quirks: quirksIn(reply),
+    roleplay,
+    answered,
+    impatient: state.impatient === true,
+    booking: bookingFrom(state.booking),
+  };
+}
+
+/** The discovery questions after the role-play, which a rich answer may answer several of at once. */
+const DISCOVERY: ReadonlySet<DemoQuestion> = new Set<DemoQuestion>(["goal", "volume", "missed", "coverage"]);
+
+/** Role-play booking details from her state, each a short string; null when none. */
+function bookingFrom(raw: unknown): { service?: string; day?: string; time?: string } | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const out: { service?: string; day?: string; time?: string } = {};
+  for (const key of ["service", "day", "time"] as const) {
+    const value = (raw as Record<string, unknown>)[key];
+    if (typeof value === "string" && value.trim()) out[key] = value.trim().slice(0, 60);
+  }
+  return Object.keys(out).length > 0 ? out : null;
 }
 
 /** The instruction for the state update, in each note that tracks one. */
-const STATE_RULE = `With every reply, add to the JSON details a "state" object: {"asked": the one scripted question this reply asks, or null, "beats": the pitch beats this reply says, or []}, plus "pushback", "skip", "resume" or "quirk" only when a rule below asks for one. The questions are role, choice, goal, volume, volumeCheck, missed, coverage, tiedown, ask, callback and callbackNote; the beats are pain, reveal, number, finish, anchor, value, recommend, noStrings and refund, as named in this note. Name only what the reply actually says.`;
+const STATE_RULE = `With every reply, add to the JSON details a "state" object: {"asked": the one scripted question this reply asks, or null, "beats": the pitch beats this reply says, or []}, plus "roleplay", "answered", "impatient", "pushback", "skip", "resume" or "quirk" only when a rule below asks for one. The questions are role, choice, goal, volume, volumeCheck, missed, coverage, tiedown, ask, callback and callbackNote; the beats are pain, reveal, number, finish, anchor, value, recommend, noStrings and refund, as named in this note. Name only what the reply actually says.`;
 
 /** Answers longer than this are cut: what is kept is a reminder, not a record. */
 const ANSWER_MAX = 200;
 
 /** The progress with the caller's latest words taken as the answer to what was asked, and counted in a role-play. */
 export function withDemoAnswer(progress: DemoProgress, stage: DemoStage, words: string): DemoProgress {
-  const answers = progress.asked ? { ...progress.answers, [progress.asked]: words.trim().slice(0, ANSWER_MAX) } : progress.answers;
-  return { ...progress, answers, roleplayTurns: stage === "roleplay" ? progress.roleplayTurns + 1 : progress.roleplayTurns };
+  // "I don't understand" answers nothing: the question stays asked, and the count goes up.
+  const lost = isConfused(words);
+  const answers = progress.asked && !lost ? { ...progress.answers, [progress.asked]: words.trim().slice(0, ANSWER_MAX) } : progress.answers;
+  return {
+    ...progress,
+    answers,
+    // "Which part?" is not a turn of the role-play: it does not bring the wrap-up closer.
+    roleplayTurns: stage === "roleplay" && !lost ? progress.roleplayTurns + 1 : progress.roleplayTurns,
+    confused: lost ? (progress.confused ?? 0) + 1 : 0,
+    picked: pickedFrom(words, progress.lastListed ?? []),
+  };
+}
+
+/** "I don't understand", "What do you mean?", "I'm confused": a caller who lost the thread and said nothing more. */
+export function isConfused(words: string): boolean {
+  return /^\W*(?:sorry,?\s*)?(?:i\s+(?:don'?t|do not|didn'?t)\s+(?:understand|get it|follow)|what\s+do\s+you\s+mean|what\s+does\s+(?:it|that)\s+mean|i'?m\s+(?:confused|lost)|huh|come again)\W*(?:(?:what|you)\b[^.?!]{0,30})?\W*$/i.test(
+    words.trim(),
+  );
+}
+
+const ORDINALS: readonly [RegExp, (n: number) => number][] = [
+  [/\b(?:first|1st)\b/i, () => 0],
+  [/\b(?:second|2nd)\b/i, () => 1],
+  [/\b(?:third|3rd)\b/i, () => 2],
+  [/\b(?:fourth|4th)\b/i, () => 3],
+  [/\b(?:middle)\b/i, (n) => (n % 2 === 1 ? (n - 1) / 2 : -1)],
+  [/\b(?:last)\b/i, (n) => n - 1],
+];
+
+/** The item a caller picked by position from what she just listed ("the second one"); null without a list or a position. */
+export function pickedFrom(words: string, listed: readonly string[]): DemoProgress["picked"] {
+  if (listed.length < 2 || !/\b(?:one|option|of those|of them)\b|^\W*the\s+\w+\W*$/i.test(words)) return null;
+  for (const [pattern, at] of ORDINALS) {
+    const m = pattern.exec(words);
+    if (!m) continue;
+    const index = at(listed.length);
+    if (index < 0 || index >= listed.length) return null;
+    return { said: m[0], item: listed[index]!, index };
+  }
+  return null;
+}
+
+/** The menu items a reply names, in the order it says them (each once). */
+export function listedIn(reply: string, menu: readonly string[]): string[] {
+  const hits: { at: number; name: string }[] = [];
+  for (const name of menu) {
+    const at = reply.toLowerCase().indexOf(name.toLowerCase());
+    if (at >= 0) hits.push({ at, name });
+  }
+  // A name inside a longer one ("Facial" in "VIP Facial") is not its own item.
+  return hits
+    .filter((h) => !hits.some((o) => o !== h && o.name.length > h.name.length && o.at <= h.at && h.at < o.at + o.name.length))
+    .sort((a, b) => a.at - b.at)
+    .map((h) => h.name);
 }
 
 /**
@@ -468,15 +646,35 @@ export function withDemoAnswer(progress: DemoProgress, stage: DemoStage, words: 
  * with no state update asks nothing the caller's next words could answer:
  * the note's next step stays where it was, never guessed from her words.
  */
-export function afterDemoReply(progress: DemoProgress, stageBefore: DemoStage, stageAfter: DemoStage, update: DemoStateUpdate | null): DemoProgress {
+export function afterDemoReply(
+  progress: DemoProgress,
+  stageBefore: DemoStage,
+  stageAfter: DemoStage,
+  update: DemoStateUpdate | null,
+  callerWords = "",
+): DemoProgress {
   const beats = stageBefore === "pitch" && stageAfter === "pitch" && update ? update.beats.filter((b) => !progress.said.includes(b)) : [];
   // A discovery question they declined counts as answered, so it is never asked again (6f).
-  const answers = update?.skip ? { ...progress.answers, [update.skip]: SKIPPED_ANSWER } : progress.answers;
+  const answers: Partial<Record<DemoQuestion, string>> = update?.skip ? { ...progress.answers, [update.skip]: SKIPPED_ANSWER } : { ...progress.answers };
+  // A rich answer counts for every discovery question it answered (test call
+  // 72dc66b7: the channels and jobs he wanted were read as his goal alone,
+  // and the call volume he had given was asked for again; he hung up).
+  for (const q of update?.answered ?? []) if (!answers[q] && callerWords.trim()) answers[q] = callerWords.trim().slice(0, ANSWER_MAX);
+  // An impatient caller is asked nothing more: every open discovery question is skipped.
+  const impatient = progress.impatient === true || update?.impatient === true;
+  // Their impatience is no answer to the question just asked: it is skipped with the rest.
+  const said = callerWords.trim().slice(0, ANSWER_MAX);
+  if (impatient) for (const q of SKIPPABLE) if (!answers[q] || (update?.impatient && said && answers[q] === said)) answers[q] = SKIPPED_ANSWER;
+  const starting = stageAfter === "roleplay" && stageBefore !== "roleplay";
   return {
     ...progress,
     answers,
     asked: stageAfter === "roleplay" ? null : (update?.asked ?? null),
-    roleplayTurns: stageAfter === "roleplay" && stageBefore !== "roleplay" ? 0 : progress.roleplayTurns,
+    roleplayTurns: starting ? 0 : progress.roleplayTurns,
+    roleplayFrom: starting ? stageBefore : progress.roleplayFrom,
+    impatient,
+    // A new role-play starts its booking afresh; within one, what she was told is kept.
+    rpBooking: starting && !update?.resume ? {} : stageAfter === "roleplay" && update?.booking ? { ...progress.rpBooking, ...update.booking } : progress.rpBooking,
     said: beats.length > 0 ? [...progress.said, ...beats] : progress.said,
     pushback: update?.pushback ?? progress.pushback ?? null,
     // Outside a role-play only: in one she is the clinic's front desk, not herself.
@@ -503,7 +701,7 @@ export function quirkRules(progress: DemoProgress, firstName: string | null | un
   );
   if (said.includes("talkSoon")) {
     out.push(`You already signed off with "Talk soon" on this call: never again.`);
-  } else if (progress.callback !== "failed") {
+  } else if (progress.callback !== "failed" && !progress.impatient) {
     out.push(
       `When the call ends warmly (they are going ahead, the team has their call-back request, or they say a friendly goodbye after a soft "not now"), your last words are exactly "${talkSoonLine(firstName)}" (their name is fine here) and you add "quirk": "talkSoon" to the state. Never after a firm refusal ("leave me alone", "stop calling"): that gets a brief goodbye without it.`,
     );
@@ -709,6 +907,16 @@ const TALK = [
 ].join("\n");
 
 /**
+ * What Aya says about deposit links (owner, 26 October 2026: "she should say
+ * those channels too as this is what we will launch"): website chat,
+ * Instagram, Messenger and WhatsApp, as design, since none sends one in
+ * production yet (LAUNCH_PROMISES, deposit-link-chat and deposit-link-meta),
+ * and never on a call, where voice books and flags the deposit for staff.
+ */
+export const DEPOSIT_CLAIM =
+  "in website chat, Instagram, Messenger and WhatsApp she is designed to send the clinic's own deposit link, so a booking can come with its deposit; never on a phone call, where she books and flags the deposit for the team";
+
+/**
  * Where healdesk sits (owner, 26 October 2026, 6b), for a question she has
  * no scripted answer for and for the pitch (later that day: "AYA needs to say that we're better than
  * competitors but should never name competition"). Confident about doing
@@ -717,7 +925,55 @@ const TALK = [
  * as design. No exclusivity ("the only ones") until it is checked: a claim
  * about every other company is one nobody here has verified.
  */
-const POSITIONING = `Where healdesk sits (one line of it, only when it is relevant, never a list). Say with confidence that Aya does more than the usual options, a phone-only bot or an answering service, but never name, describe or quote any company, and never say "the only", "number one" or anything about everyone else. The points, all true: one Aya answers the phone, website chat, Instagram, Messenger and WhatsApp together, instead of separate tools stitched together, with the same knowledge of the clinic and the same manner however a patient gets in touch; in website chat she is designed to send the clinic's own deposit link, so a booking can come with its deposit (never on a call); she sounds natural, not like a phone menu, and does more than take messages: she answers from the clinic's own menu and prices and can suggest add-on treatments when the clinic switches that on; English and Spanish; the clinic keeps its own number, with calls forwarded to Aya; setup is about fifteen minutes of their attention; the monthly price only starts once Aya is answering their patients. Never claim anything not in this note.`;
+const POSITIONING = `Where healdesk sits (one line of it, only when it is relevant, never a list). Say with confidence that Aya does more than the usual options, a phone-only bot or an answering service, but never name, describe or quote any company, and never say "the only", "number one" or anything about everyone else. The points, all true: one Aya answers the phone, website chat, Instagram, Messenger and WhatsApp together, instead of separate tools stitched together, with the same knowledge of the clinic and the same manner however a patient gets in touch; ${DEPOSIT_CLAIM}; she sounds natural, not like a phone menu, and does more than take messages: she answers from the clinic's own menu and prices and can suggest add-on treatments when the clinic switches that on; English and Spanish; the clinic keeps its own number, with calls forwarded to Aya; setup is about fifteen minutes of their attention; the monthly price only starts once Aya is answering their patients. Never claim anything not in this note.`;
+
+/**
+ * The intro's answer to "tell me what you can do" (test call 72dc66b7: phone
+ * and website chat alone, then WhatsApp only once he asked "don't you
+ * mention WhatsApp upfront?"): every channel and the deposit link, at once.
+ */
+export const WHAT_AYA_DOES =
+  "one Aya answers the clinic's phone, website chat, Instagram, Messenger and WhatsApp, in English and Spanish, with the same knowledge of its treatments, prices and hours, taking booking requests and passing anyone who wants a person to the team; in website chat, Instagram, Messenger and WhatsApp she is designed to send the clinic's own deposit link (never on a call)";
+
+/** A rich answer read for everything it answers (test call 72dc66b7). */
+const ANSWERED_RULE = `When their words answer more than the question you asked (for example, they name the channels and the jobs they want you to handle, which answers both what they are after and how they see you helping), add "answered": [each of goal, volume, missed and coverage those words answered] to the state, and never ask those. Read what they said for all it tells you before you ask anything.`;
+
+/** "I don't understand", in a row (test call 72dc66b7: the same price list twice, then the same line twice). */
+function confusedRule(progress: DemoProgress): string[] {
+  const n = progress.confused ?? 0;
+  if (n === 1) return [`They just said they don't understand. Ask which part in a few words ("Which part?") and nothing more: never say the same thing again.`];
+  if (n === 2) return [`They still don't follow. Say it the simplest way you can: one item, one short sentence, in different words from anything you said before.`];
+  if (n >= 3) return [`They have said they don't understand ${n} times. Don't explain it again: take a completely different angle in one sentence, or offer to move on.`];
+  return [];
+}
+
+/** An impatient caller (test call 72dc66b7: "You tired me... I'm done with repeating myself"). */
+function fastLane(progress: DemoProgress): string[] {
+  const watch = `If they sound impatient or frustrated (tired of it, not clear, repeating themselves, about to hang up), add "impatient": true to the state: from then on you ask nothing more about their business.`;
+  if (!progress.impatient) return [watch];
+  return [
+    `They are impatient: ask nothing more about their business. In this reply, acknowledge it in a few sincere words (never "Fair enough"), then recommend the one package that fits what they told you in one sentence and ask plainly if they want to get set up. If they are leaving, one short, sincere goodbye: no "Talk soon", nothing chipper.`,
+  ];
+}
+
+/** The role-play's booking, as far as it has got, and the hours a time must fall in. */
+function rpBookingLines(progress: DemoProgress, context: Pick<DemoCallContext, "clinic">): string[] {
+  const b = progress.rpBooking ?? {};
+  const hours = context.clinic.hours.map((h) => `${h.days} ${h.hours}`).join(", ");
+  const known = [b.service ? `the treatment: ${b.service}` : null, b.day ? `the day: ${b.day}` : null, b.time ? `the time: ${b.time}` : null].filter(Boolean);
+  const missing = [!b.service ? "the treatment" : null, !b.day || !b.time ? "a preferred day and time" : null].filter(Boolean);
+  return [
+    known.length > 0
+      ? `On file for this booking: ${known.join("; ")}. Never ask for any of it again; use it.`
+      : `To take a booking request, ask only for the treatment and a preferred day and time.`,
+    missing.length > 0
+      ? `Still needed: ${missing.join(" and ")}. Ask for only that, in one short question.`
+      : `You have everything: say in one sentence that the team will confirm that time within a day, then wrap up. Ask for nothing else, and never ask "anything else?".`,
+    hours
+      ? `Opening hours: ${hours}. If they ask for a time outside them, say the hours in a few words and offer two real times inside them on the day they asked for (for example the last two hours before closing), never a different day unless that day is closed, and never ask for the treatment again.`
+      : `If they ask for a time the clinic is closed, offer two times within its usual working day instead.`,
+  ];
+}
 
 /** On a question with no answer here (6b): never the last question again. */
 const DEFLECT = `If they ask something you have no answer for (another company, a feature or a detail not in this note, anything outside what you know), never repeat your last question and never ask it again in other words: acknowledge it in a few words, give one honest line from where healdesk sits if one fits, then move the conversation on with a genuine new question.`;
@@ -758,8 +1014,10 @@ export function demoStageNote(
   const clinic = shortClinicName(full);
   const nameRule = clinic === full ? NAME_RULE : `${NAME_RULE} Call the clinic "${clinic}": its full name, "${full}", was said once in your opening line and is not said again.`;
   const who = context.firstName ?? "the caller";
-  const opener = demoRoleplayOpener(clinic);
+  const opener = demoRoleplayOpener(full);
   const known = knownLine(progress);
+  const startRule = `To start a role-play, write one short handover ("Let's do it, you be the patient.") and add "roleplay": "start" to the state: the call then says the opener itself, word for word ("${opener}"). Never write your own version of it, never start one any other way, and never start one unless their words chose it. If they answer an either/or question with only a yes ("Yes, please", "Sure"), ask which one they mean in a few words instead of choosing for them.`;
+  const shared = [...confusedRule(progress), ...fastLane(progress)];
   const a = progress.answers;
   const goalQuestion = `"What made you want to look at an AI assistant for ${clinic}?"`;
   const button = context.buyButton?.replace(/\bAYA\b/g, "Aya") ?? null;
@@ -791,13 +1049,15 @@ export function demoStageNote(
       ? `Next: greet them by name in a few words and ask their role at ${clinic} ("Great to meet you! What's your role at ${clinic}?"). Your opening line already asked whether you're speaking with ${context.firstName ?? "them"}: never ask it again. Unless they say plainly that they are someone else, take their answer as a yes.`
       : !a.choice
       ? `Next: react to their role in a few natural words (never congratulate them, and don't repeat their title back), then ask, close to these words: "Would you like to hear what I can do for ${clinic}, or jump straight into a quick role-play where you call in as a patient?"`
-      : `Next: do what they chose. If they want to hear more, say in one short sentence what you do for ${clinic} (its calls in English and Spanish whenever the front desk can't pick up, its treatments, prices and hours, booking requests, and anyone who wants a person passed to the team), with one real detail you know about it (never a website, scraping or how you learned anything), then offer the role-play. If they want the role-play, or leave it to you ("whatever's best"), start it in this same reply: one short handover ("Let's do it, you be the patient.") and then exactly: "${opener}"`;
+      : `Next: do what they chose. If they want to hear more, say what you do in two short sentences: first, ${WHAT_AYA_DOES}; then one real detail you know about ${clinic} (never a website, scraping or how you learned anything), and offer the role-play. If they want the role-play, or leave it to you ("whatever's best"), start it in this same reply (below).`;
     return [
       `This call is a live demo for ${who}, who is on ${clinic}'s team and asked to hear you at work. ${nameRule} You opened by saying who you are and asking whether you're speaking with ${context.firstName ?? "them"}.`,
       ...(known ? [known] : []),
       next,
       TALK,
-      `Whenever they want the role-play, start it in the same reply, never a later one, with exactly: "${opener}" Then they play one of your patients and you answer as ${clinic}'s front desk. Say "your patients", never "our patients" or "another patient".${context.clinic.services.length === 0 ? ` ${clinic}'s treatments and prices are not on file, so if they are unsure what to ask, suggest what callers ask first: the hours, where it is, or booking a consultation.` : ""}`,
+      ...shared,
+      ANSWERED_RULE,
+      `Whenever they want the role-play, start it in the same reply, never a later one. ${startRule} Then they play one of your patients and you answer as ${clinic}'s front desk. Say "your patients", never "our patients" or "another patient".${context.clinic.services.length === 0 ? ` ${clinic}'s treatments and prices are not on file, so if they are unsure what to ask, suggest what callers ask first: the hours, where it is, or booking a consultation.` : ""}`,
       `If they would rather skip the role-play, or ask about price or getting started, find out what they need first, by asking: ${goalQuestion}`,
       ...(resume ? [resume] : []),
       leaving,
@@ -814,7 +1074,7 @@ export function demoStageNote(
     const turns = progress.roleplayTurns;
     const wrap =
       turns > ROLEPLAY_MAX_TURNS
-        ? [`The role-play is over now: in this reply, give one short in-character goodbye and step out of character with exactly: "And that's the role-play! So, how was that?"`]
+        ? [`The role-play is over now: in this reply, give one short in-character goodbye and add "roleplay": "end" to the state.`]
         : turns === ROLEPLAY_MAX_TURNS
         ? [
             `The role-play has run long enough: resolve where it stands in this reply. If their last words were a question or a pushback (about a price included), answer it in one sentence and offer to take the booking request ("Want me to put that request in for you?"); the next reply then wraps up. If they already have what they called for, wrap up now, as above.`,
@@ -823,11 +1083,19 @@ export function demoStageNote(
     return [
       `The role-play is on: ${who}, of ${clinic}'s team, is playing a patient calling ${clinic}, and you are Aya at its front desk. ${nameRule} Stay fully in character and answer exactly as you would a real caller; step out only if they clearly talk to you as themselves.`,
       TALK,
-      `Keep it brisk, the way a quick, capable front desk sounds. Give a real answer to what they ask; if they are unsure what to book, name one or two treatments from the list that suit what they want (no price that is not on the list, and never a figure they said) and offer a consultation. To take a booking request, ask only for the treatment and a preferred day and time, then say in one sentence that the team will confirm the time. Ask for nothing else, and never ask "anything else?".`,
+      ...shared,
+      `Keep it brisk, the way a quick, capable front desk sounds. Give a real answer to what they ask; if they are unsure what to book, name one or two treatments from the list that suit what they want (no price that is not on the list, and never a figure they said) and offer a consultation. Never read out more than two prices at once: give the lowest "from" price and offer to say more.`,
+      ...rpBookingLines(progress, context),
+      ...(progress.picked
+        ? [
+            `They just said "${progress.picked.said}": that is the ${progress.picked.item}, number ${progress.picked.index + 1} of what you listed (${(progress.lastListed ?? []).join(", ")}). Confirm it by that name, never another.`,
+          ]
+        : []),
       `If they push back on cost right after you quoted a price from the list, the pushback is about that price: acknowledge it in a few words, say plainly what it is for, and offer a consultation where the team can go through options. Never answer it with "I don't have a price for that one": you just gave one.`,
-      `As soon as the request is taken or their question is answered, wrap up in that same reply: a short in-character goodbye, then step out of character with exactly: "And that's the role-play! So, how was that?"`,
+      `As soon as the request is taken or their question is answered, wrap up in that same reply: a short in-character goodbye, and add "roleplay": "end" to the state; the call then steps out of character itself with "${DEMO_ROLEPLAY_EXIT}". Never write that line yourself, and never drop out of character any other way: no question about their business until the role-play has ended. If on their first turn they make clear they did not want a role-play ("No, I didn't mean that"), apologise in a few words, answer what they did want, and add "roleplay": "cancel".`,
       ...wrap,
       `Never set "end" to true during the role-play: the demo carries on after it.`,
+      `Add to the state "booking": {"service", "day", "time"} with whatever of these the caller has given so far for the booking, in their words.`,
     ].join("\n");
   }
   const days = demoOpenDays(context);
@@ -881,7 +1149,7 @@ export function demoStageNote(
     ? `Next: take their reaction to the role-play in a few words (if they are unsure or not convinced, ask what would make it convincing for them), then find out what they are after: ${goalQuestion}`
     : !a.volume
     ? `Next: react to what they said in a few words, then ask: "Generally, how many calls do you get a day?"`
-    : volumeCheck && !a.volumeCheck
+    : volumeCheck && !a.volumeCheck && bareCount(a.volume) !== null
     ? `Next: ${volumeCheck}`
     : !a.missed
     ? `Next: ask: "What happens with those calls after hours, or when your team's busy with patients?"`
@@ -897,6 +1165,8 @@ export function demoStageNote(
   return [
     `The role-play is over: you are talking with ${who}, of ${clinic}'s team, as themselves again. ${nameRule}`,
     ...(known ? [known] : []),
+    ...shared,
+    ANSWERED_RULE,
     covered
       ? `They have answered the discovery questions: now the pitch, then the close.`
       : `Find out what they need before you sell anything: one short question a turn, a few words reacting to each answer before the next, and no pitch, no price and no talk of signing up until the questions are answered. If they ask about price, what you do or how to start before then, say you'll get to exactly that in a moment and ask the next question; if they say they're ready to buy, ask the remaining questions quickly so you set it up right.`,
@@ -923,7 +1193,7 @@ export function demoStageNote(
     `True answers to the usual doubts, in a sentence each: patients minding an AI (you say you are an AI in your first line, and anyone who wants a person gets passed to the team); patient data ("We sign a business associate agreement and handle patient data under it", never "HIPAA compliant"); setup (about fifteen minutes of their attention; phone goes live once they set up call forwarding on their own line, so they keep their number; website chat once a snippet is on their site); mistakes (you never diagnose or quote a price that is not on their list, urgent calls go straight to their team, and if anything fails, calls go to their own direct line); cost (the monthly price only starts once you are answering their patients).`,
     ...(covered ? [prices] : []),
     ...(offer ? [offer] : []),
-    `If they want to try another role-play, start it the same way: "${opener}"`,
+    `If they want to try another role-play, ${startRule.charAt(0).toLowerCase()}${startRule.slice(1)}`,
     STATE_RULE,
     PROFESSIONAL,
   ].join("\n");

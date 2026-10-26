@@ -120,7 +120,7 @@ subscribe_ses_events = true
 # subscribe_inbound_mail = true in a second apply; inbound_mail_rule_set_name
 # stays empty unless `aws ses describe-active-receipt-rule-set` names a set.
 enable_inbound_mail    = true
-subscribe_inbound_mail = false
+subscribe_inbound_mail = true
 
 # Monitoring and cost.
 enable_guardduty   = true

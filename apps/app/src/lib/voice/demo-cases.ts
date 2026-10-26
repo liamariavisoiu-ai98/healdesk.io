@@ -1,8 +1,9 @@
-import type { DemoCallClinic } from "@healdesk/catalog";
+import { DEMO_CALLBACK_OFFER, type DemoCallClinic } from "@healdesk/catalog";
 
 import { SPOKEN_END } from "@/lib/assistant/prompt";
 
-import { demoRoleplayOpener, type DemoBeat, type DemoQuestion, type DemoStage } from "./demo-facts";
+import { CALLBACK_FAILED_LINE, callbackSentLine } from "./demo-callback";
+import { demoRoleplayOpener, type DemoBeat, type DemoProgress, type DemoQuestion, type DemoStage } from "./demo-facts";
 
 /**
  * A personalised demo call's regression cases (owner, 25 October 2026: "every
@@ -25,7 +26,7 @@ import { demoRoleplayOpener, type DemoBeat, type DemoQuestion, type DemoStage } 
  * a clinic's owner talking about their business, never a patient.
  */
 
-export const DEMO_CASES_VERSION = "2026-10-25.2";
+export const DEMO_CASES_VERSION = "2026-10-26.1";
 
 /** The made-up clinic every case calls about. */
 export const DEMO_CASE_CLINIC: DemoCallClinic = {
@@ -51,9 +52,12 @@ export const DEMO_CASE_CLINIC: DemoCallClinic = {
 export const DEMO_CASE_FIRST_NAME = "Josh";
 
 /** What the model writes for a call: the words, the delimiter, then the details with her state update. */
-export function modelSays(words: string, state: { asked?: DemoQuestion | null; beats?: DemoBeat[] } | null = {}): string {
+export function modelSays(
+  words: string,
+  state: { asked?: DemoQuestion | null; beats?: DemoBeat[]; callback?: { phone: string; note: string } } | null = {},
+): string {
   const details: Record<string, unknown> = { handoff: false, end: false };
-  if (state) details.state = { asked: state.asked ?? null, beats: state.beats ?? [] };
+  if (state) details.state = { asked: state.asked ?? null, beats: state.beats ?? [], ...(state.callback ? { callback: state.callback } : {}) };
   return `${words}\n${SPOKEN_END}\n${JSON.stringify(details)}`;
 }
 
@@ -70,6 +74,8 @@ export type DemoCaseCheck = {
   asked?: DemoQuestion | null;
   /** Answers the call holds after the turn, each in the caller's words. */
   answers?: Partial<Record<DemoQuestion, string>>;
+  /** Where a call back stands after the turn (DemoProgress.callback; absent reads as null). */
+  callback?: DemoProgress["callback"];
   /** Words in the turn context the model was given first on this turn. */
   noteIncludes?: readonly string[];
   noteExcludes?: readonly string[];
@@ -91,6 +97,10 @@ export type DemoCase = {
   offer?: { percentOfSetupFee: number; hoursLeft: number };
   /** The case stands in for a transcript the owner has not yet handed over: rebuilt from his description. */
   reconstructed?: string;
+  /** Whether apps/web takes a call-back request on this call (demo-callback.ts); taken unless false. */
+  callbackTaken?: boolean;
+  /** The call-back requests the call sends, in order; none unless listed. */
+  callbacks?: readonly { phoneE164: string; note: string }[];
   turns: DemoCaseTurn[];
 };
 
@@ -402,4 +412,97 @@ const josh: DemoCase = {
   ],
 };
 
-export const DEMO_CASES: readonly DemoCase[] = [...bareNumbers, ...discovery, josh];
+/** Through discovery to the first pitch beat: coverage answered, so the close and the call-back offer are in the note. */
+const TO_COVERED: DemoCaseTurn[] = [
+  ...TO_VOLUME,
+  { caller: "Five", model: [modelSays(volumeCheck("Five", 5).replace("a month?", "calls a month?"), { asked: "volumeCheck" })] },
+  { caller: "Yeah, about that.", model: [modelSays("Got it. What happens with those calls after hours, or when your team's busy with patients?", { asked: "missed" })] },
+  {
+    caller: "They go to voicemail.",
+    model: [modelSays("How do you see me helping you best: after-hours only, picking up when the lines are busy, or handling everything that comes in?", { asked: "coverage" })],
+  },
+  {
+    caller: "After hours, mostly.",
+    model: [modelSays("So those after-hours calls that go to voicemail, those are the ones I'd be picking up.", { beats: ["pain"] })],
+    check: { noteIncludes: ["Want someone from our team to give you a quick call?"] },
+  },
+];
+
+const OFFER_CALL = DEMO_CALLBACK_OFFER.text;
+const READ_BACK = "That's five one two, five five five, oh one four seven, right? And what should the team come prepared with?";
+const NUMBER = { phone: "512 555 0147", note: "Pricing for two locations" };
+
+/** Hesitant at the close, the call back offered, the number given and read back, and the one line. */
+function callbackTurns(): DemoCaseTurn[] {
+  return [
+    ...TO_COVERED,
+    {
+      caller: "I need to think about it.",
+      model: [modelSays(OFFER_CALL, { asked: "callback" })],
+      check: { heard: OFFER_CALL, noGuardLine: true, asked: "callback", callback: null },
+    },
+    {
+      caller: "Sure, it's 512 555 0147.",
+      model: [modelSays(READ_BACK, { asked: "callbackNote" })],
+      check: { heard: READ_BACK, noGuardLine: true, asked: "callbackNote", noteIncludes: ["read it back digit by digit"], answers: { callback: "Sure, it's 512 555 0147." } },
+    },
+  ];
+}
+
+const callbacks: DemoCase[] = [
+  {
+    id: "callback-taken",
+    title: "A hesitant owner asks for a call: the number goes to the team, and only then is the call promised",
+    why: "Owner, 26 October 2026: lead capture on a demo that does not close. The team is said to have it only once apps/web took it, and the model's own words in that turn are never spoken.",
+    callbacks: [{ phoneE164: "+15125550147", note: "Pricing for two locations" }],
+    turns: [
+      ...callbackTurns(),
+      {
+        caller: "Yes. Pricing for two locations.",
+        model: [modelSays("Perfect.", { callback: NUMBER })],
+        check: { heard: callbackSentLine("+15125550147"), noGuardLine: true, callback: "sent", asked: null, noteIncludes: ["add to the state a \"callback\" object"] },
+      },
+      {
+        caller: "No, that's all, thanks.",
+        model: [modelSays("Thanks so much, Josh! Talk soon.")],
+        check: { noteIncludes: ["The team already has their call-back request: never offer a call-back again"], noteExcludes: [OFFER_CALL] },
+      },
+    ],
+  },
+  {
+    id: "callback-not-taken",
+    title: "The request does not get through: hello@, never a promise nobody received",
+    why: "If apps/web is down, slow or refuses, the caller hears the team's address instead (lib/support/escalate.ts's rule).",
+    callbackTaken: false,
+    callbacks: [{ phoneE164: "+15125550147", note: "Pricing for two locations" }],
+    turns: [
+      ...callbackTurns(),
+      {
+        caller: "Yes. Pricing for two locations.",
+        model: [modelSays("Perfect.", { callback: NUMBER })],
+        check: { heard: CALLBACK_FAILED_LINE, noGuardLine: true, callback: "failed", heardExcludes: ["will call you"] },
+      },
+      {
+        caller: "Okay, thanks.",
+        model: [modelSays("Thanks so much, Josh! Talk soon.")],
+        check: { noteIncludes: ["They already have hello at healdesk dot io: never offer a call-back again"] },
+      },
+    ],
+  },
+  {
+    id: "callback-declined",
+    title: "A call offered and turned down: the page's button and hello@, and nothing sent",
+    why: "Only a number they give, for a call they asked for, ever leaves the call.",
+    turns: [
+      ...TO_COVERED,
+      { caller: "I need to think about it.", model: [modelSays(OFFER_CALL, { asked: "callback" })] },
+      {
+        caller: "No thanks, I'll look at the page.",
+        model: [modelSays("No problem at all. Whenever you're ready, Book Onboarding is right there on your demo page. Thanks so much, Josh!")],
+        check: { noGuardLine: true, callback: null, asked: null, noteIncludes: ["If they gave no number or would rather not"] },
+      },
+    ],
+  },
+];
+
+export const DEMO_CASES: readonly DemoCase[] = [...bareNumbers, ...discovery, josh, ...callbacks];

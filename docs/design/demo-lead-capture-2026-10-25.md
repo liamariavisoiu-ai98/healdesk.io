@@ -1,8 +1,10 @@
 # Lead capture on a demo call that does not close (design note, not built)
 
-Status: proposal for the owner's decision, 25 October 2026 (VOICE-T15, phase 4).
-Nothing here is built. It changes what a demo call keeps, so it needs the
-owner's yes and the Privacy page change below before any code.
+Status: approved by the owner on 26 October 2026 ("Lead capture yes do it")
+and built as DEMO-LEAD, with the recommended answers to the decisions below:
+kept until called or 30 days, whichever first; hello@ by email only, no new
+vendor. Where the build differs from this proposal, "As built" at the end
+says so. Proposed 25 October 2026 (VOICE-T15, phase 4).
 
 ## The problem
 
@@ -99,3 +101,34 @@ call that does not close.
    whichever first)?
 3. Email hello@ only, or also ping an operator's phone (an SMS to our own
    staff is not patient contact, but it is a new vendor and a new key)?
+
+## As built (26 October 2026)
+
+- **On the call** (apps/app `lib/voice/demo-facts.ts`, `demo-callback.ts`,
+  `retell.ts`): the offer is the catalog's `DEMO_CALLBACK_OFFER`, said word
+  for word, once coverage is answered and the owner hesitates or asks for a
+  person. The read-back and "what should the team come prepared with?" are
+  one question (`callbackNote`). The turn that answers it is not streamed:
+  her words in it are replaced by the call's own line, "Perfect, I've passed
+  that to the team, and someone will call you on ..." on a 2xx, or the
+  hello@ line otherwise, so nothing is said before it is true. A call back is
+  offered once per call.
+- **The number** is checked in apps/app before it leaves (`callbackPhone`:
+  ten digits as a North American number, or a "+" with 8 to 15 digits).
+- **The request** goes to apps/web's origin: `HEALDESK_WEB_URL` when set,
+  else `HEALDESK_CONSOLE_ORIGIN`, which Terraform already sets on the voice
+  task. `HEALDESK_WEB_URL` alone would also turn on the worker's website
+  re-reads, so it is not required and no infrastructure change was needed.
+- **Where it is kept**: a new tab, `demo_callbacks`, not a column on `leads`,
+  because a longer header on an existing tab breaks a rollback to an older
+  build. The line on what to discuss is the column `topic` (the Sheet's
+  denylist refuses any column named "note"). The lead gets a
+  `callback_requested` event without the number, and `call_consents` a row
+  with the offer's words and version (`demo-callback-<version>`).
+- **The team**: one email to hello@ (`demoCallbackInternal`) and
+  Queues › Demo call backs in `/admin`, whose "Called" deletes the row. The
+  daily purge deletes any left after `POLICY.demoCallbackRetentionDays` (30).
+- **Not done**: no SMS to an operator (decision 3: email only), no
+  LAUNCH_PROMISES item (nothing a clinic is sold changes; the Privacy page
+  carries the promise and shipped in the same change), and counsel has not
+  reviewed the calling wording yet.

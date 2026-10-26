@@ -21,6 +21,7 @@ import {
 import { probeLiveness } from "@/lib/host/state";
 
 import AgreementChecksSection from "./AgreementChecksSection";
+import DemoCallbacksSection from "./DemoCallbacksSection";
 import { checkApprovalEdit } from "./approval-edit";
 import { ApprovalsSection, type ApprovalEdit } from "./ApprovalsSection";
 import RecordingsSection from "./RecordingsSection";
@@ -56,8 +57,8 @@ import SupportSection from "./SupportSection";
  *
  * One liveness probe first: with the AWS host in standby every apps/app read
  * fails the same way, and five standby notices would say one thing five
- * times. The Sheet-backed Setup requests section does not need the host and
- * still shows. The guard is on this page and in each section: a layout is
+ * times. The Sheet-backed Setup requests and Demo call backs sections do not
+ * need the host and still show. The guard is on this page and in each section: a layout is
  * not a security boundary.
  */
 
@@ -72,9 +73,10 @@ const SECTIONS = [
   { id: "retell-deletions", label: "Retell deletions" },
   { id: "site-reads", label: "Site reads" },
   { id: "setup-requests", label: "Setup requests" },
+  { id: "demo-callbacks", label: "Demo call backs" },
 ] as const;
 
-type Query = { support?: string; retell?: string; setup?: string };
+type Query = { support?: string; retell?: string; setup?: string; callback?: string };
 
 export default async function QueuesPage({ searchParams }: { searchParams: Promise<Query> }) {
   if (!(await requireOperator())) redirect("/admin/sign-in");
@@ -161,6 +163,7 @@ export default async function QueuesPage({ searchParams }: { searchParams: Promi
         </>
       )}
       <SetupRequestsSection searchParams={Promise.resolve({ result: query.setup })} />
+      <DemoCallbacksSection searchParams={Promise.resolve({ result: query.callback })} />
     </main>
   );
 }

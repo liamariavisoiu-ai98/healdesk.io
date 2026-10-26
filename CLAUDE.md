@@ -173,9 +173,18 @@ enforceable rather than aspirational.
    package, no strings, and the terms' refund (the first period within
    `FIRST_PERIOD_REFUND_DAYS` of the plan start; the setup fee never); then
    a tie-down and the close on the demo page's own buy button (owner,
-   25 October 2026; `lib/voice/demo-facts.ts`, `DemoStage`). No call-back is
-   offered until something delivers one (`docs/design/demo-lead-capture-2026-10-25.md`
-   waits for the owner). After the role-play only, a guard refusal is asked
+   25 October 2026; `lib/voice/demo-facts.ts`, `DemoStage`). A hesitant owner,
+   or one who asks for a person, is offered a call from the team in the
+   catalog's own words (`DEMO_CALLBACK_OFFER`); the number they give, read
+   back, and one line on what to discuss leave the call in her structured
+   state (`callback`) for apps/web, signed (`lib/voice/demo-callback.ts`,
+   apps/web `/api/voice-demo/callback-request`), and she says the team will
+   call only once apps/web answered 2xx, else hello@ (owner, 26 October 2026;
+   `docs/design/demo-lead-capture-2026-10-25.md`). That is the one thing a
+   prospect's demo call sends anywhere: business contact data, kept in the
+   marketing Sheet's `demo_callbacks` tab for Queues › Demo call backs until
+   marked called or `POLICY.demoCallbackRetentionDays`, as the Privacy page
+   says. After the role-play only, a guard refusal is asked
    again once, then heard as a recovery line, never as the guard's patient
    line (`turn.ts` `softRefusal`), and a bare count of the owner's calls
    passes the unit-less dose pattern (`AssistantFacts.businessCounts`); a

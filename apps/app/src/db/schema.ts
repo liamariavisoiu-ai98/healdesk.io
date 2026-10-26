@@ -8321,6 +8321,14 @@ export const supportMessages = pgTable(
      */
     inboundMailId: text("inbound_mail_id"),
     senderRef: text("sender_ref"),
+    /**
+     * Lane P7h (drizzle/0131): the inbound bucket's key of this email's raw
+     * message while it waits for the support drafter to read it once.
+     * Cleared when the object is deleted:
+     * by the draft job in its finally, or by the hourly sweep after six hours.
+     * Only ever 'mail/' || inbound_mail_id, and only ever set to null.
+     */
+    inboundObjectKey: text("inbound_object_key"),
     receivedAt: timestamp("received_at", { withTimezone: true }),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -8332,6 +8340,8 @@ export const supportMessages = pgTable(
     // hour's count per sender.
     uniqueIndex("support_messages_inbound_mail_key").on(t.inboundMailId),
     index("support_messages_sender_idx").on(t.senderRef, t.receivedAt),
+    // Lane P7h (drizzle/0131): the emails whose raw message still waits in the bucket.
+    index("support_messages_object_pending_idx").on(t.caseId).where(sql`${t.inboundObjectKey} is not null`),
     // An inbound email is facts only (owner, lane P7g): no text, no subject,
     // no attachment name, ever; its fields and attachment summary are fixed
     // words and small numbers; and only an email carries SES's id and the
@@ -8346,6 +8356,11 @@ export const supportMessages = pgTable(
     check(
       "support_messages_email_ids_check",
       sql`${t.kind} <> 'email' or ((${t.messageId} is null or (char_length(${t.messageId}) <= 250 and ${t.messageId} ~ '^<[A-Za-z0-9!#$%&*+.=?^_{|}~-]{1,200}@[A-Za-z0-9._-]{1,200}>$')) and (${t.inReplyTo} is null or (char_length(${t.inReplyTo}) <= 250 and ${t.inReplyTo} ~ '^<[A-Za-z0-9!#$%&*+.=?^_{|}~-]{1,200}@[A-Za-z0-9._-]{1,200}>$')))`,
+    ),
+    // Lane P7h (drizzle/0131): only an inbound email waits in the bucket, under its own SES id.
+    check(
+      "support_messages_object_key_check",
+      sql`${t.inboundObjectKey} is null or (${t.kind} = 'email' and ${t.inboundObjectKey} = 'mail/' || ${t.inboundMailId})`,
     ),
     check("support_messages_direction_check", sql`${t.direction} in (${sqlList(SUPPORT_MESSAGE_DIRECTIONS)})`),
     check("support_messages_kind_check", sql`${t.kind} in (${sqlList(SUPPORT_MESSAGE_KINDS)})`),

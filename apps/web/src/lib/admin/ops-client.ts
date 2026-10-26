@@ -6561,8 +6561,10 @@ export type SetCoveredEntityOutcome =
 export function setCoveredEntity(
   clinicId: string,
   answer: CoveredAnswer,
+  // Which factor the wrapper checked (lane P7h): apps/app records it.
+  codeKind?: "passcode" | "authenticator",
 ): Promise<OpsResult<SetCoveredEntityOutcome>> {
-  return callOps("setCoveredEntity", "write", { clinicId, answer, codeChecked: true }, (value) => {
+  return callOps("setCoveredEntity", "write", { clinicId, answer, codeChecked: true, ...(codeKind ? { codeKind } : {}) }, (value) => {
     const data = object(value, "setCoveredEntity");
     if (state(data, "setCoveredEntity") !== "recorded") return refusal(data, "setCoveredEntity");
     return {
@@ -7627,8 +7629,11 @@ export function decideApproval(
   reasonCode: ApproveReason | RejectReason,
   editedDraft?: { subject: string; body: string } | { fields: ApprovalEditFields },
   editedFields?: IncidentReportChoices,
+  // Which factor the wrapper checked (lane P7h): apps/app records it.
+  codeKind?: "passcode" | "authenticator",
 ): Promise<OpsResult<ApprovalDecision>> {
   const args: Record<string, unknown> = { id: approvalId, action, reasonCode, codeChecked: true };
+  if (codeKind) args.codeKind = codeKind;
   // A clinic-contact item's edit is its closed fields only, never text (owner decision D12; lane P6f).
   if (editedDraft && "fields" in editedDraft) args.editedDraft = { fields: editFieldsArgs(editedDraft.fields) };
   else if (editedDraft) args.editedDraft = { subject: editedDraft.subject, body: editedDraft.body };
@@ -8824,8 +8829,10 @@ export function recordAgreementAnswer(
   clinicId: string,
   reviewId: string,
   answer: AgreementAnswer,
+  // Which factor the wrapper checked (lane P7h): apps/app records it.
+  codeKind?: "passcode" | "authenticator",
 ): Promise<OpsResult<SetCoveredEntityOutcome>> {
-  return callOps("recordAgreementAnswer", "write", { clinicId, reviewId, answer, codeChecked: true }, (value) => {
+  return callOps("recordAgreementAnswer", "write", { clinicId, reviewId, answer, codeChecked: true, ...(codeKind ? { codeKind } : {}) }, (value) => {
     const data = object(value, "recordAgreementAnswer");
     if (state(data, "recordAgreementAnswer") !== "recorded") return refusal(data, "recordAgreementAnswer");
     return {
@@ -9820,8 +9827,8 @@ export function fetchSupportReplyHistory(options: { limit?: number } = {}): Prom
 // The support drafter (lane P7b)
 // -----------------------------------------------------------------------------
 
-/** apps/app lib/support/draft/checks.ts CHECK_IDS, in order. */
-export const SUPPORT_CHECK_IDS = ["facts", "screen", "names", "clinical", "promises", "claims", "shape", "other_clinics"] as const;
+/** apps/app lib/support/draft/checks.ts CHECK_IDS, in order, then EMAIL_CHECK_ID (lane P7h). */
+export const SUPPORT_CHECK_IDS = ["facts", "screen", "names", "clinical", "promises", "claims", "shape", "other_clinics", "email_words"] as const;
 export type SupportCheckId = (typeof SUPPORT_CHECK_IDS)[number];
 /** apps/app lib/support/draft/tools.ts READ_TOOL_NAMES. */
 const SUPPORT_DRAFT_TOOLS = ["get_account_state", "get_forwarding_steps", "get_clinic_signals", "get_case_history"] as const;
@@ -9833,6 +9840,8 @@ export const SUPPORT_DRAFT_FAILURES = [
   "no_proposal",
   "account_unreadable",
   "draft_limit",
+  "email_unreadable",
+  "checks_failed",
 ] as const;
 const SUPPORT_DRAFT_CONFIDENCE = ["high", "medium", "low"] as const;
 /** support_messages.draft_text's own limit (apps/app drizzle/0125). */

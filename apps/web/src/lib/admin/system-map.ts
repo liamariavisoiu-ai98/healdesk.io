@@ -167,7 +167,7 @@ export const TOOLS: readonly ToolDef[] = [
   { id: "kms", name: "Key safe", role: "Amazon KMS: locks logins and waiting transcripts", kind: "aws", category: "vault", icon: "lock", side: "patient" },
   { id: "ses", name: "Amazon email", role: "SES: sends transcripts", kind: "aws", category: "vault", icon: "mail", side: "patient" },
   { id: "exports", name: "Export bucket", role: "Amazon S3: a leaving clinic's records", kind: "aws", category: "vault", icon: "archive", side: "patient" },
-  // Lane P7g: support mail received on in.healdesk.io, deleted as soon as it is read (infra/aws/ses-inbound.tf).
+  // Lane P7g: support mail received on in.healdesk.io; lane P7h: held until the drafter has read it once, then deleted (infra/aws/ses-inbound.tf).
   { id: "ses-in", name: "Support mail in", role: "SES receiving: clinics' emails to support", kind: "aws", category: "vault", icon: "mail", side: "patient" },
   { id: "aws-console", name: "AWS console", role: "CloudShell, stored keys, alarms", kind: "aws", category: "vault", icon: "terminal", side: "patient" },
   { id: "claude-baa", name: "Claude", role: "Anthropic, patient account, under a BAA", kind: "vendor", category: "brain", icon: "sparkles", side: "patient" },
@@ -291,6 +291,20 @@ export const KEYS: readonly KeyDef[] = [
     label: "Your authenticator-app code",
     need: "required",
     rotation: { kind: "only-if", when: "your phone is lost or replaced", how: `Run npm run admin:totp -w @healdesk/web, scan the new code, paste the value. ${VERCEL_HOW}` },
+  },
+  {
+    // Lane P7h (owner, 26 October 2026): every approval decision and every
+    // covered-entity answer takes this passcode or the authenticator code.
+    id: "vercel.HEALDESK_APPROVAL_PASSCODE_HASH",
+    env: "HEALDESK_APPROVAL_PASSCODE_HASH",
+    home: "vercel",
+    label: "Your 6-digit approval passcode (stored scrambled)",
+    need: "optional",
+    rotation: {
+      kind: "only-if",
+      when: "anyone else may have seen it, or approvals locked when you were not typing",
+      how: `Run node apps/web/scripts/hash-approval-passcode.mjs on your own machine, type the new passcode, and paste the hash it prints. ${VERCEL_HOW} Unset, only your authenticator code approves.`,
+    },
   },
   {
     id: "vercel.HEALDESK_ADMIN_SECRET",
@@ -706,7 +720,7 @@ export const KEYS: readonly KeyDef[] = [
     label: "Where Amazon tells the engine a support email arrived",
     need: "later",
     waitsFor:
-      "you have read the plan for inbound support mail: set enable_inbound_mail = true in production.tfvars, merge, run infra.yml apply and a full deploy-app.yml, then set subscribe_inbound_mail = true and apply again, and forward hello@healdesk.io to hello@in.healdesk.io",
+      "you have read the plan for inbound support mail: set enable_inbound_mail = true in production.tfvars, merge, run infra.yml apply and a full deploy-app.yml, then set subscribe_inbound_mail = true and apply again, and forward support@healdesk.io and hello@healdesk.io to support@in.healdesk.io and hello@in.healdesk.io",
     rotation: { kind: "public" },
   },
   {
@@ -969,7 +983,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     title: "You sign in to this console",
     carries: "Your password and the 6-digit code, then a stamped pass for your browser",
     example: "Like a door with two locks: the password is one key and the code on your phone is the other. Once you are in, your browser carries a stamped pass until you sign out.",
-    keys: ["vercel.HEALDESK_ADMIN_EMAIL", "vercel.HEALDESK_ADMIN_PASSWORD_HASH", "vercel.HEALDESK_ADMIN_TOTP_SECRET", "vercel.HEALDESK_ADMIN_SECRET"],
+    keys: ["vercel.HEALDESK_ADMIN_EMAIL", "vercel.HEALDESK_ADMIN_PASSWORD_HASH", "vercel.HEALDESK_ADMIN_TOTP_SECRET", "vercel.HEALDESK_ADMIN_SECRET", "vercel.HEALDESK_APPROVAL_PASSCODE_HASH"],
     phi: false,
     build: "built",
   },
@@ -1380,9 +1394,9 @@ export const BRIDGES: readonly BridgeDef[] = [
     to: "claude-baa",
     title: "Claude writes AYA's replies to patients",
     carries:
-      "The conversation so far and the clinic's settings; the portal's support chat, screened first; a support case's fields (its topic and what the clinic chose in the chat, never its words) and the clinic's account facts, for a draft reply; made-up practice questions built from the clinic's own prices and answers; and the clinic team's own messages in Talk to your AYA",
+      "The conversation so far and the clinic's settings; the portal's support chat, screened first; a support case's fields (its topic and what the clinic chose in the chat, never the chat's words), and for a case that came by email the email's subject and body as the clinic wrote them, read once from the bucket and never stored, with the clinic's account facts, for a draft reply; made-up practice questions built from the clinic's own prices and answers; and the clinic team's own messages in Talk to your AYA",
     example:
-      "A patient asks \"anything Saturday morning?\". The engine asks Claude, under the business associate agreement, to write AYA's answer, then checks it against the clinic's rules before it is said. The same key answers the clinic's support chat (a fixed line and our support number until it is added), drafts the reply to each support case from the case's fields and the clinic's account (checked by eight fixed rules and never sent without your yes), puts made-up practice questions to AYA on every channel a clinic bought whenever its set-up changes, and answers the front desk when it tries Talk to your AYA.",
+      "A patient asks \"anything Saturday morning?\". The engine asks Claude, under the business associate agreement, to write AYA's answer, then checks it against the clinic's rules before it is said. The same key answers the clinic's support chat (a fixed line and our support number until it is added), drafts the reply to each support case from the case's fields, the clinic's email when it came by email, and the clinic's account (checked by eight fixed rules, a ninth for an email draft that may not quote the email, and never sent without your yes; a failing email draft is not kept), puts made-up practice questions to AYA on every channel a clinic bought whenever its set-up changes, and answers the front desk when it tries Talk to your AYA.",
     keys: ["aws.ANTHROPIC_API_KEY"],
     phi: true,
     build: "built",
@@ -1634,16 +1648,16 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "ses-in",
     to: "app",
     title: "A clinic's email to support becomes a case",
-    carries: "Facts only: the topic and urgency read from fixed word lists, how it matched a clinic, counts of what looked like patient details, and the number and kind of attachments. Never the email's words, subject, sender's name or file names",
+    carries: "Facts only, into the database: the topic and urgency read from fixed word lists, how it matched a clinic, counts of what looked like patient details, and the number and kind of attachments. Never the email's words, subject, sender's name or file names. The email itself stays in the locked bucket until the support drafter has read it once",
     example:
-      "A clinic emails hello@ that calls ring out; your mailbox forwards it to hello@in.healdesk.io, Amazon holds it, the engine reads it in memory, opens a case \"call forwarding, now\" for that clinic, deletes the email, and the clinic gets \"We've got your email\" with its reference.",
+      "A clinic emails support@ (or hello@) that calls ring out; your mailbox forwards it to the same name on in.healdesk.io, Amazon holds it, the engine reads it in memory, opens a case \"call forwarding, now\" for that clinic, and the clinic gets \"We've got your email\" with its reference. Within a minute or so the drafter reads the email once, Claude drafts the reply for your yes, and the email is deleted.",
     keys: ["aws.HEALDESK_INBOUND_MAIL_TOPIC_ARN", "aws.HEALDESK_INBOUND_MAIL_BUCKET"],
     keyless: "No password: Amazon signs each notice and the engine checks it; the engine reads and deletes the email because of the role it runs as.",
     phi: true,
-    phiNote: "A clinic may paste a patient's details despite every warning, so it is received under the AWS agreement and never kept: the email is deleted as soon as it is read, the hourly sweep deletes anything a day old, and Amazon's one-day expiry, which can take up to about another day, is the backstop.",
+    phiNote: "A clinic may paste a patient's details despite every warning, so it is received under the AWS agreement and its words never reach the database: the email waits in the locked bucket until the drafter has read it once (and goes to Claude under its agreement), then is deleted; one the drafter will not read (no clinic, unreadable, too large) is deleted at once; the hourly sweep deletes anything six hours old, and Amazon's one-day expiry, which can take up to about another day, is the backstop.",
     build: "built",
     buildNote:
-      "Off until enable_inbound_mail and the second apply that subscribes the engine, and until your mailbox forwards to hello@in.healdesk.io; the hourly support-inbound-sweep job, which ships off, picks up any email the engine missed. An unmatched or unauthenticated sender (no aligned DKIM or DMARC pass) becomes a case with no clinic and no reply, closed after 30 quiet days and deleted 30 days after it closes; nothing goes to the address an email came from.",
+      "Off until enable_inbound_mail and the second apply that subscribes the engine, and until your mailbox forwards support@ and hello@ to the same names on in.healdesk.io; the hourly support-inbound-sweep job, which ships off, picks up any email the engine missed. An unmatched or unauthenticated sender (no aligned DKIM or DMARC pass) becomes a case with no clinic and no reply, closed after 30 quiet days and deleted 30 days after it closes; nothing goes to the address an email came from.",
   },
   {
     id: "app-exports",

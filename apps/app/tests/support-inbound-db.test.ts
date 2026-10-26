@@ -6,6 +6,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vit
 import { closeSupportCase, matchSupportCase } from "@/lib/support/cases";
 import { handleInboundNotice } from "@/lib/support/inbound/handle";
 import type { InboundNotice } from "@/lib/support/inbound/notice";
+import { runUnmatchedEmailRetention } from "@/lib/support/inbound/retention";
 import { sweepInboundMail } from "@/lib/support/inbound/sweep";
 import { threadingHeadersFor } from "@/lib/support/inbound/threading";
 
@@ -487,6 +488,49 @@ describeDb("inbound support mail (drizzle/0129)", () => {
     expect((await emailMessages(outcome.caseId))[0]!.message_id).toBeNull();
     expect(await threadingHeadersFor(outcome.caseId, new Date(NOW.getTime() + MINUTE))).toBeNull();
   });
+
+  test("retention of email cases about no clinic: idle 30 days closes silently, closed 30 days is deleted; a clinic's case is never touched", async () => {
+    const clinic = await seedClinic("inb-retention");
+    const store = memoryMailStore();
+    const pool = getMigratorPool();
+    // Each its own sender, so none is one sender's flood joined onto another.
+    const stranger = (n: string) => ({ FROM: `${n}-${Date.now()}@prospect-practice.test` });
+    const prospect = await deliver(store, "clinic-normal.eml", stranger("idle"));
+    const recent = await deliver(store, "clinic-normal.eml", stranger("recent"));
+    const clinics = await deliver(store, "clinic-normal.eml", { FROM: clinic.staffEmail });
+    const ids = [prospect, recent, clinics].map((d) => (d.outcome.outcome === "recorded" ? d.outcome.caseId : ""));
+    // Idle is judged by the time passed in: 31 days on, the recent one had mail 10 days before that.
+    const later = new Date(Date.now() + 31 * 24 * 60 * MINUTE);
+    await pool.query(`update support_cases set last_inbound_at = now() + interval '21 days' where id = $1`, [ids[1]]);
+    const sent = (await pool.query(`select count(*)::int as n from billing_notices`)).rows[0].n;
+
+    const now = new Date();
+    // Other tests' cases share the database; each row is checked below.
+    expect((await runUnmatchedEmailRetention(later)).closed).toBeGreaterThanOrEqual(1);
+    expect(await caseRow(ids[0]!)).toMatchObject({ state: "closed", closed_reason: "no_further_reply" });
+    expect((await caseRow(ids[1]!)).state).not.toBe("closed");
+    expect((await caseRow(ids[2]!)).state).not.toBe("closed");
+    // Silently: nothing queued to anyone.
+    expect((await pool.query(`select count(*)::int as n from billing_notices`)).rows[0].n).toBe(sent);
+
+    // Closed 29 days ago by the database's clock: kept. Closed 31 days ago: the case and its messages go.
+    const day = 24 * 60 * MINUTE;
+    const kept = await deliver(store, "clinic-normal.eml", stranger("kept"));
+    const old = await deliver(store, "clinic-normal.eml", stranger("old"));
+    const [keptId, oldId] = [kept, old].map((d) => (d.outcome.outcome === "recorded" ? d.outcome.caseId : ""));
+    await closeSupportCase(keptId!, "spam", new Date(Date.now() - 29 * day));
+    await closeSupportCase(oldId!, "not_a_clinic", new Date(Date.now() - 31 * day));
+    // A clinic's closed case of the same age stays: it goes with the clinic.
+    await closeSupportCase(ids[2]!, "replied_by_hand", new Date(Date.now() - 31 * day));
+    expect((await runUnmatchedEmailRetention(now)).deleted).toBeGreaterThanOrEqual(1);
+    expect(await caseRow(oldId!)).toBeUndefined();
+    expect(await emailMessages(oldId!)).toHaveLength(0);
+    expect(await caseRow(keptId!)).toBeDefined();
+    expect(await caseRow(ids[2]!)).toBeDefined();
+    // A time in the future brings nothing forward: the first case closed "31 days on" is still kept today.
+    await runUnmatchedEmailRetention(new Date(Date.now() + 90 * day));
+    expect(await caseRow(ids[0]!)).toBeDefined();
+  }, 60_000);
 
   test("the database refuses words on an inbound email, and an email row without SES's id", async () => {
     const store = memoryMailStore();

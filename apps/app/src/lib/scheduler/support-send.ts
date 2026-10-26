@@ -4,6 +4,7 @@ import { unsafeDb } from "@/db";
 import type { SendEmailOptions } from "@/lib/email/send";
 import { describeError, log } from "@/lib/log";
 import { retrySupportReplies, sweepSentReplyText } from "@/lib/support/send";
+import { runUnmatchedEmailRetention } from "@/lib/support/inbound/retention";
 
 import { getJob, JOB_SUPPORT_SEND, runSwitchedJob, type JobOutcome } from "./jobs";
 
@@ -73,6 +74,7 @@ export async function runSupportRetention(now: Date): Promise<{ status: "ok" | "
   try {
     const texts = await sweepSentReplyText(now);
     const drafts = await forgetSupportReplyDrafts(now);
+    await runUnmatchedEmailRetention(now); // Lane P7g: email cases about no clinic (never throws; logs its counts).
     return { status: "ok", note: `${texts} sent replies' text deleted, ${drafts} approval copies deleted` };
   } catch (error) {
     log.error("support retention failed", { error: describeError(error) });

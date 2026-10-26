@@ -88,6 +88,34 @@ GRANT EXECUTE ON FUNCTION app_support_closed_account_for_address(text) TO healde
 COMMENT ON FUNCTION app_support_closed_account_for_address(text) IS
   'Whether the address is a closed account''s kept notice address (0096), still within its six years (0129, inbound support mail): yes or no, never which clinic. Business contact data.';--> statement-breakpoint
 
+CREATE OR REPLACE FUNCTION app_delete_unmatched_email_cases(as_of timestamptz)
+RETURNS integer
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+SET TimeZone = 'UTC'
+AS $$
+DECLARE
+  -- Never later than the database's own clock, so a caller cannot bring a deletion forward.
+  cutoff timestamptz := least(coalesce(as_of, now()), now()) - interval '30 days';
+  gone integer;
+BEGIN
+  -- Messages go by the cascade from their case.
+  DELETE FROM support_cases s
+   WHERE s.source = 'email'
+     AND s.subject_clinic_id IS NULL
+     AND s.state = 'closed'
+     AND s.closed_at < cutoff;
+  GET DIAGNOSTICS gone = ROW_COUNT;
+  RETURN gone;
+END
+$$;--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_delete_unmatched_email_cases(timestamptz) FROM PUBLIC;--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_delete_unmatched_email_cases(timestamptz) TO healdesk_app;--> statement-breakpoint
+COMMENT ON FUNCTION app_delete_unmatched_email_cases(timestamptz) IS
+  'Deletes every support case that came by email, names no clinic and closed more than 30 days before the earlier of the time passed and now(), with its messages (0129): the retention of a prospect''s, a stranger''s or a closed account''s email. Returns the count of cases.';--> statement-breakpoint
+
 DO $$
 DECLARE
   fn oid := 'app_support_closed_account_for_address(text)'::regprocedure;
@@ -103,6 +131,14 @@ BEGIN
   IF NOT has_function_privilege('healdesk_app'::name, fn, 'EXECUTE') THEN
     RAISE EXCEPTION 'healdesk_app cannot call app_support_closed_account_for_address().';
   END IF;
+  IF NOT has_function_privilege('healdesk_app'::name, 'app_delete_unmatched_email_cases(timestamptz)'::regprocedure, 'EXECUTE') THEN
+    RAISE EXCEPTION 'healdesk_app cannot call app_delete_unmatched_email_cases().';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+              WHERE p.oid = 'app_delete_unmatched_email_cases(timestamptz)'::regprocedure
+                AND a.grantee = 0 AND a.privilege_type = 'EXECUTE') THEN
+    RAISE EXCEPTION 'PUBLIC can call app_delete_unmatched_email_cases().';
+  END IF;
   IF EXISTS (SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
               WHERE p.oid = fn AND a.grantee = 0 AND a.privilege_type = 'EXECUTE') THEN
     RAISE EXCEPTION 'PUBLIC can call app_support_closed_account_for_address().';
@@ -110,6 +146,10 @@ BEGIN
   FOREACH r IN ARRAY ARRAY['healdesk_readonly', 'healdesk_writer']::name[] LOOP
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) AND has_function_privilege(r, fn, 'EXECUTE') THEN
       RAISE EXCEPTION '% can call app_support_closed_account_for_address().', r;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r)
+       AND has_function_privilege(r, 'app_delete_unmatched_email_cases(timestamptz)'::regprocedure, 'EXECUTE') THEN
+      RAISE EXCEPTION '% can call app_delete_unmatched_email_cases().', r;
     END IF;
   END LOOP;
 END

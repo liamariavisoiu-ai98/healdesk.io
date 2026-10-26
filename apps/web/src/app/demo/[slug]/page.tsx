@@ -6,17 +6,19 @@ import { AgentMark, AgentPanel } from "@/components/agent-panel/AgentPanel";
 import { VoiceCard } from "@/components/agent-panel/VoiceCard";
 import { BuyModalProvider } from "@/components/BuyModal";
 import { RefreshingOfferCountdown } from "@/components/checkout/SetupOfferBanner";
-import { ClinicChatPanel } from "@/components/demo/ClinicChatPanel";
 import { BuildProgress } from "@/components/demo/BuildProgress";
-import { DemoBuyButton } from "@/components/demo/DemoBuyButton";
-import { CopyDemoLink, DemoCountdown, RefreshWhileBuilding } from "@/components/demo/DemoTimers";
+import { ClinicChatPanel } from "@/components/demo/ClinicChatPanel";
+import { ClosePage } from "@/components/demo/ClosePage";
 import { CoverageOffer } from "@/components/demo/CoverageOffer";
+import { DemoBuyButton } from "@/components/demo/DemoBuyButton";
+import { Archived, avatarLogo, chipsFor, Shell } from "@/components/demo/DemoShell";
+import { CopyDemoLink, DemoCountdown, RefreshWhileBuilding } from "@/components/demo/DemoTimers";
+import { DemoViewed } from "@/components/demo/DemoViewed";
 import { demoCheckout, demoPrefill } from "@/lib/demo/checkout";
 import { chatGreeting, demoModeLine } from "@/lib/demo/clinic-prompts";
-import { readableOn } from "@/lib/demo/colour";
 import { DEMO_ONBOARD_LABEL } from "@/lib/demo/offer";
+import { demoVariant } from "@/lib/demo/close";
 import { weekSchedule } from "@/lib/demo/opening-hours";
-import type { ClinicProfile } from "@/lib/demo/profile";
 import {
   demoAudience,
   demoBuildElapsedMs,
@@ -53,6 +55,13 @@ import { site } from "@/lib/site";
  * purchase, opened over the demo and knowing it (components/BuyModal.tsx),
  * so closing it leaves them on their demo (owner, 13 October 2026).
  *
+ * Two closes run side by side, one per demo by a hash of its slug
+ * (lib/demo/close.ts): `control`, the page as it was, and `close`, the
+ * redesign: the offer in dollars in the top bar, one "Activate my AYA"
+ * everywhere, a close card in a panel the moment a demo conversation there
+ * ends, the three coverage modes, the value tiles and the closing offer.
+ * Both report demo viewed → button pressed → paid (lib/demo/events.ts).
+ *
  * Private by construction: noindex here, `/demo` disallowed in robots.ts,
  * no analytics on the path (lib/analytics.ts), and the slug is unguessable.
  * Built from the clinic's public website, so nothing on it is patient data.
@@ -80,60 +89,6 @@ function hostOf(websiteUrl: string): string {
   } catch {
     return websiteUrl;
   }
-}
-
-function chipsFor(profile: ClinicProfile): string[] {
-  // A treatment with a real figure, not the free consultation: "How much is
-  // Complimentary Consultation?" asks a question the name already answers.
-  const priced = profile.services.find((s) => s.price && /\d/.test(s.price) && !/complimentary|free/i.test(`${s.name} ${s.price}`));
-  const first = priced ?? profile.services[0];
-  return [
-    first ? `How much is ${first.name}?` : "What treatments do you offer?",
-    profile.hours.length > 0 ? "Are you open on Saturdays?" : "What are your opening hours?",
-    "Can I book a consultation for next week?",
-  ];
-}
-
-/**
- * The logo, if it fits in a circle. A wide wordmark (Peachy's is six times
- * wider than tall) shrinks to an unreadable line in a 28-pixel chat avatar,
- * so the avatars show the clinic's initial instead and the wordmark stays in
- * the headers. Only an inline SVG says its shape; a linked image is assumed
- * to be an icon-shaped logo, which is what sites usually link.
- */
-function avatarLogo(logoUrl: string | null): string | null {
-  if (!logoUrl?.startsWith("data:image/svg+xml;base64,")) return logoUrl;
-  const svg = Buffer.from(logoUrl.slice("data:image/svg+xml;base64,".length), "base64").toString();
-  const box = /viewBox\s*=\s*["']\s*[\d.-]+[\s,]+[\d.-]+[\s,]+([\d.]+)[\s,]+([\d.]+)/i.exec(svg);
-  if (!box) return null;
-  const ratio = Number(box[1]) / Number(box[2]);
-  return ratio > 0 && ratio <= 1.6 ? logoUrl : null;
-}
-
-function Shell({
-  colour,
-  children,
-}: {
-  colour: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      className="bg-paper text-ink flex min-h-dvh flex-col"
-      style={{ ["--clinic" as string]: colour, ["--clinic-ink" as string]: readableOn(colour) }}
-    >
-      {children}
-    </div>
-  );
-}
-
-/** Laid over each card once the demo's week is over. */
-function Archived() {
-  return (
-    <div className="bg-paper/80 absolute inset-0 grid place-items-center backdrop-blur-[2px]">
-      <p className="bg-ink rounded-full px-4 py-2 text-[14.4px] font-semibold text-white">Archived</p>
-    </div>
-  );
 }
 
 export default async function DemoPage({ params }: Props) {
@@ -258,12 +213,13 @@ export default async function DemoPage({ params }: Props) {
             <DemoBuyButton
               className="ml-auto shrink-0 rounded-full px-4 py-2 text-[15px] font-bold transition-opacity hover:opacity-90 sm:px-5 sm:py-2.5"
               style={ctaStyle}
+              pressed={{ slug, placement: "header" }}
             >
               {site.cta.primary.label}
             </DemoBuyButton>
           ) : (
             <a
-              href={`/demo/${slug}/onboard`}
+              href={`/demo/${slug}/onboard?from=header`}
               className="ml-auto shrink-0 rounded-full px-4 py-2 text-[15px] font-bold transition-opacity hover:opacity-90 sm:px-5 sm:py-2.5"
               style={ctaStyle}
             >
@@ -366,13 +322,36 @@ export default async function DemoPage({ params }: Props) {
     </Shell>
   );
 
-  if (!selfServe) return page;
+  const variant = demoVariant(slug);
+  const body =
+    variant === "close" ? (
+      <ClosePage
+        slug={slug}
+        session={session}
+        name={name}
+        colour={colour}
+        profile={profile}
+        expired={expired}
+        offerEnds={offerEnds}
+        demoLine={demoLine}
+        schedule={schedule}
+        ringNote={`One demo call, because you asked. Live, it only answers: it never dials a ${one}.`}
+      />
+    ) : (
+      <>
+        <DemoViewed slug={slug} />
+        {page}
+      </>
+    );
+
+  // A homepage demo buys through the purchase opened over the page, in both closes.
+  if (!selfServe) return body;
   return (
     <BuyModalProvider
       // A demo already bought opens the plain purchase: its offer and its claim are spent.
       demo={session.claimed ? undefined : { slug, checkout: demoCheckout(session), prefill: demoPrefill(session) }}
     >
-      {page}
+      {body}
     </BuyModalProvider>
   );
 }

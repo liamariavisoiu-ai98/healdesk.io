@@ -1,7 +1,7 @@
 "use client";
 
 import { type BillingInterval, type CoveredAnswer } from "@healdesk/catalog";
-import { type MouseEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type MouseEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import { track } from "@/lib/analytics";
 import { campaignCode, leadIdFromUrl } from "@/lib/attribution";
@@ -41,7 +41,7 @@ import {
   siteReadLine,
   storeSiteRead,
 } from "@/lib/checkout/site-read";
-import { isSetupOffer, liveOffer, type SetupOffer } from "@/lib/checkout/review";
+import { isSetupOffer, liveOffer, riskLine, type SetupOffer } from "@/lib/checkout/review";
 import { LEGAL_VERSION } from "@/lib/legal";
 
 import { AgreementCopyLink, filenameFrom } from "./AgreementCopy";
@@ -51,6 +51,7 @@ import { ClinicStep } from "./ClinicStep";
 import type { DemoCheckout } from "./DemoPackageExtras";
 import { PackageStep } from "./PackageStep";
 import { ReviewStep } from "./ReviewStep";
+import { type CheckoutBrand, CheckoutBrandContext } from "./StepShell";
 
 // Exported from here, where the tests have always found them.
 export { AgreementCopyLink, filenameFrom } from "./AgreementCopy";
@@ -197,9 +198,9 @@ export function CheckoutFlow({
   directBooking?: boolean;
   /**
    * The buyer came from their personalised demo (components/checkout/
-   * DemoPackageExtras.tsx): packages with estimates from their own numbers,
-   * and the clinic step shows what the demo already knows instead of asking
-   * again.
+   * DemoPackageExtras.tsx): the header names their clinic, the package the
+   * demo recommended is chosen, and the clinic step shows what the demo
+   * already knows instead of asking again.
    */
   demo?: DemoCheckout;
   /**
@@ -571,8 +572,15 @@ export function CheckoutFlow({
       />
     ) : null;
 
+  // From a personalised demo, every step carries the clinic and its offer (StepShell).
+  const brand: CheckoutBrand | null = demo
+    ? { clinicName: demo.clinicName, logoUrl: demo.logoUrl, offer, onOfferEnd: offerEnded }
+    : null;
+  const branded = (node: ReactNode) =>
+    brand ? <CheckoutBrandContext.Provider value={brand}>{node}</CheckoutBrandContext.Provider> : node;
+
   if (step === 1) {
-    return (
+    return branded(
       <PackageStep
         state={state}
         offer={offer}
@@ -590,7 +598,7 @@ export function CheckoutFlow({
   }
 
   if (step === 2) {
-    return (
+    return branded(
       <ClinicStep
         state={state}
         update={update}
@@ -609,7 +617,7 @@ export function CheckoutFlow({
 
   if (step === 3 && state.specialty && state.bookingSystem && state.calendarAccount) {
     const stale = agreement !== null && !signedFor;
-    return (
+    return branded(
       <AgreementStep
         // "Sign again with different answers" is a new screen, not the old
         // one redrawn: the document unread, the assent box unticked.
@@ -644,13 +652,14 @@ export function CheckoutFlow({
         onSigned={signed}
         onContinue={() => go(4)}
         onResign={resign}
+        riskLine={plan ? riskLine(plan, state.specialty) : undefined}
       />
     );
   }
 
   if (step === 4 && plan && validAgreement) {
     const website = purchaseWebsite(state) ?? null;
-    return (
+    return branded(
       <ReviewStep
         plan={plan}
         interval={state.interval}
@@ -670,6 +679,7 @@ export function CheckoutFlow({
         onClose={onClose}
         headingRef={headingRef}
         offer={offer}
+        onOfferEnd={offerEnded}
       />
     );
   }

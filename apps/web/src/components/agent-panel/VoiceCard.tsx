@@ -219,6 +219,7 @@ export function VoiceCard({
   callbackExtra,
   prefillPhone = null,
   locked = false,
+  onCallEnded,
   idleTitle = true,
   aura = "halo",
   askName = false,
@@ -248,6 +249,12 @@ export function VoiceCard({
   locked?: boolean;
   /** Ask for a first name before any call starts (the personalised demo page only). */
   askName?: boolean;
+  /**
+   * A call that went live has ended, by either side: the demo page's close
+   * card appears at that moment (components/demo/DemoClose.tsx). Not called
+   * for a call that never connected.
+   */
+  onCallEnded?: () => void;
 }) {
   const [mode, setMode] = useState<Mode>("talk");
   const [dialFrom, setDialFrom] = useState(prefillPhone ?? "");
@@ -261,6 +268,20 @@ export function VoiceCard({
   const [elapsed, setElapsed] = useState(0);
   const [level, setLevel] = useState(0);
   const sessionRef = useRef<WebCallSession | null>(null);
+
+  // Live, then ended: the one transition the close card waits for.
+  const wasLive = useRef(false);
+  const endedRef = useRef(onCallEnded);
+  useEffect(() => {
+    endedRef.current = onCallEnded;
+  }, [onCallEnded]);
+  useEffect(() => {
+    if (state === "live") wasLive.current = true;
+    else if (state === "ended" && wasLive.current) {
+      wasLive.current = false;
+      endedRef.current?.();
+    } else if (state !== "connecting") wasLive.current = false;
+  }, [state]);
 
   /** Her last line, captioned while the call runs. */
   const [caption, setCaption] = useState("");

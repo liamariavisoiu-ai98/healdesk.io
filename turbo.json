@@ -118,6 +118,12 @@
         // Checkout (on only when "true").
         "STRIPE_CONNECT_WEBHOOK_SECRET",
         "STRIPE_AUTOMATIC_TAX",
+        // Apple Pay and Google Pay on Checkout (26 October 2026): healdesk's
+        // own payment method configuration, cards and the wallets only; and
+        // which close the personalised demos show ("close", "control", or
+        // split by demo when unset).
+        "STRIPE_PAYMENT_METHOD_CONFIGURATION",
+        "DEMO_CLOSE_SPLIT",
         // The Stripe build (6 October 2026): the key of the HMAC that stands
         // in for a vendor's identifier in apps/app's ledgers.
         "HEALDESK_IDENTIFIER_REF_KEY",

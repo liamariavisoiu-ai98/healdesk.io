@@ -27,6 +27,7 @@ export function demoCheckout(session: DemoSession): DemoCheckout {
   return {
     clinicName: displayName(session),
     audience: demoAudience(session),
+    logoUrl: session.logoUrl,
     roi: {
       ...visit,
       bookingRate: specialty.economics.bookingRate,

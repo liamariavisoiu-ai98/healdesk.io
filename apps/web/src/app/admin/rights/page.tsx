@@ -74,7 +74,8 @@ export default async function RightsPage() {
       <p className="text-muted mt-2 max-w-[68ch] text-[15.6px]">
         Every open patient-rights request across clinics, demo clinics left out, with the day the agreement gives it: ten
         business days for an erasure, an amendment, a correction or an export, five to pass a patient&apos;s own request to the
-        practice.
+        practice. Days are Monday to Friday counted in UTC, except a patient&apos;s own request, which counts the
+        clinic&apos;s own day, as the host that records it does.
       </p>
       {standby ? (
         <HostStandbyNotice what="The patient-rights requests" />

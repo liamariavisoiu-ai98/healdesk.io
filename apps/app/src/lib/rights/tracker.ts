@@ -1,6 +1,7 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 
 import {
+  clinics as clinicsTable,
   patientRequests,
   PATIENT_REQUEST_KINDS,
   recordAmendments,
@@ -9,6 +10,7 @@ import {
 } from "@/db/schema";
 import type { ActorContext, RequestContext } from "@/lib/audit";
 import { isDemoClinic } from "@/lib/booking/terms";
+import { clinicLocalDate } from "@/lib/clinic/closures";
 import { describeError, log } from "@/lib/log";
 import { listClinics } from "@/lib/ops/clinics";
 import { listErasureRequests } from "@/lib/patient-rights/erasure";
@@ -134,6 +136,8 @@ function stateOf(done: boolean, isBlocked: boolean, today: string, due: string):
 }
 
 type ClinicRead = {
+  /** The clinic's time zone, for the one kind whose days are counted in the clinic's own (a patient's request). */
+  timeZone: string;
   intakes: IntakeRecord[];
   erasures: { id: string; receivedAt: Date; dueBy: Date; erasedAt: Date; stamped: boolean }[];
   requests: { id: string; kind: PatientRequestKind; receivedAt: Date; replyBy: string; acknowledgedAt: Date | null }[];
@@ -148,6 +152,7 @@ type ClinicRead = {
  * Exported for its test.
  */
 export async function readClinic(tx: TenantTx, filter: RightsFilter): Promise<ClinicRead> {
+  const [zone] = await tx.db.select({ timezone: clinicsTable.timezone }).from(clinicsTable).where(eq(clinicsTable.id, tx.clinicId)).limit(1);
   const intakes = await tx.db
     .select()
     .from(rightsIntakes)
@@ -191,7 +196,7 @@ export async function readClinic(tx: TenantTx, filter: RightsFilter): Promise<Cl
       metadata: { purpose: "rights_tracker" },
     });
   }
-  return { intakes, erasures, requests, amendments };
+  return { timeZone: zone?.timezone ?? "UTC", intakes, erasures, requests, amendments };
 }
 
 /** Every row of one clinic, merged, before the filter. Pure but for the operator address passed in. */
@@ -200,8 +205,18 @@ export function clinicRows(
   read: ClinicRead,
   today: string,
   operator: string,
+  /**
+   * The clinic's own calendar day, for a patient's request: the host that
+   * records one sets its reply-by day by the clinic's local day (lib/
+   * patient-rights/patient-requests.ts replyByFor), so its days are counted
+   * from that day too. Every other kind counts UTC weekdays, as the
+   * agreements' clocks are kept (lib/rights/clocks.ts). Defaults to `today`.
+   */
+  localToday: string = today,
 ): RightsRow[] {
   const out: RightsRow[] = [];
+  /** The day a kind's clock is read on. */
+  const dayFor = (kind: RightsKind) => (kind === "patient_request" ? localToday : today);
   const erasures = new Map(read.erasures.map((r) => [r.id, r]));
   const requests = new Map(read.requests.map((r) => [r.id, r]));
   const amendments = new Map(read.amendments.map((r) => [r.id, r]));
@@ -258,8 +273,8 @@ export function clinicRows(
         ...base,
         recordId: request.id,
         dueOn: due,
-        daysLeft: done ? null : daysLeftFor(today, due),
-        state: stateOf(done, false, today, due),
+        daysLeft: done ? null : daysLeftFor(localToday, due),
+        state: stateOf(done, false, localToday, due),
         command: null,
         commandNote: null,
         retellStep: null,
@@ -302,8 +317,8 @@ export function clinicRows(
       ...base,
       recordId: null,
       dueOn: intake.dueOn,
-      daysLeft: closed ? null : daysLeftFor(today, intake.dueOn),
-      state: stateOf(closed, isBlocked, today, intake.dueOn),
+      daysLeft: closed ? null : daysLeftFor(dayFor(intake.kind), intake.dueOn),
+      state: stateOf(closed, isBlocked, dayFor(intake.kind), intake.dueOn),
       command: prepared?.command ?? null,
       commandNote: prepared && !prepared.command ? prepared.note : prepared?.command && intake.kind === "patient_request" ? RUN_THEN_MARK : null,
       retellStep: null,
@@ -356,8 +371,8 @@ export function clinicRows(
       receivedOn: utcDay(request.receivedAt),
       dueOn: request.replyBy,
       dueDerived: false,
-      daysLeft: done ? null : daysLeftFor(today, request.replyBy),
-      state: stateOf(done, false, today, request.replyBy),
+      daysLeft: done ? null : daysLeftFor(localToday, request.replyBy),
+      state: stateOf(done, false, localToday, request.replyBy),
       command: null,
       commandNote: null,
       retellStep: null,
@@ -440,7 +455,8 @@ export async function collectRights(options: RightsReadOptions): Promise<{ rows:
         },
       );
       if (!read) continue;
-      for (const row of clinicRows(clinic, read, today, options.operator)) {
+      const localToday = clinicLocalDate(options.now ?? new Date(), read.timeZone);
+      for (const row of clinicRows(clinic, read, today, options.operator, localToday)) {
         if (keep(row, filter)) found.push(row);
       }
     } catch (error) {

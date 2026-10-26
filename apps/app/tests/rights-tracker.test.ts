@@ -613,6 +613,26 @@ describeDb("the rights tracker, against the database", () => {
     expect(access.rows[0]!.n).toBe(2);
   });
 
+  test("a patient's request counts the clinic's own day, as the host that recorded it set its reply-by day; every other kind counts UTC weekdays", async () => {
+    const la = await seedClinic("rights-local-day");
+    // 03:00 UTC on Tuesday 27 October 2026 is still Monday evening in Los Angeles.
+    await inTenant(la.clinicId, (q) => q.query(`update clinics set timezone = 'America/Los_Angeles' where id = $1`, [la.clinicId]));
+    const now = new Date("2026-10-27T03:00:00Z");
+    // Recorded on the host (clinic-local days): received Monday 19 October, reply by Tuesday 27 October.
+    const onHost = await seedPatientRequest(la.clinicId, "2026-10-20T02:00:00Z", "2026-10-27");
+    // An intake of another kind, due 27 October in UTC weekdays, is read on the UTC day.
+    data(await record({ clinicId: la.clinicId, kind: "export", receivedOn: "2026-10-13", verifiedVia: "notice_address" }));
+
+    const { collectRights } = await import("@/lib/rights/tracker");
+    const found = (await collectRights({ actor: { type: "service", serviceName: "t" }, operator: "ops@healdesk.test", now })).rows;
+    const request = found.find((r) => r.recordId === onHost)!;
+    // Monday evening there: one business day to Tuesday's reply-by day, not "due today" as the UTC date would say.
+    expect(request).toMatchObject({ dueOn: "2026-10-27", daysLeft: 1, state: "due_soon" });
+    const exportRow = found.find((r) => r.kind === "export")!;
+    // Export was received 13 October: ten business days is 27 October, read on the UTC day (Tuesday): due today.
+    expect(exportRow).toMatchObject({ dueOn: "2026-10-27", daysLeft: 0 });
+  });
+
   test("across clinics the demo clinic is left out unless asked for", async () => {
     const real = await seedClinic("rights-real");
     const demo = await seedDemoClinic("rights-demo");

@@ -574,6 +574,16 @@ describeDb("support replies operated from Slack (lane P7i)", () => {
     expect(replySends()).toHaveLength(0);
   });
 
+  test("an unchanged draft that now fails a check is refused in the dialog, named by its rule, and the item stays waiting", async () => {
+    const c = await waitingCase("slack-unchanged-fail");
+    const view = await openDialog(c.value);
+    installReplyChecks(() => ({ ok: false, results: [{ id: "names", ok: false, rule: "Names no person" }] }));
+    const answer = await hit(submission(view, { text: GOOD, code: PASSCODE }));
+    expect(answer.json).toMatchObject({ response_action: "errors", errors: { reply: expect.stringContaining("Names no person") } });
+    expect((await getApproval(c.approvalId))!.status).toBe("waiting");
+    expect(replySends()).toHaveLength(0);
+  });
+
   test("a passing edit is saved as the next draft, proposed, and that version is approved and sent", async () => {
     const c = await waitingCase("slack-edit-send");
     const view = await openDialog(c.value);
@@ -686,9 +696,11 @@ describeDb("support replies operated from Slack (lane P7i)", () => {
     const view = await openDialog(value);
     expect(view.blocks.some((b) => b.block_id === "reply")).toBe(false);
     expect(JSON.stringify(view.blocks)).toContain("cannot be edited here");
+    // Today's floor refuses a text this long, so the dialog names the rule (under the passcode box, the
+    // only one it has) and the item is not spent.
     const answer = await hit(submission(view, { code: PASSCODE }));
-    expect(answer.json).toEqual({ response_action: "clear" });
-    expect((await getApproval(value.approvalId))!.status).toMatch(/executed|failed/);
+    expect(answer.json).toMatchObject({ response_action: "errors", errors: { passcode: expect.stringContaining("at most 1,500 characters") } });
+    expect((await getApproval(value.approvalId))!.status).toBe("waiting");
   });
 
   test("the clinic's own email never reaches a Slack call: only the drafted reply does", async () => {

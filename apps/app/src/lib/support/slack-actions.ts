@@ -3,7 +3,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { after } from "next/server";
 
 import type { OpsApproval } from "@/db/schema";
-import { parseDraft } from "@/lib/approvals/drafts";
+import { parseDraft, serialiseDraft } from "@/lib/approvals/drafts";
+import { draftHash } from "@/lib/approvals/kinds";
 import { getApproval } from "@/lib/approvals/store";
 import { parseSupportReplyPayload, SUPPORT_REPLY_KIND } from "@/lib/approvals/support-payload";
 import { env } from "@/lib/env";
@@ -14,7 +15,7 @@ import { opCloseSupportCase, opSnoozeSupportCase } from "@/lib/ops/support-case-
 import { opSaveSupportDraft } from "@/lib/ops/support-reply-ops";
 
 import { printRef } from "./case-vocab";
-import { checkReplyText, currentReplyDraft, factsOfDraft, MAX_DRAFT_CHARS, normaliseDraftText, readCaseForReply } from "./send";
+import { checkReplyText, currentReplyDraft, factsOfDraft, MAX_DRAFT_CHARS, normaliseDraftText, readCaseForReply, subjectForCase } from "./send";
 import { failedRules } from "./send-checks";
 import { slackApi, slackSupportConfig, type SlackSupportConfig } from "./slack-api";
 import { checkSlackPasscode } from "./slack-passcode";
@@ -364,11 +365,15 @@ async function onButton(payload: Payload, ctx: Ctx): Promise<Response> {
         long,
       };
       const triggerId = typeof payload.trigger_id === "string" ? payload.trigger_id : "";
-      const opened = await slackApi("views.open", ctx.config.token, {
-        trigger_id: triggerId,
-        view: dialog(meta, read ? printRef(read.supportCase.ref) : "the case", read?.clinicName ?? null, found.body),
+      const view = dialog(meta, read ? printRef(read.supportCase.ref) : "the case", read?.clinicName ?? null, found.body);
+      // After the answer: Slack wants it within three seconds, and the trigger stays good that long from the click.
+      ctx.defer(async () => {
+        const opened = await slackApi("views.open", ctx.config.token, { trigger_id: triggerId, view });
+        if (!opened.ok) {
+          log.warn("support slack: dialog not opened", { reason: opened.error });
+          await privateNote(ctx.config, ctx.channel, ctx.user, "The dialog could not be opened (Slack was slow or refused it). Press the button again, or use the console.");
+        }
       });
-      if (!opened.ok) log.warn("support slack: dialog not opened", { reason: opened.error });
       return EMPTY();
     }
     case "support_snooze": {
@@ -407,7 +412,7 @@ async function onSubmit(payload: Payload, ctx: Ctx): Promise<Response> {
   if (callback !== "support_review" && callback !== "support_edit") return EMPTY();
   const meta = parseDialogMeta(payload.view?.private_metadata);
   if (!meta || meta.mode !== (callback === "support_review" ? "review" : "edit")) {
-    return dialogErrors({ reply: "This dialog could not be read. Nothing was changed." });
+    return dialogErrors({ passcode: "This dialog could not be read. Nothing was changed." });
   }
   const values = payload.view?.state?.values ?? {};
   const typed = values.reply?.text?.value;
@@ -437,6 +442,18 @@ async function onSubmit(payload: Payload, ctx: Ctx): Promise<Response> {
 
   if (unchanged && meta.mode === "edit") return json({ response_action: "clear" });
 
+  const read = await readCaseForReply(meta.caseId);
+  if (!read) return dialogErrors({ [textBlock]: "The case could not be read. Nothing was changed." });
+  const current = await currentReplyDraft(meta.caseId);
+  const facts = current ? factsOfDraft(current) : [];
+  if (unchanged) {
+    // The checks as Send will run them, so a draft that would be refused is named here rather than burnt.
+    const checks = await checkReplyText(found.body, { supportCase: read.supportCase, clinicName: read.clinicName, facts });
+    if (!checks.ok) {
+      return dialogErrors({ [textBlock]: `Fails: ${failedRules(checks).join("; ")}. Nothing was sent: edit it first.`.slice(0, 1900) });
+    }
+  }
+
   let approvalId = found.item.id;
   if (!unchanged) {
     const text = normaliseDraftText(typed);
@@ -444,10 +461,7 @@ async function onSubmit(payload: Payload, ctx: Ctx): Promise<Response> {
       return dialogErrors({ reply: `The reply must be 1 to ${MAX_DRAFT_CHARS.toLocaleString("en-US")} characters. Nothing was changed.` });
     }
     // The checks before anything is saved: a failing rule is named, never the words, and nothing is kept or sent.
-    const read = await readCaseForReply(meta.caseId);
-    if (!read) return dialogErrors({ reply: "The case could not be read. Nothing was changed." });
-    const current = await currentReplyDraft(meta.caseId);
-    const checks = await checkReplyText(text, { supportCase: read.supportCase, clinicName: read.clinicName, facts: current ? factsOfDraft(current) : [] });
+    const checks = await checkReplyText(text, { supportCase: read.supportCase, clinicName: read.clinicName, facts });
     if (!checks.ok) return dialogErrors({ reply: `Fails: ${failedRules(checks).join("; ")}. Nothing was saved or sent.`.slice(0, 1900) });
     const saved = await opSaveSupportDraft({ caseId: meta.caseId, text }, ctx.operator, ctx.now);
     const refused = refusalOf(saved);
@@ -460,6 +474,14 @@ async function onSubmit(payload: Payload, ctx: Ctx): Promise<Response> {
           ? `Saved as draft v${data.draftVersion}, but it could not be put up for approval. Nothing was sent. Open the case in the console.`
           : `Saved as draft v${data.draftVersion}, but it now fails: ${data.failed.join("; ")}. Nothing was sent.`.slice(0, 1900),
       });
+    }
+    // The item proposed must be exactly the text just saved: a console save in between would make it someone else's draft.
+    const proposed = await getApproval(data.approvalId);
+    const proposedPayload = proposed ? parseSupportReplyPayload(proposed.payload) : null;
+    const expectedHash = draftHash(serialiseDraft({ subject: subjectForCase(read.supportCase), body: text }));
+    if (!proposed || proposedPayload?.draftVersion !== data.draftVersion || proposed.draftHash !== expectedHash) {
+      ctx.defer(refresh);
+      return dialogErrors({ reply: "A newer draft was saved at the same moment, so your edit was not approved. Nothing was sent. The message in the channel now shows the newest one." });
     }
     approvalId = data.approvalId;
     if (meta.mode === "edit") {

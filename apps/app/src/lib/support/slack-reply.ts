@@ -311,7 +311,14 @@ export async function syncCaseMessage(
     const row = claimed[0];
     if (!row) return "held";
 
-    const message = replyMessage(view);
+    // Read again under the lease: a decision made since the first read must not be written over.
+    const fresh = (await readReplyView(caseId)) ?? view;
+    const freshKey = viewKey(fresh);
+    if (row.shownKey === freshKey) {
+      await unsafeDb.update(supportSlackMessages).set({ leaseUntil: null }).where(eq(supportSlackMessages.caseId, caseId));
+      return "unchanged";
+    }
+    const message = replyMessage(fresh);
     let result = row.ts && row.channel
       ? await slackApi("chat.update", config.token, { channel: row.channel, ts: row.ts, text: message.text, blocks: message.blocks })
       : await slackApi("chat.postMessage", config.token, { channel: config.channel, text: message.text, blocks: message.blocks, unfurl_links: false, unfurl_media: false });
@@ -328,10 +335,10 @@ export async function syncCaseMessage(
         .update(supportSlackMessages)
         .set({
           ...(ts && channel ? { ts, channel } : {}),
-          approvalId: view.item?.id ?? null,
-          draftVersion: view.draftVersion,
-          shownKey: key,
-          final: isFinal(view),
+          approvalId: fresh.item?.id ?? null,
+          draftVersion: fresh.draftVersion,
+          shownKey: freshKey,
+          final: isFinal(fresh),
           attempts: 0,
           lastError: null,
           nextAt: null,
@@ -342,7 +349,9 @@ export async function syncCaseMessage(
       return posted ? "posted" : "updated";
     }
     const attempts = row.attempts + 1;
-    const wait = result.retryAfterMs ?? BACKOFF_MS[Math.min(attempts, BACKOFF_MS.length) - 1]!;
+    const backoff = result.retryAfterMs ?? BACKOFF_MS[Math.min(attempts, BACKOFF_MS.length) - 1]!;
+    // A first post that timed out may have been taken by Slack: wait half an hour, so a duplicate is rare.
+    const wait = posted && /timeout|abort/.test(result.error) ? Math.max(backoff, 30 * 60_000) : backoff;
     await unsafeDb
       .update(supportSlackMessages)
       .set({ attempts: Math.min(attempts, 1000), lastError: result.error.slice(0, 120), nextAt: new Date(now.getTime() + wait), leaseUntil: null, updatedAt: now })

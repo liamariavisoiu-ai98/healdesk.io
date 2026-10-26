@@ -974,9 +974,13 @@ request run again before the service reopens:
 ### Inbound support mail
 
 Built 26 October 2026 (ops automation lane P7g), **off**: `enable_inbound_mail = false` in
-`infra/aws/production.tfvars`. A clinic's email to hello@healdesk.io becomes a support case
-holding facts only, never its words (`apps/app/src/lib/support/inbound/`); the root domain's MX
-is never touched. Owner steps, in order:
+`infra/aws/production.tfvars`. A clinic's email to support@healdesk.io or hello@healdesk.io (two
+aliases of the owner's one mailbox, owner, 26 October 2026) becomes a support case holding facts
+only in the database, never its words (`apps/app/src/lib/support/inbound/`); the support drafter
+reads the email once from the encrypted bucket, sends its text to Claude under the BAA to draft a
+reply for your approval, and deletes it (lane P7h, `apps/app/src/lib/support/draft/email.ts`);
+the console never shows the email, so read it in the mailbox by the case's reference. The root
+domain's MX is never touched. Owner steps, in order:
 
 1. **Check for an active receipt rule set.** In AWS CloudShell, `aws ses
    describe-active-receipt-rule-set --region us-east-1`. Empty: leave
@@ -994,13 +998,14 @@ is never touched. Owner steps, in order:
 5. **Switch the jobs on.** At System > Jobs: `support-inbound-sweep` (hourly), and, for drafts and
    sends, `support-draft` and `support-send` if not already on. The acknowledgement goes through
    the outbox, so `billing-notices` must be on too.
-6. **Forward the mailbox.** In the mailbox that receives hello@healdesk.io, add a rule forwarding
-   every message (or only messages to hello@) to `hello@in.healdesk.io`, keeping a copy in the
-   mailbox. Some providers first send a confirmation to the forwarding address. Gmail and Google
+6. **Forward the mailbox.** In the mailbox that receives support@healdesk.io and hello@healdesk.io,
+   add a rule forwarding every message to `support@in.healdesk.io` (or messages to hello@ to
+   `hello@in.healdesk.io`: the receipt rule takes both, `inbound_mail_recipient_names`), keeping a
+   copy in the mailbox. Some providers first send a confirmation to the forwarding address. Gmail and Google
    Workspace do (Settings, Forwarding and POP/IMAP, Add a forwarding address): its confirmation,
    from forwarding-noreply@google.com and signed by google.com (an aligned DKIM pass at SES), is
    not turned into a case; it is left in the inbound bucket until the hourly sweep deletes it
-   once it is a day old, so read it the same day (if the sweep is still off, the bucket's
+   once it is six hours old, so read it at once (if the sweep is still off, the bucket's
    one-day lifecycle rule takes it, within about two days). One without google.com's signature
    is treated as an ordinary email from nobody we know. Read it in CloudShell with
    `aws s3 ls s3://<bucket>/mail/` and
@@ -1008,10 +1013,11 @@ is never touched. Owner steps, in order:
    `aws s3 rm` it. Other providers (Microsoft 365's outbound forwarding policy, for one) may
    instead need an administrator to allow automatic forwarding to outside addresses; whichever
    it is, the step is the provider's, not ours.
-7. **Test.** From a clinic's sign-in address (the demo clinic's), email hello@healdesk.io with a
+7. **Test.** From a clinic's sign-in address (the demo clinic's), email support@healdesk.io with a
    subject such as "Calls ring out". Within a minute a case appears in Support (call forwarding,
-   now), the clinic's owners and billing contacts get "We've got your email (ref HD-xxxxx)", and
-   the bucket is empty. Check that the case names the clinic and its message says matched by
+   now) and the clinic's owners and billing contacts get "We've got your email (ref HD-xxxxx)";
+   with `support-draft` on, a draft follows within a minute or two and the bucket is then empty
+   (with it off, the email waits up to six hours, then the sweep deletes it undrafted). Check that the case names the clinic and its message says matched by
    address and authenticated: an email is trusted as a clinic's only when SES saw a DKIM
    signature that passed aligned with its From domain, or a DMARC pass. Forwarding normally keeps
    the original DKIM signature (the body and signed headers are left alone), so the clinic's own
@@ -1030,9 +1036,15 @@ with the clinic at destruction (`app_destroy_support_cases`). A case about no cl
 a stranger, a closed account, an unauthenticated sender) is closed silently after 30 days with
 nothing on it and deleted with its messages 30 days after it closed, nightly
 (`lib/support/inbound/retention.ts`, `app_delete_unmatched_email_cases`). The raw email lives in
-the bucket for the length of one request: the handler deletes it once read, the hourly sweep
-deletes anything a failed handler left once it is a day old, and the bucket's one-day lifecycle
-rule is the backstop, which S3 applies asynchronously (up to about two days). The owner's own
+the bucket until the support-draft job has read it once (it deletes every waiting email of the
+case in a finally, whatever the draft's outcome); one the drafter will never read (no clinic,
+unparsable, over 2 MB) is deleted by the handler at once; the hourly sweep deletes anything six
+hours old, read or not; and the bucket's one-day lifecycle rule is the backstop, which S3 applies
+asynchronously (up to about two days). The drafter gives Claude the subject and body as written,
+never the sender's name, address or attachments, on healdesk's key, which is the Anthropic
+organisation the BAA covers (owner-confirmed 26 October 2026); a draft that quotes eight words in
+a row of the email, or fails any other check, is not kept at all, only the checks' names
+(`checks_failed`). The owner's own
 mailbox keeps its copy as it always has.
 
 Cost, at about 200 emails a month: SES receiving $0.10 per 1,000 emails plus $0.09 per 1,000

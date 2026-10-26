@@ -646,7 +646,7 @@ The alert comes once an item has waited a day, one per kind, by email and Slack;
 waiting items from the inbox itself, so this alert is left off Home. The items are on the Queues
 page, under Approvals: each says what approving does, and says when it can no longer be approved
 (after that moment a decision is refused and the approvals job takes it off the list). Approve
-asks for the code from your authenticator and runs the same operation as the clinic's Billing
+asks for the approval passcode (or the code from your authenticator) and runs the same operation as the clinic's Billing
 tab button, once. For a billing change that only makes it due again: the billing worker carries
 it out at its next run, if it still applies and while its switch (and, for a closure, setup
 closure's) is on at System > Jobs. An extra-usage invoice is invoiced at once. Reject asks for
@@ -677,14 +677,23 @@ time, the deadline moves first and the email goes only if it moved. The chase's 
 made when it is sent and never stored. The alert comes once an item has waited two days (one
 for a reminder sooner), one per kind; an email leaves the list unsent after 14 days, a reminder
 sooner after three. The agreement question's answer is recorded by the owner, as he heard it,
-with a fresh code; a Yes or Not sure pauses AYA at every location until the BAA is signed.
+with the approval passcode or a fresh authenticator code; a Yes or Not sure pauses AYA at every location until the BAA is signed.
+
+**The approval passcode** (lane P7h; owner, 26 October 2026). Every approval decision and every
+agreement answer takes the one 6-digit approval passcode (`HEALDESK_APPROVAL_PASSCODE_HASH`, a
+scrypt hash on Vercel, made with `node apps/web/scripts/hash-approval-passcode.mjs`) or a fresh
+authenticator code. Five wrong tries of either lock approvals for fifteen minutes, on that warm
+instance (the console says "locked for N more minutes"); wait it out. If the lock was not you,
+someone has the console session: sign out everywhere (rotate `HEALDESK_ADMIN_SECRET`) and make a
+new passcode. Unset, the code box says only the authenticator works. Each decision's security
+event records `factor: passcode` or `factor: authenticator`.
 
 The same inbox holds every composed reply to a clinic's support request (`support_reply_send`,
 ops automation lane P7c; owner decision D12), the one email whose body is prose. A reply is put
 there only when its draft passes every reply check: by Save draft on the case (the operator's own
 text, saved as the next version) or Propose, and later by the drafter. The item shows the reply as
 the clinic would read it, under a subject fixed for its topic with the case's ref, signed The
-Healdesk Team. Send asks for the code from your authenticator; you may edit the body (never the
+Healdesk Team. Send asks for the approval passcode (or the code from your authenticator); you may edit the body (never the
 subject) first, and the checks run again on exactly the text approved: if one fails, nothing is
 sent and the card names the rule, never the words. A case closed since, or a newer draft, sends
 nothing. The reply goes to the practice's one sign-in address, once; a failed try is tried again on
@@ -747,9 +756,9 @@ pass 4 hours or more after the last, while one waits; an item never expires and 
 approved by waiting. A scope for the database host or AWS lists every clinic holding data by
 default (the window's counts as information); narrow it to the window only when the vendor's
 notice says the exposure was in transit. One batch opens at most 100 clinics, and each opened
-incident's report is then its own approval with its own fresh code. They are
-decided on Compliance › Incidents (lane P6j draws them there): Approve asks for the code from
-your authenticator and runs the console's own operation once, openIncident at each listed clinic
+incident's report is then its own approval with its own passcode or code. They are
+decided on Compliance › Incidents (lane P6j draws them there): Approve asks for the approval
+passcode (or the code from your authenticator) and runs the console's own operation once, openIncident at each listed clinic
 (never twice for one scope) or Send report with the choices shown. A report's choices are changed
 only by picking from the lists, and a choice Send report would refuse is refused before anything
 is recorded. Reject runs nothing and leaves the incident's clock running. Not reportable stays
@@ -793,14 +802,17 @@ clinic".
 ### Inbound support mail
 
 No event of its own: inbound support mail (ops automation lane P7g, `apps/app/src/lib/support/inbound/`,
-`infra/aws/ses-inbound.tf`) turns a clinic's email to hello@healdesk.io, forwarded by the owner's
-mailbox to hello@in.healdesk.io, into a support case holding facts only (topic, urgency, how it
-matched a clinic, counts of what looked like patient details, attachment counts), never the email's
-words. The email is deleted from the bucket as soon as it is read.
+`infra/aws/ses-inbound.tf`) turns a clinic's email to support@healdesk.io or hello@healdesk.io,
+forwarded by the owner's mailbox to the same name on in.healdesk.io, into a support case holding
+facts only in the database (topic, urgency, how it matched a clinic, counts of what looked like
+patient details, attachment counts), never the email's words. The email waits in the bucket until
+the support drafter has read it once (lane P7h) and is then deleted; the sweep deletes anything six
+hours old. The console never shows it: read it in the mailbox by the case's reference.
 
 - **A clinic says it emailed and no case appeared.** Open System > Jobs and read the
-  `support-inbound-sweep` job's last note: "N handled, N already recorded, N dropped, N older than a
-  day deleted, N left, N failed". Dropped means a loop guard (an auto-reply, a list, a bounce, our
+  `support-inbound-sweep` job's last note: "N handled, N already recorded, N dropped, N older than
+  six hours deleted, N left waiting for the drafter deleted, N left, N failed". "Left waiting for
+  the drafter deleted" above zero means emails sat six hours undrafted: is `support-draft` on? Dropped means a loop guard (an auto-reply, a list, a bounce, our
   own address, SES's spam or virus verdict); the engine's log line `support inbound dropped` names
   SES's id and the reason. Search the owner's mailbox for the email: if it was never forwarded, the
   forwarding rule is the problem, not the engine.
@@ -814,8 +826,9 @@ words. The email is deleted from the bucket as soon as it is read.
   (another topic or a bad signature: someone else is posting) name the ids, never the mail.
 - **"N left" stays above zero.** One of them may be a mail provider's forwarding confirmation,
   which is left on purpose for the owner to read once (`docs/handover.md`, "Inbound support mail");
-  the sweep deletes it once it is a day old. Anything else left is a key the sweep does not
-  recognise.
+  the sweep deletes it once it is six hours old. An email waiting for the drafter is not counted
+  "left": it counts as already recorded until the drafter or the sweep deletes it. Anything else
+  left is a key the sweep does not recognise.
 - **"N failed" above zero.** S3 or the database refused the sweep; the next hour tries again, and
   the bucket's one-day lifecycle rule is the backstop (S3 applies it asynchronously, up to about
   two days after the email arrived), so an email can be lost after a day of failures: read the
@@ -824,6 +837,10 @@ words. The email is deleted from the bucket as soon as it is read.
   the bucket is not: a configuration error. The webhook answers 503, so SNS keeps retrying the
   notice (about 45 minutes) and the email waits in the bucket; run a full `deploy-app.yml` so the
   tasks carry both variables, then the sweep takes what waited.
+- **A draft says "the draft written from the practice's email failed a check, so it was not kept"
+  (`checks_failed`) or "could not be read" (`email_unreadable`).** The email is already deleted:
+  read it in the mailbox by the case's reference and write the reply by hand; Regenerate drafts
+  again from the case's fields and the account only.
 - **A clinic's email became a case with no clinic.** Its fields say `authenticated: no`: the
   sender's domain did not pass DKIM aligned with its From, nor DMARC, at SES, so the address
   alone was not trusted. Match the case to the clinic by hand once you are sure it is theirs.

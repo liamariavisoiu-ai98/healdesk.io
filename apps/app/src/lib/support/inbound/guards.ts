@@ -30,7 +30,7 @@ import type { ParsedMail } from "./parse";
  * is its own outcome, `provider_confirmation`: no case, and its object is
  * left in the bucket for the owner to read the code in it once, when he sets
  * up forwarding (docs/handover.md, "Inbound support mail"). The sweep deletes
- * it once it is a day old, and the bucket's one-day lifecycle rule is the
+ * it once it is six hours old, and the bucket's one-day lifecycle rule is the
  * backstop behind that. One that is not signed so is an ordinary unmatched
  * email.
  */
@@ -62,9 +62,18 @@ export function bareAddress(value: string | null | undefined): string | null {
   return plain ? plain.toLowerCase() : null;
 }
 
-/** Our own sending addresses: hello@ and HEALDESK_EMAIL_FROM's address. */
+/**
+ * The support aliases of the owner's mailbox (owner, 26 October 2026): a
+ * clinic may write to either, and the mailbox forwards both to SES. Mail
+ * FROM either is ours coming back (OWN_DOMAINS covers them too; listed so
+ * the rule does not rest on the domain alone). A clinic's mail forwarded by
+ * the mailbox keeps the clinic's own From, so it is never dropped here.
+ */
+export const SUPPORT_ADDRESSES = ["support@healdesk.io", "hello@healdesk.io"] as const;
+
+/** Our own sending addresses: hello@, support@ and HEALDESK_EMAIL_FROM's address. */
 export function ownAddresses(): Set<string> {
-  const own = new Set<string>([SENDER_IDENTITY.replyTo.toLowerCase()]);
+  const own = new Set<string>([SENDER_IDENTITY.replyTo.toLowerCase(), ...SUPPORT_ADDRESSES]);
   const from = bareAddress(process.env.HEALDESK_EMAIL_FROM);
   if (from) own.add(from);
   return own;

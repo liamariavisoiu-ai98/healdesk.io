@@ -1,7 +1,12 @@
 import { describeError, log } from "@/lib/log";
 import { getJob, runSwitchedJob, type JobOutcome } from "@/lib/scheduler/jobs";
 
-import { inboundMailBucket, INBOUND_PREFIX, isInboundKey } from "./config";
+import { and, isNotNull, lt, eq } from "drizzle-orm";
+
+import { unsafeDb } from "@/db";
+import { supportMessages } from "@/db/schema";
+
+import { inboundMailBucket, INBOUND_PREFIX, isInboundKey, KEEP_FOR_DRAFTER_MS } from "./config";
 import { handleInboundNotice, type HandleDeps } from "./handle";
 import type { InboundNotice } from "./notice";
 import { s3MailStore, type MailStore } from "./store";
@@ -15,13 +20,19 @@ import { s3MailStore, type MailStore } from "./store";
  * retries, a notice SNS gave up on, a subscription not made yet) stays in
  * the bucket under mail/. Each hour this reads what is there:
  *
- *   - an object younger than a day is handled exactly as the webhook would
- *     (handleInboundNotice, idempotent by SES's id, which is the object's
- *     key after the prefix), so an email the webhook already recorded is
- *     only deleted;
- *   - an object older than a day is deleted unread. The bucket's one-day
+ *   - an object younger than KEEP_FOR_DRAFTER_MS (six hours) is handled
+ *     exactly as the webhook would (handleInboundNotice, idempotent by SES's
+ *     id, which is the object's key after the prefix), so an email the
+ *     webhook already recorded is only deleted, unless its row says it
+ *     still waits for the drafter (lane P7h), when it is left alone;
+ *   - an object older than that is deleted unread, kept for the drafter or
+ *     not, and any row naming it has its key cleared. The bucket's one-day
  *     lifecycle rule is only the backstop behind this: S3 applies it
  *     asynchronously, up to about two days after an object is written.
+ *   - and every row still naming an object after six hours (one the
+ *     lifecycle rule took first, or a delete that failed) has its object
+ *     deleted again (a delete of nothing is not an error) and its key
+ *     cleared, so no row ever says a message is waiting that is not.
  *
  * A swept message has no notice, so its verdicts are read from the headers
  * SES wrote at the top of the message (auth.ts: X-SES-Spam-Verdict,
@@ -34,14 +45,27 @@ import { s3MailStore, type MailStore } from "./store";
 
 export const JOB_SUPPORT_INBOUND_SWEEP = "support-inbound-sweep";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 /** Objects per run: an hour's mail, many times over. */
 export const SWEEP_LIMIT = 200;
 
-export type SweepCounts = { handled: number; already: number; dropped: number; deletedOld: number; left: number; failed: number };
+export type SweepCounts = {
+  handled: number;
+  already: number;
+  dropped: number;
+  deletedOld: number;
+  left: number;
+  failed: number;
+  /** Rows whose waiting object was deleted and key cleared (lane P7h). */
+  cleared: number;
+};
+
+/** Clear the key of the row naming this object, once the object is gone. */
+export async function clearObjectKey(key: string): Promise<void> {
+  await unsafeDb.update(supportMessages).set({ inboundObjectKey: null }).where(eq(supportMessages.inboundObjectKey, key));
+}
 
 export async function sweepInboundMail(deps: HandleDeps & { store?: MailStore; now?: Date } = {}): Promise<SweepCounts> {
-  const counts: SweepCounts = { handled: 0, already: 0, dropped: 0, deletedOld: 0, left: 0, failed: 0 };
+  const counts: SweepCounts = { handled: 0, already: 0, dropped: 0, deletedOld: 0, left: 0, failed: 0, cleared: 0 };
   const bucket = inboundMailBucket();
   if (!bucket) return counts;
   const store = deps.store ?? s3MailStore;
@@ -52,9 +76,10 @@ export async function sweepInboundMail(deps: HandleDeps & { store?: MailStore; n
       counts.left += 1;
       continue;
     }
-    if (now.getTime() - object.lastModified.getTime() > DAY_MS) {
+    if (now.getTime() - object.lastModified.getTime() > KEEP_FOR_DRAFTER_MS) {
       try {
         await store.delete(bucket, object.key);
+        await clearObjectKey(object.key);
         counts.deletedOld += 1;
       } catch (error) {
         counts.failed += 1;
@@ -80,6 +105,23 @@ export async function sweepInboundMail(deps: HandleDeps & { store?: MailStore; n
       log.warn("support inbound sweep: a message was not handled", { eventId: notice.sesMessageId, error: describeError(error) });
     }
   }
+  // Rows still naming an object past the window: delete it (again) and clear the key.
+  const stale = await unsafeDb
+    .select({ key: supportMessages.inboundObjectKey })
+    .from(supportMessages)
+    .where(and(isNotNull(supportMessages.inboundObjectKey), lt(supportMessages.receivedAt, new Date(now.getTime() - KEEP_FOR_DRAFTER_MS))))
+    .limit(SWEEP_LIMIT);
+  for (const row of stale) {
+    if (!row.key || !isInboundKey(row.key)) continue;
+    try {
+      await store.delete(bucket, row.key);
+      await clearObjectKey(row.key);
+      counts.cleared += 1;
+    } catch (error) {
+      counts.failed += 1;
+      log.warn("support inbound sweep: a waiting object was not deleted", { error: describeError(error) });
+    }
+  }
   return counts;
 }
 
@@ -95,7 +137,7 @@ export async function runSupportInboundSweepJob(deps: HandleDeps & { store?: Mai
       JOB_SUPPORT_INBOUND_SWEEP,
       async () => {
         const c = await sweepInboundMail({ ...deps, now });
-        return `${c.handled} handled, ${c.already} already recorded, ${c.dropped} dropped, ${c.deletedOld} older than a day deleted, ${c.left} left, ${c.failed} failed`;
+        return `${c.handled} handled, ${c.already} already recorded, ${c.dropped} dropped, ${c.deletedOld} older than six hours deleted, ${c.cleared} left waiting for the drafter deleted, ${c.left} left, ${c.failed} failed`;
       },
       now,
     );

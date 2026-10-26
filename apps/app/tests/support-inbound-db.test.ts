@@ -20,7 +20,9 @@ import { memoryMailStore } from "./setup/inbound-mail";
  * fixed acknowledgement is queued to the clinic's one address at most once
  * per case and only when the rules allow, a reply joins its case by ref or
  * thread, a stranger gets nothing, a redelivered notice changes nothing, and
- * the raw message is deleted on success and on a parse failure. A sentinel
+ * the raw message is deleted on a parse failure, and kept in the bucket for
+ * the drafter (lane P7h) when it is a clinic's (support-inbound-drafter-
+ * db.test.ts follows it to its deletion). A sentinel
  * word written into the subject, the body, the display name and the
  * attachments' names is searched for in every column of every row of every
  * table afterwards, and is never found.
@@ -111,19 +113,20 @@ describeDb("inbound support mail (drizzle/0130)", () => {
     await closePools();
   });
 
-  test("a clinic's email opens one case about that clinic, facts only, queues one acknowledgement, and the raw object is deleted", async () => {
+  test("a clinic's email opens one case about that clinic, facts only, queues one acknowledgement, and the raw object waits for the drafter", async () => {
     const clinic = await seedClinic("inb-normal");
     const store = memoryMailStore();
     const { id, outcome } = await deliver(store, "clinic-normal.eml", { FROM: clinic.staffEmail });
     expect(outcome).toMatchObject({ outcome: "recorded", opened: true, acknowledged: true });
     if (outcome.outcome !== "recorded") throw new Error("not recorded");
-    expect(store.objects.has(`mail/${id}`)).toBe(false);
-    expect(store.deleted).toEqual([`mail/${id}`]);
+    // Lane P7h: kept in the bucket for the support-draft job, its key on the row.
+    expect(store.objects.has(`mail/${id}`)).toBe(true);
+    expect(store.deleted).toEqual([]);
 
     const c = await caseRow(outcome.caseId);
     expect(c).toMatchObject({ subject_clinic_id: clinic.clinicId, source: "email", state: "new", category: "forwarding", symptom: "calls_ring_out", urgency: "now", phi_suspected: false });
     const [m] = await emailMessages(outcome.caseId);
-    expect(m).toMatchObject({ direction: "in", kind: "email", text: null, subject_screened: null, inbound_mail_id: id, message_id: `<normal-1-${id}@mail.example-clinic.test>` });
+    expect(m).toMatchObject({ direction: "in", kind: "email", text: null, subject_screened: null, inbound_mail_id: id, inbound_object_key: `mail/${id}`, message_id: `<normal-1-${id}@mail.example-clinic.test>` });
     expect(m!.sender_ref).toMatch(/^[0-9a-f]{64}$/);
     expect(m!.fields_json).toMatchObject({ source: "email", topic: "forwarding", matchedBy: "address", acknowledgement: "queued", dkim: "pass" });
 
@@ -144,6 +147,11 @@ describeDb("inbound support mail (drizzle/0130)", () => {
     store.put(`mail/${first.id}`, eml("clinic-normal.eml", { FROM: clinic.staffEmail }));
     const again = await handleInboundNotice(first.n, { store, now: NOW, allowFor: async () => null });
     expect(again).toEqual({ outcome: "already_recorded", caseId: first.outcome.caseId });
+    // Still waiting for the drafter (its key on the row): left alone.
+    expect(store.objects.has(`mail/${first.id}`)).toBe(true);
+    // Once the drafter has had it (the key cleared), a redelivery deletes what is there.
+    await getMigratorPool().query(`update support_messages set inbound_object_key = null where inbound_mail_id = $1`, [first.id]);
+    expect(await handleInboundNotice(first.n, { store, now: NOW, allowFor: async () => null })).toEqual({ outcome: "already_recorded", caseId: first.outcome.caseId });
     expect(store.objects.has(`mail/${first.id}`)).toBe(false);
     // And once more with the object gone: nothing to read.
     expect(await handleInboundNotice(first.n, { store, now: NOW })).toEqual({ outcome: "gone" });
@@ -259,7 +267,8 @@ describeDb("inbound support mail (drizzle/0130)", () => {
     const store = memoryMailStore();
     const { id, outcome } = await deliver(store, "phi.eml", { FROM: clinic.staffEmail });
     if (outcome.outcome !== "recorded") throw new Error("not recorded");
-    expect(store.objects.has(`mail/${id}`)).toBe(false);
+    // Waits for the drafter, in the bucket only; nothing of it in the database (below).
+    expect(store.objects.has(`mail/${id}`)).toBe(true);
     const c = await caseRow(outcome.caseId);
     expect(c.phi_suspected).toBe(true);
     expect(Number(c.hidden_numbers)).toBeGreaterThanOrEqual(2);
@@ -435,13 +444,13 @@ describeDb("inbound support mail (drizzle/0130)", () => {
     expect(await handleInboundNotice(notice("x2", { key: "exports/x2" }), { store, now: NOW })).toEqual({ outcome: "refused", reason: "bad_key" });
   });
 
-  test("the sweep handles what the webhook left, deletes what is older than a day, and counts only", async () => {
+  test("the sweep handles what the webhook left, deletes what is older than six hours, and counts only", async () => {
     const clinic = await seedClinic("inb-sweep");
     const store = memoryMailStore();
     store.put("mail/sweepfresh01", eml("clinic-normal.eml", { FROM: clinic.staffEmail }), new Date(NOW.getTime() - 30 * MINUTE));
-    store.put("mail/sweepold0001", eml("clinic-normal.eml", { FROM: clinic.staffEmail }), new Date(NOW.getTime() - 25 * 60 * MINUTE));
+    store.put("mail/sweepold0001", eml("clinic-normal.eml", { FROM: clinic.staffEmail }), new Date(NOW.getTime() - 7 * 60 * MINUTE));
     const counts = await sweepInboundMail({ store, now: NOW, allowFor: async () => null });
-    expect(counts).toEqual({ handled: 1, already: 0, dropped: 0, deletedOld: 1, left: 0, failed: 0 });
+    expect(counts).toEqual({ handled: 1, already: 0, dropped: 0, deletedOld: 1, left: 0, failed: 0, cleared: 0 });
     expect(store.objects.size).toBe(0);
     const { rows } = await getMigratorPool().query(`select count(*)::int as n from support_messages where inbound_mail_id = 'sweepfresh01'`);
     expect(rows[0].n).toBe(1);

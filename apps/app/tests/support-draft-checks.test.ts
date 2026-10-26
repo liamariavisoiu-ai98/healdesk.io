@@ -5,7 +5,10 @@ import { SUPPORT_PORTAL_WORDS } from "@healdesk/catalog";
 import {
   CHECK_IDS,
   CHECK_RULES,
+  EMAIL_CHECK_ID,
+  EMAIL_RUN_WORDS,
   factTokens,
+  quotesEmail,
   failedCheckIds,
   runReplyChecks,
   sentenceSpans,
@@ -339,5 +342,29 @@ describe("sentenceSpans", () => {
       "Yes",
       "1. Open it.",
     ]);
+  });
+});
+
+describe("the email check (lane P7h): a draft written from an email quotes no long run of it", () => {
+  const EMAIL = "Since this morning our calls ring out and nobody answers the phone at the front desk. Can you check the forwarding?";
+
+  test("eight words in a row from the email fail it; seven do not; case, accents and punctuation do not hide a quote", () => {
+    expect(EMAIL_RUN_WORDS).toBe(8);
+    expect(quotesEmail("You wrote that since this morning our calls ring out and nobody answers.", EMAIL)).toBe(true);
+    expect(quotesEmail("SINCE this morning, our calls -- ring out; and nobody ANSWERS.", EMAIL)).toBe(true);
+    expect(quotesEmail("Since this morning our calls ring out, we see.", EMAIL)).toBe(false);
+    expect(quotesEmail("Hi, a person at healdesk will reply with the next step by Wednesday.", EMAIL)).toBe(false);
+  });
+
+  test("it runs only on a draft given the email, after the eight, and its result names the rule, never the words", () => {
+    const base: ReplyCheckInput = { text: "Since this morning our calls ring out and nobody answers, we know.", clinicName: "Lumen Aesthetics", facts: [], ownCaseRef: REF, mode: "draft" };
+    expect(runReplyChecks(base).results.map((r) => r.id)).toEqual([...CHECK_IDS]);
+    const withEmail = runReplyChecks({ ...base, emailText: EMAIL });
+    expect(withEmail.results.map((r) => r.id)).toEqual([...CHECK_IDS, EMAIL_CHECK_ID]);
+    const result = withEmail.results.find((r) => r.id === EMAIL_CHECK_ID)!;
+    expect(result).toEqual({ id: EMAIL_CHECK_ID, ok: false, rule: CHECK_RULES[EMAIL_CHECK_ID] });
+    expect(failedCheckIds(withEmail)).toContain(EMAIL_CHECK_ID);
+    // Send never has the email: the check is not run there.
+    expect(runReplyChecks({ ...base, mode: "send", emailText: EMAIL }).results.map((r) => r.id)).not.toContain(EMAIL_CHECK_ID);
   });
 });

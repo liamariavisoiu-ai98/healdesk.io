@@ -15,7 +15,9 @@ import { SUPPORT_MODEL } from "../model";
 import { readForwardingSteps } from "../forwarding";
 import { screenText, type ScreenAllow } from "../screen";
 import { SUPPORT_CASE_URGENCIES } from "../case-vocab";
-import { failedCheckIds, runReplyChecks, type FactsUsed, type ToolResult } from "./checks";
+import type { MailStore } from "../inbound/store";
+import { failedCheckIds, runReplyChecks, type FactsUsed, type ReplyChecks, type ToolResult } from "./checks";
+import { deleteEmails, emailBlock, emailCheckText, pendingEmails, readEmails, type CaseEmails, type EmailText } from "./email";
 import { buildDraftPrompt, draftRequestText } from "./prompt";
 import {
   claimCaseToDraft,
@@ -44,9 +46,17 @@ import {
  * model on healdesk's key with the drafter's read-only tools for the case's
  * clinic, one proposal, the eight checks, and the draft written on the case.
  *
- * The turn is the case's FIELDS and the clinic's account: in this slice a
- * case comes only from a chat escalation, which carries no words, so the
- * model is never given anything a clinic typed. The model reads with its
+ * The turn is the case's FIELDS and the clinic's account, and, for a case
+ * with an inbound email (lane P7h; owner, 26 October 2026), the email read
+ * once from the inbound bucket in memory (draft/email.ts) and given to the
+ * model as written, on healdesk's key, which is the Anthropic organisation
+ * the business associate agreement covers (owner-confirmed, 26 October
+ * 2026); it is deleted from the bucket in this run's finally whatever
+ * happens. A chat
+ * escalation carries no words, so for a chat case the model is never given
+ * anything a clinic typed. A draft written from an email that fails any
+ * check is not kept: the row names the checks and holds no text
+ * (`checks_failed`), so nothing the model may have repeated is stored. The model reads with its
  * tools (at most DRAFT_MAX_ROUNDS requests, each with a 60-second timeout
  * and one retry by the SDK), and must end with propose_reply: the last
  * request names it. The model's own category, symptom and urgency are kept
@@ -225,6 +235,8 @@ export type DraftDeps = {
   /** The readers, for the tests; draftToolbox for the claimed case otherwise. */
   toolbox?: (claimed: ClaimedCase, now: Date) => DraftToolbox;
   context?: (clinicId: string, now: Date) => Promise<ReplyCheckContext | null>;
+  /** The inbound bucket, for the tests; S3 otherwise (lane P7h). */
+  mailStore?: MailStore;
 };
 
 async function runReadTool(name: ReadToolName, toolbox: DraftToolbox): Promise<{ text: string; isError: boolean }> {
@@ -292,19 +304,45 @@ async function askForProposal(
   return { failure: "no_proposal" };
 }
 
-async function fail(claimed: ClaimedCase, reason: DraftFailure, now: Date): Promise<DraftRunOutcome> {
-  const written = await recordDraft(claimed, { kind: "failure", failure: reason }, now);
+async function fail(claimed: ClaimedCase, reason: DraftFailure, now: Date, checks?: ReplyChecks): Promise<DraftRunOutcome> {
+  const written = await recordDraft(claimed, { kind: "failure", failure: reason, ...(checks ? { checks } : {}) }, now);
   if (!written.written) return { outcome: "superseded", caseId: claimed.id };
   log.info("support draft not written", { clinicId: claimed.clinicId, reason, attempt: claimed.version });
   return { outcome: "failed", caseId: claimed.id, version: claimed.version, reason };
 }
 
-/** Draft one claimed case. Never throws for a failure it can name: the case ends `needs_edit` with the reason. */
+/**
+ * Draft one claimed case. Never throws for a failure it can name: the case
+ * ends `needs_edit` with the reason. Every email of the case still waiting in
+ * the bucket is deleted in the finally, read or not, whatever the outcome.
+ */
 export async function draftClaimedCase(claimed: ClaimedCase, deps: DraftDeps = {}): Promise<DraftRunOutcome> {
+  const emails: CaseEmails = await pendingEmails(claimed.id);
+  try {
+    return await draftWithEmails(claimed, deps, emails);
+  } finally {
+    if (emails.pending.length > 0) {
+      const gone = await deleteEmails(emails.pending, deps.mailStore);
+      log.info("support draft: email objects deleted", { clinicId: claimed.clinicId, count: gone.deleted, code: gone.failed > 0 ? "delete_failed" : "ok" });
+    }
+  }
+}
+
+async function draftWithEmails(claimed: ClaimedCase, deps: DraftDeps, emails: CaseEmails): Promise<DraftRunOutcome> {
   const now = deps.now ?? new Date();
   if (claimed.attempts >= DRAFTS_PER_CASE) return fail(claimed, "draft_limit", now);
   const client = deps.client === undefined ? await anthropicDraftClient() : deps.client;
   if (!client) return fail(claimed, "model_unavailable", now);
+
+  let read: EmailText[] = [];
+  if (emails.pending.length > 0) {
+    try {
+      read = await readEmails(emails.pending, deps.mailStore);
+    } catch (error) {
+      log.warn("support draft: email not read", { clinicId: claimed.clinicId, reason: error instanceof Error && "reason" in error ? String(error.reason) : "unknown" });
+      return fail(claimed, "email_unreadable", now);
+    }
+  }
 
   const context = await (deps.context ?? ((clinicId, at) => readReplyCheckContext({ clinicId, now: at })))(claimed.clinicId, now).catch(
     (error: unknown) => {
@@ -332,6 +370,7 @@ export async function draftClaimedCase(claimed: ClaimedCase, deps: DraftDeps = {
       symptom: claimed.symptom,
       urgency: claimed.urgency,
       fields: claimed.fields,
+      email: read.length > 0 ? emailBlock(read) : emails.any ? "gone" : null,
     }),
     toolbox,
   );
@@ -351,7 +390,14 @@ export async function draftClaimedCase(claimed: ClaimedCase, deps: DraftDeps = {
     otherClinicNames: context.otherClinicNames,
     agreementKind: context.agreementKind,
     portalOrigin: context.portalOrigin,
+    emailText: read.length > 0 ? emailCheckText(read) : null,
   });
+  // A draft written from an email is kept only when every check passed:
+  // otherwise only the checks' names (lane P7h).
+  if (read.length > 0 && !checks.ok) {
+    const outcome = await fail(claimed, "checks_failed", now, checks);
+    return outcome.outcome === "failed" ? { outcome: "needs_edit", caseId: claimed.id, version: claimed.version, failed: failedCheckIds(checks) } : outcome;
+  }
   // What is kept is what the screen lets through: a stranger's number or a
   // treatment name the model wrote is stored hidden, and check 2 says so.
   const allow: ScreenAllow = { numbers: context.allowNumbers, emails: [], serviceNames: context.serviceNames };

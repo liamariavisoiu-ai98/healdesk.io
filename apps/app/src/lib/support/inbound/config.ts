@@ -42,3 +42,12 @@ export function inboundMailBucket(): string | null {
 export function isInboundKey(key: string): boolean {
   return key.startsWith(INBOUND_PREFIX) && /^mail\/[A-Za-z0-9._-]{1,200}$/.test(key);
 }
+
+/**
+ * How long a kept message may wait in the bucket for the drafter: the
+ * hourly sweep deletes anything older, read or not, and clears its key. The
+ * draft job runs every minute, so a message about a clinic is normally read
+ * and gone within minutes; this bounds one the job never reached (the job
+ * off, a case already drafted when a later email joined it).
+ */
+export const KEEP_FOR_DRAFTER_MS = 6 * 60 * 60 * 1000;

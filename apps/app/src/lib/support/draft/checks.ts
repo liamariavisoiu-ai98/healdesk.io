@@ -67,8 +67,21 @@ export const CHECK_IDS = [
 ] as const;
 export type CheckId = (typeof CHECK_IDS)[number];
 
+/**
+ * The ninth check, run only on a draft written from a clinic's email (lane
+ * P7h; owner, 26 October 2026): the reply quotes no run of
+ * EMAIL_RUN_WORDS words from the email the model was shown, and repeats none
+ * of the screen's masks. The email is held in memory for this run only, so
+ * Send cannot run it: it is a draft-only check, like `facts`.
+ */
+export const EMAIL_CHECK_ID = "email_words" as const;
+export type AnyCheckId = CheckId | typeof EMAIL_CHECK_ID;
+/** The longest run of words a reply may share with the email it answers. */
+export const EMAIL_RUN_WORDS = 8;
+
 /** What each check holds, in one fixed sentence: shown to the operator, logged, never the reply's words. */
-export const CHECK_RULES: Readonly<Record<CheckId, string>> = {
+export const CHECK_RULES: Readonly<Record<AnyCheckId, string>> = {
+  email_words: `The reply quotes no run of ${EMAIL_RUN_WORDS} or more words from the practice's email.`,
   facts:
     "Every date, day, time, amount, percent, count, package name, phone number and link in the reply comes from a fact the tools returned.",
   screen: "The reply carries no stranger's phone number or email address and no treatment name.",
@@ -92,7 +105,7 @@ export type ToolResult = { tool: string; text: string };
 
 export type Span = { start: number; end: number };
 
-export type CheckResult = { id: CheckId; ok: boolean; rule: string; spans?: Span[] };
+export type CheckResult = { id: AnyCheckId; ok: boolean; rule: string; spans?: Span[] };
 
 export type ReplyChecks = { ok: boolean; results: CheckResult[] };
 
@@ -122,6 +135,11 @@ export type ReplyCheckInput = {
   agreementKind?: AgreementKind | null;
   /** The portal's public origin, the one place a link may go (check 7). Absent, no link passes. */
   portalOrigin?: string | null;
+  /**
+   * The email the model was shown, in memory only (lane P7h): present, the
+   * `email_words` check runs after the eight. Never stored, never returned.
+   */
+  emailText?: string | null;
 };
 
 // -----------------------------------------------------------------------------
@@ -609,7 +627,7 @@ export function runReplyChecks(input: ReplyCheckInput): ReplyChecks {
   const text = withoutSignOff(input.text.normalize("NFC"));
   const sentences = sentenceSpans(text);
   const results: CheckResult[] = [];
-  const add = (id: CheckId, outcome: { ok: boolean; spans?: Span[] }) => {
+  const add = (id: AnyCheckId, outcome: { ok: boolean; spans?: Span[] }) => {
     const result: CheckResult = { id, ok: outcome.ok, rule: CHECK_RULES[id] };
     if (!outcome.ok && outcome.spans && outcome.spans.length > 0) result.spans = outcome.spans;
     results.push(result);
@@ -629,6 +647,7 @@ export function runReplyChecks(input: ReplyCheckInput): ReplyChecks {
   add("claims", checkClaims(input, text, sentences));
   add("shape", checkShape(input, text, sentences));
   add("other_clinics", checkOtherClinics(input, text, sentences));
+  if (input.mode === "draft" && input.emailText) add(EMAIL_CHECK_ID, { ok: !quotesEmail(text, input.emailText) });
 
   // An empty reply is never a reply.
   const empty = text.trim().length === 0;
@@ -639,7 +658,32 @@ export function runReplyChecks(input: ReplyCheckInput): ReplyChecks {
   return { ok: results.every((r) => r.ok), results };
 }
 
+/** Lower-case words of letters and digits, accents off: what a quote is compared on. */
+function wordsOf(text: string): string[] {
+  return (
+    text
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .match(/[\p{L}\p{N}]+/gu) ?? []
+  );
+}
+
+/**
+ * Whether the reply quotes the email: any run of EMAIL_RUN_WORDS words in a
+ * row that the email has too. Pure, in memory.
+ */
+export function quotesEmail(reply: string, email: string, run: number = EMAIL_RUN_WORDS): boolean {
+  const theirs = wordsOf(email);
+  const ours = wordsOf(reply);
+  if (theirs.length < run || ours.length < run) return false;
+  const seen = new Set<string>();
+  for (let i = 0; i + run <= theirs.length; i += 1) seen.add(theirs.slice(i, i + run).join(" "));
+  for (let i = 0; i + run <= ours.length; i += 1) if (seen.has(ours.slice(i, i + run).join(" "))) return true;
+  return false;
+}
+
 /** The ids of the checks that failed, in order: what a case's needs_edit reason names. */
-export function failedCheckIds(checks: ReplyChecks): CheckId[] {
+export function failedCheckIds(checks: ReplyChecks): AnyCheckId[] {
   return checks.results.filter((r) => !r.ok).map((r) => r.id);
 }

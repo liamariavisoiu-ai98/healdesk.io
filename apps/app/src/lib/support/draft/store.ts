@@ -4,7 +4,7 @@ import { unsafeDb, type Transaction } from "@/db";
 import { supportCases, supportMessages, type SupportCase } from "@/db/schema";
 
 import { printRef, type SupportCaseState } from "../case-vocab";
-import { CHECK_IDS, CHECK_RULES, type CheckId, type FactsUsed, type ReplyChecks } from "./checks";
+import { CHECK_IDS, CHECK_RULES, EMAIL_CHECK_ID, type AnyCheckId, type FactsUsed, type ReplyChecks } from "./checks";
 import { CONFIDENCE_LEVELS, type Confidence, type HandoffReason } from "./tools";
 
 /**
@@ -46,6 +46,11 @@ export const DRAFT_FAILURES = [
   "no_proposal",
   "account_unreadable",
   "draft_limit",
+  // Lane P7h: an email case.
+  /** The email could not be read from the bucket or parsed. */
+  "email_unreadable",
+  /** A draft written from an email failed a check: never stored, only the checks' names. */
+  "checks_failed",
 ] as const;
 export type DraftFailure = (typeof DRAFT_FAILURES)[number];
 
@@ -158,7 +163,8 @@ export type DraftWrite =
       checks: ReplyChecks;
       facts: Omit<DraftFactsJson, "by" | "attempt" | "failure">;
     }
-  | { kind: "failure"; failure: DraftFailure };
+  /** `checks` only for checks_failed: the checks' ids and verdicts, never the text they read. */
+  | { kind: "failure"; failure: DraftFailure; checks?: ReplyChecks };
 
 /**
  * Write a run's outcome and move the case: `drafted` when every check
@@ -191,7 +197,9 @@ export async function recordDraft(claimed: Pick<ClaimedCase, "id" | "version">, 
             direction: "out",
             kind: "reply",
             factsJson: { ...base, failure: write.failure } satisfies DraftFactsJson,
-            checksJson: null,
+            checksJson: write.checks
+              ? { ok: false, results: write.checks.results.map((r) => ({ id: r.id, ok: r.ok, rule: r.rule })) }
+              : null,
             createdAt: now,
           };
     const [row] = await tx.insert(supportMessages).values(values).returning({ id: supportMessages.id });
@@ -221,7 +229,7 @@ export type SupportDraftView = {
   /** Null only for a failed run, which has no text. */
   version: number | null;
   text: string | null;
-  checks: { id: CheckId; ok: boolean; rule: string }[];
+  checks: { id: AnyCheckId; ok: boolean; rule: string }[];
   factsUsed: FactsUsed[];
   questionsForOps: string[];
   confidence: Confidence | null;
@@ -235,8 +243,8 @@ function checksOf(value: unknown): SupportDraftView["checks"] {
   if (!Array.isArray(results)) return [];
   return results.flatMap((r) => {
     const id = (r as { id?: unknown }).id;
-    if (!(CHECK_IDS as readonly unknown[]).includes(id)) return [];
-    return [{ id: id as CheckId, ok: (r as { ok?: unknown }).ok === true, rule: CHECK_RULES[id as CheckId] }];
+    if (!(CHECK_IDS as readonly unknown[]).includes(id) && id !== EMAIL_CHECK_ID) return [];
+    return [{ id: id as AnyCheckId, ok: (r as { ok?: unknown }).ok === true, rule: CHECK_RULES[id as AnyCheckId] }];
   });
 }
 

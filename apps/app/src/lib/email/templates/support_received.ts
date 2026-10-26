@@ -16,7 +16,8 @@ import type { EmailTemplate } from "./types";
  * another.
  *
  * Fixed words throughout. It carries the case's ref, so a reply joins the
- * case, and the day a person will reply by. It quotes nothing of the email,
+ * case, the day a person will reply by, and both support addresses (support@
+ * and hello@; owner, 26 October 2026). It quotes nothing of the email,
  * which healdesk does not keep. When the screen found what looked like a
  * patient's or client's details, one fixed sentence asks that they be left
  * out and points to where the practice already sees them in its portal.
@@ -44,7 +45,7 @@ export const renderSupportReceived: EmailTemplate<SupportReceivedPayload> = (pay
     { type: "facts", rows: [["Your reference", payload.supportRef]] },
     {
       type: "paragraph",
-      text: "To add anything, reply to this email and keep the reference in the subject, so it joins the same request.",
+      text: "To add anything, reply to this email, or write to support@healdesk.io or hello@healdesk.io, and keep the reference in the subject, so it joins the same request.",
     },
   ];
   if (payload.hasPatientDetails) {

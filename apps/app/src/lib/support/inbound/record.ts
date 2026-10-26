@@ -76,6 +76,12 @@ export type InboundFacts = {
   verdicts: Verdicts;
   /** An aligned DKIM pass or a DMARC pass (auth.ts). */
   authenticated: boolean;
+  /**
+   * Leave the raw message in the bucket for the support drafter (lane P7h):
+   * its key is written on the row, but only when the case names a clinic,
+   * since a case about no clinic is never drafted.
+   */
+  keepForDrafter?: boolean;
 };
 
 export type InboundTarget = {
@@ -94,6 +100,8 @@ export type RecordOutcome =
       clinicId: string | null;
       acknowledged: boolean;
       ackReason: AckDecision;
+      /** The object's key was written on the row: the draft job reads and deletes it. */
+      kept: boolean;
     };
 
 type AckDecision = "queued" | "not_matched" | "already" | "rate_limited" | "not_authenticated";
@@ -290,11 +298,13 @@ async function recordIn(
     if (!acknowledged) ack = "already";
   }
 
+  const kept = facts.keepForDrafter === true && caseClinic !== null && facts.notice.key === `mail/${facts.notice.sesMessageId}`;
   await db.insert(supportMessages).values({
     caseId,
     direction: "in",
     kind: "email",
     inboundMailId: facts.notice.sesMessageId,
+    inboundObjectKey: kept ? facts.notice.key : null,
     senderRef: facts.senderRef,
     messageId: facts.messageId,
     inReplyTo: facts.inReplyTo,
@@ -314,5 +324,15 @@ async function recordIn(
     createdAt: now,
   });
 
-  return { outcome, caseId, ref, clinicId: caseClinic, acknowledged, ackReason: ack };
+  return { outcome, caseId, ref, clinicId: caseClinic, acknowledged, ackReason: ack, kept };
+}
+
+/** Whether an already-recorded email's object still waits for the drafter (its key is on the row). */
+export async function objectAwaitsDrafter(sesMessageId: string): Promise<boolean> {
+  const [row] = await unsafeDb
+    .select({ key: supportMessages.inboundObjectKey })
+    .from(supportMessages)
+    .where(eq(supportMessages.inboundMailId, sesMessageId))
+    .limit(1);
+  return Boolean(row?.key);
 }

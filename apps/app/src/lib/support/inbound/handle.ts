@@ -10,7 +10,7 @@ import { dropReason, isProviderConfirmation, type DropReason } from "./guards";
 import { matchCase, matchClinic, senderIsCaseClinic, senderSeenOnCase } from "./match";
 import type { InboundNotice } from "./notice";
 import { MailParseError, messageIds, parseMail, type ParsedMail } from "./parse";
-import { recordInboundEmail, type InboundTarget } from "./record";
+import { objectAwaitsDrafter, recordInboundEmail, type InboundTarget } from "./record";
 import { s3MailStore, type MailStore } from "./store";
 
 /**
@@ -36,10 +36,18 @@ import { s3MailStore, type MailStore } from "./store";
  *      joins only if its sender may (match.ts); an unauthenticated sender is
  *      matched to no clinic. Screen and classify in memory (facts.ts,
  *      classify.ts), and write facts only (record.ts).
- *   7. Delete the object, on every path but a transient failure and a
- *      provider's confirmation, so it lives in the bucket for the length of
- *      the request; a transient failure leaves it for SNS's retry or the
- *      sweep, and the bucket's one-day lifecycle rule is the backstop.
+ *   7. Delete the object, on every path but a transient failure, a
+ *      provider's confirmation and one kept for the drafter, so it lives in
+ *      the bucket for the length of the request; a transient failure leaves
+ *      it for SNS's retry or the sweep, and the bucket's one-day lifecycle
+ *      rule is the backstop.
+ *
+ * Kept for the drafter (lane P7h; owner, 26 October 2026): a parsed
+ * message within the size cap, on a case about a clinic, is left in the bucket and its key written on the
+ * row; the support-draft job reads it once and deletes it in a finally
+ * (draft/email.ts), and the sweep deletes it after KEEP_FOR_DRAFTER_MS
+ * whatever happened. Nothing more is stored for it: the row is the same
+ * facts-only row.
  *
  * Throws InboundTransientError when storage or the database failed, so the
  * webhook answers 5xx and SNS tries again. Everything else is an outcome.
@@ -94,7 +102,7 @@ async function remove(store: MailStore, notice: InboundNotice): Promise<void> {
   try {
     await store.delete(notice.bucket, notice.key);
   } catch (error) {
-    // The case is written; the sweep deletes the object once it is a day old (the lifecycle rule is the backstop).
+    // The case is written; the sweep deletes the object once it is six hours old (the lifecycle rule is the backstop).
     log.warn("support inbound: object not deleted", { eventId: notice.sesMessageId, error: describeError(error) });
   }
 }
@@ -150,7 +158,7 @@ export async function handleInboundNotice(notice: InboundNotice, deps: HandleDep
       return { outcome: "dropped", reason: dropped };
     }
     if (isProviderConfirmation(mail, auth)) {
-      // Left for the owner to read once in the bucket; the sweep deletes it once a day old.
+      // Left for the owner to read once in the bucket; the sweep deletes it once six hours old.
       log.info("support inbound: provider forwarding confirmation left in the bucket", { eventId: notice.sesMessageId, outcome: "kept" });
       return { outcome: "provider_confirmation" };
     }
@@ -203,6 +211,7 @@ export async function handleInboundNotice(notice: InboundNotice, deps: HandleDep
         senderRef: sender,
         verdicts: auth.verdicts,
         authenticated,
+        keepForDrafter: mail !== null && !oversize,
       },
       target,
       actor,
@@ -215,16 +224,21 @@ export async function handleInboundNotice(notice: InboundNotice, deps: HandleDep
     mail = null;
   }
 
-  await remove(store, notice);
   if (recorded.outcome === "already_recorded") {
+    // A redelivered notice, or the sweep reading an object the webhook took:
+    // left alone while the row says the drafter still wants it.
+    const waiting = await objectAwaitsDrafter(notice.sesMessageId).catch(() => true);
+    if (!waiting) await remove(store, notice);
     log.info("support inbound", { eventId: notice.sesMessageId, outcome: "already_recorded" });
     return { outcome: "already_recorded", caseId: recorded.caseId };
   }
+  if (!recorded.kept) await remove(store, notice);
   log.info("support inbound", {
     eventId: notice.sesMessageId,
     clinicId: recorded.clinicId,
     outcome: recorded.outcome,
     decision: recorded.ackReason,
+    status: recorded.kept ? "kept_for_drafter" : "deleted",
   });
   return { outcome: "recorded", caseId: recorded.caseId, opened: recorded.outcome === "opened", acknowledged: recorded.acknowledged };
 }

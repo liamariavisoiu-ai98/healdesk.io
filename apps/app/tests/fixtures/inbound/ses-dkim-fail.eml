@@ -1,0 +1,21 @@
+Return-Path: <{{FROM}}>
+Received: from mail.example-clinic.test (mail.example-clinic.test [192.0.2.10]) by inbound-smtp.us-east-1.amazonaws.com with SMTP id ses0001 for hello@in.healdesk.io; Mon, 26 Oct 2026 14:00:01 +0000 (UTC)
+X-SES-Spam-Verdict: PASS
+X-SES-Virus-Verdict: PASS
+Received-SPF: pass
+Authentication-Results: amazonses.com;
+ spf=pass (spfCheck: domain of {{DOMAIN}} designates 192.0.2.10 as permitted sender) client-ip=192.0.2.10; envelope-from={{FROM}}; helo=mail.example-clinic.test;
+ dkim=fail header.i=@{{DOMAIN}};
+ dmarc=fail header.from={{DOMAIN}};
+X-SES-RECEIPT: AEFBQUFBQUFBQUFH
+From: Front Desk <{{FROM}}>
+To: hello@healdesk.io
+Subject: Calls ring out since this morning
+Date: Mon, 26 Oct 2026 14:00:00 +0000
+Message-ID: <ses-dkim-fail@mail.example-clinic.test>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Hi,
+Since this morning our calls ring out and nobody answers.
+Front desk

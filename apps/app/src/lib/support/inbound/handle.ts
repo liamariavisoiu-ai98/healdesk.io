@@ -2,11 +2,12 @@ import type { ActorContext } from "@/lib/audit";
 import { describeError, log } from "@/lib/log";
 
 import type { ScreenAllow } from "../screen";
+import { authenticate, isAuthenticated, type Authentication } from "./auth";
 import { classifyEmail, type Classification } from "./classify";
 import { inboundMailBucket, isInboundKey, MAX_INBOUND_BYTES } from "./config";
 import { screenCounts, senderRef, type ScreenCounts } from "./facts";
 import { dropReason, isProviderConfirmation, type DropReason } from "./guards";
-import { matchCase, matchClinic, senderIsCaseClinic } from "./match";
+import { matchCase, matchClinic, senderIsCaseClinic, senderSeenOnCase } from "./match";
 import type { InboundNotice } from "./notice";
 import { MailParseError, messageIds, parseMail, type ParsedMail } from "./parse";
 import { recordInboundEmail, type InboundTarget } from "./record";
@@ -24,13 +25,21 @@ import { s3MailStore, type MailStore } from "./store";
  *   3. Parse it in memory (parse.ts); a message that cannot be parsed is a
  *      case with no facts at all, about no clinic, so ops sees something
  *      arrived.
- *   4. Loop guards (guards.ts): an auto-reply, a list, a bounce, our own
+ *   4. Authenticate (auth.ts): SES's verdicts, the notice's or else those
+ *      SES wrote at the top of the message, and whether the From domain
+ *      passed aligned DKIM or DMARC.
+ *   5. Loop guards (guards.ts): an auto-reply, a list, a bounce, our own
  *      mail, spam or a virus is dropped with a log line and no case. A
- *      provider's forwarding confirmation is left for the owner.
- *   5. Match (match.ts), screen and classify in memory (facts.ts,
+ *      provider's forwarding confirmation, signed by the provider, is left
+ *      for the owner.
+ *   6. Match (match.ts): a ref or a thread names a case, which the email
+ *      joins only if its sender may (match.ts); an unauthenticated sender is
+ *      matched to no clinic. Screen and classify in memory (facts.ts,
  *      classify.ts), and write facts only (record.ts).
- *   6. Delete the object, on every path but a transient failure, which
- *      leaves it for SNS's retry, the sweep, or the bucket's one-day expiry.
+ *   7. Delete the object, on every path but a transient failure and a
+ *      provider's confirmation, so it lives in the bucket for the length of
+ *      the request; a transient failure leaves it for SNS's retry or the
+ *      sweep, and the bucket's one-day lifecycle rule is the backstop.
  *
  * Throws InboundTransientError when storage or the database failed, so the
  * webhook answers 5xx and SNS tries again. Everything else is an outcome.
@@ -129,15 +138,19 @@ export async function handleInboundNotice(notice: InboundNotice, deps: HandleDep
     mail = null;
   }
 
+  // SES's verdicts, the notice's or else its own headers', and whether the From is authenticated.
+  const auth: Authentication = mail ? authenticate(mail, notice) : { verdicts: notice.verdicts, dkimPassDomains: [] };
+  const authenticated = mail ? isAuthenticated(auth, mail.from) : false;
+
   if (mail) {
-    const dropped = dropReason(mail, notice);
+    const dropped = dropReason(mail, { verdicts: auth.verdicts });
     if (dropped) {
       log.info("support inbound dropped", { eventId: notice.sesMessageId, outcome: "dropped", reason: dropped });
       await remove(store, notice);
       return { outcome: "dropped", reason: dropped };
     }
-    if (isProviderConfirmation(mail)) {
-      // Left for the owner to read once in the bucket; it expires within a day.
+    if (isProviderConfirmation(mail, auth)) {
+      // Left for the owner to read once in the bucket; the sweep deletes it once a day old.
       log.info("support inbound: provider forwarding confirmation left in the bucket", { eventId: notice.sesMessageId, outcome: "kept" });
       return { outcome: "provider_confirmation" };
     }
@@ -147,13 +160,22 @@ export async function handleInboundNotice(notice: InboundNotice, deps: HandleDep
   let recorded;
   try {
     const from = mail?.from ?? null;
+    const sender = senderRef(from ?? `unknown@${notice.sesMessageId.toLowerCase()}.invalid`);
     const threadIds = mail ? [...(mail.inReplyTo ? [mail.inReplyTo] : []), ...mail.references] : [];
     const found = mail ? await matchCase({ subject: mail.subject, threadIds }) : null;
+    let caseMatch: InboundTarget["caseMatch"] = null;
+    if (found) {
+      // Naming a case is not enough to join it: the sender must be allowed (match.ts).
+      const aboutClinic = found.supportCase.subjectClinicId !== null;
+      const signIn = aboutClinic ? (from && authenticated ? await senderIsCaseClinic(found.supportCase, from, actor) : false) : null;
+      const seen = await senderSeenOnCase(found.supportCase.id, sender);
+      const mayJoin = aboutClinic ? authenticated && (signIn === true || seen) : seen;
+      if (mayJoin) caseMatch = { ...found, senderMatchesCase: signIn };
+    }
     const target: InboundTarget = {
-      caseMatch: found
-        ? { ...found, senderMatchesCase: from ? await senderIsCaseClinic(found.supportCase, from, actor) : false }
-        : null,
-      clinic: !found && from ? await matchClinic(from, actor) : { clinicId: null, matchedBy: "none" },
+      caseMatch,
+      // Only an authenticated sender is matched to a clinic by address.
+      clinic: !caseMatch && from && authenticated ? await matchClinic(from, actor) : { clinicId: null, matchedBy: "none" },
     };
     const clinicId = target.caseMatch?.supportCase.subjectClinicId ?? target.clinic.clinicId;
 
@@ -178,7 +200,9 @@ export async function handleInboundNotice(notice: InboundNotice, deps: HandleDep
         oversize,
         messageId: mail?.messageId ?? null,
         inReplyTo: mail ? (messageIds(mail.inReplyTo)[0] ?? null) : null,
-        senderRef: senderRef(from ?? `unknown@${notice.sesMessageId.toLowerCase()}.invalid`),
+        senderRef: sender,
+        verdicts: auth.verdicts,
+        authenticated,
       },
       target,
       actor,

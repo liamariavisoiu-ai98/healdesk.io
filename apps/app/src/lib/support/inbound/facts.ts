@@ -20,7 +20,9 @@ import type { AttachmentClass, ParsedMail } from "./parse";
  *     above zero sets phi_suspected on the case;
  *   - the ATTACHMENTS: how many, by class (image, pdf, other), and the total
  *     size in a bucket. Never a name: a file name is often a patient's;
- *   - SES's VERDICTS, as SES's own words;
+ *   - SES's VERDICTS, as SES's own words (from its notice, or from the
+ *     headers SES wrote at the top of the message: auth.ts), and whether the
+ *     sender was authenticated;
  *   - the SENDER's reference: an HMAC of the lower-cased address, so the
  *     hour's mail from one address can be counted. Its key is derived from
  *     HEALDESK_IDENTIFIER_REF_KEY under its own label, so it is never equal
@@ -111,8 +113,12 @@ export function messageFields(input: {
   counts: ScreenCounts;
   verdicts: InboundNotice["verdicts"];
   oversize: boolean;
-  acknowledged: "queued" | "not_matched" | "already" | "rate_limited" | "dkim_failed" | "not_sent";
+  acknowledged: "queued" | "not_matched" | "already" | "rate_limited" | "not_authenticated";
   senderMatchesCase: boolean | null;
+  /** An aligned DKIM pass or a DMARC pass (auth.ts). */
+  authenticated: boolean;
+  /** From the case's clinic: its authenticated sign-in. Only such an email is threaded under (threading.ts). */
+  fromClinic: boolean;
 }): Record<string, string> {
   const v = (x: Verdict) => x.toLowerCase();
   return {
@@ -134,6 +140,8 @@ export function messageFields(input: {
     dkim: v(input.verdicts.dkim),
     dmarc: v(input.verdicts.dmarc),
     acknowledgement: input.acknowledged,
+    authenticated: input.authenticated ? "yes" : "no",
+    fromClinic: input.fromClinic ? "yes" : "no",
   };
 }
 

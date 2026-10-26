@@ -1,5 +1,6 @@
 import { SENDER_IDENTITY } from "@healdesk/catalog";
 
+import { alignedDkimPass, type Authentication } from "./auth";
 import type { InboundNotice } from "./notice";
 import type { ParsedMail } from "./parse";
 
@@ -24,10 +25,14 @@ import type { ParsedMail } from "./parse";
  *   spam / virus     SES's scan said FAIL.
  *
  * A provider's forwarding confirmation (Gmail's, from
- * forwarding-noreply@google.com) is its own outcome, `provider_confirmation`:
- * no case, and its object is left in the bucket (a day at most) for the owner
- * to read the code in it once, when he sets up forwarding
- * (docs/handover.md, "Inbound support mail").
+ * forwarding-noreply@google.com, with a DKIM signature that passed aligned
+ * with google.com, so a stranger cannot forge one to keep mail in the bucket)
+ * is its own outcome, `provider_confirmation`: no case, and its object is
+ * left in the bucket for the owner to read the code in it once, when he sets
+ * up forwarding (docs/handover.md, "Inbound support mail"). The sweep deletes
+ * it once it is a day old, and the bucket's one-day lifecycle rule is the
+ * backstop behind that. One that is not signed so is an ordinary unmatched
+ * email.
  */
 
 export type DropReason =
@@ -41,8 +46,8 @@ export type DropReason =
   | "spam"
   | "virus";
 
-/** The addresses Gmail and Google Workspace send a forwarding confirmation from. */
-export const PROVIDER_CONFIRMATION_SENDERS: ReadonlySet<string> = new Set(["forwarding-noreply@google.com"]);
+/** The addresses Gmail and Google Workspace send a forwarding confirmation from, and the domain that signs each. */
+export const PROVIDER_CONFIRMATION_SENDERS: ReadonlyMap<string, string> = new Map([["forwarding-noreply@google.com", "google.com"]]);
 
 /** Our own domains: mail from any of them is ours, coming back. */
 export const OWN_DOMAINS = ["healdesk.io"] as const;
@@ -94,7 +99,8 @@ export function dropReason(mail: ParsedMail, notice: Pick<InboundNotice, "verdic
   return null;
 }
 
-/** A provider's forwarding confirmation, which the owner reads once from the bucket. */
-export function isProviderConfirmation(mail: ParsedMail): boolean {
-  return mail.from !== null && PROVIDER_CONFIRMATION_SENDERS.has(mail.from);
+/** A provider's forwarding confirmation, signed by the provider's own domain, which the owner reads once from the bucket. */
+export function isProviderConfirmation(mail: ParsedMail, auth: Authentication): boolean {
+  const signer = mail.from !== null ? PROVIDER_CONFIRMATION_SENDERS.get(mail.from) : undefined;
+  return signer !== undefined && auth.verdicts.dkim !== "FAIL" && alignedDkimPass(auth, signer);
 }

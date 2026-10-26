@@ -10,6 +10,7 @@ import { withTenant } from "@/lib/tenant";
 
 import { insertCase } from "../cases";
 import { moreUrgent, printRef } from "../case-vocab";
+import type { Verdicts } from "./auth";
 import type { Classification } from "./classify";
 import { attachmentSummary, messageFields, phiSuspected, type MatchedBy, type ScreenCounts } from "./facts";
 import type { InboundNotice } from "./notice";
@@ -24,7 +25,8 @@ import type { AttachmentClass } from "./parse";
  * a chat case.
  *
  * Which case:
- *   - the case the ref or the thread named, if it is open: joined;
+ *   - the case the ref or the thread named, if it is open and the sender
+ *     may join it (handle.ts, match.ts): joined;
  *   - else, the fourth or later email within an hour from one sender: the
  *     sender's newest open email case, joined (one case for a flood, and no
  *     acknowledgement);
@@ -39,11 +41,17 @@ import type { AttachmentClass } from "./parse";
  * The acknowledgement (L38, `support_received`) is queued in the same
  * transaction, only when all hold: the case names a clinic; the sender is
  * that clinic's own sign-in (a stranger quoting a ref gets nothing sent
- * anywhere); SES's DKIM verdict did not fail; the sender has sent fewer
- * than three emails in the hour before this one; and the case has not had
- * one (its dedupe key is the case's id, and so is the outbox row's id, so
- * the outbox sends it under `hd-support_received-<case id>-1`). It goes to
- * the clinic's one address, never to the email's From.
+ * anywhere); the sender is authenticated (auth.ts: an aligned DKIM pass or
+ * a DMARC pass); the sender has sent fewer than three emails in the hour
+ * before this one; and the case has not had one (its dedupe key is the
+ * case's id, and so is the outbox row's id, so the outbox sends it under
+ * `hd-support_received-<case id>-1`). It goes through the outbox to the
+ * clinic's owners and billing contacts (lib/billing/recipients.ts), never to
+ * the email's From.
+ *
+ * One sender at a time: the transaction first takes an advisory lock on the
+ * sender's reference, so emails from one sender arriving together are
+ * counted one after another, and the hour's limit cannot be raced.
  *
  * Idempotent by SES's message id (support_messages_inbound_mail_key): a
  * notice SNS delivers twice, or the sweep reading what the webhook took,
@@ -64,6 +72,10 @@ export type InboundFacts = {
   messageId: string | null;
   inReplyTo: string | null;
   senderRef: string;
+  /** SES's verdicts, the notice's or else its own headers' (auth.ts). */
+  verdicts: Verdicts;
+  /** An aligned DKIM pass or a DMARC pass (auth.ts). */
+  authenticated: boolean;
 };
 
 export type InboundTarget = {
@@ -84,7 +96,7 @@ export type RecordOutcome =
       ackReason: AckDecision;
     };
 
-type AckDecision = "queued" | "not_matched" | "already" | "rate_limited" | "dkim_failed" | "not_sent";
+type AckDecision = "queued" | "not_matched" | "already" | "rate_limited" | "not_authenticated";
 
 function pgErrorOf(error: unknown): { code?: string; constraint?: string } {
   for (let current: unknown = error, depth = 0; current && depth < 5; depth += 1) {
@@ -162,6 +174,10 @@ async function recordIn(
   clinicId: string | null,
   now: Date,
 ): Promise<RecordOutcome> {
+  // One sender at a time, so the hour's count below is never raced.
+  await db.execute(sql`select pg_advisory_xact_lock(hashtext(${facts.senderRef}))`);
+  const seen = await alreadyRecorded(db, facts.notice.sesMessageId);
+  if (seen) return { outcome: "already_recorded", caseId: seen };
   const receivedAt = facts.notice.receivedAt;
   const priorInHour = await senderHour(db, facts.senderRef, receivedAt);
   const flooded = priorInHour >= ACKS_PER_SENDER_HOUR;
@@ -243,7 +259,7 @@ async function recordIn(
   const senderIsClinic = target.caseMatch ? target.caseMatch.senderMatchesCase === true : target.clinic.matchedBy === "address";
   let ack: AckDecision;
   if (!caseClinic || !senderIsClinic) ack = "not_matched";
-  else if (facts.notice.verdicts.dkim === "FAIL") ack = "dkim_failed";
+  else if (!facts.authenticated) ack = "not_authenticated";
   else if (flooded) ack = "rate_limited";
   else ack = "queued";
 
@@ -286,10 +302,12 @@ async function recordIn(
       classification,
       matchedBy,
       counts: facts.counts,
-      verdicts: facts.notice.verdicts,
+      verdicts: facts.verdicts,
       oversize: facts.oversize,
       acknowledged: ack,
       senderMatchesCase: target.caseMatch ? target.caseMatch.senderMatchesCase : null,
+      authenticated: facts.authenticated,
+      fromClinic: caseClinic !== null && senderIsClinic && facts.authenticated,
     }),
     attachmentsJson: summary,
     receivedAt,

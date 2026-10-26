@@ -8308,7 +8308,7 @@ export const supportMessages = pgTable(
     /**
      * An inbound email (lane P7g, drizzle/0129): SES's own message id, so a
      * notice SNS delivers twice is the same row; and an HMAC of the sender's
-     * address (lib/support/inbound/sender.ts), so mail from one address can
+     * address (lib/support/inbound/facts.ts senderRef), so mail from one address can
      * be counted without the address being kept.
      */
     inboundMailId: text("inbound_mail_id"),
@@ -8331,6 +8331,13 @@ export const supportMessages = pgTable(
     check(
       "support_messages_email_check",
       sql`(${t.kind} = 'email') = (${t.inboundMailId} is not null) and (${t.kind} = 'email') = (${t.senderRef} is not null) and (${t.kind} <> 'email' or (${t.direction} = 'in' and ${t.text} is null and ${t.subjectScreened} is null and ${t.draftText} is null and ${t.receivedAt} is not null and ${t.fieldsJson} is not null and ${t.inboundMailId} ~ '^[A-Za-z0-9._-]{1,128}$' and ${t.senderRef} ~ '^[0-9a-f]{64}$' and (${t.attachmentsJson} is null or (jsonb_typeof(${t.attachmentsJson}) = 'object' and char_length(${t.attachmentsJson}::text) <= 300 and ${t.attachmentsJson}::text ~ '^[a-z0-9_{}":, ]*$'))))`,
+    ),
+    // An inbound email's Message-ID and In-Reply-To are of one strict shape
+    // (lib/support/inbound/parse.ts MESSAGE_ID): never a link, a quote or a
+    // space, at most 250 characters, so a reply can always carry them.
+    check(
+      "support_messages_email_ids_check",
+      sql`${t.kind} <> 'email' or ((${t.messageId} is null or (char_length(${t.messageId}) <= 250 and ${t.messageId} ~ '^<[A-Za-z0-9!#$%&*+.=?^_{|}~-]{1,200}@[A-Za-z0-9._-]{1,200}>$')) and (${t.inReplyTo} is null or (char_length(${t.inReplyTo}) <= 250 and ${t.inReplyTo} ~ '^<[A-Za-z0-9!#$%&*+.=?^_{|}~-]{1,200}@[A-Za-z0-9._-]{1,200}>$')))`,
     ),
     check("support_messages_direction_check", sql`${t.direction} in (${sqlList(SUPPORT_MESSAGE_DIRECTIONS)})`),
     check("support_messages_kind_check", sql`${t.kind} in (${sqlList(SUPPORT_MESSAGE_KINDS)})`),

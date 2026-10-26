@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { closeSupportCase } from "@/lib/support/cases";
+import { closeSupportCase, matchSupportCase } from "@/lib/support/cases";
 import { handleInboundNotice } from "@/lib/support/inbound/handle";
 import type { InboundNotice } from "@/lib/support/inbound/notice";
 import { sweepInboundMail } from "@/lib/support/inbound/sweep";
@@ -32,11 +32,14 @@ const BUCKET = "healdesk-test-inbound-mail";
 const NOW = new Date("2026-10-26T15:00:00Z");
 const MINUTE = 60_000;
 const PASS = { spam: "PASS", virus: "PASS", spf: "PASS", dkim: "PASS", dmarc: "PASS" } as const;
+/** What the sweep hands in: no notice, so every verdict comes from SES's own headers in the message. */
+const UNKNOWN = { spam: "UNKNOWN", virus: "UNKNOWN", spf: "UNKNOWN", dkim: "UNKNOWN", dmarc: "UNKNOWN" } as const;
 const SENTINEL = "zebrasentinel";
 
 const FIXTURES = join(__dirname, "fixtures", "inbound");
 function eml(name: string, fill: Record<string, string>): string {
   let text = readFileSync(join(FIXTURES, name), "utf8");
+  if (fill.FROM && !fill.DOMAIN) fill = { ...fill, DOMAIN: fill.FROM.split("@")[1]! };
   for (const [key, value] of Object.entries(fill)) text = text.replaceAll(`{{${key}}}`, value);
   return text;
 }
@@ -202,17 +205,41 @@ describeDb("inbound support mail (drizzle/0129)", () => {
     expect(rows[0].n).toBe(0);
   });
 
-  test("a stranger quoting a clinic's ref joins the case but sends nothing anywhere", async () => {
+  test("a stranger quoting a clinic's ref cannot join, reopen or raise the case: a new case about no clinic, nothing sent", async () => {
     const clinic = await seedClinic("inb-stranger");
     const store = memoryMailStore();
     const first = await deliver(store, "clinic-normal.eml", { FROM: clinic.staffEmail });
     if (first.outcome.outcome !== "recorded") throw new Error("not recorded");
+    const before = await caseRow(first.outcome.caseId);
+    await getMigratorPool().query(`update support_cases set state = 'waiting_clinic', last_outbound_at = $2 where id = $1`, [before.id, NOW]);
+    const ref = String(before.ref);
+    // Had it joined, the case waiting on the clinic would be back to `new`, with a second message.
+    const other = await deliver(store, "ref-reply.eml", { FROM: "stranger@elsewhere.test", REF: ref }, { now: new Date(NOW.getTime() + MINUTE) });
+    expect(other.outcome).toMatchObject({ outcome: "recorded", opened: true, acknowledged: false });
+    if (other.outcome.outcome !== "recorded") throw new Error("not recorded");
+    expect(other.outcome.caseId).not.toBe(first.outcome.caseId);
+    expect((await caseRow(other.outcome.caseId)).subject_clinic_id).toBeNull();
+    const after = await caseRow(first.outcome.caseId);
+    expect(after).toMatchObject({ state: "waiting_clinic", urgency: before.urgency, hidden_numbers: before.hidden_numbers });
+    expect(await emailMessages(first.outcome.caseId)).toHaveLength(1);
+    expect((await emailMessages(other.outcome.caseId))[0]!.fields_json).toMatchObject({ matchedBy: "none", acknowledgement: "not_matched", fromClinic: "no" });
+
+    // The stranger's own reply, quoting its own new case's ref, joins that case (same sender).
+    const again = await deliver(store, "ref-reply.eml", { FROM: "stranger@elsewhere.test", REF: String((await caseRow(other.outcome.caseId)).ref) }, { now: new Date(NOW.getTime() + 2 * MINUTE) });
+    expect(again.outcome).toMatchObject({ outcome: "recorded", caseId: other.outcome.caseId, opened: false });
+  });
+
+  test("the clinic's own address, unauthenticated, quoting its ref does not join either", async () => {
+    const clinic = await seedClinic("inb-forged-ref");
+    const store = memoryMailStore();
+    const first = await deliver(store, "clinic-normal.eml", { FROM: clinic.staffEmail });
+    if (first.outcome.outcome !== "recorded") throw new Error("not recorded");
     const ref = String((await caseRow(first.outcome.caseId)).ref);
-    // A new case would have been acknowledged; a stranger on the clinic's case is not, and the case already was.
-    const other = await deliver(store, "ref-reply.eml", { FROM: "stranger@elsewhere.test", REF: ref });
-    expect(other.outcome).toMatchObject({ outcome: "recorded", caseId: first.outcome.caseId, acknowledged: false });
-    const messages = await emailMessages(first.outcome.caseId);
-    expect(messages[1]!.fields_json).toMatchObject({ senderMatchesCase: "no", acknowledgement: "not_matched" });
+    const forged = await deliver(store, "ref-reply.eml", { FROM: clinic.staffEmail, REF: ref }, { verdicts: { ...PASS, dkim: "GRAY", dmarc: "FAIL" } });
+    expect(forged.outcome).toMatchObject({ outcome: "recorded", opened: true, acknowledged: false });
+    if (forged.outcome.outcome !== "recorded") throw new Error("not recorded");
+    expect((await caseRow(forged.outcome.caseId)).subject_clinic_id).toBeNull();
+    expect(await emailMessages(first.outcome.caseId)).toHaveLength(1);
   });
 
   test("a closed case is never joined: the clinic's next email opens a new one", async () => {
@@ -295,15 +322,44 @@ describeDb("inbound support mail (drizzle/0129)", () => {
     expect(await acks(clinic.clinicId)).toHaveLength(3);
   });
 
-  test("a DKIM failure: the case is kept, the acknowledgement is not sent", async () => {
+  test("a DKIM failure: a case about no clinic, nothing acknowledged", async () => {
     const clinic = await seedClinic("inb-dkim");
     const store = memoryMailStore();
     const { outcome } = await deliver(store, "clinic-normal.eml", { FROM: clinic.staffEmail }, { verdicts: { ...PASS, dkim: "FAIL" } });
     expect(outcome).toMatchObject({ outcome: "recorded", acknowledged: false });
     if (outcome.outcome !== "recorded") throw new Error("not recorded");
-    expect((await emailMessages(outcome.caseId))[0]!.fields_json).toMatchObject({ dkim: "fail", acknowledgement: "dkim_failed" });
+    expect((await caseRow(outcome.caseId)).subject_clinic_id).toBeNull();
+    expect((await emailMessages(outcome.caseId))[0]!.fields_json).toMatchObject({ dkim: "fail", authenticated: "no", matchedBy: "none", acknowledgement: "not_matched" });
     expect(await acks(clinic.clinicId)).toHaveLength(0);
   });
+
+  test.each([
+    ["ses-unsigned.eml", false],
+    ["ses-dkim-fail.eml", false],
+    ["ses-unaligned-pass.eml", false],
+    ["ses-forged-results.eml", false],
+    ["ses-aligned-pass.eml", true],
+  ])("from SES's own headers (as the sweep reads it), %s: attributed and acknowledged only on an aligned pass (%s)", async (file, attributed) => {
+    const clinic = await seedClinic(`inb-auth-${file.replace(/[^a-z]/g, "").slice(3, 15)}`);
+    const store = memoryMailStore();
+    const { outcome } = await deliver(store, file, { FROM: clinic.staffEmail }, { verdicts: UNKNOWN });
+    if (outcome.outcome !== "recorded") throw new Error(`not recorded: ${JSON.stringify(outcome)}`);
+    expect((await caseRow(outcome.caseId)).subject_clinic_id).toBe(attributed ? clinic.clinicId : null);
+    expect(outcome.acknowledged).toBe(attributed);
+    expect((await emailMessages(outcome.caseId))[0]!.fields_json).toMatchObject({ authenticated: attributed ? "yes" : "no", spam: "pass", virus: "pass" });
+    expect(await acks(clinic.clinicId)).toHaveLength(attributed ? 1 : 0);
+  });
+
+  test("emails from one sender recorded at once: the advisory lock holds the hour's limit, at most three acknowledgements", async () => {
+    const clinic = await seedClinic("inb-race");
+    const store = memoryMailStore();
+    const outcomes = await Promise.all(
+      Array.from({ length: 7 }, () => deliver(store, "clinic-normal.eml", { FROM: clinic.staffEmail })),
+    );
+    expect(outcomes.every((o) => o.outcome.outcome === "recorded")).toBe(true);
+    expect(outcomes.filter((o) => o.outcome.outcome === "recorded" && o.outcome.acknowledged)).toHaveLength(3);
+    expect(await acks(clinic.clinicId)).toHaveLength(3);
+  }, 60_000);
 
   test("auto-replies, a list, a bounce and our own mail are dropped: no case, and the object is deleted", async () => {
     const clinic = await seedClinic("inb-guard");
@@ -348,11 +404,18 @@ describeDb("inbound support mail (drizzle/0129)", () => {
     expect((await caseRow(outcome.caseId)).subject_clinic_id).toBe(clinic.clinicId);
   });
 
-  test("a provider's forwarding confirmation is left in the bucket for the owner, and becomes no case", async () => {
+  test("a provider's forwarding confirmation, signed by google.com, is left in the bucket for the owner, and becomes no case", async () => {
     const store = memoryMailStore();
-    const { id, outcome } = await deliver(store, "gmail-confirmation.eml", {});
+    const { id, outcome } = await deliver(store, "gmail-confirmation-signed.eml", {}, { verdicts: UNKNOWN });
     expect(outcome).toEqual({ outcome: "provider_confirmation" });
     expect(store.objects.has(`mail/${id}`)).toBe(true);
+  });
+
+  test("one from the same address that google.com did not sign is an ordinary email: a case about no clinic, deleted", async () => {
+    const store = memoryMailStore();
+    const { id, outcome } = await deliver(store, "gmail-confirmation.eml", {});
+    expect(outcome).toMatchObject({ outcome: "recorded", opened: true, acknowledged: false });
+    expect(store.objects.has(`mail/${id}`)).toBe(false);
   });
 
   test("a transient storage failure is thrown (the webhook answers 5xx) and the object stays", async () => {
@@ -392,8 +455,37 @@ describeDb("inbound support mail (drizzle/0129)", () => {
       "In-Reply-To": first.messageId,
       References: first.messageId,
     });
-    // Approved before the email arrived: nothing to thread under.
+    // Approved before the email was recorded: nothing to thread under.
     expect(await threadingHeadersFor(first.outcome.caseId, new Date(NOW.getTime() - MINUTE))).toBeNull();
+
+    // An email that says it was received earlier but was RECORDED after the approval does not change the headers.
+    const late = await deliver(store, "ref-reply.eml", { FROM: clinic.staffEmail, REF: String((await caseRow(first.outcome.caseId)).ref) }, { now: new Date(NOW.getTime() + 5 * MINUTE), receivedAt: new Date(NOW.getTime() - 30 * MINUTE) });
+    expect(late.outcome).toMatchObject({ outcome: "recorded", caseId: first.outcome.caseId });
+    expect(await threadingHeadersFor(first.outcome.caseId, new Date(NOW.getTime() + 2 * MINUTE))).toEqual({
+      "In-Reply-To": first.messageId,
+      References: first.messageId,
+    });
+  });
+
+  test("threading: only an email from the case's clinic is threaded under; a matched prospect's is not", async () => {
+    const clinic = await seedClinic("inb-headers-prospect");
+    const store = memoryMailStore();
+    const { outcome } = await deliver(store, "prospect.eml", {});
+    if (outcome.outcome !== "recorded") throw new Error("not recorded");
+    expect(await matchSupportCase(outcome.caseId, clinic.clinicId, { type: "service", serviceName: "test" }, NOW)).toMatchObject({ outcome: "done" });
+    expect(await threadingHeadersFor(outcome.caseId, new Date(NOW.getTime() + MINUTE))).toBeNull();
+  });
+
+  test("a Message-ID shaped like a link is never kept, so it can never kill a reply", async () => {
+    const clinic = await seedClinic("inb-link-id");
+    const store = memoryMailStore();
+    seq += 1;
+    const id = `ses${seq}linkid`;
+    store.put(`mail/${id}`, eml("clinic-normal.eml", { FROM: clinic.staffEmail }).replace(/^Message-ID: .*$/m, "Message-ID: <https://x.example/y>"));
+    const outcome = await handleInboundNotice(notice(id), { store, now: NOW, allowFor: async () => null });
+    if (outcome.outcome !== "recorded") throw new Error("not recorded");
+    expect((await emailMessages(outcome.caseId))[0]!.message_id).toBeNull();
+    expect(await threadingHeadersFor(outcome.caseId, new Date(NOW.getTime() + MINUTE))).toBeNull();
   });
 
   test("the database refuses words on an inbound email, and an email row without SES's id", async () => {
@@ -422,5 +514,15 @@ describeDb("inbound support mail (drizzle/0129)", () => {
         [outcome.caseId],
       ),
     ).rejects.toThrow(/support_messages_email_check/);
+    for (const bad of ["<https://x.example/y>", `<${"a".repeat(240)}@b.test>`, "<a b@c.test>"]) {
+      await expect(
+        pool.query(
+          `insert into support_messages (case_id, direction, kind, inbound_mail_id, sender_ref, fields_json, received_at, message_id)
+           values ($1, 'in', 'email', 'sesx3', repeat('a', 64), '{"source":"email"}', now(), $2)`,
+          [outcome.caseId, bad],
+        ),
+        bad,
+      ).rejects.toThrow(/support_messages_email_ids_check/);
+    }
   });
 });

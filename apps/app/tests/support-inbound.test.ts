@@ -10,6 +10,7 @@ import { stringToSign, type SnsMessage } from "@/lib/email/ses-events";
 import { classifyEmail, ownLines } from "@/lib/support/inbound/classify";
 import { isInboundKey } from "@/lib/support/inbound/config";
 import { attachmentSummary, cappedCount, matchingAddress, messageFields, screenCounts, senderRef } from "@/lib/support/inbound/facts";
+import { alignedDkimPass, authenticate, isAuthenticated, sesAuthenticationResults } from "@/lib/support/inbound/auth";
 import { bareAddress, dropReason, isProviderConfirmation } from "@/lib/support/inbound/guards";
 import { idForms, refsInSubject } from "@/lib/support/inbound/match";
 import { inboundNoticeFrom } from "@/lib/support/inbound/notice";
@@ -32,12 +33,13 @@ import { inboundMailWebhook } from "@/lib/support/inbound/webhook";
 const FIXTURES = join(__dirname, "fixtures", "inbound");
 export function eml(name: string, fill: Record<string, string> = {}): Uint8Array {
   let text = readFileSync(join(FIXTURES, name), "utf8");
-  const values = { FROM: "owner@example-clinic.test", FROM_PLUS: "owner+support@example-clinic.test", REF: "7F3KQ", THREAD: "<t-1@mail.example-clinic.test>", ...fill };
+  const values = { FROM: "owner@example-clinic.test", DOMAIN: "example-clinic.test", FROM_PLUS: "owner+support@example-clinic.test", REF: "7F3KQ", THREAD: "<t-1@mail.example-clinic.test>", ...fill };
   for (const [key, value] of Object.entries(values)) text = text.replaceAll(`{{${key}}}`, value);
   return new TextEncoder().encode(text);
 }
 
 const PASS = { spam: "PASS", virus: "PASS", spf: "PASS", dkim: "PASS", dmarc: "PASS" } as const;
+const UNKNOWN = { spam: "UNKNOWN", virus: "UNKNOWN", spf: "UNKNOWN", dkim: "UNKNOWN", dmarc: "UNKNOWN" } as const;
 
 describe("reading a message in memory", () => {
   test("a clinic's plain email: the sender, the subject, the ids and the body, and no attachment", async () => {
@@ -154,15 +156,74 @@ describe("the loop guards", () => {
     }
   });
 
-  test("Gmail's forwarding confirmation is recognised, and only it", async () => {
-    expect(isProviderConfirmation(await parseMail(eml("gmail-confirmation.eml")))).toBe(true);
-    expect(isProviderConfirmation(await parseMail(eml("clinic-normal.eml")))).toBe(false);
+  test("Gmail's forwarding confirmation is recognised only when google.com's DKIM passed at SES", async () => {
+    const signed = await parseMail(eml("gmail-confirmation-signed.eml"));
+    expect(isProviderConfirmation(signed, authenticate(signed, { verdicts: UNKNOWN }))).toBe(true);
+    // The same From with no signature SES vouched for: an ordinary email.
+    const unsigned = await parseMail(eml("gmail-confirmation.eml"));
+    expect(isProviderConfirmation(unsigned, authenticate(unsigned, { verdicts: PASS }))).toBe(false);
+    const clinic = await parseMail(eml("ses-aligned-pass.eml"));
+    expect(isProviderConfirmation(clinic, authenticate(clinic, { verdicts: UNKNOWN }))).toBe(false);
   });
 
   test("bareAddress reads the address out of a From-style value", () => {
     expect(bareAddress("healdesk <Hello@Healdesk.io>")).toBe("hello@healdesk.io");
     expect(bareAddress("a@b.test")).toBe("a@b.test");
     expect(bareAddress("no address")).toBeNull();
+  });
+});
+
+describe("authentication: whether the From domain is the sender's (SES's own headers, topmost only)", () => {
+  const FROM = "owner@example-clinic.test";
+  async function judged(file: string, verdicts: Parameters<typeof authenticate>[1]["verdicts"] = UNKNOWN) {
+    const mail = await parseMail(eml(file));
+    const auth = authenticate(mail, { verdicts });
+    return { auth, ok: isAuthenticated(auth, mail.from) };
+  }
+
+  test("unsigned mail is not authenticated", async () => {
+    const { auth, ok } = await judged("ses-unsigned.eml");
+    expect(ok).toBe(false);
+    expect(auth.verdicts).toMatchObject({ spam: "PASS", virus: "PASS", dkim: "GRAY", dmarc: "GRAY", spf: "GRAY" });
+  });
+
+  test("a DKIM failure is not authenticated", async () => {
+    const { auth, ok } = await judged("ses-dkim-fail.eml");
+    expect(ok).toBe(false);
+    expect(auth.verdicts.dkim).toBe("FAIL");
+    // Nor when SES's notice says FAIL, whatever DMARC says.
+    expect((await judged("ses-aligned-pass.eml", { ...PASS, dkim: "FAIL" })).ok).toBe(false);
+  });
+
+  test("an aligned DKIM pass is authenticated: the From domain, or a parent or subdomain of it", async () => {
+    const { auth, ok } = await judged("ses-aligned-pass.eml");
+    expect(ok).toBe(true);
+    expect(auth.dkimPassDomains).toEqual(["example-clinic.test"]);
+    expect(isAuthenticated(auth, "front@mail.example-clinic.test")).toBe(true);
+    expect(alignedDkimPass({ ...auth, dkimPassDomains: ["mail.example-clinic.test"] }, "example-clinic.test")).toBe(true);
+    expect(alignedDkimPass({ ...auth, dkimPassDomains: ["other-clinic.test"] }, "example-clinic.test")).toBe(false);
+  });
+
+  test("a DKIM pass by some other domain is not aligned, so not authenticated", async () => {
+    const { auth, ok } = await judged("ses-unaligned-pass.eml");
+    expect(auth.verdicts.dkim).toBe("PASS");
+    expect(ok).toBe(false);
+  });
+
+  test("an Authentication-Results the sender wrote below SES's is never read", async () => {
+    const mail = await parseMail(eml("ses-forged-results.eml"));
+    expect(sesAuthenticationResults(mail)).toMatchObject({ dkim: "GRAY", dmarc: "GRAY", dkimPassDomains: [] });
+    expect(isAuthenticated(authenticate(mail, { verdicts: UNKNOWN }), FROM)).toBe(false);
+  });
+
+  test("a DMARC pass is enough; the notice's verdicts win over the headers", async () => {
+    expect((await judged("ses-unsigned.eml", { ...UNKNOWN, dmarc: "PASS" })).ok).toBe(true);
+    expect((await judged("ses-unsigned.eml", { ...PASS, dkim: "GRAY", dmarc: "FAIL" })).ok).toBe(false);
+  });
+
+  test("no SES header at all: nothing is authenticated but by the notice's DMARC", async () => {
+    expect((await judged("clinic-normal.eml")).ok).toBe(false);
+    expect((await judged("clinic-normal.eml", PASS)).ok).toBe(true);
   });
 });
 
@@ -215,6 +276,8 @@ describe("the facts an email becomes", () => {
       oversize: false,
       acknowledged: "queued",
       senderMatchesCase: null,
+      authenticated: true,
+      fromClinic: true,
     });
     const text = JSON.stringify(fields);
     expect(text).not.toContain("@");

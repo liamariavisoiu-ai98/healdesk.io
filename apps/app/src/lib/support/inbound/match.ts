@@ -31,6 +31,14 @@ import { matchingAddress, type MatchedBy } from "./facts";
  *      on the message, and ops matches or closes the case.
  *
  * A closed case is never joined (closed is final: a new case opens).
+ *
+ * A ref or a thread only NAMES a case; whether the email may join it is the
+ * sender's (handle.ts): a case about a clinic is joined only by an
+ * authenticated sender (auth.ts) who is that clinic's sign-in or wrote on the
+ * case before (the same sender reference); a case about no clinic only by
+ * someone who wrote on it before. Anyone else quoting a ref opens a new case,
+ * matched by address like any email, so a stranger cannot reopen a clinic's
+ * case, raise its urgency or add to its counts.
  */
 
 export type CaseMatch = { supportCase: SupportCase; matchedBy: "ref" | "thread" };
@@ -144,6 +152,16 @@ export async function matchClinic(address: string, actor: ActorContext): Promise
   );
   if (closed.rows[0]?.found === true) return { clinicId: null, matchedBy: "closed_account" };
   return { clinicId: null, matchedBy: "none" };
+}
+
+/** Whether an earlier email on this case came from the same sender (the same sender reference). */
+export async function senderSeenOnCase(caseId: string, senderRef: string): Promise<boolean> {
+  const [row] = await unsafeDb
+    .select({ id: supportMessages.id })
+    .from(supportMessages)
+    .where(and(eq(supportMessages.caseId, caseId), eq(supportMessages.kind, "email"), eq(supportMessages.senderRef, senderRef)))
+    .limit(1);
+  return row !== undefined;
 }
 
 /** Whether the sender is the case's clinic's own sign-in. Null for a case with no clinic. */

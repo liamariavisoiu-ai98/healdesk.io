@@ -14319,6 +14319,10 @@
           "name": "support_messages_email_check",
           "value": "(\"support_messages\".\"kind\" = 'email') = (\"support_messages\".\"inbound_mail_id\" is not null) and (\"support_messages\".\"kind\" = 'email') = (\"support_messages\".\"sender_ref\" is not null) and (\"support_messages\".\"kind\" <> 'email' or (\"support_messages\".\"direction\" = 'in' and \"support_messages\".\"text\" is null and \"support_messages\".\"subject_screened\" is null and \"support_messages\".\"draft_text\" is null and \"support_messages\".\"received_at\" is not null and \"support_messages\".\"fields_json\" is not null and \"support_messages\".\"inbound_mail_id\" ~ '^[A-Za-z0-9._-]{1,128}$' and \"support_messages\".\"sender_ref\" ~ '^[0-9a-f]{64}$' and (\"support_messages\".\"attachments_json\" is null or (jsonb_typeof(\"support_messages\".\"attachments_json\") = 'object' and char_length(\"support_messages\".\"attachments_json\"::text) <= 300 and \"support_messages\".\"attachments_json\"::text ~ '^[a-z0-9_{}\":, ]*$'))))"
         },
+        "support_messages_email_ids_check": {
+          "name": "support_messages_email_ids_check",
+          "value": "\"support_messages\".\"kind\" <> 'email' or ((\"support_messages\".\"message_id\" is null or (char_length(\"support_messages\".\"message_id\") <= 250 and \"support_messages\".\"message_id\" ~ '^<[A-Za-z0-9!#$%&*+.=?^_{|}~-]{1,200}@[A-Za-z0-9._-]{1,200}>$')) and (\"support_messages\".\"in_reply_to\" is null or (char_length(\"support_messages\".\"in_reply_to\") <= 250 and \"support_messages\".\"in_reply_to\" ~ '^<[A-Za-z0-9!#$%&*+.=?^_{|}~-]{1,200}@[A-Za-z0-9._-]{1,200}>$')))"
+        },
         "support_messages_direction_check": {
           "name": "support_messages_direction_check",
           "value": "\"support_messages\".\"direction\" in ('in', 'out')"

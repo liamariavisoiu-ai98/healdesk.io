@@ -103,7 +103,7 @@ describe("the request to apps/web", () => {
       clinicName: "Lumen Aesthetics",
       firstName: "Josh",
       phoneE164: "+15125550147",
-      note: "Pricing for two locations",
+      topic: "Pricing for two locations",
       test: false,
       offerEndsAt: Date.UTC(2026, 9, 27, 12),
       at: "2026-10-26T09:00:00.000Z",

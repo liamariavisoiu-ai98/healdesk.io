@@ -586,6 +586,46 @@ export const AI_PANEL_RUNS: Tab = {
   ],
 };
 
+/**
+ * A call back a clinic owner asked for on a demo call (owner, 26 October
+ * 2026; lib/demo/callbacks.ts, apps/app lib/voice/demo-callback.ts). Business
+ * contact data like every tab here: the owner's own number for their own
+ * business, their first name, the clinic's name and one line about what they
+ * want to talk about, never anything else said on the call. Kept until an
+ * operator marks the call made in /admin, which deletes the row, or for
+ * DEMO_CALLBACK_RETENTION_DAYS, whichever comes first (the Privacy page,
+ * section 6). A tab of its own, so no existing tab's header row grows.
+ */
+export type DemoCallbackRow = {
+  id: string;
+  slug: string;
+  clinicName: string;
+  firstName: string;
+  phoneE164: string;
+  /** What they want to talk about, one line in Aya's words. */
+  topic: string;
+  /** An operator's own test call from /admin, not a prospect. */
+  test: boolean;
+  /** When the demo's setup discount ends, for the team's call; null with none. */
+  offerEndsAt: Date | null;
+  requestedAt: Date;
+};
+
+export const DEMO_CALLBACKS: Tab = {
+  title: "demo_callbacks",
+  columns: [
+    col("id", "id", "text"),
+    col("slug", "slug", "text"),
+    col("clinic_name", "clinicName", "text"),
+    col("first_name", "firstName", "text"),
+    col("phone_e164", "phoneE164", "text"),
+    col("topic", "topic", "text"),
+    col("test", "test", "bool"),
+    col("offer_ends_at", "offerEndsAt", "timestamp"),
+    col("requested_at", "requestedAt", "timestamp"),
+  ],
+};
+
 export const TABS: readonly Tab[] = [
   LEADS,
   LEAD_EVENTS,
@@ -598,6 +638,7 @@ export const TABS: readonly Tab[] = [
   KEY_ROTATIONS,
   SEO_STEP_TICKS,
   AI_PANEL_RUNS,
+  DEMO_CALLBACKS,
 ];
 
 // -----------------------------------------------------------------------------

@@ -137,7 +137,7 @@ export async function sendDemoCallback(request: DemoCallbackRequest, deps: DemoC
     clinicName: request.context.clinic.clinicName,
     firstName: request.context.firstName,
     phoneE164: request.phoneE164,
-    note: request.note,
+    topic: request.note,
     test: request.context.test === true,
     offerEndsAt: request.context.offer?.endsAt ?? null,
     at: request.at.toISOString(),

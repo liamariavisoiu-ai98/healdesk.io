@@ -626,7 +626,13 @@ describe("a demo call's facts", () => {
     expect(nextDemoStage("intro", demoRoleplayOpener("Lumen Aesthetics"))).toBe("roleplay");
     expect(nextDemoStage("intro", "Let's do it, you be the patient.", { roleplay: "start" })).toBe("roleplay");
     // A bare "Ring ring!" no longer starts one, nor a passing "how was that?" ends one.
-    expect(nextDemoStage("intro", "Let's do it, you be the patient. Ring ring!")).toBe("intro");
+    expect(nextDemoStage("intro", "Sure! Ring ring!")).toBe("intro");
+    // Her handover said as a statement starts one with no signal (084f10d4); offered in a question, never.
+    expect(nextDemoStage("intro", "Let's do it, you be the patient. Go ahead and call in whenever you're ready.")).toBe("roleplay");
+    expect(nextDemoStage("intro", "Want a quick role-play where you're the patient?")).toBe("intro");
+    expect(nextDemoStage("intro", "Let's do it, you be the patient.", { roleplay: "cancel" })).toBe("intro");
+    // Past the wrap-up turn it ends, whatever she wrote.
+    expect(nextDemoStage("roleplay", "Sure, see you then.", {}, "intro", 6)).toBe("pitch");
     expect(nextDemoStage("roleplay", "Sure, Friday at 3 works. Anything else?")).toBe("roleplay");
     expect(nextDemoStage("roleplay", "See you then! Ok, how was that? Haha!")).toBe("roleplay");
     expect(nextDemoStage("roleplay", "See you then!", { roleplay: "end" }, "intro", 2)).toBe("pitch");

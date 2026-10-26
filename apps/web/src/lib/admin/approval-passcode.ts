@@ -1,4 +1,12 @@
-import { scrypt, timingSafeEqual } from "node:crypto";
+import {
+  createPasscodeLockout,
+  PASSCODE_ATTEMPT_LIMIT,
+  PASSCODE_LOCK_MS,
+  PASSCODE_SHAPE,
+  parsePasscodeHash,
+  passcodeMatches,
+  type LockReason,
+} from "@healdesk/catalog/approval-passcode";
 
 import { sendSafely } from "@/lib/email";
 
@@ -20,9 +28,12 @@ import { pastedSetting } from "./pasted";
  * `HEALDESK_APPROVAL_PASSCODE_HASH`, a Vercel variable: a scrypt hash in the
  * admin password's format, `scrypt$N$r$p$<salt>$<key>`, its parameters read
  * from the string and bounded as operator.ts bounds the password's (the
- * parser below is a copy of that one's rules, not an import, so the many
- * tests that stand in for operator.ts's session do not also stand in for
- * this check). The owner makes
+ * parser is a copy of that one's rules, not an import, so the many tests
+ * that stand in for operator.ts's session do not also stand in for this
+ * check). Since lane P7i the parser, the derivation, the compare and the
+ * lockout live in @healdesk/catalog/approval-passcode, shared with apps/app,
+ * which checks the same passcode in the Slack modal that approves a support
+ * reply (the same value pasted into its Parameter Store). The owner makes
  * it on his own machine with `node apps/web/scripts/hash-approval-passcode.mjs`,
  * which reads the passcode from a hidden prompt and prints the hash. The
  * passcode itself is never stored, logged, sent to apps/app or returned:
@@ -53,83 +64,14 @@ import { pastedSetting } from "./pasted";
 
 export const APPROVAL_PASSCODE_VARIABLE = "HEALDESK_APPROVAL_PASSCODE_HASH";
 
-/** Wrong tries, of either factor, before approvals lock. */
-export const PASSCODE_ATTEMPT_LIMIT = 5;
-/** How long approvals stay locked, and the window the wrong tries are counted in. */
-export const PASSCODE_LOCK_MS = 15 * 60 * 1000;
-
-const CODE_SHAPE = /^[0-9]{6}$/;
-
-type ScryptHash = { N: number; r: number; p: number; salt: Buffer; key: Buffer };
-
-function base64(value: string): Buffer | null {
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value) || value.length % 4 !== 0) return null;
-  return Buffer.from(value, "base64");
-}
-
-/** `scrypt$N$r$p$<base64 salt>$<base64 key>`, bounded (N a power of two, 128*N*r at most 64 MiB), or null. */
-export function parsePasscodeHash(raw: string | undefined): ScryptHash | null {
-  if (typeof raw !== "string" || raw.length === 0 || raw.length > 4096) return null;
-  const parts = raw.split("$");
-  if (parts.length !== 6 || parts[0] !== "scrypt") return null;
-  const [, rawN, rawR, rawP, rawSalt, rawKey] = parts as [string, string, string, string, string, string];
-  if (!/^[0-9]{1,10}$/.test(rawN) || !/^[0-9]{1,4}$/.test(rawR) || !/^[0-9]{1,4}$/.test(rawP)) return null;
-  const N = Number(rawN);
-  const r = Number(rawR);
-  const p = Number(rawP);
-  if (N < 2 || (N & (N - 1)) !== 0 || r < 1 || r > 32 || p < 1 || p > 16) return null;
-  if (128 * N * r > 64 * 1024 * 1024) return null;
-  const salt = base64(rawSalt);
-  const key = base64(rawKey);
-  if (!salt || !key || salt.length < 8 || salt.length > 64 || key.length < 16 || key.length > 128) return null;
-  return { N, r, p, salt, key };
-}
-
-function derive(passcode: string, h: ScryptHash): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    scrypt(passcode, h.salt, h.key.length, { N: h.N, r: h.r, p: h.p, maxmem: 128 * h.N * h.r + 128 * h.r * h.p + 1024 * 1024 }, (error, key) =>
-      error ? reject(error) : resolve(key),
-    );
-  });
-}
+export { PASSCODE_ATTEMPT_LIMIT, PASSCODE_LOCK_MS, parsePasscodeHash };
 
 export type ApprovalFactor = "passcode" | "authenticator";
 
 export type ApprovalCodeCheck = { ok: true; factor: ApprovalFactor } | { ok: false; message: string };
 
-type Window = { count: number; resetAt: number };
-
-const perAccount = new Map<string, Window>();
-let global: Window = { count: 0, resetAt: 0 };
-let inFlight = 0;
-const MAX_ACCOUNTS = 16;
-
-function locked(window: Window | undefined, now: number): number {
-  if (!window || window.resetAt <= now) return 0;
-  return window.count >= PASSCODE_ATTEMPT_LIMIT ? window.resetAt - now : 0;
-}
-
-function spend(window: Window | undefined, now: number): Window {
-  const fresh = !window || window.resetAt <= now ? { count: 0, resetAt: now + PASSCODE_LOCK_MS } : window;
-  fresh.count += 1;
-  return fresh;
-}
-
-function recordFailure(account: string, now: number): void {
-  // Read before the delete that moves the account to the newest place in the map.
-  const mine = spend(perAccount.get(account), now);
-  perAccount.delete(account);
-  perAccount.set(account, mine);
-  while (perAccount.size > MAX_ACCOUNTS) {
-    const oldest = perAccount.keys().next().value;
-    if (oldest === undefined) break;
-    perAccount.delete(oldest);
-  }
-  global = spend(global, now);
-  // The try that locks: once per lock, whichever counter reached the limit first.
-  if (mine.count === PASSCODE_ATTEMPT_LIMIT) reportLock(account, "account", now);
-  else if (global.count === PASSCODE_ATTEMPT_LIMIT) reportLock(account, "global", now);
-}
+// This process's count of wrong tries (apps/app keeps its own, for the Slack modal).
+const lockout = createPasscodeLockout(reportLock);
 
 /**
  * A lock is five wrong tries inside fifteen minutes from a signed-in
@@ -139,7 +81,7 @@ function recordFailure(account: string, now: number): void {
  * and address as the sign-in alert (lib/admin/sign-in-alert.ts). Neither
  * carries a code. Never throws, never delays the refusal.
  */
-function reportLock(account: string, reason: "account" | "global", now: number): void {
+function reportLock(account: string, reason: LockReason, now: number): void {
   const at = new Date(now).toISOString();
   console.warn(`[healdesk] approval code ${JSON.stringify({ event: "approval_code_locked", account, reason, at })}`);
   const to = pastedSetting("HEALDESK_ADMIN_EMAIL")?.trim().toLowerCase();
@@ -173,17 +115,6 @@ export function approvalPasscodeConfigured(): boolean {
   return parsePasscodeHash(pastedSetting(APPROVAL_PASSCODE_VARIABLE)) !== null;
 }
 
-async function passcodeMatches(offered: string): Promise<boolean> {
-  const stored = parsePasscodeHash(pastedSetting(APPROVAL_PASSCODE_VARIABLE));
-  if (!stored) return false;
-  try {
-    const derived = await derive(offered, stored);
-    return derived.length === stored.key.length && timingSafeEqual(derived, stored.key);
-  } catch {
-    return false;
-  }
-}
-
 const NOTHING = "Nothing was changed.";
 
 /**
@@ -193,10 +124,10 @@ const NOTHING = "Nothing was changed.";
  */
 export async function checkApprovalCode(code: unknown, account: string, now: number = Date.now()): Promise<ApprovalCodeCheck> {
   const offered = typeof code === "string" ? code.replace(/\s/g, "") : "";
-  if (!CODE_SHAPE.test(offered)) {
+  if (!PASSCODE_SHAPE.test(offered)) {
     return { ok: false, message: `Enter the 6-digit approval passcode or the code from your authenticator. ${NOTHING}` };
   }
-  const wait = Math.max(locked(perAccount.get(account), now), locked(global, now));
+  const wait = lockout.lockedFor(account, now);
   if (wait > 0) {
     return {
       ok: false,
@@ -204,19 +135,18 @@ export async function checkApprovalCode(code: unknown, account: string, now: num
     };
   }
   // One derivation at a time per instance, claimed with the check above, in one synchronous turn.
-  if (inFlight > 0) return { ok: false, message: `Another code is being checked. Try again in a moment. ${NOTHING}` };
-  inFlight += 1;
+  if (!lockout.claim()) return { ok: false, message: `Another code is being checked. Try again in a moment. ${NOTHING}` };
   let passcode = false;
   try {
-    passcode = await passcodeMatches(offered);
+    passcode = await passcodeMatches(offered, pastedSetting(APPROVAL_PASSCODE_VARIABLE));
   } finally {
-    inFlight -= 1;
+    lockout.release();
   }
   if (passcode) return { ok: true, factor: "passcode" };
   const totp = checkFreshOperatorCode(offered, now);
   if (totp.ok) return { ok: true, factor: "authenticator" };
   if (totp.message.includes("already used")) return { ok: false, message: totp.message };
-  recordFailure(account, now);
+  lockout.recordFailure(account, now);
   const configured = approvalPasscodeConfigured();
   return {
     ok: false,
@@ -228,7 +158,5 @@ export async function checkApprovalCode(code: unknown, account: string, now: num
 
 /** A fresh instance: no wrong tries counted. */
 export function __resetApprovalPasscodeForTests(): void {
-  perAccount.clear();
-  global = { count: 0, resetAt: 0 };
-  inFlight = 0;
+  lockout.reset();
 }

@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./agreement-pdf": "./src/agreement-pdf.ts",
     "./agreement-signing": "./src/agreement-signing.ts",
+    "./approval-passcode": "./src/approval-passcode.ts",
     "./checkout-record": "./src/checkout-record.ts",
     "./mail-address": "./src/mail-address.ts"
   },

@@ -692,6 +692,8 @@ the email outbox's schedule, and after six the sending stops (`support_reply_dea
 are drawn beside their case under Support, not under Approvals; Home's row for them opens Support.
 They raise no reminder of their own: the case's `support_case_past_due` already does. An item
 leaves the list unsent after 14 days, and at once, as `case_closed`, when its case is closed.
+There is no Reject on a support reply: Close the case to not send it (the case view says so);
+the item is then expired unsent, and a clinic that writes again opens a new case.
 
 ### Compliance pack
 

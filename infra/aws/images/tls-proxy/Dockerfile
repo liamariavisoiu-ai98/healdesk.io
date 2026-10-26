@@ -18,7 +18,7 @@
 # layer, the registry or a backup to leak, and nothing to rotate.
 # =============================================================================
 
-FROM nginx:1.30.5-alpine@sha256:0985e772fb9f729e6fa0980da05fca5d9c468e870eed43071545afa9d2e27d94
+FROM nginx:1.31.0-alpine@sha256:2f07d83bf561b506400dc183b1b2003803e39efbd22451f848adaba14d28c7c7
 
 # The entrypoint needs openssl to make the certificate; the base image ships
 # without it. Not pinned to a package version (hadolint's DL3018): Alpine

@@ -318,7 +318,7 @@ export function buildAssistantPrompt(
   lines.push(`- Name: ${facts.clinicName}`);
   const short = callName(facts);
   if (short !== facts.clinicName) {
-    lines.push(`- What patients call it: ${short}. The opening line says the full name once; after it, say "${short}", as people do.`);
+    lines.push(`- What ${audience} call it: ${short}. The opening line says the full name once; after it, say "${short}", as people do.`);
   }
   const phone = phoneFor(channel, facts.phone);
   if (phone) lines.push(`- Main number: ${phone}`);

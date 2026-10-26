@@ -20,8 +20,8 @@ import { and, eq } from "drizzle-orm";
 import { agentConfigs, clinicChannels, clinicProviders, clinics, clinicSettings } from "@/db/schema";
 import { clinicAcceptsPhi } from "@/lib/agreements/phi-gate";
 import { CLOSURES_IN_FACTS } from "@/lib/assistant/facts";
-import { amountsIn, claimsToBeHuman, clinicOwnWords, neverSayIn } from "@/lib/assistant/guard";
-import { priceText } from "@/lib/assistant/prompt";
+import { amountsIn, claimsToBeHuman, clinicOwnWords, neverSayIn, ownShortName } from "@/lib/assistant/guard";
+import { callName, priceText } from "@/lib/assistant/prompt";
 import { callModel, isModelRefusal, type ModelRefusal } from "@/lib/assistant/responder";
 import { getClinicSettings } from "@/lib/billing/settings";
 import { metaPlatformOn } from "@/lib/channels/meta-platforms";
@@ -168,6 +168,8 @@ export type MetaPlatform = "messenger" | "instagram" | "whatsapp";
 
 export type FrontDoorFacts = {
   clinicName: string;
+  /** What patients call the practice (Settings › How AYA talks), said after the full name; null or absent when unset. */
+  shortName?: string | null;
   /** The number to hand off to: the clinic's published line. */
   phone: string | null;
   /**
@@ -478,6 +480,10 @@ export function buildFrontDoorPrompt(facts: FrontDoorFacts): string {
     "",
     "FACTS YOU MAY STATE:",
     `Practice: ${facts.clinicName}`,
+    // Here only a short name that is a part of the full name, which this
+    // channel's guard reads as the name (ownShortName); any other would be
+    // read as a person's name or a treatment and refused.
+    metaCallName(facts) ? `What people call it: ${metaCallName(facts)}. Use the full name in your first reply to a person; after that, "${metaCallName(facts)}".` : "",
     facts.phone ? `Phone: ${facts.phone}` : "Phone: (not listed — say a person at the practice can help)",
     facts.escalationHours ? `A person answers the phone: ${facts.escalationHours}` : "",
     facts.notes ? `Other public information: ${facts.notes}` : "",
@@ -538,12 +544,21 @@ const REFUSED: { pattern: RegExp; label: string }[] = [
 
 export type GuardVerdict = { ok: true } | { ok: false; reason: string };
 
+/** The short form this channel calls the practice by, when it has one its guard reads as the name: the clinic's, else one worked out. */
+function metaCallName(facts: Pick<FrontDoorFacts, "clinicName" | "shortName"> & { neverSay?: readonly string[] }): string | null {
+  const short = callName(facts);
+  if (short === facts.clinicName || !ownShortName({ clinicName: facts.clinicName, shortName: short })) return null;
+  return namesMetaTreatment(short) ? null : short;
+}
+
 /** What a reply is checked against besides the fixed patterns: the clinic's own words. */
 export type GuardContext = {
   /** The clinic's service names. None may appear in a reply (the one Meta rule, (2) and (5)). */
   serviceNames?: readonly string[];
   /** The clinic's own name: public, and allowed to contain a service's ("Botox Bar"). */
   clinicName?: string;
+  /** The short name the clinic chose: read as its name is only when it is a part of it (guard.ts, ownShortName). */
+  shortName?: string | null;
   /** The clinic's opening and closing times, minutes after midnight: the only clock times a reply may name. */
   publishedTimes?: readonly number[];
   /** The clinic's own street address: public, and allowed to contain a treatment word ("Peel Street"). */
@@ -583,11 +598,12 @@ export function menuPrices(services: FrontDoorFacts["services"]): number[] {
 
 export function guardContextFor(
   facts: Pick<FrontDoorFacts, "clinicName" | "services" | "serviceNames" | "publishedTimes" | "address"> &
-    Partial<Pick<FrontDoorFacts, "notes" | "escalationHours" | "neverSay">>,
+    Partial<Pick<FrontDoorFacts, "shortName" | "notes" | "escalationHours" | "neverSay">>,
 ): GuardContext {
   const ownFacts = [facts.notes, facts.escalationHours].filter((f): f is string => Boolean(f)).join(" ");
   return {
     clinicName: facts.clinicName,
+    ...(metaCallName(facts) ? { shortName: metaCallName(facts) } : {}),
     serviceNames: facts.serviceNames ?? facts.services.map((s) => s.name),
     publishedTimes: facts.publishedTimes ?? [],
     ...(facts.address ? { address: facts.address } : {}),
@@ -634,7 +650,7 @@ function wordsIn(text: string): string[] {
 function echoOf(reply: string, context: GuardContext): boolean {
   if (!context.inbound) return false;
   const own = new Set(
-    [context.clinicName, context.address, context.ownFacts]
+    [context.clinicName, ownShortName(context), context.address, context.ownFacts]
       .flatMap((text) => wordsIn(text ?? ""))
       .map(echoForm),
   );
@@ -688,6 +704,10 @@ function addressParts(address: string | null | undefined): string[] {
 function withoutOwnWords(reply: string, context: GuardContext): string {
   const phrases: string[] = [];
   if (context.clinicName) phrases.push(context.clinicName);
+  // The short name only when it is no treatment name itself: "Botox" must
+  // never be sayable here because a clinic typed it as what patients call it.
+  const short = ownShortName(context);
+  if (short && !namesMetaTreatment(short)) phrases.push(short);
   phrases.push(...addressParts(context.address));
   return phrases.reduce((text, phrase) => withoutPhrase(text, phrase), reply);
 }
@@ -721,7 +741,8 @@ export function guardReply(reply: string, context: GuardContext = {}): GuardVerd
     return { ok: false, reason: PRICE_REFUSAL };
   }
   if (personaIntroduction(flat, context.clinicName)) return { ok: false, reason: "a human claim" };
-  const staff = namedStaff(withoutClinicName(withoutAddress(flat, context.address), context.clinicName), context.clinicName);
+  const named = withoutClinicName(withoutClinicName(withoutAddress(flat, context.address), context.clinicName), ownShortName(context) ?? undefined);
+  const staff = namedStaff(named, context.clinicName);
   if (staff) return { ok: false, reason: staff };
   // A condition named in a reply is refused even where no acknowledgement
   // above catches it ("Yes, we treat rosacea"), as the screen refuses it inbound.
@@ -1456,7 +1477,7 @@ export async function frontDoorFacts(
   // The urgent-help number as the wizard resolves it (lib/setup/urgent.ts):
   // the clinic's own, else the direct line with phone, the main number without.
   const [urgent] = await tx.db
-    .select({ urgentHelpE164: clinicSettings.urgentHelpE164, vetReferralE164: clinicSettings.vetReferralE164, tone: clinicSettings.tone })
+    .select({ urgentHelpE164: clinicSettings.urgentHelpE164, vetReferralE164: clinicSettings.vetReferralE164, tone: clinicSettings.tone, shortName: clinicSettings.shortName })
     .from(clinicSettings)
     .where(eq(clinicSettings.clinicId, tx.clinicId))
     .limit(1);
@@ -1481,6 +1502,7 @@ export async function frontDoorFacts(
   }
   return {
     clinicName: clinic.name,
+    shortName: urgent?.shortName ?? null,
     phone: clinic.phone,
     urgentPhone,
     specialty: clinic.specialty,

@@ -52,6 +52,7 @@ import {
   ONBOARDING_STEPS,
   resolveBookingRequirements,
   serviceNameScreen,
+  shortClinicName,
   type Channel,
   type CoverageModeId,
   type ForwardingInstruction,
@@ -2812,6 +2813,13 @@ export type OnboardingView = {
      */
     coverageMode: CoverageModeId;
     /**
+     * What AYA calls the clinic after saying its full name once: the short
+     * name it chose in Settings, else the one worked out from its name
+     * (prompt.ts, callName). `shortNameSet` says which. Clinic configuration.
+     */
+    callName: string;
+    shortNameSet: boolean;
+    /**
      * The routing the console's phone form shows and sets, read from the
      * coverage mode: 'always' for All calls, 'conditional' for the two that
      * ring the clinic first. Never clinics.call_routing itself.
@@ -2939,7 +2947,7 @@ async function opGetOnboarding(
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return opsProblem("No such clinic.", 404, "invalid_args");
 
-  const { agent, metaChannels, metaPlatforms, bookingRequests, booking, bookingView, channels, coverageMode, goLive } = await withTenant(
+  const { agent, metaChannels, metaPlatforms, bookingRequests, booking, bookingView, channels, coverageMode, shortName, goLive } = await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
     async (tx) => {
       tx.audit.record({ action: "read", resourceType: "agent_config", resourceId: tx.clinicId });
@@ -2962,7 +2970,10 @@ async function opGetOnboarding(
           missing: c.liveAt || !facts ? [] : decideChannel(channelInputs(c.channel, facts)).missing,
         })),
         agent: await getAgentConfig(tx),
-        coverageMode: (await readSetupSettings(tx.db, tx.clinicId)).coverageMode,
+        ...(await (async () => {
+          const settings = await readSetupSettings(tx.db, tx.clinicId);
+          return { coverageMode: settings.coverageMode, shortName: settings.shortName };
+        })()),
         metaPlatforms: await readMetaPlatformSwitches(tx.db, tx.clinicId),
         bookingRequests: await bookingRequestCounts(tx),
         booking: await readBookingState(tx),
@@ -2995,6 +3006,8 @@ async function opGetOnboarding(
       isCoveredEntity: clinic.isCoveredEntity,
       phoneSystemType: clinic.phoneSystemType,
       coverageMode,
+      callName: shortName ?? shortClinicName(clinic.name),
+      shortNameSet: shortName !== null,
       callRouting: routingForCoverageMode(coverageMode),
       callRoutingConfirmedAt: clinic.callRoutingConfirmedAt?.toISOString() ?? null,
       carrier: clinic.carrier,

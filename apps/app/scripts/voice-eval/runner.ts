@@ -124,6 +124,9 @@ export async function runVariant(options: RunOptions): Promise<ResultRow[]> {
           },
           latency_s: (Date.now() - started) / 1000,
           assistant_turns: conversation.turns.filter((t) => t.speaker === "assistant" && t.source !== "opening").length,
+          // The model's own replies only (6a): a fixed line's length is not the model's.
+          model_words: conversation.turns.filter((t) => t.speaker === "assistant" && t.source === "model").reduce((n, t) => n + t.text.split(/\s+/).filter(Boolean).length, 0),
+          model_turns: conversation.turns.filter((t) => t.speaker === "assistant" && t.source === "model").length,
           sources: conversation.sources,
           endings: conversation.endings,
           tone_hash: hash,

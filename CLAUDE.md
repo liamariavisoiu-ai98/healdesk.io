@@ -189,7 +189,23 @@ enforceable rather than aspirational.
    line (`turn.ts` `softRefusal`), and a bare count of the owner's calls
    passes the unit-less dose pattern (`AssistantFacts.businessCounts`); a
    patient's call never sets either. `lib/voice/demo-cases.ts` holds the
-   regression cases every change to the demo must pass. Only the pitch may quote healdesk's prices, each from the
+   regression cases every change to the demo must pass. Every demo reply is
+   one short reaction at most, then one short sentence of content, with no
+   reflection opener except for a negative feeling; a question she has no
+   answer for gets one true line of where healdesk sits (`POSITIONING`:
+   confident that she does more than a phone-only bot or an answering
+   service, never a competitor named and never "the only") and a new question, never the last one again;
+   pushback gets a move from a rotating set; a caller who is not interested
+   is asked once for a number to call (the offer's own words), a firm no
+   only a goodbye; "wait, continue" resumes the last role-play; and after
+   the opening line the clinic is called by its short name
+   (`shortClinicName`; owner, 26 October 2026, Phase 6). Her two signature
+   touches, each once a call and never in a role-play: "Oh, love that." at
+   good news, and "Talk soon, <name>!" closing a warm ending, never after a
+   firm no or a failed call back (`DEMO_QUIRKS`; owner, 26 October 2026, 6h).
+   A clinic's own calls use the short name it sets in Settings ("What
+   patients call you"), read by the guards as its own words only when it is a
+   part of its full name (`ownShortName`). Only the pitch may quote healdesk's prices, each from the
    catalog and let through the guard exactly (`demoPriceList`,
    `AssistantFacts.quotedAmountsUsd`); a clinic's call quotes its own menu
    alone. Spoken text writes "Aya", never
@@ -465,6 +481,15 @@ a rule already holds, and treat a gap as a bug, not a precedent.
 - The clinic's never-say list is injected into every conversation on every
   channel. The clinic cannot edit the prompt, so it cannot remove a guardrail by
   accident.
+- **On a call, the first refusal of the call may be heard as a stall** (owner,
+  26 October 2026; `lib/voice/stall.ts`): once per call, a reply the guard
+  refused for a price, something clinical or the never-say list, with nothing
+  of it said yet, is heard as "Sorry, say that again?", and the refusal comes
+  the turn after with a sorry opener; she may also stall once herself on
+  something she does not know (`state.stall`). Never for urgent words, which
+  are matched before the model, never twice in a call, and never ahead of a
+  line that must come first. Nothing the guard refused is ever said: only
+  when and how the refusal is heard changes. The voice safety suite pins it.
 
 **Failure**
 

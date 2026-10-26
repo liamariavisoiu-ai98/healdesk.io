@@ -3338,6 +3338,13 @@ export type OnboardingView = {
      * as one deployed before this console read it (the deploy-order rule).
      */
     coverageMode: CoverageModeId | null;
+    /**
+     * What AYA calls the clinic after its full name, once: the short name the
+     * clinic chose (`shortNameSet`), else the one worked out from its name.
+     * Null when apps/app does not say (the deploy-order rule).
+     */
+    callName: string | null;
+    shortNameSet: boolean;
     /** The two-mode routing it is derived into. Not offered here: it cannot say "after hours only". */
     callRouting: "conditional" | "always";
     callRoutingConfirmedAt: string | null;
@@ -3566,6 +3573,8 @@ function readOnboardingView(value: unknown): OnboardingView {
       coverageMode: (COVERAGE_MODES as readonly unknown[]).includes(clinic.coverageMode)
         ? (clinic.coverageMode as CoverageModeId)
         : null,
+      callName: optionalString(clinic.callName) ?? null,
+      shortNameSet: clinic.shortNameSet === true,
       callRouting: literal(clinic.callRouting, ["conditional", "always"], "clinic.callRouting"),
       callRoutingConfirmedAt: optionalString(clinic.callRoutingConfirmedAt),
       carrier: optionalString(clinic.carrier),

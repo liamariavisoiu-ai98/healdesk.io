@@ -46,6 +46,13 @@ export type AssistantService = Pick<AgentService, "name" | "priceFromUsd" | "pri
 export type AssistantFacts = {
   clinicId: string;
   clinicName: string;
+  /**
+   * What patients call the practice (Settings › How AYA talks, "What patients
+   * call you"): said after the full name has been said once. Null or absent
+   * when the clinic left it empty, and the prompt works one out from the name
+   * (@healdesk/catalog shortClinicName).
+   */
+  shortName?: string | null;
   /** The practice's specialty id: which urgent set it is screened with (@healdesk/catalog, urgentSetFor). */
   specialty: string | null;
   timeZone: string;
@@ -202,6 +209,7 @@ export async function assistantFacts(
   return {
     clinicId: tx.clinicId,
     clinicName: clinic.name,
+    shortName: settings.shortName,
     specialty: clinic.specialty,
     timeZone: clinic.timeZone,
     phone: clinic.phone,

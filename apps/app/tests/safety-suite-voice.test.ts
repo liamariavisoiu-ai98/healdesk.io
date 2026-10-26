@@ -14,6 +14,7 @@ import { neverSayWithDefaults } from "@/lib/setup/knowledge";
 import { withTenant } from "@/lib/tenant";
 import { ingestCall, type VoiceCallEvent } from "@/lib/voice/ingest";
 import { spokenPhone } from "@/lib/voice/spoken";
+import { STALL_LINES, STALL_SORRY } from "@/lib/voice/stall";
 import { CLOSED_LINE, RETRY_LINE, RETRY_LINE_ES, RetellCallSession, TRANSFER_LINE, TROUBLE_TRANSFER_LINE, TROUBLE_TRANSFER_LINE_ES, type RetellOutbound } from "@/lib/voice/retell";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
@@ -255,19 +256,35 @@ describeDb("safety suite: voice, end to end", () => {
   });
 
   // ---------------------------------------------------------------------------
-  describe("2. forbidden model output: the caller hears, and the record keeps, the fixed line", () => {
+  describe("2. forbidden model output: the caller never hears it; the record keeps the fixed line, after one stall", () => {
+    /**
+     * The human stall (lib/voice/stall.ts, owner 26 October 2026): once per
+     * call, the first reply the guard refuses for something the caller asked
+     * that cannot be answered is heard as a person asking them to say it
+     * again; asked again, the guard's fixed line is said, after a sorry
+     * opener. What the model wrote is never heard and never kept, either time.
+     */
     for (const c of FORBIDDEN_OUTPUT_CASES) {
       caseTest(c.defect)(`${c.label}${c.defect ? " [DEFECT]" : ""}`, async () => {
-        const r = await call(clinic.clinicId, [c.asked], () => modelJson(c.reply, c.extra), transport);
+        const r = await call(clinic.clinicId, [c.asked, c.asked], () => modelJson(c.reply, c.extra), transport);
         // A price refusal is asked once more with the reason (turn.ts, PRICE_AGAIN); the stub refuses again.
-        expect(r.calls).toHaveLength(c.label.startsWith("price:") ? 2 : 1);
-        const said = r.responses[1]!.content;
-        expect(said).not.toContain(c.reply);
+        expect(r.calls).toHaveLength(c.label.startsWith("price:") ? 4 : 2);
         const fixed = (["never_say", "price", "payment_details", "hipaa_claim", "clinical", "language", "booking_confirmation", "human_claim", "outbound_promise", "alert_claim", "other_party", "empty"] as const).map((g) =>
           guardedLine(g, clinic.name, "en", true),
         );
-        expect(fixed).toContain(said);
-        expect(keptAssistant(r)).toContain(said);
+        const [first, second] = [r.responses[1]!.content, r.responses[2]!.content];
+        for (const said of [first, second]) expect(said).not.toContain(c.reply);
+        if ((STALL_LINES.en as readonly string[]).includes(first)) {
+          // The stall, then the fixed line after a sorry opener.
+          const opener = STALL_SORRY.en.find((o) => second.startsWith(`${o} `));
+          expect(opener, second).toBeDefined();
+          expect(fixed).toContain(second.slice(opener!.length + 1));
+        } else {
+          // A refusal no stall is for (stall.ts, STALL_REASONS): the fixed line, as before.
+          expect(fixed).toContain(first);
+        }
+        expect(keptAssistant(r)).toContain(first);
+        expect(keptAssistant(r)).toContain(second);
         expect(keptAssistant(r).join(" ")).not.toContain(c.reply);
         expect(r.event?.outcome).not.toBe("booked");
       });

@@ -114,6 +114,15 @@ export type AssistantFacts = {
    * pitch. A clinic's facts never do, so its calls quote its menu alone.
    */
   quotedAmountsUsd?: readonly number[];
+  /**
+   * A demo call's talk after the role-play, with a clinic's owner about their
+   * own business (lib/voice/demo-facts.ts, demoPitchFacts): a bare figure
+   * there is a count of their calls ("around 110 a month"), never a dose, so
+   * the guard's unit-less dose pattern (guard.ts, UNITLESS_DOSE) stands aside
+   * for it. Every other clinical pattern still reads every word. A clinic's
+   * facts never set it, so a patient's call is screened exactly as before.
+   */
+  businessCounts?: boolean;
 };
 
 

@@ -162,7 +162,10 @@ enforceable rather than aspirational.
    a patient call (opened with "Ring ring!" and the clinic's own notice,
    wrapped up within four of the caller's turns), then asks what they are
    after, their call volume and what happens to missed calls before it
-   pitches, never asking twice what was answered (`DemoProgress`); the
+   pitches, never asking twice what was answered (`DemoProgress`, kept from
+   her structured `state` update in each answer's details, never read from
+   her prose; the close and the live discount are in no note until the
+   coverage question is answered); the
    pitch is the owner's nine beats in order, each said once (`DemoBeat`):
    their pain, the reveal, keeping their number, what is not finished yet
    with the live discount (the demo's own share and the hours left, never a
@@ -171,7 +174,13 @@ enforceable rather than aspirational.
    `FIRST_PERIOD_REFUND_DAYS` of the plan start; the setup fee never); then
    a tie-down and the close on the demo page's own buy button (owner,
    25 October 2026; `lib/voice/demo-facts.ts`, `DemoStage`). No call-back is
-   offered until something delivers one. Only the pitch may quote healdesk's prices, each from the
+   offered until something delivers one (`docs/design/demo-lead-capture-2026-10-25.md`
+   waits for the owner). After the role-play only, a guard refusal is asked
+   again once, then heard as a recovery line, never as the guard's patient
+   line (`turn.ts` `softRefusal`), and a bare count of the owner's calls
+   passes the unit-less dose pattern (`AssistantFacts.businessCounts`); a
+   patient's call never sets either. `lib/voice/demo-cases.ts` holds the
+   regression cases every change to the demo must pass. Only the pitch may quote healdesk's prices, each from the
    catalog and let through the guard exactly (`demoPriceList`,
    `AssistantFacts.quotedAmountsUsd`); a clinic's call quotes its own menu
    alone. Spoken text writes "Aya", never

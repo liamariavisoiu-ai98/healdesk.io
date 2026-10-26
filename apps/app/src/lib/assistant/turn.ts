@@ -111,6 +111,8 @@ export type AssistantTurnResult = {
    * them, and the adapter sends only the rest.
    */
   spoken?: string;
+  /** The model's structured update for the adapter (ModelAnswer.state), when its answer carried one. */
+  state?: Record<string, unknown> | null;
 };
 
 
@@ -323,6 +325,12 @@ type ModelAnswer = {
   end: boolean;
   action: ToolAction | null;
   /**
+   * A structured update the adapter asked for in the details, as an object
+   * and nothing else (a demo call's `{"asked", "beats"}`, lib/voice/demo-facts.ts
+   * demoStateFrom); the adapter checks every value against its own list.
+   */
+  state?: Record<string, unknown> | null;
+  /**
    * The text began an object that does not parse: a reply cut off at the
    * token limit, or JSON the model got wrong. Its words are never sent (they
    * may hold the booking object, braces and field names); answerTurn gives
@@ -488,6 +496,7 @@ export function parseModelAnswer(raw: string): ModelAnswer {
         handoff: parsed.handoff === true,
         end: parsed.end === true,
         action: parseToolAction(parsed.action),
+        state: parsed.state && typeof parsed.state === "object" && !Array.isArray(parsed.state) ? (parsed.state as Record<string, unknown>) : null,
       };
     } catch {
       // not an object: malformed, below
@@ -627,6 +636,34 @@ export function withoutLeadingFiller(text: string): string {
   return rest ? rest.charAt(0).toUpperCase() + rest.slice(1) : "";
 }
 
+/** A dollar figure in what was said: "$199", "199 dollars", "a hundred and ninety-nine dollars". */
+const SAID_A_PRICE = /\$\s?\d|\b\d[\d,]*(?:\.\d{1,2})?\s?(?:dollars|bucks)\b|\b(?:hundred|thousand|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\b[^.?!]{0,30}\b(?:dollars|bucks)\b|\bd[oó]lares\b/i;
+
+/** On a call, the price refusal's line when the turn before quoted a price: never "I don't have a price for that one". */
+const PRICE_LINE_AFTER_QUOTE = {
+  en: "The team can go through the options and pricing with you at a consultation. Want me to request one?",
+  es: "El equipo puede revisar las opciones y los precios con usted en una consulta. ¿Quiere que pase una solicitud?",
+} as const;
+
+/**
+ * The guard's fixed line for a refusal, as answerTurn says it: guardedLine,
+ * but on a call whose last reply quoted a price, a price refusal never says
+ * "I don't have a price for that one" (owner's test call, 25 October 2026:
+ * Botox and the HydraFacial quoted, "that's a lot", and the next reply,
+ * refused for a made-up figure after "I hear you.", ended on it). The guard
+ * refuses exactly as before; only the words said in its place differ.
+ */
+function guardLineFor(
+  reason: GuardRefusal,
+  clinicName: string,
+  language: "en" | "es",
+  channel: AssistantChannel,
+  history: readonly TranscriptTurn[],
+): string {
+  if (reason === "price" && channel === "voice" && SAID_A_PRICE.test(lastAssistantLine(history) ?? "")) return PRICE_LINE_AFTER_QUOTE[language];
+  return guardedLine(reason, clinicName, language, channel === "voice");
+}
+
 /** Whether `line` is the last thing said, alone or after an acknowledgement. */
 function saidLast(history: readonly TranscriptTurn[], line: string): boolean {
   const last = lastAssistantLine(history);
@@ -644,17 +681,28 @@ function saidLast(history: readonly TranscriptTurn[], line: string): boolean {
 const PRICE_AGAIN =
   "Your draft reply was not said: it named a dollar amount that is not on the price list. Write it again with no dollar amount at all, not even one the caller said (say \"within your budget\" instead). If they asked for a price that is not listed, offer a consultation where the team can go through it.";
 
+/** Said to the model before its second try on a softRefusal turn (answerTurn), for a refusal other than a price. */
+function softAgain(reason: GuardRefusal): string {
+  return `Your draft reply was not said: the safety check read it as ${reason === "clinical" ? "clinical" : reason.replace(/_/g, " ")}. You are talking with a clinic's owner about their own business, not with a patient: write it again in plain words, put the word "calls" right after every number of calls, say no dollar figure except healdesk's own from the list, and nothing about treatments, results or doses.`;
+}
+
 /**
  * What a call's reply keeps doing, said to the model each turn from the
  * record itself, not left to the prompt alone (owner's test call, 25 October
  * 2026): the same openers, "sorry" again and again, and the caller's name in
  * nearly every reply.
  */
-export function voiceHabits(history: readonly TranscriptTurn[], firstName: string | null): string[] {
+export function voiceHabits(history: readonly TranscriptTurn[], firstName: string | null, personText = ""): string[] {
   // Every reply but the opening line, which is fixed.
   const replies = history.filter((t) => t.speaker === "assistant").slice(1).map((t) => t.text);
   if (replies.length === 0) return [];
   const out: string[] = [];
+  const again = askedBefore(history, personText);
+  if (again) {
+    out.push(
+      `They asked nearly the same thing a moment ago ("${again.slice(0, 120).replace(/"/g, "'")}"), so your answer did not land: answer it differently, fuller and plainer, all of it in one go, and never in the words you used before.`,
+    );
+  }
   if (replies.some((r) => /\b(?:sorry|apologi[sz]e)\b/i.test(r))) {
     out.push(`You have already apologised on this call: no more "sorry", just carry on.`);
   }
@@ -672,6 +720,35 @@ export function voiceHabits(history: readonly TranscriptTurn[], firstName: strin
     out.push(`Your last replies began "${openers.join('", "')}": begin this one differently, straight with what you have to say.`);
   }
   return out;
+}
+
+/** Words too common to tell two questions apart. */
+const COMMON_WORDS = new Set(
+  "the a an and or but so do does did you your yours i me my we our us is are was were be been it its this that what which who how can could would will just only also about for of to in on at with from like okay ok yeah yes no not have has had any some there they them then".split(" "),
+);
+
+/** The channels a caller asks about in so many words ("phone only?", "social media?", "WhatsApp?"): one question, however it is put. */
+const CHANNEL_WORDS = /\b(?:phone only|just the phone|only the phone|social media|socials|instagram|insta|facebook|messenger|whatsapp|website chat|web chat|live chat|dms?|text(?:ing)?|sms|channels?)\b/i;
+
+/**
+ * The caller's earlier words when what they say now asks nearly the same
+ * (owner's test call, 25 October 2026: "phone only?", "social media?",
+ * "WhatsApp?" in a row, each answered in part, the last near word for word
+ * as the one before): the same content words, or the same channels
+ * question. Null when they are asking something new.
+ */
+export function askedBefore(history: readonly TranscriptTurn[], personText: string): string | null {
+  const words = (text: string) => new Set(text.toLowerCase().replace(/[^\p{L}\p{N}\s']/gu, " ").split(/\s+/).filter((w) => w.length > 2 && !COMMON_WORDS.has(w)));
+  const now = words(personText);
+  const earlier = history.filter((t) => t.speaker === "person").slice(-2);
+  for (const turn of [...earlier].reverse()) {
+    if (CHANNEL_WORDS.test(personText) && CHANNEL_WORDS.test(turn.text)) return turn.text;
+    const then = words(turn.text);
+    if (now.size < 2 || then.size < 2) continue;
+    const shared = [...now].filter((w) => then.has(w)).length;
+    if (shared / new Set([...now, ...then]).size >= 0.5) return turn.text;
+  }
+  return null;
 }
 
 /** Words a sentence needs before saying it twice counts as repeating it: "Okay." or "Got it." may come back. */
@@ -784,8 +861,20 @@ export async function answerTurn(input: {
    * model has captured one (a demo's requester), for voiceHabits.
    */
   callerFirstName?: string | null;
-  /** This is the one second try after a price refusal (PRICE_AGAIN); never set by a caller. */
+  /** This is the one second try after a refusal (answerAgain); never set by a caller. */
   retried?: boolean;
+  /**
+   * On a call, where a refusal must never be heard as the guard's fixed line:
+   * a demo's talk with a clinic's owner about their own business, after the
+   * role-play (lib/voice/retell.ts). A refused reply with nothing said yet is
+   * asked again once, with the reason, whatever the reason; a second refusal
+   * says `line` (or `alternate`, when `line` was the last thing said), and a
+   * refusal after some of the reply was already spoken ends it on `bridge`;
+   * never "That one's really for the clinicians". The guard reads every word
+   * as ever, and nothing it refuses is said: only the line in its place
+   * changes. Never set on a patient's call, nor during a demo's role-play.
+   */
+  softRefusal?: { line: string; alternate: string; bridge: string } | null;
 }): Promise<AssistantTurnResult> {
   const { facts, channel } = input;
   const language: SpokenLanguage = input.language ?? "en";
@@ -847,7 +936,7 @@ export async function answerTurn(input: {
       `They just turned down what you last asked or offered ("${offered}"). Drop it and follow their lead. Only if it truly matters, come back to it once, later, in completely different words, shorter and lighter, matched to how firmly they said no.`,
     );
   }
-  if (channel === "voice") notes.push(...voiceHabits(input.history, capture.firstName ?? input.callerFirstName ?? null));
+  if (channel === "voice") notes.push(...voiceHabits(input.history, capture.firstName ?? input.callerFirstName ?? null, personText));
   if (input.acknowledge) {
     notes.push(`If your answer is slow to start, "${input.acknowledge.line}" is said out loud for you first: begin with the answer itself, never with an acknowledgement or filler.`);
   }
@@ -909,7 +998,9 @@ export async function answerTurn(input: {
             refusedMidway = verdict.reason;
             // A price refused before a word was said: the second try starts
             // now, not after the rest of a reply nobody will hear is written.
-            if (verdict.reason === "price" && spoken.length === 0 && channel === "voice" && !input.retried) startAgain({ next: answerAgain(input) });
+            if ((verdict.reason === "price" || input.softRefusal) && spoken.length === 0 && channel === "voice" && !input.retried) {
+              startAgain({ next: answerAgain(input, verdict.reason) });
+            }
             return;
           }
           spoken.push(piece);
@@ -958,14 +1049,16 @@ export async function answerTurn(input: {
     const rest = refusedMidway ? null : fresh([unplaced, stream.remainder()].filter(Boolean).join(" "));
     const restVerdict = rest ? guardAssistantReply([saidSoFar(), rest].filter(Boolean).join(" "), facts, NO_BOOKING_WRITTEN) : null;
     const reason: GuardRefusal | null = refusedMidway ?? (restVerdict && !restVerdict.ok ? restVerdict.reason : null);
-    if (reason === "price" && spoken.length === 0 && channel === "voice" && !input.retried) return answerAgain(input);
-    if (reason && spoken.length === 0) {
-      const line = guardedLine(reason, facts.clinicName, language === "es" ? "es" : "en", channel === "voice");
+    if (reason && (reason === "price" || input.softRefusal) && spoken.length === 0 && channel === "voice" && !input.retried) return answerAgain(input, reason);
+    if (reason && spoken.length === 0 && !input.softRefusal) {
+      const line = guardLineFor(reason, facts.clinicName, language === "es" ? "es" : "en", channel, input.history);
       if (saidLast(input.history, line)) {
         return { ...base, toolsLive, capture: merged, handoff: true, reply: movingOnLine(facts.clinicName, language === "es" ? "es" : "en", channel === "voice"), source: "guard", guard: reason };
       }
     }
-    const tail = reason ? guardedLine(reason, facts.clinicName, language === "es" ? "es" : "en", channel === "voice") : (rest ?? "");
+    const tail = reason
+      ? (softLine(input, spoken.length > 0) ?? guardLineFor(reason, facts.clinicName, language === "es" ? "es" : "en", channel, input.history))
+      : (rest ?? "");
     const reply = [saidSoFar(), tail].filter(Boolean).join(" ");
     // The guard read each sentence alone; read the whole once more, so a rule
     // that only a whole reply breaks is at least seen. Kind only, never words.
@@ -980,7 +1073,7 @@ export async function answerTurn(input: {
       reply,
       spoken: saidSoFar(),
       source: reason ? "guard" : "model",
-      ...(reason ? { guard: reason } : {}),
+      ...(reason ? { guard: reason } : { state: answer.state ?? null }),
     };
   }
   if (answer.malformed) {
@@ -1009,7 +1102,9 @@ export async function answerTurn(input: {
   const unrepeated = (before && fresh(answer.reply)) || answer.reply;
   const replyText = channel === "voice" ? withoutLeadingFiller(unrepeated) || unrepeated : unrepeated;
   const verdict = guardAssistantReply(replyText, facts, NO_BOOKING_WRITTEN);
-  if (!verdict.ok && verdict.reason === "price" && channel === "voice" && !input.retried) return answerAgain(input);
+  if (!verdict.ok && (verdict.reason === "price" || input.softRefusal) && channel === "voice" && !input.retried) return answerAgain(input, verdict.reason);
+  const soft = verdict.ok ? null : softLine(input);
+  if (soft) return { ...live, capture: merged, handoff: false, reply: soft, source: "guard", guard: (verdict as { reason: GuardRefusal }).reason };
   if (!verdict.ok) {
     // The fixed line in the language of the reply it replaces, Spanish only
     // where that reply (or, for a reply in no screened language, the person)
@@ -1018,7 +1113,7 @@ export async function answerTurn(input: {
     const said = messageLanguage(replyText, { knownTerms: languageTerms(facts) });
     const spanish =
       language === "es" || said === "es" || (said === "other" && messageLanguage(personText, { knownTerms: languageTerms(facts) }) === "es");
-    const line = guardedLine(verdict.reason, facts.clinicName, spanish ? "es" : "en", channel === "voice");
+    const line = guardLineFor(verdict.reason, facts.clinicName, spanish ? "es" : "en", channel, input.history);
     // The same refusal as the last thing said: the person answered it ("yes,
     // please") and the model's next try was refused again. Saying it a third
     // time is a loop (test call of 23 October 2026), so the turn hands over.
@@ -1027,17 +1122,28 @@ export async function answerTurn(input: {
     }
     return { ...live, capture: merged, handoff: answer.handoff, reply: line, source: "guard", guard: verdict.reason };
   }
-  return { ...live, capture: merged, handoff: answer.handoff, end: answer.end, reply: replyText, source: "model" };
+  return { ...live, capture: merged, handoff: answer.handoff, end: answer.end, reply: replyText, source: "model", state: answer.state ?? null };
 }
 
 /**
- * On a call, the one second try after a reply refused for a dollar figure,
- * with nothing said yet (PRICE_AGAIN): the model is told why and asked
- * again. A call only: a chat reader sees the fixed line once and reads on,
- * where a caller hears it to a question it does not answer. The guard
- * reads the second reply as it read the first, and a second refusal is the
- * fixed line; the acknowledgement, if it was said, is not said again.
+ * On a call, the one second try after a refused reply with nothing said yet:
+ * for a dollar figure on any call (PRICE_AGAIN), and for any refusal on a
+ * softRefusal turn (softAgain). The model is told why and asked again; the
+ * guard reads the second reply as it read the first, and a second refusal is
+ * the fixed line (or the softRefusal line). The acknowledgement, if it was
+ * said, is not said again. A call only: a chat reader sees the fixed line
+ * once and reads on, where a caller hears it to a question it does not answer.
  */
-function answerAgain(input: Parameters<typeof answerTurn>[0]): Promise<AssistantTurnResult> {
-  return answerTurn({ ...input, acknowledge: null, retried: true, notes: [...(input.notes ?? []), PRICE_AGAIN] });
+function answerAgain(input: Parameters<typeof answerTurn>[0], reason: GuardRefusal): Promise<AssistantTurnResult> {
+  return answerTurn({ ...input, acknowledge: null, retried: true, notes: [...(input.notes ?? []), reason === "price" ? PRICE_AGAIN : softAgain(reason)] });
+}
+
+/**
+ * The softRefusal line for this turn: its bridge after words already spoken,
+ * its alternate when the line was the last thing said; null on any other turn.
+ */
+function softLine(input: Parameters<typeof answerTurn>[0], midway = false): string | null {
+  if (!input.softRefusal) return null;
+  if (midway) return input.softRefusal.bridge;
+  return saidLast(input.history, input.softRefusal.line) ? input.softRefusal.alternate : input.softRefusal.line;
 }

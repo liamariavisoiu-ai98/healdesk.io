@@ -105,7 +105,7 @@ number *plus the treatment they asked about* **is** PHI.
 | Contact form, reviews (business contacts) | The clinic portal, the onboarding wizard and the portal support chat |
 | The `/admin` operator console | The BAA register itself + retention clock: a signed agreement enters it at provisioning, its seal and re-rendered hash checked (`lib/checkout/import.ts`) |
 | Anything public, cached, indexed | Clinic credentials: Google Calendar tokens, Meta Page and WhatsApp tokens, the gateway connection |
-| | Inbound support mail: a clinic's email to support@ or hello@healdesk.io, forwarded by the owner's mailbox to SES on in.healdesk.io; the database keeps facts only (topic, urgency, counts, opaque ids), never its words; the raw message waits in the KMS-encrypted bucket until the support drafter reads it once in memory and sends its text, unmasked, to Anthropic's API under the signed BAA (healdesk's key is the BAA organisation's, owner-confirmed 26 October 2026) to draft a reply for ops approval, then it is deleted, six hours at most; the console never shows it (`lib/support/inbound/`, `lib/support/draft/email.ts`) |
+| | Inbound support mail: a clinic's email to support@ or hello@healdesk.io, forwarded by the owner's mailbox to SES on in.healdesk.io; the database keeps facts only (topic, urgency, counts, opaque ids), never its words; while the `support-draft` job is on and the case is new, the raw message waits in the KMS-encrypted bucket until the support drafter reads it in memory (keeping nothing) and sends its text, unmasked, to Anthropic's API under the signed BAA (healdesk's key is the BAA organisation's, owner-confirmed 26 October 2026) to draft a reply for ops approval, then deletes it, normally within minutes; otherwise it is deleted on arrival; the sweep deletes anything older than six hours (so up to about seven) and the bucket lifecycle (up to about two days) is the backstop. The console never shows the email itself, but the drafted reply, text derived from it, is shown in `/admin` on Vercel (no BAA) and held in the approval inbox, with the reply checks as the only guard: a patient detail the model repeated past them can reach the console (`lib/support/inbound/`, `lib/support/draft/email.ts`) |
 | | The background worker; anything writing an audit row |
 | | Phase two, fenced out of v1: **the attribution engine**, POS/EMR read-back, sync and reconciliation, the connectors |
 
@@ -804,10 +804,11 @@ asked for them to be written here so each session reads them.
    propose the slice and what waits, and get the owner's word before building
    the rest.
 
-What these rules never relax: a fresh second factor on irreversible admin
-acts (the authenticator code; for an approval decision or an agreement answer,
-the one approval passcode or the authenticator code, five wrong tries locking
-approvals for fifteen minutes; owner, 26 October 2026), the PHI boundary, real-database tests, CI on the exact tree that
+What these rules never relax: a code typed at the moment of an irreversible
+admin act (a fresh authenticator code; for an approval decision or an
+agreement answer, the one static approval passcode or a fresh authenticator
+code, five wrong tries locking approvals for fifteen minutes per warm Vercel
+instance; owner, 26 October 2026), the PHI boundary, real-database tests, CI on the exact tree that
 lands, and the owner's approval before a landing or a deploy.
 
 - **Verify before claiming something is built.** Read it out of the code, not

@@ -683,9 +683,11 @@ with the approval passcode or a fresh authenticator code; a Yes or Not sure paus
 agreement answer takes the one 6-digit approval passcode (`HEALDESK_APPROVAL_PASSCODE_HASH`, a
 scrypt hash on Vercel, made with `node apps/web/scripts/hash-approval-passcode.mjs`) or a fresh
 authenticator code. Five wrong tries of either lock approvals for fifteen minutes, on that warm
-instance (the console says "locked for N more minutes"); wait it out. If the lock was not you,
-someone has the console session: sign out everywhere (rotate `HEALDESK_ADMIN_SECRET`) and make a
-new passcode. Unset, the code box says only the authenticator works. Each decision's security
+instance (the console says "locked for N more minutes", the log says `approval_code_locked`, and
+you get an email "approvals locked"); wait it out, or redeploy apps/web, which clears it. If the
+lock was not you, someone has the console session and can lock approvals again at will: rotate
+`HEALDESK_ADMIN_SECRET` in Vercel (ends every session; its redeploy also clears the lock), make a
+new passcode, and change the admin password. Unset, the code box says only the authenticator works. Each decision's security
 event records `factor: passcode` or `factor: authenticator`.
 
 The same inbox holds every composed reply to a clinic's support request (`support_reply_send`,
@@ -805,14 +807,17 @@ No event of its own: inbound support mail (ops automation lane P7g, `apps/app/sr
 `infra/aws/ses-inbound.tf`) turns a clinic's email to support@healdesk.io or hello@healdesk.io,
 forwarded by the owner's mailbox to the same name on in.healdesk.io, into a support case holding
 facts only in the database (topic, urgency, how it matched a clinic, counts of what looked like
-patient details, attachment counts), never the email's words. The email waits in the bucket until
-the support drafter has read it once (lane P7h) and is then deleted; the sweep deletes anything six
-hours old. The console never shows it: read it in the mailbox by the case's reference.
+patient details, attachment counts), never the email's words. While `support-draft` is on and the
+case is new, the email waits in the bucket until the support drafter has read it (lane P7h), and
+is then deleted, normally within minutes; otherwise it is deleted on arrival; the sweep deletes
+anything older than six hours (so up to about seven). The console never shows it: read it in the mailbox by the case's reference.
 
 - **A clinic says it emailed and no case appeared.** Open System > Jobs and read the
   `support-inbound-sweep` job's last note: "N handled, N already recorded, N dropped, N older than
-  six hours deleted, N left waiting for the drafter deleted, N left, N failed". "Left waiting for
-  the drafter deleted" above zero means emails sat six hours undrafted: is `support-draft` on? Dropped means a loop guard (an auto-reply, a list, a bounce, our
+  six hours deleted, N deleted undrafted after six hours, N waiting keys cleared, N left, N
+  failed". "Deleted undrafted" above zero means a clinic's email sat six hours with no draft run
+  reaching it (the job stuck or failing, or switched off after it arrived): read System > Jobs for
+  `support-draft`, and answer those cases by hand from the mailbox. Dropped means a loop guard (an auto-reply, a list, a bounce, our
   own address, SES's spam or virus verdict); the engine's log line `support inbound dropped` names
   SES's id and the reason. Search the owner's mailbox for the email: if it was never forwarded, the
   forwarding rule is the problem, not the engine.

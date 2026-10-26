@@ -971,15 +971,28 @@ request run again before the service reopens:
    is the old one, so it is always asked for again.
 7. Only then reopen the service.
 
+### The approval passcode
+
+Every approval decision and every agreement answer takes the one 6-digit approval passcode, or a
+fresh authenticator code (owner, 26 October 2026; `apps/web/src/lib/admin/approval-passcode.ts`).
+Owner step: on your own machine run `node apps/web/scripts/hash-approval-passcode.mjs`, type the
+six digits twice (not shown), and paste the one line it prints into Vercel as
+`HEALDESK_APPROVAL_PASSCODE_HASH` (healdesk project, Settings, Environment Variables, Production,
+**Sensitive**), then redeploy. To change it, run the script again. Unset, only the authenticator
+code approves. Five wrong tries lock approvals for fifteen minutes on that warm Vercel instance and
+email you; a redeploy clears the lock.
+
 ### Inbound support mail
 
 Built 26 October 2026 (ops automation lane P7g), **off**: `enable_inbound_mail = false` in
 `infra/aws/production.tfvars`. A clinic's email to support@healdesk.io or hello@healdesk.io (two
 aliases of the owner's one mailbox, owner, 26 October 2026) becomes a support case holding facts
-only in the database, never its words (`apps/app/src/lib/support/inbound/`); the support drafter
-reads the email once from the encrypted bucket, sends its text to Claude under the BAA to draft a
-reply for your approval, and deletes it (lane P7h, `apps/app/src/lib/support/draft/email.ts`);
-the console never shows the email, so read it in the mailbox by the case's reference. The root
+only in the database, never its words (`apps/app/src/lib/support/inbound/`); while the
+`support-draft` job is on, the support drafter reads the email from the encrypted bucket, keeps
+nothing of it, sends its text to Claude under the BAA to draft a reply for your approval, and
+deletes it (lane P7h, `apps/app/src/lib/support/draft/email.ts`); with the job off it is deleted
+on arrival. The console never shows the email, so read it in the mailbox by the case's reference;
+it does show the drafted reply, which is written from the email. The root
 domain's MX is never touched. Owner steps, in order:
 
 1. **Check for an active receipt rule set.** In AWS CloudShell, `aws ses
@@ -1017,7 +1030,7 @@ domain's MX is never touched. Owner steps, in order:
    subject such as "Calls ring out". Within a minute a case appears in Support (call forwarding,
    now) and the clinic's owners and billing contacts get "We've got your email (ref HD-xxxxx)";
    with `support-draft` on, a draft follows within a minute or two and the bucket is then empty
-   (with it off, the email waits up to six hours, then the sweep deletes it undrafted). Check that the case names the clinic and its message says matched by
+   (with it off, the email is deleted on arrival and the case goes to you undrafted). Check that the case names the clinic and its message says matched by
    address and authenticated: an email is trusted as a clinic's only when SES saw a DKIM
    signature that passed aligned with its From domain, or a DMARC pass. Forwarding normally keeps
    the original DKIM signature (the body and signed headers are left alone), so the clinic's own
@@ -1036,10 +1049,11 @@ with the clinic at destruction (`app_destroy_support_cases`). A case about no cl
 a stranger, a closed account, an unauthenticated sender) is closed silently after 30 days with
 nothing on it and deleted with its messages 30 days after it closed, nightly
 (`lib/support/inbound/retention.ts`, `app_delete_unmatched_email_cases`). The raw email lives in
-the bucket until the support-draft job has read it once (it deletes every waiting email of the
-case in a finally, whatever the draft's outcome); one the drafter will never read (no clinic,
-unparsable, over 2 MB) is deleted by the handler at once; the hourly sweep deletes anything six
-hours old, read or not; and the bucket's one-day lifecycle rule is the backstop, which S3 applies
+the bucket until the support-draft job has read it (it deletes every waiting email of the case in
+a finally, whatever the draft's outcome), normally within minutes; one the drafter will not read
+(the job off, no clinic, a case already drafted, unparsable, over 2 MB) is deleted by the handler
+at once; the hourly sweep deletes anything older than six hours (so up to about seven), read or
+not; and the bucket's one-day lifecycle rule is the backstop, which S3 applies
 asynchronously (up to about two days). The drafter gives Claude the subject and body as written,
 never the sender's name, address or attachments, on healdesk's key, which is the Anthropic
 organisation the BAA covers (owner-confirmed 26 October 2026); a draft that quotes eight words in

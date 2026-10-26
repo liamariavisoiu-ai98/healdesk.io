@@ -1,4 +1,4 @@
-import type { DemoCallClinic } from "@healdesk/catalog";
+import { DEMO_CALLBACK_OFFER, type DemoCallClinic } from "@healdesk/catalog";
 
 import { SPOKEN_END } from "@/lib/assistant/prompt";
 
@@ -428,7 +428,7 @@ const TO_COVERED: DemoCaseTurn[] = [
   },
 ];
 
-const OFFER_CALL = "No problem at all. Want someone from our team to give you a quick call? What's the best number to reach you on?";
+const OFFER_CALL = DEMO_CALLBACK_OFFER.text;
 const READ_BACK = "That's five one two, five five five, oh one four seven, right? And what should the team come prepared with?";
 const NUMBER = { phone: "512 555 0147", note: "Pricing for two locations" };
 

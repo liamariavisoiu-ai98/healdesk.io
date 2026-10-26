@@ -1,5 +1,6 @@
 import {
   DEMO_CALL_VARIABLE,
+  DEMO_CALLBACK_OFFER,
   FIRST_PERIOD_REFUND_DAYS,
   NEVER_SAY_DEFAULTS,
   openDaysPerWeek,
@@ -748,7 +749,7 @@ export function demoStageNote(
           `Close: "Want to get ${clinic} set up?" ${close}${discountWords ? ` Say the discount exactly so: ${discountWords}.` : ""}`,
           progress.callback
             ? `If they are still hesitant: "${noCall}"${discountWords ? " Mention the discount window once." : ""} Then thank them and say a warm goodbye. ${progress.callback === "sent" ? "The team already has their call-back request" : "They already have hello at healdesk dot io"}: never offer a call-back again or take another number.`
-            : `If they are still hesitant, or ask to speak to a person: "No problem at all. Want someone from our team to give you a quick call? What's the best number to reach you on?" (asked: callback). If they would rather not: "${noCall}"${discountWords ? " Mention the discount window once." : ""} Then thank them and say a warm goodbye.`,
+            : `If they are still hesitant, or ask to speak to a person, say exactly: "${DEMO_CALLBACK_OFFER.text}" (asked: callback). If they would rather not: "${noCall}"${discountWords ? " Mention the discount window once." : ""} Then thank them and say a warm goodbye.`,
           `Never say the team has been told, has their number or will call: when they have, the call says so itself.`,
         ]
       : []),

@@ -28,6 +28,7 @@ vi.mock("@/lib/email/outbox", () => ({
 }));
 
 import {
+  DEMO_CALLBACK_OFFER,
   NEVER_SAY_DEFAULTS,
   resolveBookingRequirements,
   sealDemoCallContext,
@@ -397,7 +398,7 @@ describe("a demo call's facts", () => {
     // call says so itself, once apps/web took it.
     expect(start).toContain("Say the discount exactly so: 50% off the setup fee, for the next 47 hours.");
     expect(start).toContain("you can reach the team at hello at healdesk dot io");
-    expect(start).toContain(`"No problem at all. Want someone from our team to give you a quick call? What's the best number to reach you on?" (asked: callback)`);
+    expect(start).toContain(`say exactly: "${DEMO_CALLBACK_OFFER.text}" (asked: callback)`);
     expect(start).toContain("Never say the team has been told, has their number or will call: when they have, the call says so itself.");
     // No live discount: none is named.
     const noOffer = demoStageNote(context({ offer: null }), "pitch", now, { asked: null, answers: discovered, roleplayTurns: 0, said: [] });

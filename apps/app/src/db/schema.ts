@@ -8301,7 +8301,7 @@ export const supportMessages = pgTable(
     nextSendAt: timestamp("next_send_at", { withTimezone: true }),
     sendStoppedAt: timestamp("send_stopped_at", { withTimezone: true }),
     sendStoppedReason: text("send_stopped_reason").$type<SupportSendStoppedReason>(),
-    /** When the approved text is deleted: 12 months after it was sent (the row stays). */
+    /** When the approved text is deleted: 12 months after it was sent, or after the sending stopped without it going (0128; the row stays). */
     textDeleteAfter: timestamp("text_delete_after", { withTimezone: true }),
     /** Names, types and sizes only: an attachment is never opened or kept. */
     attachmentsJson: jsonb("attachments_json"),
@@ -8345,7 +8345,7 @@ export const supportMessages = pgTable(
     ),
     check(
       "support_messages_send_check",
-      sql`(${t.kind} = 'reply' or (${t.replySubject} is null and ${t.approvedHash} is null and ${t.sendAttempts} = 0 and ${t.nextSendAt} is null and ${t.sendStoppedAt} is null and ${t.textDeleteAfter} is null)) and ${t.sendAttempts} between 0 and ${sql.raw(String(SUPPORT_SEND_MAX_ATTEMPTS))} and (${t.approvedHash} is null or ${t.approvedHash} ~ '^[0-9a-f]{64}$') and (${t.replySubject} is null or char_length(${t.replySubject}) between 1 and 200) and (${t.sendStoppedAt} is null) = (${t.sendStoppedReason} is null) and (${t.sendStoppedReason} is null or ${t.sendStoppedReason} in (${sqlList(SUPPORT_SEND_STOPPED_REASONS)})) and not (${t.sendStoppedAt} is not null and ${t.sentAt} is not null) and (${t.textDeleteAfter} is null or ${t.sentAt} is not null)`,
+      sql`(${t.kind} = 'reply' or (${t.replySubject} is null and ${t.approvedHash} is null and ${t.sendAttempts} = 0 and ${t.nextSendAt} is null and ${t.sendStoppedAt} is null and ${t.textDeleteAfter} is null)) and ${t.sendAttempts} between 0 and ${sql.raw(String(SUPPORT_SEND_MAX_ATTEMPTS))} and (${t.approvedHash} is null or ${t.approvedHash} ~ '^[0-9a-f]{64}$') and (${t.replySubject} is null or char_length(${t.replySubject}) between 1 and 200) and (${t.sendStoppedAt} is null) = (${t.sendStoppedReason} is null) and (${t.sendStoppedReason} is null or ${t.sendStoppedReason} in (${sqlList(SUPPORT_SEND_STOPPED_REASONS)})) and not (${t.sendStoppedAt} is not null and ${t.sentAt} is not null) and (${t.textDeleteAfter} is null or ${t.sentAt} is not null or ${t.sendStoppedAt} is not null)`,
     ),
     check(
       "support_messages_approved_check",

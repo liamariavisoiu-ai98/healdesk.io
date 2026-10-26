@@ -897,6 +897,13 @@
       "when": 1792880451003,
       "tag": "0127_support_wiring",
       "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1793004066381,
+      "tag": "0128_support_stopped_reply_text",
+      "breakpoints": true
     }
   ]
 }

@@ -197,8 +197,9 @@ restart the worker, as above) and hourly from the tick, each reply you approved 
 did not go is tried again on the email outbox's schedule, and stopped after six with
 `support_reply_dead`. It sends only the text you approved. While it is off, a failed first try
 waits with no retry. At 03 UTC, unswitched because it only deletes, the tick's
-`support-retention` step deletes the words of every reply sent more than 12 months ago, and the
-copy in its approval item; the rows, hashes and approval events stay.
+`support-retention` step deletes the words of every reply sent, or stopped without going (dead,
+its case closed, its clinic left), more than 12 months ago, and the copy in its approval item
+12 months after the decision; the rows, hashes and approval events stay.
 
 v1 adds jobs that are not built yet: the demo-sandbox purge (7 to 14 days), the 14-day
 zero-inbound flag for an active voice plan, the 48-hour zero-interaction flag, the

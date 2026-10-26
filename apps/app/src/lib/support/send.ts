@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNotNull, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import { clinics, supportCases, supportMessages, type SupportCase, type SupportMessage } from "@/db/schema";
@@ -59,7 +59,9 @@ import { SUPPORT_SEND_MAX_ATTEMPTS, supportReplySubject, type SupportSendStopped
  *
  * Sent, the case moves to `waiting_clinic` and records `last_outbound_at`.
  * The text is kept 12 months as the record of what we told the clinic, then
- * `sweepSentReplyText` deletes it; the row stays, without the words.
+ * `sweepSentReplyText` deletes it; the row stays, without the words. A reply
+ * that stopped without going (dead, its case closed, its clinic left) keeps
+ * its text on the same 12 months, counted from the stop.
  */
 
 const MINUTE_MS = 60 * 1000;
@@ -329,7 +331,13 @@ export type DeliverOutcome =
 async function stop(messageId: string, reason: SupportSendStoppedReason, now: Date): Promise<void> {
   await unsafeDb
     .update(supportMessages)
-    .set({ sendStoppedAt: now, sendStoppedReason: reason, nextSendAt: null })
+    .set({
+      sendStoppedAt: now,
+      sendStoppedReason: reason,
+      nextSendAt: null,
+      // The words of a reply that never went are forgotten on the same 12-month rule, counted from the stop (0128).
+      textDeleteAfter: new Date(now.getTime() + REPLY_TEXT_KEPT_DAYS * DAY_MS),
+    })
     .where(and(eq(supportMessages.id, messageId), isNull(supportMessages.sentAt), isNull(supportMessages.sendStoppedAt)));
 }
 
@@ -502,7 +510,13 @@ async function afterFailure(
   if (attempts >= SUPPORT_SEND_MAX_ATTEMPTS) {
     await unsafeDb
       .update(supportMessages)
-      .set({ sendAttempts: tried, sendStoppedAt: now, sendStoppedReason: "dead", nextSendAt: null })
+      .set({
+        sendAttempts: tried,
+        sendStoppedAt: now,
+        sendStoppedReason: "dead",
+        nextSendAt: null,
+        textDeleteAfter: new Date(now.getTime() + REPLY_TEXT_KEPT_DAYS * DAY_MS),
+      })
       .where(and(eq(supportMessages.id, messageId), isNull(supportMessages.sentAt), isNull(supportMessages.sendStoppedAt)));
     log.error("support reply dead", { clinicId, count: tried, outcome: failure });
     await notifyOps("support_reply_dead", { clinicId, count: tried });
@@ -594,9 +608,11 @@ export async function retrySupportReplies(
 }
 
 /**
- * Delete the text of every reply sent more than 12 months ago (design E5
- * §2.2): the row stays, with its subject, hash, approval and delivery, as the
- * record that a reply went and what it was approved as. Returns how many.
+ * Delete the text of every reply sent, or stopped without going (dead, its
+ * case closed, its clinic left), more than 12 months ago (design E5 §2.2; the
+ * stopped ones since lane P7f, 0128): the row stays, with its subject, hash,
+ * approval and delivery or stop, as the record that a reply went, or did not,
+ * and what it was approved as. Returns how many.
  */
 export async function sweepSentReplyText(now: Date): Promise<number> {
   const swept = await unsafeDb
@@ -606,7 +622,8 @@ export async function sweepSentReplyText(now: Date): Promise<number> {
       and(
         eq(supportMessages.kind, "reply"),
         isNotNull(supportMessages.text),
-        isNotNull(supportMessages.sentAt),
+        // Sent, or stopped without going: the date is set only by one of the two (the table's CHECK).
+        or(isNotNull(supportMessages.sentAt), isNotNull(supportMessages.sendStoppedAt)),
         lte(supportMessages.textDeleteAfter, now),
       ),
     )

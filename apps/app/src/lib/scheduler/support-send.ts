@@ -29,10 +29,10 @@ import { getJob, JOB_SUPPORT_SEND, runSwitchedJob, type JobOutcome } from "./job
  * (`ops_approvals.draft`, support_reply_send only, through the database's
  * own app_forget_support_reply_drafts()), so the prose of a reply that WENT is
  * kept 12 months in both places and no longer. The rows stay, without the
- * words, with their hashes and every approval event. KNOWN GAP: the text of an
- * approved reply that never went (stopped dead, case closed, clinic left) stays
- * on its row until the clinic is destroyed; widening the sweep to it needs a
- * change to support_messages_send_check (0126), left for the next slice.
+ * words, with their hashes and every approval event. The text of an approved
+ * reply that never went (stopped dead, case closed, clinic left) is swept on
+ * the same rule, 12 months from the stop (0128, lane P7f); its approval item's
+ * copy goes 12 months from the decision, as for any reply.
  *
  * Neither throws into the queue: a failure is the job's note.
  */

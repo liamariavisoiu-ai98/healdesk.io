@@ -7,6 +7,7 @@ import {
   type SpecialtyId,
 } from "@healdesk/catalog";
 
+import { neverSayIn } from "./guard";
 import { closureLabelForPrompt } from "@/lib/clinic/closures";
 import { formatPhone } from "@/lib/setup/help";
 import { spokenPhone } from "@/lib/voice/spoken";
@@ -288,9 +289,15 @@ export function closureLines(closures: AssistantFacts["closures"]): string[] {
  * changes only when the location's booking mode does, so the prefix stays
  * cacheable.
  */
-/** What the conversation calls the practice after its opening: the clinic's own short name, else one worked out from the full name. */
-export function callName(facts: Pick<AssistantFacts, "clinicName" | "shortName">): string {
-  return facts.shortName?.trim() || shortClinicName(facts.clinicName);
+/**
+ * What the conversation calls the practice after its opening: the clinic's
+ * own short name, else one worked out from the full name; the full name when
+ * that short one holds a never-say entry, which the guard would refuse
+ * wherever it stands alone ("Painless" of "Painless Laser Studio").
+ */
+export function callName(facts: Pick<AssistantFacts, "clinicName" | "shortName"> & { neverSay?: readonly string[] }): string {
+  const short = facts.shortName?.trim() || shortClinicName(facts.clinicName);
+  return facts.neverSay && neverSayIn(short, facts.neverSay) ? facts.clinicName : short;
 }
 
 export function buildAssistantPrompt(

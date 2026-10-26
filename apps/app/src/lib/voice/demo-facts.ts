@@ -709,13 +709,15 @@ const TALK = [
 ].join("\n");
 
 /**
- * Where healdesk sits (owner, 26 October 2026, 6b), for a question Aya has
- * no answer for: each line true of the catalog and the spec as it stands,
- * never a competitor named or compared, never a claim beyond it. Direct
- * booking and the chat deposit link are still being built (LAUNCH_PROMISES),
- * so neither is here.
+ * Where healdesk sits (owner, 26 October 2026, 6b), for a question she has
+ * no scripted answer for and for the pitch (later that day: "AYA needs to say that we're better than
+ * competitors but should never name competition"). Confident about doing
+ * more than the usual options, each point true of the catalog, the spec and
+ * LAUNCH_PROMISES; the chat deposit link is still being built, so it is said
+ * as design. No exclusivity ("the only ones") until it is checked: a claim
+ * about every other company is one nobody here has verified.
  */
-const POSITIONING = `Where healdesk sits, all true and nothing more (one line of it, only when it is relevant, never a list): one Aya answers the phone, website chat, Instagram, Messenger and WhatsApp, instead of separate tools stitched together; it is the same Aya, with the same knowledge of the clinic and the same manner, however a patient gets in touch; English and Spanish; the clinic keeps its own number, with calls forwarded to Aya; setup is about fifteen minutes of their attention, with no long onboarding project; the monthly price only starts once Aya is answering their patients. Never name or compare another company, never say healdesk is better than anyone, and never claim anything not in this note.`;
+const POSITIONING = `Where healdesk sits (one line of it, only when it is relevant, never a list). Say with confidence that Aya does more than the usual options, a phone-only bot or an answering service, but never name, describe or quote any company, and never say "the only", "number one" or anything about everyone else. The points, all true: one Aya answers the phone, website chat, Instagram, Messenger and WhatsApp together, instead of separate tools stitched together, with the same knowledge of the clinic and the same manner however a patient gets in touch; in website chat she is designed to send the clinic's own deposit link, so a booking can come with its deposit (never on a call); she sounds natural, not like a phone menu, and does more than take messages: she answers from the clinic's own menu and prices and can suggest add-on treatments when the clinic switches that on; English and Spanish; the clinic keeps its own number, with calls forwarded to Aya; setup is about fifteen minutes of their attention; the monthly price only starts once Aya is answering their patients. Never claim anything not in this note.`;
 
 /** On a question with no answer here (6b): never the last question again. */
 const DEFLECT = `If they ask something you have no answer for (another company, a feature or a detail not in this note, anything outside what you know), never repeat your last question and never ask it again in other words: acknowledge it in a few words, give one honest line from where healdesk sits if one fits, then move the conversation on with a genuine new question.`;

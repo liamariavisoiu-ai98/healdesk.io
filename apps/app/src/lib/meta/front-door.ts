@@ -545,7 +545,7 @@ const REFUSED: { pattern: RegExp; label: string }[] = [
 export type GuardVerdict = { ok: true } | { ok: false; reason: string };
 
 /** The short form this channel calls the practice by, when it has one its guard reads as the name: the clinic's, else one worked out. */
-function metaCallName(facts: Pick<FrontDoorFacts, "clinicName" | "shortName">): string | null {
+function metaCallName(facts: Pick<FrontDoorFacts, "clinicName" | "shortName"> & { neverSay?: readonly string[] }): string | null {
   const short = callName(facts);
   if (short === facts.clinicName || !ownShortName({ clinicName: facts.clinicName, shortName: short })) return null;
   return namesMetaTreatment(short) ? null : short;

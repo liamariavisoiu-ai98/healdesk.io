@@ -49,19 +49,25 @@ describe("the short name the guards read past", () => {
     expect(ownShortName({ clinicName: "Painless Laser Studio", shortName: "painless laser" })).toBe("painless laser");
     expect(ownShortName({ clinicName: "Painless Laser Studio", shortName: "Painless Glow" })).toBeNull();
     expect(ownShortName({ clinicName: "Painless Laser Studio", shortName: null })).toBeNull();
-    expect(clinicOwnWords({ clinicName: "Painless Laser Studio", shortName: "Painless Glow" })).toEqual(["Painless Laser Studio"]);
+    expect(clinicOwnWords({ clinicName: "Painless Laser Studio" })).toEqual(["Painless Laser Studio"]);
   });
 
-  test("a never-say entry is excused inside a short name that is part of the name, and nowhere else", () => {
-    const part = { ...FACTS, shortName: "Painless Laser" };
-    expect(guardAssistantReply("Painless Laser can book that for you.", part)).toMatchObject({ ok: true });
-    // Not part of the name: read like any word of a reply.
-    expect(guardAssistantReply("Painless Glow can book that for you.", { ...FACTS, shortName: "Painless Glow" })).toEqual({
-      ok: false,
-      reason: "never_say",
-    });
-    // The entry on its own is still refused, short name or not.
-    expect(guardAssistantReply("The treatment is painless.", part)).toEqual({ ok: false, reason: "never_say" });
+  test("a short name excuses no never-say entry, and leaves the full name's excuse as it was", () => {
+    // CI caught "Painless" (worked out from "Painless Laser Studio") as an own
+    // word: an own word that is itself an entry excuses nothing, the full name included.
+    for (const shortName of ["Painless", "Painless Laser", null]) {
+      const facts = { ...FACTS, shortName };
+      expect(guardAssistantReply("Thanks for calling Painless Laser Studio, how can I help?", facts), String(shortName)).toMatchObject({ ok: true });
+      expect(guardAssistantReply("Painless Laser can book that for you.", facts), String(shortName)).toEqual({ ok: false, reason: "never_say" });
+      expect(guardAssistantReply("The treatment is painless.", facts), String(shortName)).toEqual({ ok: false, reason: "never_say" });
+    }
+  });
+
+  test("the assistant says the full name instead of a short one the never-say list would refuse", () => {
+    expect(callName(FACTS)).toBe("Painless Laser Studio");
+    expect(callName({ ...FACTS, shortName: "Painless Laser" })).toBe("Painless Laser Studio");
+    expect(callName({ ...FACTS, shortName: "PLS" })).toBe("PLS");
+    expect(buildAssistantPrompt(FACTS, "voice")).not.toContain("What patients call it");
   });
 
   test("clinical screening reads every word around the short name", () => {

@@ -720,4 +720,25 @@ const quirks: DemoCase[] = [
   },
 ];
 
-export const DEMO_CASES: readonly DemoCase[] = [...bareNumbers, ...discovery, josh, ...callbacks, ...phase6, ...quirks];
+/** "Better than competitors, never named" (owner, 26 October 2026; demo-facts.ts, POSITIONING). */
+const positioning: DemoCase[] = [
+  {
+    id: "better-never-named",
+    title: "Why healdesk over the others: confident, true, and no company named",
+    why: `Owner, 26 October 2026: "AYA needs to say that we're better than competitors but should never name competition."`,
+    turns: [
+      ...TO_PITCH,
+      {
+        caller: "Why would I pick you over the other AI receptionists out there?",
+        model: [modelSays("Unlike a phone-only bot, I answer your phone, website chat, Instagram, Messenger and WhatsApp together. What happens with your missed calls today?", { asked: "missed" })],
+        check: {
+          noGuardLine: true,
+          heardIncludes: ["Unlike a phone-only bot"],
+          noteIncludes: ["Say with confidence that Aya does more than the usual options", 'never name, describe or quote any company, and never say "the only"', "designed to send the clinic's own deposit link"],
+        },
+      },
+    ],
+  },
+];
+
+export const DEMO_CASES: readonly DemoCase[] = [...bareNumbers, ...discovery, josh, ...callbacks, ...phase6, ...quirks, ...positioning];

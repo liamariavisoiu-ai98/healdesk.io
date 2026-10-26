@@ -24,7 +24,7 @@ import { and, eq, sql } from "drizzle-orm";
 
 import type { Transaction } from "@/db";
 import { clinicProviders, clinics, clinicSettings, clinicSettingsHistory } from "@/db/schema";
-import { clinicOwnWords, guardGreeting, neverSayIn, type GreetingRefusal } from "@/lib/assistant/guard";
+import { guardGreeting, neverSayIn, type GreetingRefusal } from "@/lib/assistant/guard";
 import { normaliseE164, updateClinicSettings } from "@/lib/billing/settings";
 import { notifySettingChanged } from "@/lib/notices/setting-changed";
 import { completeStep } from "@/lib/onboarding/steps";
@@ -601,10 +601,9 @@ async function screenGreetings(tx: TenantTx, wanted: Partial<SetupSettings>): Pr
     neverSay: neverSayWithDefaults(knowledge.neverSay),
     providerNames: providers.map((p) => p.name),
   };
-  // The short name is said on every channel, so no entry of the never-say
-  // list may be in it, unless it is a part of the full name, which excuses
-  // the same words wherever the name is said (guard.ts, clinicOwnWords).
-  if (short !== null && neverSayIn(short, facts.neverSay, clinicOwnWords({ ...facts, shortName: short }))) {
+  // The short name is said on every channel, and no never-say entry is
+  // excused in it (guard.ts, clinicOwnWords), so none may be in it.
+  if (short !== null && neverSayIn(short, facts.neverSay)) {
     throw new SetupSettingsError("shortName", "That name has a word on your never-say list in it, so AYA couldn't say it. Use the name as patients say it without that word.");
   }
   for (const field of fields) {

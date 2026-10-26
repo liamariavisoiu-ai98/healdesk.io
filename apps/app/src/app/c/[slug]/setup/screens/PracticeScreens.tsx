@@ -125,7 +125,7 @@ export function BasicsScreen(
         autoComplete="organization"
       />
       <Field
-        label="What patients call you"
+        label={`What ${props.audience} call you`}
         hint="AYA says your full name once, at the start, then this, on every channel."
         value={shown}
         onChange={setShortName}

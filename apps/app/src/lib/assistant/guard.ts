@@ -837,8 +837,10 @@ function listForm(text: string): string {
  * words (front-door.ts, withoutOwnWords), and its request-received line must
  * keep the person's name.
  */
-export function clinicOwnWords(facts: { clinicName?: string | null; shortName?: string | null; address?: string | null }): string[] {
-  const words = [facts.clinicName ?? "", ownShortName(facts) ?? ""];
+export function clinicOwnWords(facts: { clinicName?: string | null; address?: string | null }): string[] {
+  // Never the short name: one that is itself an entry ("Painless") would
+  // make the entry an own word, which excuses nothing, the full name included.
+  const words = [facts.clinicName ?? ""];
   for (const part of (facts.address ?? "").split(/[,\n]+/)) {
     words.push(part, part.trim().replace(/^\d+[a-z]?\s+/i, ""));
   }

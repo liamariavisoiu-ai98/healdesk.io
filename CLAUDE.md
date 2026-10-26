@@ -192,8 +192,9 @@ enforceable rather than aspirational.
    regression cases every change to the demo must pass. Every demo reply is
    one short reaction at most, then one short sentence of content, with no
    reflection opener except for a negative feeling; a question she has no
-   answer for gets one true line of where healdesk sits (`POSITIONING`,
-   never a competitor named) and a new question, never the last one again;
+   answer for gets one true line of where healdesk sits (`POSITIONING`:
+   confident that she does more than a phone-only bot or an answering
+   service, never a competitor named and never "the only") and a new question, never the last one again;
    pushback gets a move from a rotating set; a caller who is not interested
    is asked once for a number to call (the offer's own words), a firm no
    only a goodbye; "wait, continue" resumes the last role-play; and after

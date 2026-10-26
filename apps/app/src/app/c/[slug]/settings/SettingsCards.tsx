@@ -271,7 +271,7 @@ export function TalkCard({ view }: { view: SettingsView }) {
       <TextSetting
         slug={view.slug}
         settingKey="short_name"
-        label="What patients call you"
+        label={`What ${view.audience} call you`}
         initial={talk.shortName.value}
         placeholder={talk.shortName.worked}
         hint={

@@ -6,7 +6,7 @@ import type { ActorContext } from "@/lib/audit";
 import { draftHash } from "@/lib/approvals/kinds";
 import { serialiseDraft } from "@/lib/approvals/drafts";
 import { LinkNotAllowedError, PayloadNotAllowedError, printableClinicName } from "@/lib/email/lint";
-import { RETRY_DELAYS_MINUTES } from "@/lib/email/outbox";
+import { RETRY_DELAYS_MINUTES, verdictOf } from "@/lib/email/outbox";
 import { EmailEnvelopeError, sendEmail, type SendEmailOptions } from "@/lib/email/send";
 import { audienceFor } from "@/lib/email/templates/context";
 import { renderSupportReplyWith, SUPPORT_REPLY_REASON, type SupportReplyPayload } from "@/lib/email/templates/support_reply";
@@ -53,6 +53,9 @@ import { SUPPORT_SEND_MAX_ATTEMPTS, supportReplySubject, type SupportSendStopped
  * tried again by `retrySupportReplies` on the outbox's rule (one try, then
  * after 1, 5, 30, 120 and 360 minutes: RETRY_DELAYS_MINUTES), and after the
  * sixth the sending stops as `dead` and ops is told (`support_reply_dead`).
+ * A retry Resend refuses because the key was used already (409
+ * invalid_idempotent_request, as when the clinic's sign-in address changed
+ * after a try it had taken) is recorded as sent, not counted as a failure.
  * A case closed meanwhile, or a clinic with no address left, stops it
  * without sending. Every try sends the frozen text only if its hash is the
  * one approved.
@@ -481,6 +484,21 @@ export async function deliverReply(
     );
     if (result.status === "sent") {
       await recordSent(message, supportCase, claim.deliveryId, result.messageId, now, attempts);
+      return { status: "sent", hash };
+    }
+    // Resend has seen this key already, with this body or another: the reply
+    // went on an earlier try whose answer was lost, possibly to the address
+    // the clinic signed in with then, since the key repeats the request and
+    // the address is read afresh. Reconcile it as sent, as the email outbox
+    // does (verdictOf), rather than count refusals up to a false dead.
+    if (result.status === "failed" && verdictOf(result) === "sent") {
+      await withTenant({ clinicId, actor: SERVICE }, (tx) =>
+        recordDelivery(tx, claim.deliveryId!, {
+          status: "skipped",
+          reason: "Resend already had this reply from an earlier try; it went then.",
+        }),
+      );
+      await recordSent(message, supportCase, null, null, now, attempts);
       return { status: "sent", hash };
     }
     failure = result.status;

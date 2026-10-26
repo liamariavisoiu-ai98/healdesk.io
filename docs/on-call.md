@@ -766,7 +766,9 @@ under Reports and alerts (kind support_reply) with the last try's status and rea
 clinic's address if it bounced, then write to the clinic from hello@ with the same answer and
 close the case. The retries run from the `support-send` job (Jobs, above), which ships off:
 until it is on, only the first try at approval happens, and a failed first try stays waiting
-with no alert.
+with no alert. If the clinic's sign-in address changed between a try Resend took and the next
+one, Resend refuses the retry because its key was already used with another address; the send
+treats that refusal as sent (the reply went, to the address at the time) and raises no alert.
 
 ### Support cases
 

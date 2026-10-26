@@ -36,7 +36,8 @@ name: Infra (AWS)
 # The host's switch (host.yml, README "Standby") is followed, not undone: the
 # plan passes -var standby=true while host.yml has recorded standby in
 # Parameter Store, so a change merged while the host is in standby is applied
-# to the host in standby. And it passes -var subscribe_ses_events=false while
+# to the host in standby. And it passes -var subscribe_ses_events=false and
+# -var subscribe_inbound_mail=false while
 # the app does not answer its liveness probe, because SNS refuses to
 # subscribe an endpoint that does not answer. Every saved plan goes through
 # scripts/plan-guard.sh before it is shown as ready or applied: it refuses
@@ -194,8 +195,8 @@ jobs:
               ;;
           esac
           if ! body=$(curl --silent --max-time 10 --fail "$LIVENESS_URL") || ! jq -e '.ok == true' <<<"$body" >/dev/null 2>&1; then
-            args="$args -var subscribe_ses_events=false"
-            echo "$LIVENESS_URL does not answer ok: the plan leaves SES's events unsubscribed."
+            args="$args -var subscribe_ses_events=false -var subscribe_inbound_mail=false"
+            echo "$LIVENESS_URL does not answer ok: the plan leaves SES's events and the inbound mail topic unsubscribed."
           fi
           echo "The host is $mode (host.yml's last switch)."
           echo "mode=$mode" >>"$GITHUB_OUTPUT"

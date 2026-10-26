@@ -125,3 +125,28 @@ describe("what the caller's words mean, read in code", () => {
     expect(p.answers).toEqual({ goal: words, coverage: words, volume: SKIPPED_ANSWER, volumeCheck: SKIPPED_ANSWER, missed: SKIPPED_ANSWER });
   });
 });
+
+describe("the call's details are never spoken (transcript 0a45870b)", () => {
+  test("a brace ends the spoken words, as the delimiter does, while streaming and at the end", async () => {
+    const { SpokenStream } = await import("@/lib/assistant/turn");
+    const said: string[] = [];
+    const stream = new SpokenStream((sentence) => said.push(sentence));
+    for (const piece of ["Lovely, what day ", "suits you? ", '{"handoff": false, "state": ', '{"asked": null}}']) stream.push(piece);
+    expect(said.join(" ")).toBe("Lovely, what day suits you?");
+    expect(stream.remainder()).toBe("");
+  });
+
+  test("anything from a brace, a state field or the delimiter on is kept out of speech and the record", async () => {
+    const { spokenOnly } = await import("@/lib/assistant/turn");
+    expect(spokenOnly('Great, Friday it is. {"state": {"booking": {"day": "Friday"}}}')).toBe("Great, Friday it is.");
+    expect(spokenOnly('Great. "state": {"asked": null}')).toBe("Great.");
+    expect(spokenOnly("Great. ### {}")).toBe("Great.");
+    expect(spokenOnly(" Lovely, which day suits you?")).toBe(" Lovely, which day suits you?");
+  });
+
+  test("a bare no is a no; a no that closes warmly is not", async () => {
+    const { SAID_NO } = await import("@/lib/voice/demo-facts");
+    for (const words of ["No.", "No. No.", "I told you no. No.", "Nope", "I said no"]) expect(SAID_NO.test(words), words).toBe(true);
+    for (const words of ["No, that's all, thanks.", "Nothing else", "Not now, maybe later", "Yes"]) expect(SAID_NO.test(words), words).toBe(false);
+  });
+});

@@ -291,6 +291,23 @@ export const DEMO_ROLEPLAY_EXIT = "And that's the role-play! So, how was that?";
 export const DEMO_ROLEPLAY_START = /\bring[\s,!.-]*ring!?\s+hi,? thanks for calling\b/i;
 export const DEMO_ROLEPLAY_END = /\band that'?s the role-?play!?\s+so,? how was that\b/i;
 
+/**
+ * The note's own handover into a role-play ("you be the patient"): a reply
+ * that says it is starting one, whether or not her state says so (transcript
+ * 084f10d4: "Let's do it, you be the patient. Go ahead and call in whenever
+ * you're ready." with no signal, so the stage never moved and nothing after
+ * it worked). The call then says the opener itself, so what she said and the
+ * stage agree.
+ */
+export const DEMO_ROLEPLAY_HANDOVER = /\byou(?:'ll| will)? be the (?:patient|caller)\b|\byou'?re the (?:patient|caller)\b/i;
+
+/** Whether a reply hands over into a role-play: the handover said as a statement, never inside a question offering one. */
+export function handsOver(reply: string): boolean {
+  return reply
+    .split(/(?<=[.!?])\s+/)
+    .some((sentence) => DEMO_ROLEPLAY_HANDOVER.test(sentence) && !sentence.trim().endsWith("?"));
+}
+
 /** The roleplay moves her state may ask for. */
 export type RoleplaySignal = "start" | "cancel" | "end";
 
@@ -315,12 +332,14 @@ export function nextDemoStage(
 ): DemoStage {
   const { asked = null, roleplay = null, resume = false } = signal;
   if (stage !== "roleplay") {
-    if (roleplay === "start" || resume || DEMO_ROLEPLAY_START.test(reply)) return "roleplay";
+    if (roleplay === "start" || resume || DEMO_ROLEPLAY_START.test(reply) || (roleplay !== "cancel" && handsOver(reply))) return "roleplay";
     if (stage === "intro" && asked && PITCH_OPENERS.has(asked)) return "pitch";
     return stage;
   }
   if (roleplay === "cancel" || (roleplay === "end" && turns < 1)) return from;
   if (roleplay === "end" || DEMO_ROLEPLAY_END.test(reply)) return "pitch";
+  // Past the wrap-up turn, the role-play ends whatever she wrote: it never runs on silently (084f10d4).
+  if (turns > ROLEPLAY_MAX_TURNS + 1) return "pitch";
   return stage;
 }
 
@@ -443,6 +462,10 @@ export type DemoProgress = {
   rpBooking?: { service?: string; day?: string; time?: string };
   /** "I don't understand" with nothing more, in a row: 1, 2, 3... (0 or absent once they follow). */
   confused?: number;
+  /** Their latest words were a no ("No.", "I told you no"): nothing is confirmed or taken on them. */
+  saidNo?: boolean;
+  /** Replies outside a role-play that offered one (transcript 0a45870b: "I feel like you're rushing me towards your demo"). */
+  roleplayOffers?: number;
 };
 
 /**
@@ -594,8 +617,12 @@ export function withDemoAnswer(progress: DemoProgress, stage: DemoStage, words: 
     roleplayTurns: stage === "roleplay" && !lost ? progress.roleplayTurns + 1 : progress.roleplayTurns,
     confused: lost ? (progress.confused ?? 0) + 1 : 0,
     picked: pickedFrom(words, progress.lastListed ?? []),
+    saidNo: SAID_NO.test(words.trim()),
   };
 }
+
+/** A bare no to what was just asked ("No.", "No. No.", "I told you no"): never taken as a yes (084f10d4). "No, that's all, thanks" is not one. */
+export const SAID_NO = /^\W*(?:(?:no+|nope|nah)[\s,.!]*)+$|^\W*i (?:told|said to) you no\b|^\W*i said no\b/i;
 
 /** "I don't understand", "What do you mean?", "I'm confused": a caller who lost the thread and said nothing more. */
 export function isConfused(words: string): boolean {
@@ -761,6 +788,16 @@ export function bareCount(answer: string | undefined): number | null {
  * then the next question, so the call moves on rather than circling; `asks`
  * is the scripted question it asks, kept as her state would be.
  */
+export function demoIntroRecovery(context: Pick<DemoCallContext, "clinic">): { line: string; alternate: string; bridge: string; asks: DemoQuestion | null } {
+  const clinic = shortClinicName(context.clinic.clinicName);
+  return {
+    line: `Sorry, I lost my train of thought there. What would you like to know about how I'd work for ${clinic}?`,
+    alternate: "Sorry, let me come at that another way: want to hear what I do, or try a quick role-play?",
+    bridge: `Anyway, what would you like to know about how I'd work for ${clinic}?`,
+    asks: null,
+  };
+}
+
 export function demoRecovery(
   context: Pick<DemoCallContext, "clinic">,
   progress: DemoProgress,
@@ -904,6 +941,8 @@ const TALK = [
   `Every reply is at most one short sentence of reaction, and often none, then one short sentence of content: the answer, the point, or the one question. The lines given below are the most a reply may hold; shorter is better.`,
   `Never sum up or restate what they just said, and never open with "Sounds like...", "It sounds like...", "I hear you", "So you're saying..." or "Got it, so...": go straight to the content. Only when they voice something negative (frustration, worry, a complaint) does one short, genuine acknowledgment come first, and not every time.`,
   `If their words come through unclear or cut off, say only something like "Sorry, say that again?" and wait; never repeat your question in its place. Restate the question only if their next try is unclear too, or they ask what you meant.`,
+  `Never open with filler ("Mm", "Hmm", "Let me see", "Let's see"). On an odd or off-topic aside (a grammar nitpick, a joke, a tangent), one short, warm line and back to where you were: never a lecture or a technical self-correction.`,
+  `Your spoken words never contain braces, the word "state" as a field, or anything from your JSON details: those go only after the delimiter.`,
 ].join("\n");
 
 /**
@@ -975,8 +1014,15 @@ function rpBookingLines(progress: DemoProgress, context: Pick<DemoCallContext, "
   ];
 }
 
+/**
+ * Healdesk is the company behind her (transcript 0a45870b: asked "what's
+ * special about healdesk?", she said she'd "rather not go into their product
+ * details here").
+ */
+const SELF = `You are healdesk's Aya, and the product they are hearing is you. A question about healdesk is about you: answer it straight from where healdesk sits, in the first person ("I", "we"), never calling healdesk "they" or treating it as another company.`;
+
 /** On a question with no answer here (6b): never the last question again. */
-const DEFLECT = `If they ask something you have no answer for (another company, a feature or a detail not in this note, anything outside what you know), never repeat your last question and never ask it again in other words: acknowledge it in a few words, give one honest line from where healdesk sits if one fits, then move the conversation on with a genuine new question.`;
+const DEFLECT = `If they ask something you have no answer for (another company, a feature or a detail not in this note, anything outside what you know; never healdesk itself, which you answer), never repeat your last question and never ask it again in other words: acknowledge it in a few words, give one honest line from where healdesk sits if one fits, then move the conversation on with a genuine new question.`;
 
 /** On resistance (6f): a move other than the last, and never the same question twice. */
 function pushbackRule(last: DemoPushback | null | undefined): string {
@@ -1017,7 +1063,14 @@ export function demoStageNote(
   const opener = demoRoleplayOpener(full);
   const known = knownLine(progress);
   const startRule = `To start a role-play, write one short handover ("Let's do it, you be the patient.") and add "roleplay": "start" to the state: the call then says the opener itself, word for word ("${opener}"). Never write your own version of it, never start one any other way, and never start one unless their words chose it. If they answer an either/or question with only a yes ("Yes, please", "Sure"), ask which one they mean in a few words instead of choosing for them.`;
-  const shared = [...confusedRule(progress), ...fastLane(progress)];
+  const shared = [
+    SELF,
+    ...confusedRule(progress),
+    ...fastLane(progress),
+    ...(progress.saidNo
+      ? [`They just said no. Nothing is confirmed, requested or set up on that: never say it's all set or done. Take the no, and ask what they would like instead in a few words.`]
+      : []),
+  ];
   const a = progress.answers;
   const goalQuestion = `"What made you want to look at an AI assistant for ${clinic}?"`;
   const button = context.buyButton?.replace(/\bAYA\b/g, "Aya") ?? null;
@@ -1040,7 +1093,7 @@ export function demoStageNote(
     ? `If they say they're not interested or have to go, close on one short, genuinely warm note and set "end" to true.`
     : `If they clearly say they're not interested or have to go, answer with exactly: "${DEMO_CALLBACK_OFFER.text}" (asked: callback), once in the call; if they decline, close on one short, genuinely warm note and set "end" to true. If they firmly refuse to go on at all ("leave me alone", "stop calling", "I said no"), skip that question: one brief, positive goodbye with no "Talk soon", and "end" true. Never push past a firm no.`;
   const resume = progress.lastRoleplay
-    ? `If they want to carry on that same role-play ("wait, continue", "keep going"), resume it in character, never refusing and never starting over with "Ring ring": open with a one-line recap of where it was, close to "Right, you'd just asked about...", then answer as ${clinic}'s front desk again, and add "resume": true to the state. Where it stopped: they said "${progress.lastRoleplay.caller.replace(/"/g, "'")}", and you said "${progress.lastRoleplay.aya.replace(/"/g, "'")}".`
+    ? `If they want to carry on that same role-play ("wait, continue", "keep going", "I want more", "that's it?"), resume it in character, never refusing and never starting over with "Ring ring": open with a one-line recap of where it was, close to "Right, you'd just asked about...", then answer as ${clinic}'s front desk again, and add "resume": true to the state. Where it stopped: they said "${progress.lastRoleplay.caller.replace(/"/g, "'")}", and you said "${progress.lastRoleplay.aya.replace(/"/g, "'")}".`
     : null;
   if (stage === "intro") {
     const next = callbackStep
@@ -1059,6 +1112,9 @@ export function demoStageNote(
       ANSWERED_RULE,
       `Whenever they want the role-play, start it in the same reply, never a later one. ${startRule} Then they play one of your patients and you answer as ${clinic}'s front desk. Say "your patients", never "our patients" or "another patient".${context.clinic.services.length === 0 ? ` ${clinic}'s treatments and prices are not on file, so if they are unsure what to ask, suggest what callers ask first: the hours, where it is, or booking a consultation.` : ""}`,
       `If they would rather skip the role-play, or ask about price or getting started, find out what they need first, by asking: ${goalQuestion}`,
+      (progress.roleplayOffers ?? 0) >= 2
+        ? `You have offered the role-play ${progress.roleplayOffers} times already: don't offer it again unless they ask for it. Answer what they ask, fully.`
+        : `Answer what they actually ask, fully, before anything else. Offer the role-play at most once more, and never in two replies in a row; if they decline it or say you're pushing, don't offer it again unless they ask.`,
       ...(resume ? [resume] : []),
       leaving,
       ...quirkRules(progress, context.firstName),
@@ -1182,6 +1238,8 @@ export function demoStageNote(
         ]
       : []),
     `Never say the team has been told, has their number or will call: when they have, the call says so itself.`,
+    `After anything that knocks the call off course (a complaint, confusion, a role-play that went badly), pick up with the next step above, using what they already told you: never open-ended feedback questions ("what would help most?", "what's the one thing you'd want?").`,
+    `Never offer a waived, free or fully credited setup fee, or any money off beyond what this note states.`,
     ...(resume ? [resume] : []),
     leaving,
     ...quirkRules(progress, context.firstName),

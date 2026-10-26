@@ -52,6 +52,7 @@ function dialable(e164: string): string {
 export default async function DemoCallbacksSection({ searchParams }: { searchParams: Promise<{ result?: string }> }) {
   if (!(await requireOperator())) redirect("/admin/sign-in");
   const { result } = await searchParams;
+  const now = new Date();
 
   if (!isMarketingStoreConfigured()) {
     return (
@@ -109,7 +110,7 @@ export default async function DemoCallbacksSection({ searchParams }: { searchPar
                 <a className="underline underline-offset-2" href={demoUrl(callback.slug)}>
                   their demo
                 </a>
-                {callback.offerEndsAt && callback.offerEndsAt.getTime() > Date.now() ? ` · discount ends ${when(callback.offerEndsAt)}` : ""}
+                {callback.offerEndsAt && callback.offerEndsAt.getTime() > now.getTime() ? ` · discount ends ${when(callback.offerEndsAt)}` : ""}
               </p>
               <form action={markCalled} className="mt-4">
                 <input type="hidden" name="id" value={callback.id} />

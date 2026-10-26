@@ -304,7 +304,12 @@ sends none), only a preview and the confirmed amount, so have the owner's word b
 press it. System › "Requires your attention" counts, across clinics, the Stripe and Connect
 events parked or retrying and the billing requests still pending ("Billing requests not
 done": a dead-lettered request has its done_at set, so it is not among them); it only reads,
-and an event that names no clinic shows nowhere else.
+and an event that names no clinic shows nowhere else, except in the approval inbox. A parked
+Stripe event lives in one place for you to act on: the item under Queues › Approvals, whose
+Approve replays it, while the approvals job is on (an event provisioning will replay is not
+proposed). Home then shows that approval row and drops the "Stripe events parked" queue row for
+the events it holds, but still shows the queue row for any it does not hold; System still counts
+all of them, and the alert raised when it parked stays on Home for a day.
 
 ### Usage
 

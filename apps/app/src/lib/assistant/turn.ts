@@ -739,8 +739,14 @@ export function voiceHabits(history: readonly TranscriptTurn[], firstName: strin
       `They asked nearly the same thing a moment ago ("${again.slice(0, 120).replace(/"/g, "'")}"), so your answer did not land: answer it differently, fuller and plainer, all of it in one go, and never in the words you used before.`,
     );
   }
-  if (replies.some((r) => /\b(?:sorry|apologi[sz]e)\b/i.test(r))) {
+  // "Sorry, say that again?" asks them to repeat; it is not an apology (6e).
+  if (replies.some((r) => /\b(?:sorry|apologi[sz]e)\b/i.test(r) && !SAY_AGAIN.test(r))) {
     out.push(`You have already apologised on this call: no more "sorry", just carry on.`);
+  }
+  const reflected = replies.slice(-3).filter((r) => REFLECTION_OPENER.test(r.trim()));
+  if (reflected.length > 0) {
+    const opening = reflected.at(-1)!.trim().split(/(?<=[.!?,])\s/)[0]!.slice(0, 80).replace(/"/g, "'");
+    out.push(`Your recent replies opened by reflecting their words back ("${opening}"): don't. Go straight to the content; acknowledge only a negative feeling they voice, briefly and rarely.`);
   }
   const name = firstName?.trim();
   if (name) {
@@ -757,6 +763,17 @@ export function voiceHabits(history: readonly TranscriptTurn[], firstName: strin
   }
   return out;
 }
+
+/** A short "say that again?" (6e): asking them to repeat, not an apology. */
+const SAY_AGAIN = /^[^.!?]{0,40}\b(?:say that again|repeat that|what was that|one more time|come again|didn'?t catch)\b[^.!?]{0,20}\?$/i;
+
+/**
+ * A reply opening by reflecting the caller's words back (owner, 26 October
+ * 2026, 6c: "Sounds like you're losing business on calls you can't pick up",
+ * "I hear you, Lia", opening nearly every reply). Noticed from the record,
+ * so the next reply is told to go straight to the content.
+ */
+const REFLECTION_OPENER = /^(?:it\s+|so\s+it\s+)?sounds like\b|^i hear you\b|^so,?\s+you'?re saying\b|^so what you'?re saying\b|^got it,?\s+so\b|^i totally understand\b|^i understand\b/i;
 
 /** Words too common to tell two questions apart. */
 const COMMON_WORDS = new Set(

@@ -189,7 +189,16 @@ enforceable rather than aspirational.
    line (`turn.ts` `softRefusal`), and a bare count of the owner's calls
    passes the unit-less dose pattern (`AssistantFacts.businessCounts`); a
    patient's call never sets either. `lib/voice/demo-cases.ts` holds the
-   regression cases every change to the demo must pass. Only the pitch may quote healdesk's prices, each from the
+   regression cases every change to the demo must pass. Every demo reply is
+   one short reaction at most, then one short sentence of content, with no
+   reflection opener except for a negative feeling; a question she has no
+   answer for gets one true line of where healdesk sits (`POSITIONING`,
+   never a competitor named) and a new question, never the last one again;
+   pushback gets a move from a rotating set; a caller who is not interested
+   is asked once for a number to call (the offer's own words), a firm no
+   only a goodbye; "wait, continue" resumes the last role-play; and after
+   the opening line the clinic is called by its short name
+   (`shortClinicName`; owner, 26 October 2026, Phase 6). Only the pitch may quote healdesk's prices, each from the
    catalog and let through the guard exactly (`demoPriceList`,
    `AssistantFacts.quotedAmountsUsd`); a clinic's call quotes its own menu
    alone. Spoken text writes "Aya", never

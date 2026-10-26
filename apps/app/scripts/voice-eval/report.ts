@@ -37,6 +37,9 @@ export type ResultRow = {
   judge_usage: Usage;
   latency_s: number;
   assistant_turns: number;
+  /** Words in the model's own replies, and how many replies (owner, 26 October 2026, 6a: replies run long). Absent on rows from before. */
+  model_words?: number;
+  model_turns?: number;
   sources: Partial<Record<TurnSource, number>>;
   endings: string[];
   tone_hash: string;
@@ -77,8 +80,22 @@ export type VariantReport = {
   guardRate: number;
   /** Share of answers that were any fixed line rather than the model's own words. */
   fixedRate: number;
+  /** Mean words per reply the model wrote itself (6a); NaN with no rows that counted them. */
+  wordsPerTurn: number;
   usd: number;
 };
+
+/** Mean words per model-written reply across the rows that counted them. */
+export function wordsPerTurn(rows: readonly ResultRow[]): number {
+  let words = 0;
+  let turns = 0;
+  for (const r of rows) {
+    if (typeof r.model_words !== "number" || typeof r.model_turns !== "number") continue;
+    words += r.model_words;
+    turns += r.model_turns;
+  }
+  return turns === 0 ? Number.NaN : words / turns;
+}
 
 export function rowCost(r: ResultRow): number {
   return costOf(r.model, r.usage) + (r.caller_model ? costOf(r.caller_model, r.caller_usage) : 0) + costOf(r.judge_model, r.judge_usage);
@@ -110,6 +127,7 @@ export function buildReport(variant: string, rows: readonly ResultRow[]): Varian
     perSplit: meanBy(rows, (r) => r.split ?? "all"),
     guardRate: answers === 0 ? 0 : guarded / answers,
     fixedRate: answers === 0 ? 0 : fixed / answers,
+    wordsPerTurn: wordsPerTurn(rows),
     usd: rows.reduce((sum, r) => sum + rowCost(r), 0),
   };
 }
@@ -125,7 +143,7 @@ export function reportMarkdown(r: VariantReport, mode: "dry-run" | "live"): stri
     `# Voice eval: ${r.variant}${mode === "dry-run" ? " (DRY RUN: scripted fake replies, scores mean nothing)" : ""}`,
     "",
     `Cases: ${r.cases}. Tone: ${r.toneHash ?? "mixed"}. Overall: **${ci(r.overall)}** (0-100).`,
-    `Guard replaced ${pct(r.guardRate)}% of answers; ${pct(r.fixedRate)}% of answers were fixed lines. Spend ${mode === "dry-run" ? "(estimated)" : "(measured)"}: $${r.usd.toFixed(2)}.`,
+    `Guard replaced ${pct(r.guardRate)}% of answers; ${pct(r.fixedRate)}% of answers were fixed lines. Words per turn (the model's own replies): ${Number.isFinite(r.wordsPerTurn) ? r.wordsPerTurn.toFixed(1) : "-"}. Spend ${mode === "dry-run" ? "(estimated)" : "(measured)"}: $${r.usd.toFixed(2)}.`,
     "",
     table("Per skill", r.perSkill, label),
     table("Per specialty", r.perSpecialty),

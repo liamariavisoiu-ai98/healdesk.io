@@ -55,6 +55,7 @@ import {
   DEMO_OPENED_PROGRESS,
   demoRecovery,
   demoRoleplayOpener,
+  shortClinicName,
   demoStateFrom,
   demoStageNote,
   demoTimeZone,
@@ -259,24 +260,39 @@ describe("a demo call's facts", () => {
     }
   });
 
+  test("6i: the short name a person uses after the greeting, the full one kept when nothing short is left", () => {
+    expect(shortClinicName("Lumen Aesthetics & Wellness")).toBe("Lumen");
+    expect(shortClinicName("Lumen Aesthetics")).toBe("Lumen");
+    expect(shortClinicName("Glow Med Spa of Austin")).toBe("Glow");
+    expect(shortClinicName("Skin Deep Med Spa")).toBe("Skin Deep");
+    expect(shortClinicName("Radiance MedSpa - Downtown")).toBe("Radiance");
+    expect(shortClinicName("The Woodlands Laser Clinic")).toBe("Woodlands");
+    expect(shortClinicName("SkinSpirit")).toBe("SkinSpirit");
+    expect(shortClinicName("The Laser Clinic")).toBe("The Laser Clinic");
+    expect(shortClinicName("Med Spa")).toBe("Med Spa");
+    expect(shortClinicName("Jo Aesthetics")).toBe("Jo Aesthetics");
+  });
+
   test("the intro note asks one thing at a time, the role then the owner's A/B choice, and starts the role-play in the same reply", () => {
     const now = Date.now();
-    const opener = demoRoleplayOpener("Lumen Aesthetics");
+    // The full name once, in the opening line; the short one after it (6i).
+    const opener = demoRoleplayOpener("Lumen");
     const note = demoStageNote(context(), "intro", now);
     expect(note).toContain("live demo for Sam");
-    expect(note).toContain("Next: greet them by name in a few words and ask their role at Lumen Aesthetics");
+    expect(note).toContain('Call the clinic "Lumen": its full name, "Lumen Aesthetics", was said once in your opening line');
+    expect(note).toContain("Next: greet them by name in a few words and ask their role at Lumen");
     // The opening line asked who it has: never again (owner's test call, 25 October 2026: "Am I speaking with Josh?", then "is this Josh?").
     expect(note).toContain("Your opening line already asked whether you're speaking with Sam: never ask it again");
     // Channels answered whole, from the catalog, and her structured state asked for.
     expect(note).toContain("If channels come up at any point");
     expect(note).toContain('add to the JSON details a "state" object');
-    expect(note).toContain("What's your role at Lumen Aesthetics?");
+    expect(note).toContain("What's your role at Lumen?");
     expect(note).toContain(`start it in the same reply, never a later one, with exactly: "${opener}"`);
     expect(note).toContain('Say "your patients", never "our patients"');
     expect(note).toContain('write it exactly "Aya", never "AYA"');
     expect(note).toMatch(/no flirting/);
     // Skipping the role-play finds out what they need before anything is sold.
-    expect(note).toContain('"What made you want to look at an AI assistant for Lumen Aesthetics?"');
+    expect(note).toContain('"What made you want to look at an AI assistant for Lumen?"');
     expect(demoStageNote(context({ firstName: null }), "intro", now)).toContain("live demo for the caller");
 
     // Their role is known: the A/B choice, never the role again, and no congratulations (owner's test call, 25 October 2026).
@@ -291,13 +307,13 @@ describe("a demo call's facts", () => {
     const chose = demoStageNote(context(), "intro", now, { asked: null, answers: { role: "the owner", choice: "whatever is best" }, roleplayTurns: 0, said: [] });
     expect(chose).toContain(`or leave it to you ("whatever's best"), start it in this same reply`);
     expect(chose).toMatch(/English and Spanish/);
-    expect(chose).toMatch(/never mention a website, scraping/);
+    expect(chose).toMatch(/never a website, scraping or how you learned anything/);
   });
 
   test("the role-play note is brisk, takes a request in few questions, wraps up on its own and never ends the call", () => {
     const note = demoStageNote(context(), "roleplay", Date.now());
     expect(note).toContain("The role-play is on: Sam");
-    expect(note).toContain("one or two short sentences a turn");
+    expect(note).toContain("Every reply is at most one short sentence of reaction, and often none, then one short sentence of content");
     expect(note).toContain("ask only for the treatment and a preferred day and time");
     expect(note).toContain('never ask "anything else?"');
     expect(note).toContain("never a figure they said");
@@ -323,13 +339,13 @@ describe("a demo call's facts", () => {
     const first = at({});
     expect(first).toContain("Find out what they need before you sell anything");
     expect(first).toContain("no pitch, no price and no talk of signing up until the questions are answered");
-    expect(first).toContain('Next: take their reaction to the role-play in a few words (if they are unsure or not convinced, ask what would make it convincing for them), then find out what they are after: "What made you want to look at an AI assistant for Lumen Aesthetics?"');
+    expect(first).toContain('Next: take their reaction to the role-play in a few words (if they are unsure or not convinced, ask what would make it convincing for them), then find out what they are after: "What made you want to look at an AI assistant for Lumen?"');
     expect(first).toContain("never on a call and never by text message");
     // No pitch until the questions are answered.
     expect(first).not.toContain("The pitch, in this order");
     // Capitals only in the rule against them, so nothing she copies spells it out.
     expect(first.replace('never "AYA"', "")).not.toContain("AYA");
-    expect(first).toContain(`If they want to try another role-play, start it the same way: "${demoRoleplayOpener("Lumen Aesthetics")}"`);
+    expect(first).toContain(`If they want to try another role-play, start it the same way: "${demoRoleplayOpener("Lumen")}"`);
 
     const goal = at({ goal: "we miss calls when we're busy" });
     expect(goal).toContain(`- what they are after: "we miss calls when we're busy"`);
@@ -351,7 +367,7 @@ describe("a demo call's facts", () => {
     expect(pitch).toContain("Next: pitch beat 1, as written below.");
     expect(pitch).toContain("The pitch, in this order");
     expect(pitch).toContain("Aya Voice, Aya Web Chat, Aya Meta Chat");
-    expect(pitch).toContain('"Want to get Lumen Aesthetics set up?"');
+    expect(pitch).toContain('"Want to get Lumen set up?"');
 
     // Hours it cannot read: no number of days is said, and the check is skipped.
     const unread = demoStageNote(context({ clinic: { ...context().clinic, hours: [{ days: "Most days", hours: "by arrangement" }] } }), "pitch", now, {
@@ -372,17 +388,17 @@ describe("a demo call's facts", () => {
       demoStageNote(context({ offer }), "pitch", now, { asked: null, answers: { ...discovered, ...extra }, roleplayTurns: 0, said });
     const start = at([]);
     // In the owner's order.
-    const order = ["those are the ones I'd be picking up", "Here's what you haven't seen on this call", "you keep your own number", "quick read of your public website", "a full-time receptionist runs $3,900 to $4,800 a month loaded", "a HydraFacial on your books at $199", "looks like the fit", "no strings attached", "cancel within your first 14 days"];
+    const order = ["are the ones I'd pick up", "it's not just the phone", "you keep your own number", "quick read of your public website", "a receptionist runs $3,900 to $4,800 a month", "a HydraFacial at $199", "looks like the fit", "no strings attached", "cancel within your first 14 days"];
     const positions = order.map((words) => start.indexOf(words));
     expect(positions.every((p) => p > 0)).toBe(true);
     expect([...positions].sort((x, y) => x - y)).toEqual(positions);
     // The discount is the live one checkout applies, said exactly.
-    expect(start).toContain(`"And there's a real discount on finishing it right now: 50% off the setup fee, for the next 47 hours."`);
+    expect(start).toContain(`"And finishing now gets you 50% off the setup fee, for the next 47 hours."`);
     // Booking and the deposit link are still being built: what she is designed to do.
-    expect(start).toContain("I'm designed to book straight into your calendar, not just take a request");
-    expect(start).toContain("I'm designed to send your own deposit link while they book");
+    expect(start).toContain("I'm designed to book straight into your calendar");
+    expect(start).toContain("I'm designed to send your own deposit link as they book");
     // The terms' refund, never more generous; the setup fee is never refunded.
-    expect(start).toContain("cancel within your first 14 days and your first subscription period is refunded in full. The setup fee is the only part that's firm");
+    expect(start).toContain("cancel within your first 14 days and your first subscription period is refunded in full; only the setup fee is firm");
     expect(start).not.toMatch(/first month's subscription is fully refundable/);
 
     // Each beat said is marked and the next one named.
@@ -391,7 +407,7 @@ describe("a demo call's facts", () => {
     expect(twoSaid).toMatch(/2\. \(reveal\) The reveal:.*\(said: never again\)/);
     // After every beat: the tie-down, then the ask.
     expect(at([...DEMO_BEATS])).toContain(`Next, the tie-down: "Anything that'd stop you from getting that running today?"`);
-    expect(at([...DEMO_BEATS], { tiedown: "not really" })).toContain('then ask for it plainly: "Want to get Lumen Aesthetics set up?"');
+    expect(at([...DEMO_BEATS], { tiedown: "not really" })).toContain('then ask for it plainly: "Want to get Lumen set up?"');
     // The close repeats the live discount; a hesitant owner is offered a call
     // from the team (demo-callback.ts), and turning it down gets the page's
     // button and hello@. The note never lets her say the team has it: the
@@ -416,13 +432,13 @@ describe("a demo call's facts", () => {
       "Right now I'm working off a quick read of your public website, so you're only seeing part of what I can do. Finishing it takes about fifteen minutes of your time: we connect your calendar and your real menu, and from then on I work from your actual systems and I'm designed to book straight into your calendar, not just take a request.",
       "And there's a real discount on finishing it right now: 50% off the setup fee, for the next 47 hours.",
       "For context, a full-time receptionist runs $3,900 to $4,800 a month loaded, and most answering services are $400 to $1,500 and still can't book or quote your menu.",
-      "Every one of those calls that turns into a booking is, say, a HydraFacial on your books at $199. Can't promise you a number, but that's the shape of it.",
-      "And in your website chat and messages I'm designed to send your own deposit link while they book, which helps with no-shows.",
+      "Every one of those calls that books is, say, a HydraFacial at $199. Can't promise a number, but that's the shape of it.",
+      "In chat and messages I'm designed to send your own deposit link as they book.",
       "Based on what you've told me, Aya Voice at 300 minutes looks like the fit.",
       "You've already tried it, no strings attached.",
-      "And if it's not a fit once you're live, cancel within your first 14 days and your first subscription period is refunded in full. The setup fee is the only part that's firm, since that's your setup getting built and checked.",
+      "If it's not a fit once you're live, cancel within your first 14 days and your first subscription period is refunded in full; only the setup fee is firm.",
       "Anything that'd stop you from getting that running today?",
-      "Want to get Lumen Aesthetics set up? Just tap Book Onboarding at the top of your demo page, and your 50% off the setup fee is already applied, for the next 47 hours.",
+      "Want to get Lumen set up? Just tap Book Onboarding at the top of your demo page, and your 50% off the setup fee is already applied, for the next 47 hours.",
       "No problem at all. Whenever you're ready, Book Onboarding is right there on your demo page, and you can reach the team at hello at healdesk dot io if you'd like to talk it through.",
     ];
     for (const line of lines) expect([line, guardAssistantReply(line, pitch)]).toEqual([line, { ok: true }]);
@@ -435,12 +451,12 @@ describe("a demo call's facts", () => {
 
   test("the session keeps each answer from her structured state update and the caller's next words, never from her prose", () => {
     // The state update in the details, each value checked against the lists.
-    expect(demoStateFrom({ asked: "volume", beats: [] }, "Generally, how many calls do you get a day?")).toEqual({ asked: "volume", beats: [], callback: null });
-    expect(demoStateFrom({ asked: "coverage", beats: ["pain", "nonsense"] }, "How do you see me helping you best?")).toEqual({ asked: "coverage", beats: ["pain"], callback: null });
+    expect(demoStateFrom({ asked: "volume", beats: [] }, "Generally, how many calls do you get a day?")).toEqual({ asked: "volume", beats: [], callback: null, pushback: null, skip: null, resume: false });
+    expect(demoStateFrom({ asked: "coverage", beats: ["pain", "nonsense"] }, "How do you see me helping you best?")).toEqual({ asked: "coverage", beats: ["pain"], callback: null, pushback: null, skip: null, resume: false });
     // A question counts only in a reply that asks one; an unknown or the opening's own question never.
-    expect(demoStateFrom({ asked: "volume" }, "Got it, five a day.")).toEqual({ asked: null, beats: [], callback: null });
-    expect(demoStateFrom({ asked: "bogus" }, "What?")).toEqual({ asked: null, beats: [], callback: null });
-    expect(demoStateFrom({ asked: "identity" }, "Is this Josh?")).toEqual({ asked: null, beats: [], callback: null });
+    expect(demoStateFrom({ asked: "volume" }, "Got it, five a day.")).toEqual({ asked: null, beats: [], callback: null, pushback: null, skip: null, resume: false });
+    expect(demoStateFrom({ asked: "bogus" }, "What?")).toEqual({ asked: null, beats: [], callback: null, pushback: null, skip: null, resume: false });
+    expect(demoStateFrom({ asked: "identity" }, "Is this Josh?")).toEqual({ asked: null, beats: [], callback: null, pushback: null, skip: null, resume: false });
     // No state at all is not a state.
     expect(demoStateFrom(null, "Generally, how many calls do you get a day?")).toBeNull();
     expect(demoStateFrom(["volume"], "How many?")).toBeNull();
@@ -482,7 +498,7 @@ describe("a demo call's facts", () => {
     expect(guardAssistantReply("Setup is $697, and with your 50% off it's $349.", demoPitchFacts(facts, { offer }, now, partial))).toMatchObject({ ok: false, reason: "price" });
     const covered: DemoProgress = { ...partial, answers: { ...partial.answers, missed: "voicemail", coverage: "after hours" } };
     expect(guardAssistantReply("Setup is $697, and with your 50% off it's $349.", demoPitchFacts(facts, { offer }, now, covered))).toEqual({ ok: true });
-    expect(demoStageNote(context({ offer }), "pitch", now, covered)).toContain('"Want to get Lumen Aesthetics set up?"');
+    expect(demoStageNote(context({ offer }), "pitch", now, covered)).toContain('"Want to get Lumen set up?"');
   });
 
   test("twice refused after the role-play: a person who lost the thread, then the next question, never the clinicians' line", () => {
@@ -525,7 +541,7 @@ describe("a demo call's facts", () => {
     expect(note).toContain("Aya Voice $697 ($349 with their 50% off)");
     expect(note).toContain("Aya Voice plus Meta Chat $1,394 ($697 with their 50% off)");
     expect(note).toContain("The monthly price only starts the day you first answer one of their patients");
-    expect(note).toContain('"Want to get Lumen Aesthetics set up?"');
+    expect(note).toContain('"Want to get Lumen set up?"');
     expect(note).toContain('"Just tap Book Onboarding at the top of your demo page, and your 50% off the setup fee is already applied, for the next 10 hours."');
     // Asked, and they hesitated: one doubt answered, asked once more.
     const asked = demoStageNote(context({ offer: { percentOfSetupFee: 50, endsAt: now + 10 * 3_600_000 } }), "pitch", now, {
@@ -547,7 +563,7 @@ describe("a demo call's facts", () => {
       roleplayTurns: 0,
       said: [],
     });
-    expect(pitched).toContain("a HydraFacial on your books at $199");
+    expect(pitched).toContain("a HydraFacial at $199");
     expect(pitched).toContain("Never call it revenue, profit or money they will make");
     // The homepage demo's button is "Get AYA" on the page, said "Get Aya"; a browser demo points at the chat on the page.
     const selfServe = demoStageNote(context({ buyButton: "Get AYA", offer: null }), "pitch", now, COVERED);
@@ -695,7 +711,7 @@ describe("a demo call on the voice engine", () => {
     await s.handle(said(1, [{ role: "agent", content: raw()[0]!.content }, { role: "user", content: "yes that's me, how much is botox" }]));
     expect(heard().at(-1)!.content).toBe("Doing great, thanks for asking! Botox is $12 per unit here.");
     expect(m.seen).toHaveLength(1);
-    expect(m.seen[0]!.turn).toContain("This call is a live demo for Sam, who is on Lumen Aesthetics's team");
+    expect(m.seen[0]!.turn).toContain("This call is a live demo for Sam, who is on Lumen's team");
     expect(m.seen[0]!.turn).toContain(`You opened the conversation with: "Hi! This is Aya`);
     expect(m.seen[0]!.stable).toContain("- Botox: from $12 per unit, about 30 minutes");
     expect(m.seen[0]!.stable).toContain("- Laser Hair Removal: no price is quoted: offer a consultation");

@@ -1406,7 +1406,7 @@ export class RetellCallSession {
     // The turn that takes a demo's call back (demo-callback.ts): her words in
     // it are replaced by the call's own line once it is known whether the team
     // has it, so none of them is spoken as it is written.
-    const takingCallback = Boolean(progress && this.demoStage === "pitch" && progress.asked === "callbackNote" && !progress.callback);
+    const takingCallback = Boolean(progress && this.demoStage !== "roleplay" && progress.asked === "callbackNote" && !progress.callback);
     // A jump-in try is written whole and said whole, or not at all.
     const quiet = takingCallback || jump !== null;
     // After the role-play the call is with a clinic's owner about their own
@@ -1517,8 +1517,17 @@ export class RetellCallSession {
       if (!update && turn.source === "model" && stageBefore !== "roleplay") {
         log.warn("demo reply without its state update", { callId: this.callId, kind: stageBefore });
       }
-      this.demoStage = nextDemoStage(stageBefore, turn.reply, update?.asked ?? null);
+      this.demoStage = nextDemoStage(stageBefore, turn.reply, update?.asked ?? null, update?.resume === true && Boolean(progress.lastRoleplay));
       this.demoProgress = afterDemoReply(progress, stageBefore, this.demoStage, update);
+      // "Sorry, say that again?" asks nothing new: the question it stands in
+      // for stays asked, so their retry answers it (6e).
+      if (update && !update.asked && isStallReply(turn.reply)) this.demoProgress = { ...this.demoProgress, asked: progress.asked };
+      // Where a role-play stopped, kept across "how was that?" so it can be
+      // resumed rather than started over (6d).
+      if (stageBefore === "roleplay" && this.demoStage === "pitch") {
+        const inCharacter = turn.reply.split(/and that's the role-play/i)[0]!.trim() || ([...this.turns].reverse().find((t) => t.speaker === "assistant")?.text ?? "");
+        this.demoProgress = { ...this.demoProgress, lastRoleplay: { caller: words.slice(0, 200), aya: inCharacter.slice(0, 200) } };
+      }
       // A call back, only in the turn that takes it and only from her state:
       // sent to apps/web, and the caller told the team has it only once it
       // does (demo-callback.ts). Kept in the progress either way, so it is

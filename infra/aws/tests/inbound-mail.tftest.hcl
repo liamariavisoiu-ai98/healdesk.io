@@ -514,3 +514,24 @@ run "inbound_mail_needs_ses" {
 
   expect_failures = [aws_ses_receipt_rule.support_mail]
 }
+
+# The bucket policy must not deny an upload that names no encryption header: SES's own
+# write (and CreateReceiptRule's test write) carries none and relies on the bucket default.
+run "bucket_policy_allows_uploads_without_an_encryption_header" {
+  command = plan
+
+  variables {
+    enable_inbound_mail = true
+  }
+
+  assert {
+    condition = (
+      length([for st in data.aws_iam_policy_document.inbound_mail_bucket[0].statement : st if st.sid == "DenyUploadsNotUnderKms"]) == 1 &&
+      toset([for c in one([for st in data.aws_iam_policy_document.inbound_mail_bucket[0].statement : st if st.sid == "DenyUploadsNotUnderKms"]).condition : "${c.test}:${c.variable}"]) == toset([
+        "StringNotEquals:s3:x-amz-server-side-encryption", "Null:s3:x-amz-server-side-encryption",
+      ]) &&
+      one([for c in one([for st in data.aws_iam_policy_document.inbound_mail_bucket[0].statement : st if st.sid == "DenyUploadsNotUnderKms"]).condition : c.values if c.test == "Null"]) == tolist(["false"])
+    )
+    error_message = "The deny for uploads not under KMS must apply only when an encryption header is present and is not aws:kms; an upload with no header is the normal SES write and must be allowed."
+  }
+}

@@ -413,6 +413,9 @@ describeDb("delivery", () => {
           // Each ops alert's Slack copy (lib/ops/slack.ts): not switched, idle
           // without SLACK_WEBHOOK_URL.
           "ops-slack",
+          // Support replies shown in Slack (lane P7i): not switched, idle
+          // without the four SLACK_ support settings.
+          "support-slack",
           // Calendar writes that need a person, told to ops once each
           // (lib/ops/calendar-write-alerts.ts): a sweep that only alerts.
           "calendar-write-alerts",
@@ -506,6 +509,7 @@ describeDb("delivery", () => {
         if (job === "voice-agents") continue; // behind the owner's HEALDESK_VOICE_PROVISION_ENABLED, and idle without the Retell key
         if (job === "calendar-write-alerts") continue; // a sweep: tells ops of stuck calendar writes, once each
         if (job === "ops-slack") continue; // not switched: does nothing until SLACK_WEBHOOK_URL is set
+        if (job === "support-slack") continue; // not switched: does nothing until the SLACK_ support settings are set
         if (job === "clinic-changes") continue; // tells ops of each recorded change unswitched; its audits stay behind clinic-audits
         if (job === "deposit-links") continue; // a sweep: flags to the front desk only a pending_link deposit with no link, past its grace
         expect(status, job).toBe("disabled");
@@ -527,6 +531,7 @@ describeDb("delivery", () => {
       expect(jobs["retell-fallback"]).toBe("skipped");
       expect(jobs["voice-agents"]).toBe("skipped");
       expect(jobs["ops-slack"]).toBe("ok");
+      expect(jobs["support-slack"]).toBe("ok");
       expect(jobs["calendar-write-alerts"]).toBe("ok");
       expect(jobs["clinic-changes"]).toBe("ok");
       expect(out.some((o) => o.status === "threw")).toBe(false);

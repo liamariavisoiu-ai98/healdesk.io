@@ -150,6 +150,10 @@ export const ALLOWED_LOG_KEYS: ReadonlySet<string> = new Set([
   // used in its window and the allowance it includes. Counts.
   "used",
   "included",
+  // A Slack member id (U...) pressing a support reply's button, or locking
+  // Slack approvals with wrong passcodes (lib/support/slack-actions.ts, lane
+  // P7i). An operator's id at Slack, never a clinic's or a patient's.
+  "slackUser",
   // Short free text, scrubbed on the way out.
   "reason",
   "error",

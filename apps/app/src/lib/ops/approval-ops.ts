@@ -198,7 +198,17 @@ const ALREADY = "This has already been decided, so nothing more was done. Reload
 export async function opDecideApproval(
   args: Record<string, unknown>,
   operator: Operator,
-  options: { now?: Date; executors?: Readonly<Record<string, Executor>>; specs?: Readonly<Record<string, KindSpec>> } = {},
+  options: {
+    now?: Date;
+    executors?: Readonly<Record<string, Executor>>;
+    specs?: Readonly<Record<string, KindSpec>>;
+    /**
+     * The factor, when the caller checked it here rather than apps/web: the
+     * Slack modal (lib/support/slack-actions.ts, lane P7i) passes
+     * "passcode via slack". Never read from the request's args.
+     */
+    factor?: string;
+  } = {},
 ): Promise<OpsOutcome> {
   const now = options.now ?? new Date();
   const specs = options.specs ?? KIND_SPECS;
@@ -232,7 +242,7 @@ export async function opDecideApproval(
   const actor = operatorActor(operator);
   const freshCode = booleanArg(args, "codeChecked") === true;
   // Which factor apps/web checked: the approval passcode or the authenticator (lane P7h).
-  const factor = freshCode ? codeFactor(args) : null;
+  const factor = freshCode ? (options.factor ?? codeFactor(args)) : null;
 
   if (action === "reject") {
     if (!(await moveStatus(item.id, "waiting", "rejected", "rejected", actor, now, { outcomeCode: reasonCode }))) {

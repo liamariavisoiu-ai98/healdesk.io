@@ -27,6 +27,7 @@ import { runOpsDigestJob } from "@/lib/ops/digest";
 import { runHealthFlagsJob } from "@/lib/ops/health-flags";
 import { alertStuckCalendarWrites } from "@/lib/ops/calendar-write-alerts";
 import { runOpsSlackSweep } from "@/lib/ops/slack";
+import { runSupportSlackSweep } from "@/lib/support/slack-reply";
 import { runClinicAuditsHourly, runClinicChangesMinute } from "@/lib/audits/jobs";
 import { runOpsWatchJob } from "@/lib/ops/watch";
 import { runSetupRemindersJob } from "@/lib/setup/reminders";
@@ -281,6 +282,8 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   await record("clinic-changes", () => runClinicChangesMinute(now));
   await record("clinic-audits-hourly", () => runClinicAuditsHourly(now));
   await record("ops-slack", () => runOpsSlackSweep());
+  // Support replies in Slack (lane P7i): the minute sweep's backstop.
+  await record("support-slack", () => runSupportSlackSweep());
   // Calendar writes that need a person (lib/ops/calendar-write-alerts.ts):
   // each booking whose Google write ended failed, or unknown and no longer
   // retried, told to ops once. Not a switched job: it only tells ops, and

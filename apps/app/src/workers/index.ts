@@ -35,6 +35,7 @@ import {
 import { runPracticeQuestionsJob } from "@/lib/engine/practice/job";
 import { runClinicChangesMinute } from "@/lib/audits/jobs";
 import { runOpsSlackSweep } from "@/lib/ops/slack";
+import { runSupportSlackSweep } from "@/lib/support/slack-reply";
 import { runOpsWatchJob } from "@/lib/ops/watch";
 import { runSiteReadsJob } from "@/lib/website/job";
 import { handleCallBackstopJob, type CallBackstopPayload } from "@/lib/voice/backstop";
@@ -186,6 +187,10 @@ async function main(): Promise<void> {
       // Each ops alert's Slack copy, posted and retried (lib/ops/slack.ts).
       // Unswitched: off until SLACK_WEBHOOK_URL is set.
       ["ops-slack", () => runOpsSlackSweep()],
+      // Each support reply waiting for a yes, shown and kept true in the
+      // owner's Slack channel (lib/support/slack-reply.ts, lane P7i).
+      // Unswitched: off until the four SLACK_ support settings are set.
+      ["support-slack", () => runSupportSlackSweep()],
       // The redial records of calls that ended early (lib/voice/redial.ts):
       // each deleted at its two hours, whatever any switch says. Unswitched.
       [

@@ -419,8 +419,12 @@ for (const channel of CHANNELS) {
         // tool, what the tool layer did this turn (its fixed line, said now,
         // and the ids of the booking or request it wrote). None holds a
         // recipient, a channel or a time to contact anyone. A new key here
-        // must be read the same way before it is added to this list.
-        expect(Object.keys(results[0]!).sort()).toEqual(["capture", "end", "handoff", "personText", "reply", "source", "tool", "toolState", "toolsLive", "urgent"]);
+        // must be read the same way before it is added to this list. state
+        // (VOICE-T15) is the model's own word on which scripted demo question
+        // it asked and which pitch beats it said, read only by a demo call's
+        // session through demoStateFrom (enum values only) and by nothing on a
+        // clinic's call: it too names nobody and schedules nothing.
+        expect(Object.keys(results[0]!).sort()).toEqual(["capture", "end", "handoff", "personText", "reply", "source", "state", "tool", "toolState", "toolsLive", "urgent"]);
         expect(results[0]!.tool).toBeNull();
       });
     });

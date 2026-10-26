@@ -614,7 +614,7 @@ const PER_UNIT_PRICE = new RegExp(
 );
 
 type ScreenFacts = Pick<AssistantFacts, "services"> &
-  Partial<Pick<AssistantFacts, "clinicName" | "address" | "requirements" | "providerNames">>;
+  Partial<Pick<AssistantFacts, "clinicName" | "address" | "requirements" | "providerNames" | "businessCounts">>;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -708,6 +708,19 @@ const AFTERMATH =
   "bruis\\w*|swelling|swollen|puff(y|iness)|redness|tenderness|soreness|sore|tingling|numbness|itch\\w*|lumps?|bumps?|flaking|peeling|scabbing|irritation";
 
 /**
+ * A dose without its unit: "about 20". A count of calls, bookings, messages
+ * or conversations is never a dose ("about 100 calls a week", a demo's
+ * discovery question); "about 2 a day" still is. It stands aside only for a
+ * demo's talk with a clinic's owner about their own calls (facts
+ * `businessCounts`), where the owner's test call of 25 October 2026 had
+ * "about 25 calls a week, or around 110 a month?" refused as clinical for the
+ * figure the word "calls" did not follow, and heard the clinicians' line in
+ * answer to "Five". A patient's call never sets it.
+ */
+const UNITLESS_DOSE =
+  /(?<!\b(open|opens|opening|close|closes|closing|until|till|from|at|by|after|before|since|arrive|starts?|ends?|takes|lasts|wait|waits)\s)\b(about|around|roughly|approximately|typically|usually)\s\d+\b(?!\s*(%|percent|minutes?|mins?|hours?|hrs?|days?|weeks?|months?|years?|am|pm|a\.m\.|p\.m\.|o'?clock|people|patients|clients|spaces?|spots?|cars?|miles?|km|blocks?|dollars|bucks|usd|seconds?|openings?|slots?|appointments?|times?|seats?|left|available|calls?|bookings?|messages?|conversations?|-minute|-hour|:\d))/i;
+
+/**
  * Clinical advice in plain words, which the vocabulary of the clinical
  * screen does not hold: the reviews of 14 October found each of these
  * passed. Post-model only, on a call or a web chat: a clinic's own text is
@@ -739,10 +752,8 @@ const PLAIN_CLINICAL: RegExp[] = [
   // Triage.
   /\b(that'?s|it'?s|this is|that is|which is) (completely |totally |perfectly |quite |very )?(normal|common|expected|typical) (after|with|for|following)\b|\bnothing to worry about\b|\b(should|will) (settle|subside|go down|calm down|resolve|clear up|heal|fade|go away)( on its own| by itself)?\b/i,
   /\b(sounds|looks|seems) like (a |an )?(mild |small |minor |normal |common |bit of )?(bruise|swelling|reaction|infection|allergy|rash|lump|bump|sprain)\b|\bno need to (come in|be seen|see (a|the|your) (doctor|nurse|clinician|provider|injector))\b(?! (early|earlier|before|until|for|to|at|on|by))/i,
-  // A dose without its unit: "about 20", "20U", "2 syringes". A count of
-  // calls, bookings, messages or conversations is never a dose ("about 100
-  // calls a week", a demo's discovery question); "about 2 a day" still is.
-  /(?<!\b(open|opens|opening|close|closes|closing|until|till|from|at|by|after|before|since|arrive|starts?|ends?|takes|lasts|wait|waits)\s)\b(about|around|roughly|approximately|typically|usually)\s\d+\b(?!\s*(%|percent|minutes?|mins?|hours?|hrs?|days?|weeks?|months?|years?|am|pm|a\.m\.|p\.m\.|o'?clock|people|patients|clients|spaces?|spots?|cars?|miles?|km|blocks?|dollars|bucks|usd|seconds?|openings?|slots?|appointments?|times?|seats?|left|available|calls?|bookings?|messages?|conversations?|-minute|-hour|:\d))/i,
+  // A dose without its unit: "about 20" (UNITLESS_DOSE, above), "20U", "2 syringes".
+  UNITLESS_DOSE,
   /\b\d+\s?u\b(?!\.?\s?s\.)|\b\d+\s(syringes?|vials?|ccs?)\b/i,
   // A dose by weight, written with or without the space: "400mg", "5 mcg", "1000 IU".
   /\b\d+(?:[.,]\d+)?\s?(?:mg|mcg|µg|milligrams?|micrograms?|iu)\b/i,
@@ -795,7 +806,7 @@ const PLAIN_CLINICAL: RegExp[] = [
 export function clinicalIn(reply: string, facts: ScreenFacts): boolean {
   const text = withoutEveryday(perUnitPrices(withoutOwnWords(reply, facts)));
   if (findClinicalContent({ reply: text }).length > 0) return true;
-  return PLAIN_CLINICAL.some((pattern) => pattern.test(text));
+  return PLAIN_CLINICAL.some((pattern) => !(pattern === UNITLESS_DOSE && facts.businessCounts === true) && pattern.test(text));
 }
 
 /** A never-say entry or a reply in the form the list is matched in: normalise(), then a hyphen read as a space. */

@@ -67,7 +67,8 @@ async function deliver(
   store.put(`mail/${id}`, text);
   const { now, ...rest } = over;
   const n = notice(id, { receivedAt: now ?? NOW, ...rest });
-  const outcome = await handleInboundNotice(n, { store, now: now ?? NOW, allowFor: async () => ({ numbers: [], emails: [] }) });
+  // The support-draft job on, so a clinic's email is kept for the drafter (lane P7h; support-inbound-drafter-db.test.ts covers it off).
+  const outcome = await handleInboundNotice(n, { store, now: now ?? NOW, allowFor: async () => ({ numbers: [], emails: [] }), drafterOn: async () => true });
   return { id, n, outcome, messageId };
 }
 
@@ -450,7 +451,7 @@ describeDb("inbound support mail (drizzle/0130)", () => {
     store.put("mail/sweepfresh01", eml("clinic-normal.eml", { FROM: clinic.staffEmail }), new Date(NOW.getTime() - 30 * MINUTE));
     store.put("mail/sweepold0001", eml("clinic-normal.eml", { FROM: clinic.staffEmail }), new Date(NOW.getTime() - 7 * 60 * MINUTE));
     const counts = await sweepInboundMail({ store, now: NOW, allowFor: async () => null });
-    expect(counts).toEqual({ handled: 1, already: 0, dropped: 0, deletedOld: 1, left: 0, failed: 0, cleared: 0 });
+    expect(counts).toEqual({ handled: 1, already: 0, dropped: 0, deletedOld: 1, left: 0, failed: 0, undrafted: 0, cleared: 0 });
     expect(store.objects.size).toBe(0);
     const { rows } = await getMigratorPool().query(`select count(*)::int as n from support_messages where inbound_mail_id = 'sweepfresh01'`);
     expect(rows[0].n).toBe(1);

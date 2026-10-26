@@ -146,7 +146,7 @@ export const DRAFT_TOOLS: Anthropic.Tool[] = [
             type: "object",
             properties: {
               tool: { type: "string", enum: [...READ_TOOL_NAMES] },
-              field: { type: "string", description: "The line's label in that tool's result." },
+              field: { type: "string", description: "The line's label in that tool's result, copied exactly as the tool printed it before its colon." },
               value: { type: "string", description: "The value exactly as that tool wrote it." },
             },
             required: ["tool", "field", "value"],
@@ -159,7 +159,7 @@ export const DRAFT_TOOLS: Anthropic.Tool[] = [
           type: "array",
           items: { type: "string" },
           description:
-            "Short questions the person at healdesk should answer before sending; never a name, a number or an address. Empty when there are none.",
+            "Short questions the person at healdesk should answer before sending; never a name, a number or an address. Empty when there are none, and always empty when the case has an <email>: they are not kept then.",
         },
         confidence: {
           type: "string",

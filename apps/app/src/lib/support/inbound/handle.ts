@@ -42,9 +42,11 @@ import { s3MailStore, type MailStore } from "./store";
  *      it for SNS's retry or the sweep, and the bucket's one-day lifecycle
  *      rule is the backstop.
  *
- * Kept for the drafter (lane P7h; owner, 26 October 2026): a parsed
- * message within the size cap, on a case about a clinic, is left in the bucket and its key written on the
- * row; the support-draft job reads it once and deletes it in a finally
+ * Kept for the drafter (lane P7h; owner, 26 October 2026): while the
+ * support-draft job is switched on, a parsed message within the size cap, on
+ * a case about a clinic that is `new` after it (record.ts), is left in the bucket and its key written on the
+ * row; the support-draft job reads it in memory (again only if a draft run
+ * is retried after a crash), keeps nothing of it, and deletes it in a finally
  * (draft/email.ts), and the sweep deletes it after KEEP_FOR_DRAFTER_MS
  * whatever happened. Nothing more is stored for it: the row is the same
  * facts-only row.
@@ -74,6 +76,8 @@ export type HandleDeps = {
   store?: MailStore;
   now?: Date;
   actor?: ActorContext;
+  /** Whether the support-draft job is switched on (its job row); read from the database otherwise. */
+  drafterOn?: () => Promise<boolean>;
   /** The screen's allow list for a matched clinic (its own numbers and service names). */
   allowFor?: (clinicId: string, now: Date) => Promise<ScreenAllow | null>;
 };
@@ -93,6 +97,12 @@ function headBlock(bytes: Uint8Array): Uint8Array {
   const end = text.search(/\r?\n\r?\n/);
   const head = end === -1 ? text : text.slice(0, end);
   return new Uint8Array(Buffer.from(`${head}\r\n\r\n`, "latin1"));
+}
+
+/** The support-draft job's switch: an email is kept for the drafter only while it is on. */
+async function supportDraftJobOn(): Promise<boolean> {
+  const { getJob, JOB_SUPPORT_DRAFT } = await import("@/lib/scheduler/jobs");
+  return (await getJob(JOB_SUPPORT_DRAFT))?.enabled === true;
 }
 
 const NO_COUNTS: ScreenCounts = { numbers: 0, emails: 0, treatments: 0, clinical: 0 };
@@ -211,7 +221,7 @@ export async function handleInboundNotice(notice: InboundNotice, deps: HandleDep
         senderRef: sender,
         verdicts: auth.verdicts,
         authenticated,
-        keepForDrafter: mail !== null && !oversize,
+        keepForDrafter: mail !== null && !oversize && (await (deps.drafterOn ?? supportDraftJobOn)()),
       },
       target,
       actor,

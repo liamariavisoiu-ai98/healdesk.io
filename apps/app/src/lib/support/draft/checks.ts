@@ -69,15 +69,17 @@ export type CheckId = (typeof CHECK_IDS)[number];
 
 /**
  * The ninth check, run only on a draft written from a clinic's email (lane
- * P7h; owner, 26 October 2026): the reply quotes no run of
- * EMAIL_RUN_WORDS words from the email the model was shown, and repeats none
- * of the screen's masks. The email is held in memory for this run only, so
- * Send cannot run it: it is a draft-only check, like `facts`.
+ * P7h; owner, 26 October 2026): the reply quotes no run of EMAIL_RUN_WORDS
+ * words from the email the model was shown. The email is held in memory for
+ * this run only, so Send cannot run it: it is a draft-only check, like
+ * `facts`. A draft from an email also has two of the eight tightened: `facts`
+ * takes a fact's field only as a label its tool printed, and `names` reads a
+ * sentence's first word too when the email used it as a name.
  */
 export const EMAIL_CHECK_ID = "email_words" as const;
 export type AnyCheckId = CheckId | typeof EMAIL_CHECK_ID;
 /** The longest run of words a reply may share with the email it answers. */
-export const EMAIL_RUN_WORDS = 8;
+export const EMAIL_RUN_WORDS = 5;
 
 /** What each check holds, in one fixed sentence: shown to the operator, logged, never the reply's words. */
 export const CHECK_RULES: Readonly<Record<AnyCheckId, string>> = {
@@ -422,7 +424,11 @@ function checkFacts(input: ReplyCheckInput, sentences: readonly Span[]): { ok: b
   for (const fact of input.facts) {
     const value = normal(fact.value);
     const found = value.length > 0 && (byTool.get(fact.tool) ?? []).some((text) => text.includes(value));
-    if (!found) {
+    // A draft from an email (lane P7h): the field is stored, so it must be a
+    // label the tool printed ("- Label: value"), never the model's own words.
+    const field = normal(fact.field);
+    const labelled = !input.emailText || (field.length > 0 && (byTool.get(fact.tool) ?? []).some((text) => text.includes(`${field}:`)));
+    if (!found || !labelled) {
       factsHold = false;
       continue;
     }
@@ -476,12 +482,20 @@ function checkNames(input: ReplyCheckInput, text: string, sentences: readonly Sp
       input.clinicName,
     ].flatMap(nameWordsOf),
   );
+  // A draft from an email (lane P7h): the capitalised words the email used
+  // mid-sentence (its names, most likely) are not let through at a sentence's start.
+  const emailNames = new Set<string>();
+  if (input.emailText) {
+    for (const m of input.emailText.matchAll(/(?<![\p{L}\p{N}&'’-])\p{Lu}[\p{L}\p{N}&'’-]*/gu)) {
+      if (!startsSentence(input.emailText, m.index!)) emailNames.add(bareWord(m[0].replace(/[-'’]+$/u, "")));
+    }
+  }
   const spans: Span[] = [];
   for (const m of text.matchAll(/(?<![\p{L}\p{N}&'’-])\p{L}[\p{L}\p{N}&'’-]*/gu)) {
     const word = m[0].replace(/[-'’]+$/u, "");
     if (!/^\p{Lu}/u.test(word)) continue;
     if (/\p{N}/u.test(word) || /^HD-[0-9A-Z]{5}$/iu.test(word)) continue; // a ref or an id: check 8's
-    if (startsSentence(text, m.index!)) continue;
+    if (startsSentence(text, m.index!) && !emailNames.has(bareWord(word))) continue;
     const parts = nameWordsOf(word);
     const whole = bareWord(word);
     if (allow.has(whole) || (parts.length > 0 && parts.every((p) => allow.has(p) || !/^\p{L}/u.test(p)))) continue;

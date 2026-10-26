@@ -78,8 +78,9 @@ export type InboundFacts = {
   authenticated: boolean;
   /**
    * Leave the raw message in the bucket for the support drafter (lane P7h):
-   * its key is written on the row, but only when the case names a clinic,
-   * since a case about no clinic is never drafted.
+   * its key is written on the row, but only when the case names a clinic and
+   * is `new` after this email, since only such a case is drafted next. The
+   * handler sets it only while the support-draft job is switched on.
    */
   keepForDrafter?: boolean;
 };
@@ -209,6 +210,8 @@ async function recordIn(
   let ref: string;
   let outcome: "opened" | "joined";
   let caseClinic: string | null;
+  /** Where the case stands after this email: only a `new` case is drafted next (lane P7h). */
+  let stateAfter: SupportCase["state"] = "new";
   if (join) {
     const comesBack = join.state === "waiting_clinic" || join.state === "snoozed";
     const addCounts = join.source === "email";
@@ -234,6 +237,7 @@ async function recordIn(
     caseId = join.id;
     ref = join.ref;
     outcome = "joined";
+    stateAfter = comesBack ? "new" : join.state;
     caseClinic = join.subjectClinicId;
   } else {
     const opened = await insertCase(db, {
@@ -298,7 +302,11 @@ async function recordIn(
     if (!acknowledged) ack = "already";
   }
 
-  const kept = facts.keepForDrafter === true && caseClinic !== null && facts.notice.key === `mail/${facts.notice.sesMessageId}`;
+  // Kept only for a case the drafter takes next: about a clinic and `new`.
+  // A follow-up joining a case already drafted, being drafted or waiting for
+  // an edit is deleted unread, so nothing waits for a draft that will not come.
+  const kept =
+    facts.keepForDrafter === true && caseClinic !== null && stateAfter === "new" && facts.notice.key === `mail/${facts.notice.sesMessageId}`;
   await db.insert(supportMessages).values({
     caseId,
     direction: "in",

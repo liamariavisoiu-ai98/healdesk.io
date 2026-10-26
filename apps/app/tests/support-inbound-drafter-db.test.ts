@@ -19,7 +19,7 @@ import { provisionPortalClinic, type PortalClinic } from "./setup/portal-clinic"
  * The support drafter reads a clinic's email (lane P7h; owner, 26 October
  * 2026; drizzle/0131), against the real database with a fake model and the
  * bucket held in memory. The owner's rule: nothing of the email is kept; the
- * drafter reads it once and proposes a reply for ops approval.
+ * drafter reads it in memory, keeps nothing of it, and proposes a reply for ops approval.
  *
  *   - the handler leaves a clinic's message in the bucket, its key on the
  *     facts-only row; the draft job gives the model the subject and body as
@@ -54,11 +54,11 @@ const FILE_SENTINEL = "quokkafilemark";
 const SENTINELS = [SUBJECT_SENTINEL, BODY_SENTINEL, NAME_SENTINEL, FILE_SENTINEL];
 const STRANGER_NUMBER = "415-555-0199";
 
-function email(from: string, id: string): string {
+function email(from: string, id: string, subjectExtra = ""): string {
   return [
     `From: "${NAME_SENTINEL} Front Desk" <${from}>`,
     "To: support@healdesk.io",
-    `Subject: Calls ring out ${SUBJECT_SENTINEL}`,
+    `Subject: Calls ring out ${SUBJECT_SENTINEL}${subjectExtra}`,
     "Date: Tue, 27 Oct 2026 14:00:00 +0000",
     `Message-ID: <drafter-${id}@mail.example-clinic.test>`,
     "MIME-Version: 1.0",
@@ -99,7 +99,10 @@ function use(name: string, input: unknown = {}): Anthropic.ToolUseBlock {
 /** Reads every tool, then proposes `reply(firstRequestText)`. Records every request. */
 class FakeDrafter implements DraftModelClient {
   readonly requests: string[] = [];
-  constructor(private readonly reply: (prompt: string) => string) {}
+  constructor(
+    private readonly reply: (prompt: string) => string,
+    private readonly extra: { facts?: { tool: string; field: string; value: string }[]; questions?: string[] } = {},
+  ) {}
   async create(params: Anthropic.MessageCreateParamsNonStreaming): Promise<Anthropic.Message> {
     this.requests.push(JSON.stringify(params));
     if (this.requests.length % 2 === 1) return message(READ_TOOL_NAMES.map((name) => use(name)), "tool_use");
@@ -112,8 +115,8 @@ class FakeDrafter implements DraftModelClient {
           urgency: "today",
           handoff_reasons: [],
           reply: this.reply(first).slice(0, 3_900),
-          facts_used: [REPLY_BY_FACT],
-          questions_for_ops: [],
+          facts_used: this.extra.facts ?? [REPLY_BY_FACT],
+          questions_for_ops: this.extra.questions ?? [],
           confidence: "medium",
         }),
       ],
@@ -210,12 +213,17 @@ describeDb("the support drafter reads a clinic's email (drizzle/0131)", () => {
   });
 
   /** One email from the clinic's sign-in, through the handler. */
-  async function deliver(store: ReturnType<typeof memoryMailStore>, at: Date = NOW) {
+  async function deliver(store: ReturnType<typeof memoryMailStore>, at: Date = NOW, options: { drafterOn?: boolean; subjectExtra?: string } = {}) {
     seq += 1;
     const id = `p7h${String(seq).padStart(4, "0")}x`;
-    store.put(`mail/${id}`, email(clinic.email, id), at);
+    store.put(`mail/${id}`, email(clinic.email, id, options.subjectExtra), at);
     const notice: InboundNotice = { sesMessageId: id, bucket: BUCKET, key: `mail/${id}`, receivedAt: at, verdicts: PASS };
-    const outcome = await handleInboundNotice(notice, { store, now: at, allowFor: async () => ({ numbers: [], emails: [] }) });
+    const outcome = await handleInboundNotice(notice, {
+      store,
+      now: at,
+      allowFor: async () => ({ numbers: [], emails: [] }),
+      drafterOn: async () => options.drafterOn ?? true,
+    });
     if (outcome.outcome !== "recorded") throw new Error(`not recorded: ${outcome.outcome}`);
     return { id, caseId: outcome.caseId };
   }
@@ -328,7 +336,7 @@ describeDb("the support drafter reads a clinic's email (drizzle/0131)", () => {
     const model = new FakeDrafter(() => BY_WEDNESDAY);
     await draftNextCase({ client: model, now: new Date(NOW.getTime() + 60_000), mailStore: store }, caseId);
     const sent = model.requests.join("\n");
-    expect(sent).toContain("read for an earlier draft and deleted");
+    expect(sent).toContain("which is no longer held");
     expect(sent.toLowerCase()).not.toContain(BODY_SENTINEL);
   }, 60_000);
 
@@ -338,7 +346,8 @@ describeDb("the support drafter reads a clinic's email (drizzle/0131)", () => {
     await getMigratorPool().query(`update support_cases set state = 'closed', closed_at = $1, closed_reason = 'no_reply_needed' where id = $2`, [NOW, fresh.caseId]);
     const old = await deliver(store, new Date(NOW.getTime() - 7 * HOUR));
     const counts = await sweepInboundMail({ store, now: NOW, allowFor: async () => null });
-    expect(counts).toMatchObject({ already: 1, deletedOld: 1, failed: 0 });
+    // The old one sat undrafted: counted apart from plain old objects.
+    expect(counts).toMatchObject({ already: 1, undrafted: 1, deletedOld: 0, failed: 0 });
     expect(store.objects.has(`mail/${fresh.id}`)).toBe(true);
     expect(await keyOf(fresh.id)).toBe(`mail/${fresh.id}`);
     expect(store.objects.has(`mail/${old.id}`)).toBe(false);
@@ -349,6 +358,59 @@ describeDb("the support drafter reads a clinic's email (drizzle/0131)", () => {
     const later = await sweepInboundMail({ store, now: new Date(NOW.getTime() + 6 * HOUR), allowFor: async () => null });
     expect(later.cleared).toBe(1);
     expect(await keyOf(fresh.id)).toBeNull();
+  }, 60_000);
+
+  test("with the support-draft job off, a clinic's email is deleted at once and no key is kept", async () => {
+    const store = memoryMailStore();
+    const { id } = await deliver(store, NOW, { drafterOn: false });
+    expect(store.objects.has(`mail/${id}`)).toBe(false);
+    expect(await keyOf(id)).toBeNull();
+  }, 60_000);
+
+  test("a follow-up joining a case already drafted is deleted unread: nothing waits for a draft that will not come", async () => {
+    const store = memoryMailStore();
+    const { caseId } = await deliver(store);
+    await draftNextCase({ client: new FakeDrafter(() => BY_WEDNESDAY), now: NOW, mailStore: store }, caseId);
+    expect(await stateOf(caseId)).toBe("drafted");
+    const { rows } = await getMigratorPool().query<{ ref: string }>(`select ref from support_cases where id = $1`, [caseId]);
+    const followUp = await deliver(store, new Date(NOW.getTime() + 60_000), { subjectExtra: ` (ref HD-${rows[0]!.ref})` });
+    expect(followUp.caseId).toBe(caseId);
+    expect(store.objects.has(`mail/${followUp.id}`)).toBe(false);
+    expect(await keyOf(followUp.id)).toBeNull();
+  }, 60_000);
+
+  test("the model's own free words beside the reply are not kept: questions are dropped, a fact's field must be a label its tool printed", async () => {
+    const store = memoryMailStore();
+    const asked = await deliver(store);
+    // A question carrying a patient's name and symptom: the draft is kept, the question is not.
+    await draftNextCase(
+      { client: new FakeDrafter(() => BY_WEDNESDAY, { questions: ["Should we ask about Maria Lopez bruising?"] }), now: NOW, mailStore: store },
+      asked.caseId,
+    );
+    expect(await stateOf(asked.caseId)).toBe("drafted");
+    expect((await lastReply(asked.caseId)).facts_json).toMatchObject({ questionsForOps: [] });
+
+    // A fact whose field is the model's own words: the facts check fails, and nothing of the draft is kept.
+    await getMigratorPool().query(`update support_cases set state = 'closed', closed_at = $1, closed_reason = 'no_reply_needed' where id = $2`, [NOW, asked.caseId]);
+    const fielded = await deliver(store);
+    const outcome = await draftNextCase(
+      {
+        client: new FakeDrafter(() => BY_WEDNESDAY, { facts: [{ ...REPLY_BY_FACT, field: "Maria Lopez bruising" }] }),
+        now: NOW,
+        mailStore: store,
+      },
+      fielded.caseId,
+    );
+    expect(outcome).toMatchObject({ outcome: "needs_edit" });
+    if (outcome.outcome !== "needs_edit") throw new Error("not needs_edit");
+    expect(outcome.failed).toContain("facts");
+    expect((await lastReply(fielded.caseId)).draft_text).toBeNull();
+
+    const { rows } = await getMigratorPool().query<{ n: number }>(
+      `select count(*)::int as n from support_messages where lower(facts_json::text) like '%maria lopez%' or lower(coalesce(draft_text, '')) like '%maria lopez%'`,
+    );
+    expect(rows[0]!.n).toBe(0);
+    expect(lines.some((l) => l.toLowerCase().includes("maria lopez"))).toBe(false);
   }, 60_000);
 
   test("the runtime role may clear an object key, never set or move one", async () => {

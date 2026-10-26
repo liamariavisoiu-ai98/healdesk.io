@@ -348,12 +348,30 @@ describe("sentenceSpans", () => {
 describe("the email check (lane P7h): a draft written from an email quotes no long run of it", () => {
   const EMAIL = "Since this morning our calls ring out and nobody answers the phone at the front desk. Can you check the forwarding?";
 
-  test("eight words in a row from the email fail it; seven do not; case, accents and punctuation do not hide a quote", () => {
-    expect(EMAIL_RUN_WORDS).toBe(8);
-    expect(quotesEmail("You wrote that since this morning our calls ring out and nobody answers.", EMAIL)).toBe(true);
-    expect(quotesEmail("SINCE this morning, our calls -- ring out; and nobody ANSWERS.", EMAIL)).toBe(true);
-    expect(quotesEmail("Since this morning our calls ring out, we see.", EMAIL)).toBe(false);
+  test("five words in a row from the email fail it; four do not; case, accents and punctuation do not hide a quote", () => {
+    expect(EMAIL_RUN_WORDS).toBe(5);
+    expect(quotesEmail("You wrote that since this morning our calls ring out.", EMAIL)).toBe(true);
+    expect(quotesEmail("SINCE this morning, our -- calls.", EMAIL)).toBe(true);
+    expect(quotesEmail("Since this morning our team checked the forwarding.", EMAIL)).toBe(false);
     expect(quotesEmail("Hi, a person at healdesk will reply with the next step by Wednesday.", EMAIL)).toBe(false);
+  });
+
+  test("a draft from an email: a name the email used mid-sentence fails the names check at a sentence's start too, and a fact's field must be a label its tool printed", () => {
+    const email = "Our patient Maria Lopez says the calls ring out.";
+    const base: ReplyCheckInput = { text: "Maria will hear from us by Wednesday.", clinicName: "Lumen Aesthetics", facts: [], ownCaseRef: REF, mode: "send" };
+    // Without the email, a sentence's first word is let through, as before.
+    expect(runReplyChecks(base).results.find((r) => r.id === "names")!.ok).toBe(true);
+    expect(runReplyChecks({ ...base, mode: "draft", emailText: email }).results.find((r) => r.id === "names")!.ok).toBe(false);
+    // A sentence-start word the email used only to start a sentence is still fine.
+    expect(runReplyChecks({ ...base, text: "Our team will check the forwarding.", mode: "draft", emailText: email }).results.find((r) => r.id === "names")!.ok).toBe(true);
+
+    const tools: ToolResult[] = [{ tool: "get_case_history", text: "- A person replies by: Wednesday 28 October 2026" }];
+    const fact = { tool: "get_case_history", field: "A person replies by", value: "Wednesday 28 October 2026" };
+    const reply = { ...base, text: "A person replies by Wednesday.", mode: "draft" as const, toolResults: tools, emailText: email };
+    expect(runReplyChecks({ ...reply, facts: [fact] }).results.find((r) => r.id === "facts")!.ok).toBe(true);
+    expect(runReplyChecks({ ...reply, facts: [{ ...fact, field: "Maria Lopez bruising" }] }).results.find((r) => r.id === "facts")!.ok).toBe(false);
+    // Without an email the field is free, as before.
+    expect(runReplyChecks({ ...reply, emailText: null, facts: [{ ...fact, field: "anything" }] }).results.find((r) => r.id === "facts")!.ok).toBe(true);
   });
 
   test("it runs only on a draft given the email, after the eight, and its result names the rule, never the words", () => {

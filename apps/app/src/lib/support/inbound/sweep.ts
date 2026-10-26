@@ -55,17 +55,24 @@ export type SweepCounts = {
   deletedOld: number;
   left: number;
   failed: number;
-  /** Rows whose waiting object was deleted and key cleared (lane P7h). */
+  /** Objects older than six hours that a row still named as waiting for the drafter: emails that sat undrafted (lane P7h). */
+  undrafted: number;
+  /** Rows still naming an object past six hours that was not in the listing (already gone): key cleared (lane P7h). */
   cleared: number;
 };
 
 /** Clear the key of the row naming this object, once the object is gone. */
-export async function clearObjectKey(key: string): Promise<void> {
-  await unsafeDb.update(supportMessages).set({ inboundObjectKey: null }).where(eq(supportMessages.inboundObjectKey, key));
+export async function clearObjectKey(key: string): Promise<number> {
+  const rows = await unsafeDb
+    .update(supportMessages)
+    .set({ inboundObjectKey: null })
+    .where(eq(supportMessages.inboundObjectKey, key))
+    .returning({ id: supportMessages.id });
+  return rows.length;
 }
 
 export async function sweepInboundMail(deps: HandleDeps & { store?: MailStore; now?: Date } = {}): Promise<SweepCounts> {
-  const counts: SweepCounts = { handled: 0, already: 0, dropped: 0, deletedOld: 0, left: 0, failed: 0, cleared: 0 };
+  const counts: SweepCounts = { handled: 0, already: 0, dropped: 0, deletedOld: 0, left: 0, failed: 0, undrafted: 0, cleared: 0 };
   const bucket = inboundMailBucket();
   if (!bucket) return counts;
   const store = deps.store ?? s3MailStore;
@@ -79,8 +86,8 @@ export async function sweepInboundMail(deps: HandleDeps & { store?: MailStore; n
     if (now.getTime() - object.lastModified.getTime() > KEEP_FOR_DRAFTER_MS) {
       try {
         await store.delete(bucket, object.key);
-        await clearObjectKey(object.key);
-        counts.deletedOld += 1;
+        if ((await clearObjectKey(object.key)) > 0) counts.undrafted += 1;
+        else counts.deletedOld += 1;
       } catch (error) {
         counts.failed += 1;
         log.warn("support inbound sweep: old object not deleted", { error: describeError(error) });
@@ -137,7 +144,7 @@ export async function runSupportInboundSweepJob(deps: HandleDeps & { store?: Mai
       JOB_SUPPORT_INBOUND_SWEEP,
       async () => {
         const c = await sweepInboundMail({ ...deps, now });
-        return `${c.handled} handled, ${c.already} already recorded, ${c.dropped} dropped, ${c.deletedOld} older than six hours deleted, ${c.cleared} left waiting for the drafter deleted, ${c.left} left, ${c.failed} failed`;
+        return `${c.handled} handled, ${c.already} already recorded, ${c.dropped} dropped, ${c.deletedOld} older than six hours deleted, ${c.undrafted} deleted undrafted after six hours, ${c.cleared} waiting keys cleared, ${c.left} left, ${c.failed} failed`;
       },
       now,
     );

@@ -16,10 +16,11 @@
 #   apps/app's /api/webhooks/inbound-mail, which checks SNS's signature,
 #   reads the object, records the case from facts in fixed lists
 #   (lib/support/inbound) and leaves the object for the support-draft job,
-#   which reads it once in memory to draft a reply for ops and deletes it
-#   (owner, 26 October 2026). A message the drafter will never read (one
-#   about no clinic, one that cannot be parsed, one over the size cap) is
-#   still deleted in the same request.
+#   which reads it in memory to draft a reply for ops, keeps nothing of it, and deletes it
+#   (owner, 26 October 2026), only while that job is switched on and the
+#   case is new. A message the drafter will not read (the job off, no
+#   clinic, a case already drafted, one that cannot be parsed, one over the
+#   size cap) is still deleted in the same request.
 #
 # Under the AWS BAA end to end (SES, S3, SNS, KMS): a clinic's mail may carry
 # a patient's details despite every warning. Nothing of the message is kept
@@ -95,8 +96,8 @@ resource "aws_s3_bucket" "inbound_mail" {
   count = local.inbound_on ? 1 : 0
 
   bucket = local.inbound_bucket
-  # A message is never a record: the handler deletes it at once, the sweep
-  # anything a day old, and the lifecycle rule is the backstop. Switching the
+  # A message is never a record: the handler or the draft job deletes it, the
+  # sweep anything six hours old, and the lifecycle rule is the backstop. Switching the
   # feature off must not fail on a message still waiting there.
   force_destroy = true
 

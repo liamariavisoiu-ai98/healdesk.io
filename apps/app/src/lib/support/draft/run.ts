@@ -409,7 +409,9 @@ async function draftWithEmails(claimed: ClaimedCase, deps: DraftDeps, emails: Ca
       checks,
       facts: {
         factsUsed: proposal.factsUsed.map((f) => ({ ...f, value: screenText(f.value, allow).text })),
-        questionsForOps: proposal.questionsForOps.map((q) => screenText(q, allow).text),
+        // A draft from an email keeps no questions: they are the model's own
+        // free words, stored and shown in the console (lane P7h review).
+        questionsForOps: read.length > 0 ? [] : proposal.questionsForOps.map((q) => screenText(q, allow).text),
         confidence: proposal.confidence,
         proposal: {
           category: proposal.category,

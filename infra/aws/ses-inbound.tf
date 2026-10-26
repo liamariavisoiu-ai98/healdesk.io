@@ -195,10 +195,21 @@ data "aws_iam_policy_document" "inbound_mail_bucket" {
       identifiers = ["*"]
     }
 
+    # Deny an upload that NAMES another encryption, not one that names none:
+    # SES's writes carry no encryption header and rely on the bucket's default
+    # (SSE-KMS under our key). "StringNotEqualsIfExists" is true when the key is
+    # absent, so it denied SES's own write and CreateReceiptRule failed with
+    # "Could not write to bucket" (apply of 26 October 2026).
     condition {
-      test     = "StringNotEqualsIfExists"
+      test     = "StringNotEquals"
       variable = "s3:x-amz-server-side-encryption"
       values   = ["aws:kms"]
+    }
+
+    condition {
+      test     = "Null"
+      variable = "s3:x-amz-server-side-encryption"
+      values   = ["false"]
     }
   }
 

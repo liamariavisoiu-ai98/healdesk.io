@@ -86,3 +86,13 @@ output "ses_configuration_set" {
   description = "The SES configuration set that requires TLS (HEALDESK_SES_CONFIGURATION_SET), while enable_ses is on; null otherwise."
   value       = var.enable_ses ? local.ses_configuration_set_name : null
 }
+
+output "inbound_mail" {
+  description = "Inbound support mail, while enable_inbound_mail is on; null otherwise: the address the owner's mailbox forwards to, the bucket, the topic and the receipt rule set the rule is in."
+  value = var.enable_inbound_mail ? {
+    forward_to = local.inbound_recipient
+    bucket     = local.inbound_bucket
+    topic_arn  = aws_sns_topic.inbound_mail[0].arn
+    rule_set   = local.inbound_rule_set
+  } : null
+}

@@ -21,7 +21,7 @@ authoritative for what PHI is.
 │                                 │     │                                          │
 │  Marketing pages, pricing       │     │  Every patient conversation: voice       │
 │  Chat + voice demos (owners)    │     │    (Retell), web chat, Meta              │
-│  Checkout, BAA signing UI       │     │  Transcripts, emailed: a 7-day outbox    │
+│  Checkout, BAA signing UI       │     │  Transcripts, emailed: sealed outbox   │
 │  Contact form, reviews          │     │  Bookings, holds, the manual queue       │
 │  Lead register (Google Sheet)   │     │  Deposit links via the clinic's gateway  │
 │  The /admin operator console    │     │  Clinic portal, wizard, support chat     │
@@ -88,15 +88,16 @@ by scoping.
 | Hosting (marketing) | Vercel | Not needed — no PHI |
 | Hosting (product) | Vercel | **Enterprise plan only** ⚠️ — not the plan |
 | Hosting (product) | AWS (`us-east-1`, account `865780386982`) | **Accepted 22 September 2026** (account agreement in AWS Artifact). Covers only that account and HIPAA-eligible services; record in [policies/aws-hipaa-account.md](./policies/aws-hipaa-account.md) |
-| Database (product) | AWS RDS for PostgreSQL, or Neon on its Scale plan | **Not chosen.** RDS is covered by the AWS agreement already held; Neon signs its own (self-serve) and its Data API sits outside it. Sign, then apply the settings the agreement requires |
-| Voice telephony and speech | Retell | **Pending — self-serve.** Sign the BAA and DPA in Retell's click-agreements portal and confirm the executed text names the services in use; then set per-agent retention to the minimum (1 day), with storage on so the backstop can read a call whose voice task died, and have healdesk delete each call there once it has the transcript. PHI subprocessor: caller audio in transit, transcript, number |
-| LLM, every channel | Anthropic (Claude API) | **Pending.** The primary owner signs and arranges activation. Patient traffic runs in its own HIPAA-ready organisation, never the marketing org. The models in use, `claude-opus-5-5` and `claude-sonnet-5-5` (`PATIENT_MODEL_IDS`, `packages/catalog/src/model-retention.ts`), are not Anthropic's Covered Models (Claude Fable and Mythos, which require 30-day retention): under the HIPAA-ready organisation's standard retention they keep conversation content **no more than 30 days**, flagged content up to two years, and law-required content as long as the law requires. The clinic agreement must disclose it (BAA 1.6.0, drafted; `docs/counsel/agreement-changes.md` § 17). The responder refuses a model override outside that list. Batch, Files, web fetch, compaction and context editing are excluded from coverage (blockers-runbook §3) |
-| Calendar | Google Calendar (the clinic's own) | Between the **clinic and Google**, on a paid Workspace plan; confirm per clinic at onboarding. The clinic's OAuth token, granted to Healdesk's Google Cloud app, is stored in `apps/app` (not built yet) |
+| Database (product) | AWS RDS for PostgreSQL 17 | **Chosen and applied.** RDS was chosen over Neon on 7 October 2026 and applied on 14 October 2026 (`infra/aws/rds.tf`), under the AWS agreement already held. **Owner-reported:** database coverage confirmed; no document or attestation in the repo evidences it, and the `database_host` attestation on `/admin/compliance` is in the production database, which was not read |
+| Voice telephony and speech | Retell | **Owner-reported signed** (not evidenced in the repo: no executed text or attestation is filed here). Check that the executed BAA and DPA name the services in use; then set per-agent retention to the minimum (1 day), with storage on so the backstop can read a call whose voice task died, and have healdesk delete each call there once it has the transcript. PHI subprocessor: caller audio in transit, transcript, number |
+| LLM, every channel | Anthropic (Claude API) | **Owner-reported signed** (not evidenced in the repo); `CLAUDE.md` records the owner confirming on 26 October 2026 that healdesk's key is the BAA organisation's; AGENTS.md still lists the confirmation as open, so treat it as unconfirmed until reconciled. Patient traffic runs in its own HIPAA-ready organisation, never the marketing org. The models in use, `claude-opus-5-5` and `claude-sonnet-5-5` (`PATIENT_MODEL_IDS`, `packages/catalog/src/model-retention.ts`), are not Anthropic's Covered Models (Claude Fable and Mythos, which require 30-day retention): under the HIPAA-ready organisation's standard retention they keep conversation content **no more than 30 days**, flagged content up to two years, and law-required content as long as the law requires. The clinic agreement must disclose it (BAA 1.6.0, drafted; `docs/counsel/agreement-changes.md` § 17). The responder refuses a model override outside that list. Batch, Files, web fetch, compaction and context editing are excluded from coverage (blockers-runbook §3) |
+| Calendar | Google Calendar (the clinic's own) | Between the **clinic and Google**, on a paid Workspace plan; confirm per clinic at onboarding. The clinic's OAuth token, granted to Healdesk's Google Cloud app, is stored in `apps/app` (`lib/connections/google-oauth.ts`, `lib/connections/google-calendar.ts`); Google's verification of the calendar scope is not evidenced as submitted |
 | Payments (our subscription) | Stripe | **Never, on any tier.** Not needed: the buyer's name, work email and invoice are business contact data |
 | Payments (patient deposits) | Stripe Connect or the clinic's own gateway | **Never.** Used only inside the payment-processing carve-out: an amount, a generic descriptor and an opaque reference. No treatment name, diagnosis or clinical metadata in the description, the statement descriptor or metadata |
 | Messaging | Meta (Instagram, Messenger, WhatsApp) | **Never, by Meta's own terms.** Scoped to carry no clinical content: detected at the boundary, not persisted, not echoed, not summarised |
 | Lead register (marketing) | Google Sheets | Not needed — business contact data only, no PHI |
-| Analytics (marketing) | PostHog (US cloud) | Not needed — consent-gated, content-free, marketing site only |
+| Analytics (marketing) | PostHog (US cloud) | Not needed — opt-out since 23 October 2026 (runs unless the visitor opts out on /privacy or sends Global Privacy Control; `apps/web/src/lib/consent-store.ts`), content-free, marketing site only |
+| Operator approvals (support replies) | Slack | **No BAA** (owner's decision, 26 October 2026; `CLAUDE.md`). Carries ids, counts, dates and closed words only, plus one exception: a support reply waiting for approval is posted with the reply WE drafted (never the clinic's own email). `apps/app/src/lib/support/slack-reply.ts`, `slack-actions.ts`; allow-list in `lib/ops/slack.ts`. Deployed, off (its parameters are `__unset__`) |
 | Transactional email | Resend | **Signs none** — see below |
 | Patient-bearing email, if any | AWS SES | Covered by the AWS agreement; configuration set `healdesk-phi` with `TlsPolicy=REQUIRE` |
 | Voice agent (marketing demo) | Retell (a demo agent, separate from the product's) | Not needed: `apps/web` only, talks to clinic owners, no PHI path |
@@ -252,8 +253,8 @@ patient-authored review text into any system that stores patient data.
       legal items (state-by-state AI-disclosure and transcription consent, the UAE
       business-associate question, the Anthropic retention disclosure and BAA 1.6.0's
       release, agreement-changes.md § 17)
-- [ ] BAA signed with Retell, Anthropic and the database provider; AWS already accepted
-- [ ] `apps/app` running on the AWS HIPAA account (CLAUDE.md lists what blocks the deploy)
+- [ ] BAA signed with Retell, Anthropic and the database provider (owner-reported signed, not evidenced here: file the executed texts and record the attestations on `/admin/compliance`); AWS accepted
+- [ ] `apps/app` running on the AWS HIPAA account (applied and deployed 14 October 2026, synthetic data only; `CLAUDE.md`)
 - [ ] Audit logging, including the transcript access log, implemented and verified
 - [ ] Retention and deletion policy documented per clinic
 - [ ] Log PHI scrubbing verified end to end

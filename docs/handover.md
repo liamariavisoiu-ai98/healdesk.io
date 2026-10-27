@@ -107,9 +107,10 @@ reaches `apps/app` until every link is done.
 | Link | State |
 |---|---|
 | Clinic to Healdesk | Built: accepted inline at checkout |
-| Healdesk to Retell | Not done. Self-sign the BAA and DPA in Retell's click-agreements portal, confirm the executed text names the services in use, then set per-agent retention and PII controls |
-| Healdesk to Anthropic | Not done. The primary owner signs and activates. Patient traffic needs its **own** organisation: the HIPAA setting is organisation-wide and one-way, so enabling it on the marketing org would bind the demo's key too. The marketing key in `apps/web/.env.local` is already from a separate, non-PHI organisation. The HIPAA-ready organisation runs under standard retention and cannot also have zero data retention. The product's models, `claude-opus-5-5` and `claude-sonnet-5-5` (`PATIENT_MODEL_IDS` in `packages/catalog/src/model-retention.ts`), are not Covered Models: they keep content no more than 30 days, flagged content up to two years, law-required content as long as the law requires. Only Covered Models (Fable, Mythos) require 30 days, and the responder refuses an override onto one. Check the executed BAA against `docs/counsel/agreement-changes.md` § 17 when it is signed |
-| Healdesk to the database provider | AWS RDS under the agreement above, the owner's choice of 7 October 2026 over Neon; defined in `infra/aws`, not yet applied |
+| Healdesk to Retell | **Owner-reported signed**, not evidenced in the repo. Confirm the executed text names the services in use, then set per-agent retention and PII controls (the agent code for that, `lib/voice/retell-agent.ts`, runs only from automatic provisioning, which is off) |
+| Healdesk to Anthropic | **Owner-reported signed**, not evidenced in the repo; the owner still confirms the key in AWS is the HIPAA organisation's. Patient traffic needs its **own** organisation: the HIPAA setting is organisation-wide and one-way, so enabling it on the marketing org would bind the demo's key too. The marketing key in `apps/web/.env.local` is already from a separate, non-PHI organisation. The HIPAA-ready organisation runs under standard retention and cannot also have zero data retention. The product's models, `claude-opus-5-5` and `claude-sonnet-5-5` (`PATIENT_MODEL_IDS` in `packages/catalog/src/model-retention.ts`), are not Covered Models: they keep content no more than 30 days, flagged content up to two years, law-required content as long as the law requires. Only Covered Models (Fable, Mythos) require 30 days, and the responder refuses an override onto one. Check the executed BAA against `docs/counsel/agreement-changes.md` § 17 when it is signed |
+| Healdesk to the database provider | AWS RDS under the agreement above, the owner's choice of 7 October 2026 over Neon; defined in `infra/aws/rds.tf`, applied 14 October 2026; coverage **owner-reported** confirmed, not evidenced in the repo |
+| Healdesk to Slack | None, and none is available: Slack signs no BAA here. The owner accepted that on 26 October 2026 (`CLAUDE.md`); Slack carries a drafted support reply (never the clinic's email) and otherwise ids, counts and closed words |
 | Healdesk to AWS | Done (above) |
 | Clinic to Google | The calendar is the clinic's own, under its agreement with Google. Confirm per clinic |
 
@@ -235,9 +236,9 @@ RDS instance, not after, because the first item cannot be added later.
 roll, a CloudFormation bootstrap stack, and [`infra/aws/README.md`](../infra/aws/README.md) as
 the runbook. *Done in `infra/aws`* below means defined there and checked locally (`terraform
 validate`, `terraform test` against mocked providers, tflint, checkov, cfn-lint, actionlint;
-the images built and run against a local Postgres shaped like RDS). **Applied on 14 October 2026,
-not yet deployed** (no image pushed, no db-bootstrap run), so every item that needs a running
-task stays unproven until the first `host.yml` turn-on.
+the images built and run against a local Postgres shaped like RDS). **Applied and deployed on 14 October 2026**
+(`CLAUDE.md`: `infra.yml` applies, then `deploy-app.yml` run 38527477622 and `host.yml` active
+run 38538369097), synthetic data only; items that need a real patient path stay unproven.
 
 - *Decide the database first:* **done.** RDS under this agreement, the owner's choice of
   7 October 2026 (`infra/aws/rds.tf`).
@@ -1194,7 +1195,7 @@ table, which `drizzle/0074_drop_admin_totp.sql` drops. There is no public sign-u
   (which ends every session), run the TOTP script and replace the variable, and check who
   can reach the Vercel project, since both factors are kept there.
 
-Clinic users sign in to the portal in `apps/app`, which is not built
+Clinic users sign in to the portal in `apps/app` (built, under `src/app/c/[slug]`; not yet signed in to by anyone outside tests)
 ([policies/access-control.md](./policies/access-control.md) has its rules).
 
 ### A clinic that cannot get in: lost devices, a lost address

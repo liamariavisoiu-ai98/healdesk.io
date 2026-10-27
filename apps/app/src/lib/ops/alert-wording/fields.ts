@@ -248,6 +248,8 @@ export const EVENT_FIELDS: Partial<Record<OpsEvent, readonly string[]>> = {
   incident_step_waiting: ["kind", "count"],
   // lib/support/send.ts (lane P7c): the clinic and how many tries failed.
   support_reply_dead: ["clinicId", "count"],
+  // lib/support/slack-passcode.ts (lane P7i): how many wrong passcodes locked Slack approvals; no clinic, no member id.
+  slack_approvals_locked: ["count"],
   // lib/support/watch.ts (lane P7e): the clinic, the case's id (as requestId),
   // and, shown but not its identity, the case's ref and its reply-by day.
   support_case_past_due: ["clinicId", "requestId", "supportRef", "promisedOn"],

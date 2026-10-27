@@ -22,6 +22,22 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Use Close the case (the button reads Close) once you have written, and pick Replied by hand from the mailbox. You are done when the clinic has its answer and the case is closed.",
     ],
   },
+  // lib/support/slack-passcode.ts (lane P7i), on the try that locks: five
+  // wrong approval passcodes in the support reply's Slack dialog within
+  // fifteen minutes. The count only; the Slack member id is in the log.
+  slack_approvals_locked: {
+    title: "Approvals from Slack are locked",
+    headline: "{count:wrong passcode} typed in Slack within fifteen minutes",
+    whatHappened:
+      "{count:wrong passcode} were typed in the Slack dialog that approves support replies within fifteen minutes, so approvals from Slack are locked on that server for fifteen minutes. Nothing was approved or sent. The console's own approvals are not affected.",
+    whyItMatters:
+      "If that was not you, someone with access to the support channel is guessing your approval passcode.",
+    steps: [
+      "Open Support in the console if a reply cannot wait: the console's approvals still work. If it was you, wait fifteen minutes and try Slack again.",
+      "Open the Map page and find the people allowed to press the support reply buttons in Slack, if it was not you: the ops log names the Slack member who typed them. Take that member off the list in AWS CloudShell with the put-external-secrets script, and restart.",
+      "Open the Map page and find the approval passcode: make a new one with the hash-approval-passcode script and paste its hash in Vercel and AWS. You are done when the member is off the list and the new passcode works in the console.",
+    ],
+  },
 };
 
 /** This section's events still in their pre-rewrite wording (LEGACY_WORDING, ./index.ts). */

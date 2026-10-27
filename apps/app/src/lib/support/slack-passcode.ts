@@ -1,6 +1,7 @@
-import { createPasscodeLockout, PASSCODE_SHAPE, parsePasscodeHash, passcodeMatches } from "@healdesk/catalog/approval-passcode";
+import { createPasscodeLockout, PASSCODE_ATTEMPT_LIMIT, PASSCODE_SHAPE, parsePasscodeHash, passcodeMatches } from "@healdesk/catalog/approval-passcode";
 
 import { log } from "@/lib/log";
+import { notifyOps } from "@/lib/ops/notify";
 
 /**
  * The approval passcode, checked in the Slack modal that approves a support
@@ -22,6 +23,9 @@ export const APPROVAL_PASSCODE_VARIABLE = "HEALDESK_APPROVAL_PASSCODE_HASH";
 
 const lockout = createPasscodeLockout((account, reason, now) => {
   log.warn("approval passcode locked in Slack", { event: "approval_code_locked", slackUser: account.replace(/^slack:/, ""), reason, windowStart: new Date(now).toISOString() });
+  // The owner hears it as the console's lock tells him (apps/web reportLock emails him): an ops
+  // alert, emailed and posted. The count only, never the member id or the passcode. Never throws.
+  void notifyOps("slack_approvals_locked", { count: PASSCODE_ATTEMPT_LIMIT });
 });
 
 function storedHash(): string | null {

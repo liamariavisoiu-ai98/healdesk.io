@@ -1,3 +1,5 @@
+import { BAA_1_6_0_RELEASED } from "@healdesk/catalog";
+
 import {
   FIRST_PERIOD_REFUND_DAYS,
   type PackageId,
@@ -30,7 +32,10 @@ import {
  * the bump fails the build.
  */
 
-export const LEGAL_VERSION = "2026-10-27.1";
+// BAA 1.6.0's release brings back terms section 9's "The Business Associate
+// Agreement states the same", so it is a new text and a new version; the flag
+// is the same one that moves the agreement (packages/catalog/src/baa.ts).
+export const LEGAL_VERSION = BAA_1_6_0_RELEASED ? "2026-10-27.2" : "2026-10-27.1";
 export const LEGAL_LAST_UPDATED = "27 October 2026";
 
 export const ENTITY = {

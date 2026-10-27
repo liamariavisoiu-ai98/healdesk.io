@@ -170,7 +170,7 @@ function submission(view: Record<string, unknown>, values: { text?: string; code
   const state: Record<string, Record<string, { value: string }>> = {};
   if (values.text !== undefined) state.reply = { text: { value: values.text } };
   if (values.code !== undefined) state.passcode = { code: { value: values.code } };
-  return { type: "view_submission", user: { id: user }, view: { callback_id: view.callback_id, private_metadata: view.private_metadata, state: { values: state } } };
+  return { type: "view_submission", user: { id: user }, view: { id: "V0DIALOG01", callback_id: view.callback_id, private_metadata: view.private_metadata, state: { values: state } } };
 }
 
 // -----------------------------------------------------------------------------
@@ -327,6 +327,13 @@ describe("the message", () => {
     const actions = m.blocks.find((b) => b.type === "actions") as { elements: { action_id: string; url?: string }[] };
     expect(actions.elements.map((e) => e.action_id)).toEqual(["support_review", "support_edit", "support_open", "support_snooze", "support_close"]);
     expect(actions.elements[2]!.url).toBe(`https://healdesk.test/admin/support/${view.caseId}`);
+  });
+
+  test("a clinic name cannot ping the channel: the notification text is escaped too", () => {
+    const m = replyMessage({ ...view, clinicName: "Glow <!channel> & Co" });
+    expect(m.text).not.toContain("<!channel>");
+    expect(m.text).toContain("&lt;!channel&gt; &amp; Co");
+    expect(JSON.stringify(m.blocks)).not.toContain("<!channel>");
   });
 
   test("a failing check is named by its rule, never by the words", () => {
@@ -522,6 +529,13 @@ describeDb("support replies operated from Slack (lane P7i)", () => {
     expect(logged).not.toContain(PASSCODE);
     expect(logged).not.toContain(SECRET);
     expect(logged).toContain("approval_code_locked");
+    // The owner is told, as the console's lock tells him: an ops alert with the count only.
+    const { rows: alerts } = await getMigratorPool().query<{ fields: Record<string, unknown> }>(
+      `select fields from ops_alerts where event = 'slack_approvals_locked' order by raised_at desc limit 1`,
+    );
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]!.fields).toEqual({ count: 5 });
+    expect(JSON.stringify(alerts[0]!.fields)).not.toContain(OWNER);
   });
 
   test("the right passcode on the unchanged reply sends it once, recorded as passcode via slack; a replay sends nothing more", async () => {
@@ -565,8 +579,12 @@ describeDb("support replies operated from Slack (lane P7i)", () => {
     const c = await waitingCase("slack-edit-fail");
     const view = await openDialog(c.value);
     const answer = await hit(submission(view, { text: `${EDITED} MARK-NAME`, code: PASSCODE }));
-    expect(answer.json).toMatchObject({ response_action: "errors" });
-    const error = (answer.json!.errors as { reply: string }).reply;
+    // An edit to approve is answered at once with a working note; the dialog then says how it went.
+    expect(answer.json).toMatchObject({ response_action: "update", view: { callback_id: "support_note" } });
+    const updated = of("views.update").at(-1)!;
+    expect(updated.body.view_id).toBe("V0DIALOG01");
+    const error = updated.raw;
+    expect(error).toContain("Not sent.");
     expect(error).toContain("Names no person");
     expect(error).not.toContain("Reply here");
     expect(await replyVersions(c.caseId)).toHaveLength(1);
@@ -588,7 +606,8 @@ describeDb("support replies operated from Slack (lane P7i)", () => {
     const c = await waitingCase("slack-edit-send");
     const view = await openDialog(c.value);
     const answer = await hit(submission(view, { text: EDITED, code: PASSCODE }));
-    expect(answer.json).toEqual({ response_action: "clear" });
+    expect(answer.json).toMatchObject({ response_action: "update" });
+    expect(of("views.update").at(-1)!.raw).toContain("approved and sent");
     const versions = await replyVersions(c.caseId);
     expect(versions.map((v) => v.draft_version)).toEqual([1, 2]);
     expect(versions[1]!.draft_text).toBe(EDITED);
@@ -701,6 +720,66 @@ describeDb("support replies operated from Slack (lane P7i)", () => {
     const answer = await hit(submission(view, { code: PASSCODE }));
     expect(answer.json).toMatchObject({ response_action: "errors", errors: { passcode: expect.stringContaining("at most 1,500 characters") } });
     expect((await getApproval(value.approvalId))!.status).toBe("waiting");
+  });
+
+  test("a wrong passcode on an edit is refused before anything is saved, in the dialog's update", async () => {
+    const c = await waitingCase("slack-edit-wrong");
+    const view = await openDialog(c.value);
+    const answer = await hit(submission(view, { text: EDITED, code: "000000" }));
+    expect(answer.json).toMatchObject({ response_action: "update" });
+    expect(of("views.update").at(-1)!.raw).toContain("That is not the approval passcode");
+    expect(await replyVersions(c.caseId)).toHaveLength(1);
+    expect((await getApproval(c.approvalId))!.status).toBe("waiting");
+    expect(replySends()).toHaveLength(0);
+  });
+
+  test("errors go under a box the dialog has: Edit only's reply box, a long draft's passcode box", async () => {
+    const c = await waitingCase("slack-boxes");
+    const editView = await openDialog(c.value, "support_edit");
+    ok(await opSaveSupportDraft({ caseId: c.caseId, text: EDITED }, CONSOLE, new Date(NOW.getTime() + 60_000)));
+    const stale = await hit(submission(editView, { text: `${GOOD} More.` }));
+    expect(Object.keys((stale.json!.errors as Record<string, string>) ?? {})).toEqual(["reply"]);
+    const longMeta = JSON.stringify({ ...JSON.parse(editView.private_metadata), m: "review", l: true });
+    const refused = await hit(submission({ callback_id: "support_review", private_metadata: longMeta }, { code: PASSCODE }, STRANGER));
+    expect(Object.keys(refused.json!.errors as Record<string, string>)).toEqual(["passcode"]);
+  });
+
+  test("a new item after the message went final is a new message; the old one keeps its outcome", async () => {
+    const c = await waitingCase("slack-new-after-final");
+    await syncCaseMessage(c.caseId, { now: NOW });
+    const firstTs = (await slackRow(c.caseId))!.ts;
+    // Rejected in the console: the message turns final.
+    const { opDecideApproval } = await import("@/lib/ops/approval-ops");
+    expect(ok(await opDecideApproval({ id: c.approvalId, action: "reject", reasonCode: "handled_elsewhere", codeChecked: true }, CONSOLE, { now: NOW }))).toMatchObject({ status: "rejected" });
+    await syncCaseMessage(c.caseId, { now: NOW });
+    expect((await slackRow(c.caseId))!.final).toBe(true);
+    expect(of("chat.update").at(-1)!.body.ts).toBe(firstTs);
+    // A new passing draft: posted afresh, not written over the finished one.
+    ok(await opSaveSupportDraft({ caseId: c.caseId, text: EDITED }, CONSOLE, new Date(NOW.getTime() + 60_000)));
+    const updates = of("chat.update").length;
+    expect(await syncCaseMessage(c.caseId, { now: NOW })).toBe("posted");
+    expect(of("chat.postMessage")).toHaveLength(2);
+    expect(of("chat.update")).toHaveLength(updates);
+    expect((await slackRow(c.caseId))!.ts).not.toBe(firstTs);
+  });
+
+  test("the sweep posts with the token and channel alone; the buttons need all four", async () => {
+    delete process.env.SLACK_SIGNING_SECRET;
+    delete process.env.SLACK_OPERATOR_IDS;
+    const c = await waitingCase("slack-worker-only");
+    expect(await syncCaseMessage(c.caseId, { now: NOW })).toBe("posted");
+    expect((await hit(button("support_close", c.value))).status).toBe(404);
+  });
+
+  test("before a clinic is destroyed its Slack messages are deleted, best effort", async () => {
+    const c = await waitingCase("slack-destroy");
+    await syncCaseMessage(c.caseId, { now: NOW });
+    const ts = (await slackRow(c.caseId))!.ts;
+    const { deleteSlackMessagesForClinic } = await import("@/lib/support/slack-reply");
+    expect(await deleteSlackMessagesForClinic(c.clinicId)).toEqual({ deleted: 1, failed: 0 });
+    expect(of("chat.delete").at(-1)!.body).toEqual({ channel: CHANNEL, ts });
+    failNext = "cant_delete_message";
+    expect(await deleteSlackMessagesForClinic(c.clinicId)).toEqual({ deleted: 0, failed: 1 });
   });
 
   test("the clinic's own email never reaches a Slack call: only the drafted reply does", async () => {

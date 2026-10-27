@@ -45,8 +45,9 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     promise: "AYA books into the clinic's Google Calendar during the conversation",
     where: "Homepage, pricing, terms section 2, How AYA is built to behave",
     status: "building",
-    left: "The booking engine is being connected to calls and website chat. Then the HEALDESK_DIRECT_BOOKING_ENABLED switch is set, the infrastructure applied and the app deployed.",
-    evidence: "apps/app/src/lib/booking/engine.ts, apps/app/src/lib/assistant/prompt.ts, infra/aws/locals.tf",
+    left: "The booking engine is wired into calls and website chat and is offered only when the HEALDESK_DIRECT_BOOKING_ENABLED switch, counsel's direct-booking addendum and a live calendar all allow it. Left: the addendum, and a safe way to set the switch: Terraform refuses it on every task (never_on_app_tasks in locals.tf, and the app_environment validation in variables.tf), so no route sets it today and every channel takes booking requests for staff.",
+    evidence:
+      "apps/app/src/lib/booking/engine.ts, apps/app/src/lib/assistant/booking-tools.ts, apps/app/src/lib/assistant/prompt.ts, infra/aws/locals.tf (never_on_app_tasks), infra/aws/variables.tf",
     blocksGoLive: true,
   },
   {
@@ -60,11 +61,13 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
   },
   {
     id: "deposit-link-meta",
-    promise: "On Instagram, Messenger and WhatsApp AYA is designed to send the clinic's own deposit link",
+    promise:
+      "On Instagram, Messenger and WhatsApp AYA is designed to send the clinic's own deposit link",
     where: "The demo call (Aya's description of what she does and where healdesk sits)",
     status: "building",
-    left: "The Meta front door takes booking requests and sends no link yet. It needs the booking engine and the clinic's payment link on Meta replies, inside the 24-hour window, with nothing clinical in the message (owner, 26 October 2026: \"this is what we will launch\").",
-    evidence: "apps/app/src/lib/meta/front-door.ts, apps/app/src/lib/voice/demo-facts.ts (DEPOSIT_CLAIM)",
+    left: 'The Meta front door takes booking requests and sends no link yet. It needs the booking engine and the clinic\'s payment link on Meta replies, inside the 24-hour window, with nothing clinical in the message (owner, 26 October 2026: "this is what we will launch").',
+    evidence:
+      "apps/app/src/lib/meta/front-door.ts, apps/app/src/lib/voice/demo-facts.ts (DEPOSIT_CLAIM)",
     blocksGoLive: true,
   },
   {
@@ -73,7 +76,8 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     where: "Set-up wizard and welcome email (website chat)",
     status: "building",
     left: "The line now loads the chat bubble, but website chat goes live only once an operator confirms on the clinic's Setup tab that the line is on the clinic's site, and the console is asked only when someone first opens the bubble there. Until then the bubble tells visitors to call the practice.",
-    evidence: "apps/app/src/widget/v1.js, apps/app/src/lib/channels/events.ts (noteWidgetLoaded, confirmWidgetOnSite)",
+    evidence:
+      "apps/app/src/widget/v1.js, apps/app/src/lib/channels/events.ts (noteWidgetLoaded, confirmWidgetOnSite)",
     blocksGoLive: false,
   },
   {
@@ -82,7 +86,8 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     where: "Terms section 2",
     status: "on",
     left: "Queued with the urgent screen's own writes and sent in-process right after commit, on calls, website chat and Meta, to the clinic's account address. Like every email, the first send included, it goes only while the billing-notices job is on and the host's email key is set: the alert-sender item below.",
-    evidence: "apps/app/src/lib/notices/booking-alerts.ts, apps/app/src/lib/email/outbox.ts (deliverCriticalAfterCommit), apps/app/tests/live-alerts.test.ts",
+    evidence:
+      "apps/app/src/lib/notices/booking-alerts.ts, apps/app/src/lib/email/outbox.ts (deliverCriticalAfterCommit), apps/app/tests/live-alerts.test.ts",
     blocksGoLive: true,
   },
   {
@@ -91,7 +96,8 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     where: "Terms section 2, AYA's urgent reply (\"I've told the team\")",
     status: "owner",
     left: "Switch on the billing-notices job (System › Jobs, /admin/system/jobs) and set RESEND_API_KEY on the host before the first clinic goes live: every booking alert waits on both, and while they are off AYA still tells an urgent caller the team has been told. Go-live does not check the switch itself, and nothing stops it being switched off later. If an urgent alert cannot be queued at all, you are emailed at once to phone the clinic, and neither the call nor website chat says the team was told.",
-    evidence: "apps/app/src/lib/email/outbox.ts, apps/app/src/lib/notices/booking-alerts.ts (URGENT_ALERT_DELIVERED), apps/app/src/lib/scheduler/jobs.ts (JOB_BILLING_NOTICES)",
+    evidence:
+      "apps/app/src/lib/email/outbox.ts, apps/app/src/lib/notices/booking-alerts.ts (URGENT_ALERT_DELIVERED), apps/app/src/lib/scheduler/jobs.ts (JOB_BILLING_NOTICES)",
     blocksGoLive: true,
   },
   {
@@ -99,8 +105,9 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     promise: "The clinic's never-say list applies on every channel",
     where: "Settings, How AYA is built to behave",
     status: "owner",
-    left: "Built: Instagram, Messenger and WhatsApp read the same list as calls and website chat (the defaults, then the clinic's own, approved script or not), list it in the prompt, and refuse a reply containing an entry with the same matcher (neverSayIn). Left: run the Meta QA gate (npm run qa:meta) with the live key and deploy apps/app; it moves to On once that deployment is live.",
-    evidence: "apps/app/src/lib/meta/front-door.ts, apps/app/src/lib/assistant/guard.ts, apps/app/tests/meta-screen-and-greeting.test.ts",
+    left: "Built: Instagram, Messenger and WhatsApp read the same list as calls and website chat (the defaults, then the clinic's own, approved script or not), list it in the prompt, and refuse a reply containing an entry with the same matcher (neverSayIn). The Meta QA gate (npm run qa:meta) passed live on 22 October 2026 (13 of 13, one sample) and the code is deployed. Left: your word that this is enough; it moves to On when you give it.",
+    evidence:
+      "apps/app/src/lib/meta/front-door.ts, apps/app/src/lib/assistant/guard.ts, apps/app/tests/meta-screen-and-greeting.test.ts",
     blocksGoLive: true,
   },
   {
@@ -109,7 +116,8 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     where: "Terms, portal behaviour screens, CLAUDE.md",
     status: "owner",
     left: "Inside our endpoint every failure transfers to the direct line wherever the line can be known, a database outage included, and never to a line that forwards back to AYA (the clinic's published or AYA number), which counts as none; with none known the caller hears a closing line. Left for you: paste the Retell key (HEALDESK_RETELL_API_KEY, once Retell's agreement is signed), so the hourly sync gives each AYA number the clinic's direct line as Retell's fallback; confirm the plan has Retell's outage mode, the step for our endpoint being down, and make one test call on a made-up clinic with it on. Retell itself being down still means each clinic removing its forwarding by hand.",
-    evidence: "apps/app/src/lib/voice/retell.ts, apps/app/src/lib/voice/fallback-line.ts, apps/app/src/lib/voice/retell-fallback-sync.ts, apps/app/src/lib/billing/answering.ts (patientDataRefused), docs/on-call.md",
+    evidence:
+      "apps/app/src/lib/voice/retell.ts, apps/app/src/lib/voice/fallback-line.ts, apps/app/src/lib/voice/retell-fallback-sync.ts, apps/app/src/lib/billing/answering.ts (patientDataRefused), docs/on-call.md",
     blocksGoLive: true,
   },
   {
@@ -117,9 +125,9 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     promise: "healdesk keeps no call audio, and the voice provider holds a call for a day at most",
     where: "Opening line on every call, privacy page, How AYA is built to behave",
     status: "building",
-    left: "Each clinic's Retell agent is being created in code with Retell's storage on and a one-day limit, and the backstop deletes the call at Retell once healdesk has the transcript, so the promise does not depend on the Retell console. The wording on the opening line, the terms and privacy pages, the support chat and the guides now says this (22 October 2026); the opening line, the Spanish line and the written notice change in code with this wording, so the item stays building until the agent code is called and a test call proves the deletion.",
+    left: "Each clinic's Retell agent is being created in code with Retell's storage on and a one-day limit, and the backstop deletes the call at Retell once healdesk has the transcript, so the promise does not depend on the Retell console. That agent code (lib/voice/retell-agent.ts) runs only from automatic provisioning, which is off (voice_provision_enabled is false in infra/aws/production.tfvars), so today the agents are made by hand. The wording on the opening line, the terms and privacy pages, the support chat and the guides now says this (22 October 2026); the opening line, the Spanish line and the written notice change in code with this wording, so the item stays building until the agent code is called and a test call proves the deletion.",
     evidence:
-      "docs/counsel/state-disclosure.md decision 2, written for no audio kept, which the owner reversed on 21 October 2026: Retell now keeps each call's transcript and recording until the call has been processed. apps/app lib/voice/retell-agent.ts (agents written and read back with data_storage_setting everything and data_storage_retention_days 1, Retell's own deletion a day later; not yet called), lib/voice/backstop.ts and lib/voice/recording-alerts.ts (once the call and its sealed transcript are committed here, the backstop job deletes the call at Retell, retried; a call still at Retell 30 minutes after it ended is one alert on /admin/recordings, with a Delete at Retell button), tests/recording-alerts.test.ts and tests/voice-backstop.test.ts. The promise is now worded as: healdesk keeps no call audio, and the voice provider holds a call's transcript and recording only until healdesk has the transcript, and for no more than a day (22 October 2026, owner-approved); counsel has not reviewed it.",
+      "docs/counsel/state-disclosure.md decision 2, written for no audio kept, which the owner reversed on 21 October 2026: Retell now keeps each call's transcript and recording until the call has been processed. apps/app lib/voice/retell-agent.ts (agents written and read back with data_storage_setting everything and data_storage_retention_days 1, Retell's own deletion a day later; not yet called), lib/voice/backstop.ts and lib/voice/recording-alerts.ts (once the call and its sealed transcript are committed here, the backstop job deletes the call at Retell, retried; a call still at Retell 30 minutes after it ended is one alert on /admin/recordings, with a Delete at Retell button), tests/recording-alerts.test.ts and tests/voice-backstop.test.ts. lib/voice/agent-storage.ts (27 October 2026): before each delete the backstop reads back, GET only, the agent the call ran on at that version and raises voice_agent_storage when its retention is not one day or its storage setting is not everything, so an agent made by hand in Retell's console is checked on every call too (tests/agent-storage.test.ts); the owner's deletion check is docs/design/launch-readiness-2026-10-27/no-audio-run-sheet.md. The promise is now worded as: healdesk keeps no call audio, and the voice provider holds a call's transcript and recording only until healdesk has the transcript, and for no more than a day (22 October 2026, owner-approved); counsel has not reviewed it.",
     blocksGoLive: true,
   },
   {
@@ -128,7 +136,8 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     where: "Setup wizard, forwarding-steps email, Settings, support chat, guide to call forwarding",
     status: "owner",
     left: "Built: the codes are corrected against each carrier's own pages and pinned by tests in the catalog and the guide, and the carrier's activation call on a Verizon home phone or a traditional AT&T landline is no longer read as lost caller ID. Left: once enable_voice is on, a test call on each carrier's line (Verizon *42 or *41, Spectrum Business Voice, AT&T's 1 for a long-distance number), and the guide's audit before it goes live; it stays a draft until then.",
-    evidence: "packages/catalog/src/forwarding.ts, apps/web/src/lib/content/pieces/conditional-call-forwarding.ts, apps/app/src/lib/onboarding/forwarding-test.ts",
+    evidence:
+      "packages/catalog/src/forwarding.ts, apps/web/src/lib/content/pieces/conditional-call-forwarding.ts, apps/app/src/lib/onboarding/forwarding-test.ts",
     blocksGoLive: true,
   },
   {
@@ -137,7 +146,8 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     where: "Pricing, setup",
     status: "owner",
     left: "Turn enable_voice on in the infrastructure, set the Retell secret, apply, deploy, and make one test call on the demo clinic, which may come before the agreements. Then, once every agreement in the chain is signed, turn voice_real_calls on, apply and deploy: until then the voice line answers only the demo clinic.",
-    evidence: "infra/aws (enable_voice, voice_real_calls), apps/app/src/voice/server.ts, apps/app/src/lib/voice/test-calls.ts",
+    evidence:
+      "infra/aws (enable_voice, voice_real_calls), apps/app/src/voice/server.ts, apps/app/src/lib/voice/test-calls.ts",
     blocksGoLive: true,
   },
   {
@@ -156,25 +166,31 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     where: "Settings → Alerts, the setup wizard, the spec's Daily summary switch",
     status: "owner",
     left: "Built: the summary (L13) and the recap (L14) are queued through the outbox. Switch on the daily-summary and weekly-recap jobs in /admin, with billing-notices (the sender), before the first clinic goes live: while they are off, a clinic with the summary on hears about a waiting request only when it is taken and when it expires.",
-    evidence: "apps/app/src/lib/scheduler/daily-summary.ts, apps/app/src/lib/scheduler/weekly-recap.ts, apps/app/drizzle/0087_claims_and_summary.sql",
+    evidence:
+      "apps/app/src/lib/scheduler/daily-summary.ts, apps/app/src/lib/scheduler/weekly-recap.ts, apps/app/drizzle/0087_claims_and_summary.sql",
     blocksGoLive: true,
   },
   {
     id: "data-protection-agreement",
-    promise: "A practice HIPAA does not cover signs a data protection agreement instead of a business associate agreement",
+    promise:
+      "A practice HIPAA does not cover signs a data protection agreement instead of a business associate agreement",
     where: "Is a cash-pay clinic covered by HIPAA?, How AYA is built to behave",
-    status: "owner",
-    left: "Released by you on 20 October 2026 (dpa/1.0.0, with its calendar election form), without external counsel: checkout offers it to a veterinary practice and to a practice that answers No, provisioning binds it and go-live accepts it. Left: deploy apps/app (deploy-app.yml) so the dpa_release_1_0_0 migration reaches the host, then mark this on; counsel's review before the first live DPA practice is recommended.",
-    evidence: "packages/catalog/src/dpa.ts, packages/catalog/src/agreement-kind.ts, apps/app/drizzle/0104_dpa_release_1_0_0.sql, docs/counsel/agreement-changes.md section 18",
+    status: "on",
+    left: "Released by you on 20 October 2026 (dpa/1.0.0, with its calendar election form), without external counsel: checkout offers it to a veterinary practice and to a practice that answers No, provisioning binds it and go-live accepts it. Migration 0104 (dpa_release_1_0_0) is applied: the 22 October 2026 migration-state query read 112 applied, the journal's whole length then, and later deploys have run newer migrations after it. You approved moving this to On on 27 October 2026. Counsel's review before the first live DPA practice is still recommended.",
+    evidence:
+      "packages/catalog/src/dpa.ts, packages/catalog/src/agreement-kind.ts, apps/app/drizzle/0104_dpa_release_1_0_0.sql, docs/counsel/agreement-changes.md section 18",
     blocksGoLive: false,
   },
   {
     id: "baa-1-6-0-retention",
-    promise: "The AI model provider's retention is as terms section 9 states it: no more than 30 days, flagged content up to two years, what the law requires for as long as it requires",
-    where: "Terms section 9 and its annex, data deletion page, homepage FAQ, the business associate agreement signed at checkout",
+    promise:
+      "The AI model provider's retention is as terms section 9 states it: no more than 30 days, flagged content up to two years, what the law requires for as long as it requires",
+    where:
+      "Terms section 9 and its annex, data deletion page, homepage FAQ, the business associate agreement signed at checkout",
     status: "owner",
     left: "Checkout still offers BAA 1.5.1, whose Subcontractors clause gives the 30 days a purpose, keeps law-required content two years and says the service cannot run with shorter retention, and terms section 1 lets the BAA win. Release BAA 1.6.0 (or send it to counsel first): move it to BAA_TEMPLATES[0] with approvedByCounsel true, decide the floor and any overlap after reading the marketing Sheet for anyone who signed 1.5.1, add the release migration as 0081 did, then restore terms section 9's \"The Business Associate Agreement states the same\" under a new LEGAL_VERSION. No clinic goes live under 1.5.1's retention clause.",
-    evidence: "packages/catalog/src/baa.ts (template 1.6.0), docs/baa-v1.6.0.txt, docs/counsel/agreement-changes.md section 17",
+    evidence:
+      "packages/catalog/src/baa.ts (template 1.6.0), docs/baa-v1.6.0.txt, docs/counsel/agreement-changes.md section 17",
     blocksGoLive: true,
   },
   {
@@ -224,11 +240,13 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
   },
   {
     id: "phone-flips-live",
-    promise: "Phone goes live by itself once a call forwarded from the clinic's main line reaches AYA",
+    promise:
+      "Phone goes live by itself once a call forwarded from the clinic's main line reaches AYA",
     where: "Setup wizard (phone), Settings → Channels",
     status: "owner",
     left: "Built: a call the carrier says it forwarded from the clinic's published number (its Diversion or History-Info header), with the caller's number kept, meets phone's forwarding step with no test window and no operator, and the clinic's own Test it now does the same from the wizard or Settings. Left: once enable_voice is on, check on a forwarded test call that Retell passes the carrier's Diversion or History-Info header on its numbers; where it does not, Test it now is how phone goes live.",
-    evidence: "apps/app/src/lib/voice/forwarded-from.ts, apps/app/src/lib/onboarding/forwarding-test.ts, apps/app/src/lib/setup/forwarding-test-view.ts",
+    evidence:
+      "apps/app/src/lib/voice/forwarded-from.ts, apps/app/src/lib/onboarding/forwarding-test.ts, apps/app/src/lib/setup/forwarding-test-view.ts",
     blocksGoLive: false,
   },
 ];

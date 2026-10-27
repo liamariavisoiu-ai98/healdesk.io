@@ -120,6 +120,8 @@ export const EVENT_FIELDS: Partial<Record<OpsEvent, readonly string[]>> = {
   voice_provision_failed: ["clinicId", "code", "count", "windowStart", "phase"],
   voice_provision_cap_reached: ["windowStart", "count"],
   voice_agent_drift: ["clinicId", "code", "status", "count", "windowStart"],
+  // lib/voice/agent-storage.ts: the problem as `status`, and the day.
+  voice_agent_storage: ["clinicId", "status", "windowStart"],
   voice_deprovision_failed: ["clinicId", "code", "windowStart"],
   // lib/connections/google-calendar.ts markCalendarBroken and
   // lib/scheduler/calendar-watch.ts report (counted, with the run id).

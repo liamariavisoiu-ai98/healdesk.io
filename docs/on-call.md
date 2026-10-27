@@ -367,7 +367,7 @@ cannot be rendered again is a code or template fault: read the register row's ve
 ### Voice
 
 `voice_fallback_no_direct_line`, `voice_call_start_failed`, `retell_fallback_unsynced`,
-`voice_provision_failed`, `voice_provision_cap_reached`, `voice_agent_drift`,
+`voice_provision_failed`, `voice_provision_cap_reached`, `voice_agent_drift`, `voice_agent_storage`,
 `voice_deprovision_failed`, `voice_direct_line_loops`, `voice_test_mode_refused`. "Voice:
 where a call goes when something fails" above is the whole runbook; the clinic's Setup tab
 holds the phone line, the direct line and the forwarding test. Its "Voice agent" card
@@ -386,6 +386,16 @@ missing agent or number is never recreated by code: ask Retell support, or relea
 clinic's voice set-up and provision again. A `failed` set-up waits for Retry; a failed
 settings sync is retried by the hourly sweep by itself. Outage mode is a dashboard step,
 never automated.
+
+`voice_agent_storage` is raised by the backstop job, not the nightly read-back: before it
+deletes a call at Retell it reads the agent that call ran on, at that version (GET only,
+`lib/voice/agent-storage.ts`), and alerts once per clinic, problem and UTC day when the data
+storage retention is not one day (`status` retention; unset is kept for ever) or the storage
+setting is not `everything` (`status` setting). It covers agents made by hand in Retell's
+dashboard, which have no voice set-up row and so no "Voice agent" card or read-back. Nothing
+writes to Retell: set both in Retell's dashboard on the agent the clinic's assistant number
+points at, publish it so the number's version carries them, and tell the owner, since a call
+this agent took that was not recorded here may still be at Retell past a day.
 
 ### Calendar
 

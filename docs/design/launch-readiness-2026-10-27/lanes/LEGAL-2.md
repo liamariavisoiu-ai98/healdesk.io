@@ -1,5 +1,5 @@
 # Lane LEGAL-2 — BAA 1.6.0 release, PREPARED NOT RELEASED
-Model: Opus. Worktree `../healdesk-legal2`, branch `lane/legal-2`. Read `_common.md` first. A legal clock: be exact.
+Model: Opus. Worktree `../healdesk-legal2`, branch `lane/legal-2`, already cut from `lane/legal-1` (LEGAL-1 changed Terms § 9 sentence 1, Privacy and LEGAL_VERSION 2026-10-27.1; build on that, bump again). Read `_common.md` first. A legal clock: be exact.
 
 Goal: on this branch, prepare the BAA 1.6.0 release exactly as the register describes, with `approvedByCounsel` left FALSE and a clear TODO, so the owner can release by a one-line change. The branch is never landed by you.
 

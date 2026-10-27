@@ -286,6 +286,15 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * copy (docs/handover.md, "Inbound support mail", step 6). No agreement text
  * changes, so apps/app re-renders nothing new: its re-render hash check
  * covers the agreement templates in packages/catalog, not these pages.
+ * After review, in the same unpublished version: the support item also
+ * names the email delivery provider that sends an approved reply
+ * (lib/support/send.ts, Resend, no BAA) and says the checks run again on the
+ * approved text (draft/checks.ts header; send.ts checkReplyText); the
+ * boundary paragraph and "Who handles it" say the administration tool on
+ * this website's host shows drafted replies, never the email, instead of an
+ * unqualified "never receive patient information"; and the chat tool is
+ * "our team's internal chat tool", so it is not read as privacy § 5's
+ * messaging platform, which is Meta.
  */
 export default function TermsPage() {
   const products = productsForTerms();
@@ -912,7 +921,10 @@ export default function TermsPage() {
         <h3 className={ANNEX_HEADING}>The boundary</h3>
         <p>
           {site.name} is two systems. This website and its demo hold no patient information at
-          all: a clinic owner&apos;s work email, a chat with a demo agent, a business enquiry. The
+          all: a clinic owner&apos;s work email, a chat with a demo agent, a business enquiry. Our
+          internal administration tool on this website&apos;s host shows our drafted replies to
+          support emails, which automated checks are designed to keep free of patient details,
+          and never the email itself. The
           product — the assistant that answers your phone and chat — runs on separate
           infrastructure, under your Data Agreement, and that is the only place a
           caller&apos;s name, number or question is kept.
@@ -973,7 +985,9 @@ export default function TermsPage() {
             a business associate agreement with us that is signed before any patient information
             reaches it. The list of these subcontractors is given to clinics on request, under each
             clinic&apos;s Data Agreement. The vendors that serve this website, its demo and our
-            billing never receive patient information.
+            billing are never sent patient information by design; the nearest they come is our
+            drafted reply to a support email, which automated checks are designed to keep free of
+            patient details (&ldquo;Our replies to your support emails&rdquo;, below).
           </li>
           <li>
             <strong>Every access is recorded.</strong> Reads and writes of patient information are
@@ -1035,13 +1049,16 @@ export default function TermsPage() {
           </li>
           <li>
             <strong>Our replies to your support emails.</strong> When we answer an email your
-            Practice sends to our support, the reply drafted for us is written in our words, not
-            copied from your email, and a draft that repeats five or more words in a row from your
-            email is not kept. The draft may be shown for approval in our internal administration
-            tool and in our team&apos;s messaging service, neither of which runs under a business
-            associate agreement. Automated checks are designed to keep patient details out of the
-            draft. No check catches every wording, and your email itself also reaches our support
-            inbox as ordinary email, so do not send patient information to our support.
+            Practice sends to our support, the reply drafted for us is designed to be written in
+            our words, not copied from your email, and a draft that repeats five or more words in a
+            row from your email is not kept. The draft may be shown for approval in our internal
+            administration tool, which runs on this website&apos;s host, and in our team&apos;s
+            internal chat tool, and the approved reply is sent through our email delivery provider:
+            none of the three works under a business associate agreement. Automated checks are
+            designed to keep patient details out of the draft, and run again on the approved text
+            before it is sent. No check catches every wording, and your email itself also reaches
+            our support inbox as ordinary email, so do not send patient information to our
+            support.
           </li>
           <li>
             <strong>Your calendar is yours.</strong> Bookings are written into your own Google

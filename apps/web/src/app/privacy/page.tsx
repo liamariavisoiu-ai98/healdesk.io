@@ -148,9 +148,20 @@ export const metadata: Metadata = {
  * draft a reply that waits for approval (lib/support/draft/email.ts, run.ts);
  * the bucket copy goes when the handler or the drafter is done (handle.ts,
  * draft/email.ts), else at six hours (inbound/sweep.ts, a job the owner
- * switches on) and at the latest by the bucket's one-day lifecycle rule, which
- * S3 applies up to about a day late (infra/aws/ses-inbound.tf): hence "within
- * about two days", not "within hours". The draft is shown in /admin on Vercel
+ * switches on) and otherwise by the bucket's one-day lifecycle rule, which S3
+ * makes eligible one to two days after arrival (rounded up to midnight UTC)
+ * and applies asynchronously with no stated limit (infra/aws/ses-inbound.tf),
+ * and which is the only deletion while the host is in standby (the bucket and
+ * receipt rule stay; the SNS subscription goes, ses-inbound.tf): hence
+ * "normally within a few days", never "within hours" or a fixed bound. The
+ * model provider's own retention applies, as for the demo's items. A sent
+ * reply's words go after 12 months (lib/scheduler/support-send.ts,
+ * runSupportRetention); a draft never sent stays with its case, which goes
+ * with the clinic (drizzle/0125 app_destroy_support_cases) or 30 days after
+ * it closed if about no clinic (inbound/retention.ts). §5 and §9 name the
+ * website host, the internal chat tool and the email delivery provider
+ * (lib/support/send.ts, Resend) as no-BAA routes for the drafted or approved
+ * reply. The draft is shown in /admin on Vercel
  * (apps/web/src/app/admin/support/[caseId]) and in Slack
  * (apps/app/src/lib/support/slack-reply.ts), neither under a BAA, each
  * described by what it does, as every vendor on these pages is.
@@ -434,8 +445,10 @@ export default function PrivacyPage() {
       <Section id="vendors" title="5. Who processes it">
         <p>
           We use service providers for the jobs below, and describe them by what they do. Each
-          receives only what its row says, and none receives patient information from this
-          website.
+          receives only what its row says, and none is sent patient information from this website
+          by design. Our drafted replies to support emails, which automated checks are designed to
+          keep free of patient details, are shown in our internal administration tool on this
+          website&apos;s host (section 6).
         </p>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[560px] text-[15px]">
@@ -494,12 +507,19 @@ export default function PrivacyPage() {
             about each one, such as its topic, its urgency and counts, never its words. When an
             email is matched to a customer clinic&apos;s account, its text may be sent to our AI
             model provider, under our business associate agreement with it, to draft our reply,
-            which one of our team approves before it is sent. The support system deletes its copy
-            of each email once the facts are taken or the reply is drafted, normally within
-            minutes, and in any case within about two days. Our drafted reply, which is our words
-            and not your email, may be shown for approval in our internal administration tool and
-            in our team&apos;s messaging service, neither of which runs under a business associate
-            agreement; automated checks are designed to keep patient details out of it.
+            which one of our team approves before it is sent; our AI model provider&apos;s own
+            retention applies to its processing. The support system deletes its copy of each email
+            as soon as it has taken those facts or drafted the reply, normally within minutes; a
+            copy it does not reach, for example while the product&apos;s servers are switched off,
+            is deleted unread, normally within a few days. Our drafted reply, which is designed to
+            be in our words and not your email&apos;s, may be shown for approval in our internal
+            administration tool, which runs on this website&apos;s host, and in our team&apos;s
+            internal chat tool, and the approved reply is sent through our email delivery
+            provider; none of the three works under a business associate agreement, and automated
+            checks are designed to keep patient details out of the reply. No check catches every
+            wording, so do not send patient information to our support. A reply we sent is kept
+            for up to 12 months as the record of what we told you, then its words are deleted; a draft
+            that was never sent stays with its support case until the case is deleted.
           </li>
           <li>Customer billing records: for as long as tax and accounting law require.</li>
           <li>The record of a signed Business Associate Agreement: for six years after the relationship ends, as HIPAA requires.</li>
@@ -569,7 +589,10 @@ export default function PrivacyPage() {
           The controls the product commits to for patient information are set out in the
           Business Associate Agreement. Every vendor that will handle patient information for us
           signs an agreement with us before any patient information reaches it; Meta and payment
-          processors sign none, so the product keeps clinical content away from them. Patient
+          processors sign none, so the product keeps clinical content away from them. Nor do our
+          website host and our team&apos;s internal chat tool, which show our drafted replies to
+          support emails, or our email delivery provider, which sends the approved ones: there we
+          rely on automated checks designed to keep patient details out (section 6). Patient
           information is encrypted at rest, and in transit wherever we control both ends. Two
           routes are outside
           that: a phone call is not end-to-end encrypted, and a patient who telephones has chosen

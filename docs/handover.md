@@ -1019,7 +1019,7 @@ domain's MX is never touched. Owner steps, in order:
    from forwarding-noreply@google.com and signed by google.com (an aligned DKIM pass at SES), is
    not turned into a case; it is left in the inbound bucket until the hourly sweep deletes it
    once it is six hours old, so read it at once (if the sweep is still off, the bucket's
-   one-day lifecycle rule takes it, within about two days). One without google.com's signature
+   one-day lifecycle rule takes it, normally within a few days). One without google.com's signature
    is treated as an ordinary email from nobody we know. Read it in CloudShell with
    `aws s3 ls s3://<bucket>/mail/` and
    `aws s3 cp s3://<bucket>/mail/<id> -`, enter the code or open the link it gives, then
@@ -1054,7 +1054,8 @@ a finally, whatever the draft's outcome), normally within minutes; one the draft
 (the job off, no clinic, a case already drafted, unparsable, over 2 MB) is deleted by the handler
 at once; the hourly sweep deletes anything older than six hours (so up to about seven), read or
 not; and the bucket's one-day lifecycle rule is the backstop, which S3 applies
-asynchronously (up to about two days). The drafter gives Claude the subject and body as written,
+asynchronously (eligible one to two days after arrival, then removed with no stated limit,
+normally within a few days). The drafter gives Claude the subject and body as written,
 never the sender's name, address or attachments, on healdesk's key, which is the Anthropic
 organisation the BAA covers (owner-confirmed 26 October 2026); a draft that quotes eight words in
 a row of the email, or fails any other check, is not kept at all, only the checks' names

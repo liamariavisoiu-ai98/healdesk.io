@@ -114,6 +114,7 @@ export const PROCESSOR_CATEGORIES = {
   "lead-records": "Cloud spreadsheet",
   analytics: "Analytics",
   "web-research": "Web research",
+  "team-chat": "Internal chat tool",
 } as const;
 
 export type ProcessorCategory = keyof typeof PROCESSOR_CATEGORIES;
@@ -250,18 +251,32 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
   {
     name: "Resend",
     category: "email",
-    purpose: "Transactional email: invitations, agreement copies, account and billing notices",
-    data: "Recipient address and non-patient content only",
+    purpose: "Transactional email: invitations, agreement copies, account and billing notices, and the support replies ops approved",
+    data: "Recipient address and non-patient content only; a support reply only after the reply checks pass on its approved text (apps/app/src/lib/support/send.ts)",
     region: "United States",
     handlesPhi: false,
     baa: { state: "not-needed", because: "It carries only email that holds no patient information: the product refuses to send anything else through it (apps/app/src/lib/reporting)." },
     scope: "both",
   },
   {
+    name: "Slack",
+    category: "team-chat",
+    purpose: "The owner's ops channel: alerts as ids, counts and closed words, and each support reply waiting for approval, with its drafted text, to read and act on (owner, 26 October 2026)",
+    data: "A support case's ref, the clinic's name, its urgency and reply-by day, and the reply we drafted, never the clinic's own email (apps/app/src/lib/support/slack-reply.ts); every other post on the allow-list in apps/app/src/lib/ops/slack.ts",
+    region: "",
+    handlesPhi: false,
+    baa: {
+      state: "none-by-design",
+      because:
+        "No BAA (the owner accepted this on 26 October 2026). The drafted reply it shows is checked by the reply rules, designed to keep patient details out, which no check does for every wording.",
+    },
+    scope: "product",
+  },
+  {
     name: "Vercel",
     category: "website-hosting",
     purpose: "Hosting this marketing website",
-    data: "Page requests, the demo gate email, contact-form submissions",
+    data: "Page requests, the demo gate email, contact-form submissions; in the /admin console, our drafted support replies, which the reply checks are designed to keep free of patient details, never a clinic's email",
     region: "United States",
     handlesPhi: false,
     baa: { state: "not-needed", because: "The marketing site holds no patient information; the product is hosted elsewhere." },

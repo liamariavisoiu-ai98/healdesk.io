@@ -368,6 +368,11 @@ export const OPS_EVENTS = [
   // outbox's schedule, then the sending stops and the clinic has not heard.
   // Once an hour per clinic; the clinic and the count of tries, no words.
   "support_reply_dead",
+  // Five wrong approval passcodes in the support reply's Slack dialog
+  // (lib/support/slack-passcode.ts; lane P7i): Slack approvals are locked on
+  // that web task for fifteen minutes. The count only: the Slack member id
+  // stays in the log line.
+  "slack_approvals_locked",
   // The support cases' watch (lib/support/watch.ts; ops automation lane
   // P7e): a case that still needs us past its reply-by day, once per case
   // (it replaces support_reply_past_due for every chat escalation that is a

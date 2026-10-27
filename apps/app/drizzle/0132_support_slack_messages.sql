@@ -40,7 +40,9 @@ CREATE INDEX "support_slack_messages_open_idx" ON "support_slack_messages" USING
 -- with its case, by the foreign key's cascade, when the clinic's cases are
 -- destroyed). Not a tenant table (no clinic_id), like support_cases. Safe to
 -- apply in place: one new, empty table. Nothing is posted until the owner
--- pastes SLACK_BOT_TOKEN and SLACK_SUPPORT_CHANNEL.
+-- pastes SLACK_BOT_TOKEN and SLACK_SUPPORT_CHANNEL, and the buttons work
+-- only once SLACK_SIGNING_SECRET and SLACK_OPERATOR_IDS are pasted too: all
+-- four settings for the feature, the first two for the worker's posts.
 -- =============================================================================
 
 REVOKE ALL ON support_slack_messages FROM healdesk_app;--> statement-breakpoint

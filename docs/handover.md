@@ -253,10 +253,13 @@ task stays unproven until the first `host.yml` turn-on.
   runbook's "Restore drill" (a point-in-time restore to a new instance, checked by running
   db-bootstrap against it); it has not been run. **Built:** the after-restore destruction check
   (step 3 of "Restoring") as the one-off `destroy-due` task, the worker's container running
-  `scripts/destroy-due.ts` (`infra/aws/scripts/run-task.sh destroy-due`). **Open:** putting a
-  restored copy in production's place (the runbook's "Restoring production" gives the order and
-  what is known, not a rehearsed procedure); step 2's dates go back through the CloudShell VPC
-  environment as the migrator. **Built:** offboarding's return bundle on this host, as the one-off
+  `scripts/destroy-due.ts` (`infra/aws/scripts/run-task.sh destroy-due`). **Designed, not
+  rehearsed:** putting a restored copy in production's place, step by step with every command, in
+  `docs/design/launch-readiness-2026-10-27/restore-into-production.md` (a point-in-time restore to a
+  new instance, two renames, the steps of "Restoring" below, then Terraform adopting the copy by a
+  hand state removal and an import, with the gaps that leaves listed); step 2's dates go back
+  through the CloudShell VPC environment as the migrator. **Open:** that document's rehearsal plan,
+  on side instances, with the drill. **Built:** offboarding's return bundle on this host, as the one-off
   `patient-export` task, which puts it in the export bucket (`infra/aws/exports.tf`;
   `infra/aws/scripts/run-task.sh patient-export <clinic id>`); and the patient-rights scripts as
   `erase-person` and `amend-contact`, by contact id (see "Deletion requests" and "Amendments"). **Half built:** the alarm on any transaction open
@@ -969,7 +972,9 @@ request run again before the service reopens:
    clinic's tenant, with `record_amendments_guard` disabled as in step 4 so each keeps
    its `recorded_at`; a contact correction cannot be copied, because the restored row
    is the old one, so it is always asked for again.
-7. Only then reopen the service.
+7. Only then reopen the service. On the AWS host the whole sequence, with the swap of the restored
+   copy into production's name and its commands, is
+   `docs/design/launch-readiness-2026-10-27/restore-into-production.md`.
 
 ### The approval passcode
 

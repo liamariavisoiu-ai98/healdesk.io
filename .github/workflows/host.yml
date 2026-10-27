@@ -401,8 +401,8 @@ jobs:
           } >>"$GITHUB_OUTPUT"
 
       # SNS refuses to subscribe an endpoint that does not answer, so the
-      # subscription waits for the last job unless the app already answers
-      # (the host was on).
+      # subscriptions (SES's events and the inbound support mail topic) wait for
+      # the last job unless the app already answers (the host was on).
       - name: Turn on
         env:
           SNAPSHOT: ${{ steps.database.outputs.snapshot }}
@@ -411,7 +411,7 @@ jobs:
           if body=$(curl --silent --max-time 10 --fail "$LIVENESS_URL") && jq -e '.ok == true' <<<"$body" >/dev/null 2>&1; then
             subscribe=true
           fi
-          args=(-var standby=false -var deletion_protection=true -var subscribe_ses_events="$subscribe")
+          args=(-var standby=false -var deletion_protection=true -var subscribe_ses_events="$subscribe" -var subscribe_inbound_mail="$subscribe")
           [ -z "$SNAPSHOT" ] || args+=(-var restore_snapshot_identifier="$SNAPSHOT")
           bash scripts/host-apply.sh "turn on" active "${args[@]}"
 
@@ -496,7 +496,7 @@ jobs:
       - name: Subscribe
         run: |
           bash scripts/host-apply.sh "subscribe" active \
-            -var standby=false -var deletion_protection=true -var subscribe_ses_events=true
+            -var standby=false -var deletion_protection=true -var subscribe_ses_events=true -var subscribe_inbound_mail=true
 
       - name: Upload the rendered plan
         if: ${{ always() }}

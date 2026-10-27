@@ -56,9 +56,11 @@ import { SUBPROCESSORS } from "@/lib/subprocessors";
  *   The code keeps "pilot" and "cohort" as values it compares, which the
  *   rule leaves alone; the coupon names Stripe prints are checked in
  *   packages/catalog (plans.test.ts).
- * - Any @healdesk.io address but hello@. It is the only one, for legal
+ * - Any @healdesk.io address but hello@ and support@. hello@ is the one for legal
  *   notices, privacy requests and everything else (owner, 9 October 2026):
  *   the legal pages named legal@ and privacy@, mailboxes nobody reads.
+ *   support@ may be printed too (owner, 27 October 2026): both reach the same
+ *   inbox and the same support system.
  *
  * Copy is every string, template and piece of JSX text under src/, outside
  * the tests, read with the TypeScript parser so that comments, which often
@@ -115,8 +117,8 @@ const BANNED: readonly { pattern: RegExp; label: string }[] = [
     label: "'live the same day': no timing before purchase",
   },
   {
-    pattern: /\b(?!hello@)[\w.+-]+@healdesk\.io\b/i,
-    label: "an address other than hello@healdesk.io: it is the only one",
+    pattern: /\b(?!hello@|support@)[\w.+-]+@healdesk\.io\b/i,
+    label: "an address other than hello@healdesk.io or support@healdesk.io",
   },
   {
     // Read only in prose: a piece with a space in it, or one that starts with

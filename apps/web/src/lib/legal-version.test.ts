@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { BAA_1_6_0_RELEASED } from "@healdesk/catalog";
 import { describe, expect, test } from "vitest";
 
 import DataDeletionPage from "@/app/data-deletion/page";
@@ -40,9 +41,9 @@ import { LEGAL_LAST_UPDATED, LEGAL_VERSION } from "@/lib/legal";
  * changing one changes the terms.
  */
 
-const PINNED = {
-  version: "2026-10-26.1",
-  lastUpdated: "26 October 2026",
+const PINNED_BEFORE_1_6_0 = {
+  version: "2026-10-27.1",
+  lastUpdated: "27 October 2026",
   /**
    * The version these pages replace: the last one that went out, which was
    * main's live text when this one was numbered. A note may cite it, an earlier
@@ -51,13 +52,31 @@ const PINNED = {
    * when you renumber a version that never did, because that number was never
    * published.
    */
-  replaces: "2026-10-23.2",
+  replaces: "2026-10-26.1",
   sha256: {
-    "/terms": "d3aad8780fd95a28b3ada031e1e525fe1d4904f988aef9c77c77ee2d55cd9d2f",
-    "/privacy": "a3b3c9ebeff0866665ca3a780d4a3b2174e324aa64f3dfeb47ab882a1933fef1",
+    "/terms": "be641804ed52a6b373848642dbb8dad34bc23a3f1780e120c267341732a62350",
+    "/privacy": "62865d2345df84a6b79acc28a034b76f6b97142477f75cb66e7f03b448e24cec",
     "/data-deletion": "d77557279849e427006387afa3c427ee976e10be5afd29cbba04a7356afd1042",
   },
 } as const;
+
+/**
+ * The text once BAA 1.6.0 is released (BAA_1_6_0_RELEASED in
+ * packages/catalog/src/baa.ts): terms section 9 says "The Business Associate
+ * Agreement states the same" again, nothing else moves, and LEGAL_VERSION is
+ * 2026-10-27.2. Privacy and the deletion page are word for word the same.
+ * Pinned now so the flip is not also a hash edit; if it goes out on a later
+ * day, move lastUpdated here and LEGAL_LAST_UPDATED in src/lib/legal.ts
+ * together and re-pin /terms. The release replaces 2026-10-27.1 only if that
+ * went out, which `replaces` records as the live text.
+ */
+const PINNED_WITH_1_6_0 = {
+  ...PINNED_BEFORE_1_6_0,
+  version: "2026-10-27.2",
+  sha256: { ...PINNED_BEFORE_1_6_0.sha256, "/terms": "5a98654b9a4d93f8ec497f870d1271d8001a54049460145783e849cd4d618f6e" },
+} as const;
+
+const PINNED = BAA_1_6_0_RELEASED ? PINNED_WITH_1_6_0 : PINNED_BEFORE_1_6_0;
 
 const PAGES = [
   ["/terms", TermsPage],

@@ -36,6 +36,7 @@ import {
   turnsFromRetell,
   type RetellCall,
 } from "@/lib/voice/backstop";
+import { checkCallAgentStorage } from "@/lib/voice/agent-storage";
 import { TROUBLE_TRANSFER_LINE } from "@/lib/voice/retell";
 import { verifyRetellSignature } from "@/lib/voice/retell-signature";
 import { createVoiceServer } from "@/voice/server";
@@ -373,7 +374,8 @@ describeDb("the backstop against the database", () => {
 
     const again = await runCallBackstop({ clinicId: clinic.clinicId, callId: "call_lost" }, { apiKey: KEY, realCalls: true, fetchCall, transport });
     expect(again).toEqual({ status: "already_recorded" });
-    expect(fetchCall).toHaveBeenCalledTimes(1);
+    // Read once more, only for the agent's storage check (lib/voice/agent-storage.ts); nothing is recorded twice.
+    expect(fetchCall).toHaveBeenCalledTimes(2);
     // A second run asks for the delete again, which Retell answers as done.
     expect(deletes).toEqual(["call_lost", "call_lost"]);
     expect(await counts(clinic.clinicId)).toEqual(after);
@@ -415,10 +417,52 @@ describeDb("the backstop against the database", () => {
 
     const fetchCall = vi.fn(async (callId: string) => retellCall({ call_id: callId }));
     expect(await runCallBackstop({ clinicId: clinic.clinicId, callId: "call_live" }, { apiKey: KEY, realCalls: true, fetchCall, transport })).toEqual({ status: "already_recorded" });
-    expect(fetchCall).not.toHaveBeenCalled();
+    // Read only for the agent's storage check, before the delete: the live socket's record stands.
+    expect(fetchCall).toHaveBeenCalledTimes(1);
     expect(deletes).toEqual(["call_live"]);
     expect(await counts(clinic.clinicId)).toEqual(live);
     expect(transport.sent.length).toBe(mailed);
+  });
+
+  test("each call's agent is read back before the call is deleted, and a mis-set one raises voice_agent_storage", async () => {
+    const clinic = await clinicWithNumber("backstop-storage");
+    const order: string[] = [];
+    const notify = vi.fn(async () => {});
+    const agentAt = (retention: number | null) =>
+      (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if ((init?.method ?? "GET") !== "GET" || !url.startsWith("https://api.retellai.com/get-agent/agent_handmade_0002")) throw new Error(`unexpected fetch ${url}`);
+        order.push("get-agent");
+        return new Response(JSON.stringify({ agent_id: "agent_handmade_0002", data_storage_setting: "everything", data_storage_retention_days: retention }), { status: 200 });
+      }) as typeof fetch;
+    const deps = (retention: number | null) => ({
+      apiKey: KEY,
+      realCalls: true,
+      transport,
+      fetchCall: async (id: string) => retellCall({ call_id: id, agent_id: "agent_handmade_0002", agent_version: 0 }),
+      checkStorage: (c: string, call: RetellCall) => checkCallAgentStorage(c, call, { apiKey: KEY, fetch: agentAt(retention), now: new Date("2026-11-03T15:00:00.000Z"), notify }),
+      deleteCall: async (_c: string, id: string) => {
+        order.push(`delete ${id}`);
+        return { status: "deleted" as const };
+      },
+    });
+
+    // Recorded by the backstop itself: the agent is read before the delete.
+    expect((await runCallBackstop({ clinicId: clinic.clinicId, callId: "call_storage_1" }, deps(null))).status).toBe("recorded");
+    expect(order).toEqual(["get-agent", "delete call_storage_1"]);
+    expect(notify).toHaveBeenCalledWith("voice_agent_storage", { clinicId: clinic.clinicId, status: "retention", windowStart: "2026-11-03" });
+
+    // Already recorded: read again for the check, then deleted.
+    order.length = 0;
+    expect(await runCallBackstop({ clinicId: clinic.clinicId, callId: "call_storage_1" }, deps(1))).toEqual({ status: "already_recorded" });
+    expect(order).toEqual(["get-agent", "delete call_storage_1"]);
+    expect(notify).toHaveBeenCalledTimes(1);
+
+    // A check that fails never holds up the delete.
+    order.length = 0;
+    const failing = { ...deps(1), checkStorage: async () => { throw new Error("boom"); } };
+    expect(await runCallBackstop({ clinicId: clinic.clinicId, callId: "call_storage_1" }, failing)).toEqual({ status: "already_recorded" });
+    expect(order).toEqual(["delete call_storage_1"]);
   });
 
   test("two backstop runs at once record the call once", async () => {

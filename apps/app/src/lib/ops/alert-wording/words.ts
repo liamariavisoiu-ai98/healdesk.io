@@ -204,6 +204,8 @@ export const STATUS_WORDS: Readonly<Partial<Record<OpsEvent, Readonly<Record<str
   connection_broken: { revoked: "access removed" },
   // lib/voice/provision.ts: a drift written again, or left for a person.
   voice_agent_drift: { repaired: "repaired", flagged: "left for a person" },
+  // lib/voice/agent-storage.ts: which of the agent's two storage settings is not ours.
+  voice_agent_storage: { retention: "retention not one day", setting: "storage setting not everything" },
   // lib/ops/calendar-write-alerts.ts: the write's state. `failed` is an
   // answer that settled it (lib/booking/calendar.ts failureOutcome and
   // readBackOutcome: Google or our own set-up refused the write, the clinic

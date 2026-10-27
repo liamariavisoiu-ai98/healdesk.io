@@ -29,8 +29,12 @@
 # job's finally), or for as long as the handler takes when the drafter will
 # not read it. What a failed handler leaves, the hourly support-inbound-
 # sweep job handles, and it deletes anything six hours old. The one-day
-# lifecycle rule below is only the backstop behind both: S3 applies it
-# asynchronously, so an object can outlive it by up to about another day.
+# lifecycle rule below is only the backstop behind both: S3 counts the day
+# from the object's creation rounded up to the next midnight UTC, so an
+# object becomes eligible one to two days after it is written, and then
+# removes it asynchronously, with no stated limit (normally a few days in
+# all). It is also all there is while the host is in standby: the bucket and
+# the receipt rule stay, and no task reads the bucket.
 #
 # Encryption: the bucket's default encryption is SSE-KMS under the project's
 # key with S3 Bucket Keys, as the export bucket; SES writes without naming an

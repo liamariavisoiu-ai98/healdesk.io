@@ -76,6 +76,8 @@ export const URGENCY: Readonly<Record<OpsEvent, Urgency>> = {
   voice_provision_failed: "today",
   voice_provision_cap_reached: "today",
   voice_agent_drift: "today",
+  // A broken promise on every call until fixed: Retell keeps calls past a day.
+  voice_agent_storage: "urgent",
   voice_deprovision_failed: "today",
   voice_direct_line_loops: "urgent",
   voice_test_mode_refused: "urgent",

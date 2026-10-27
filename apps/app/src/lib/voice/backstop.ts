@@ -14,6 +14,7 @@ import { enqueue, getBoss, QUEUE_VOICE_CALL_BACKSTOP } from "@/lib/queue/boss";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
+import { checkCallAgentStorage, type AgentStorageOutcome } from "./agent-storage";
 import { classifyCallEnding, isEndedEarlyReason, markEndedEarly } from "./ended-early";
 import { ingestCall, VoiceIngestError, type IngestResult, type VoiceCallEvent } from "./ingest";
 import { deleteRetellCallAfterIngest, type RetellCallDeletion } from "./recording-alerts";
@@ -93,6 +94,13 @@ import { voiceRealCallsAllowed } from "./test-calls";
  * call that is not recorded here, whatever the reason: Retell's one-day
  * retention removes those. A delete still failing
  * RETELL_DELETION_WINDOW_MS after the call ended is one alert for the call.
+ *
+ * Before the delete, while the call still names its agent, the job reads
+ * that agent back at the call's version (./agent-storage.ts, GET only) and
+ * raises voice_agent_storage when its retention is not one day or its
+ * storage setting is not `everything`: the one read-back an agent made by
+ * hand gets. On the already-recorded path that costs one get-call. The
+ * check never throws and never holds up the delete.
  */
 
 /** Long after any live socket has recorded its call; short enough that the clinic's transcript is still timely. */
@@ -181,6 +189,9 @@ export type RetellCall = {
   transcript_object?: unknown;
   /** Why the call ended (lib/voice/ended-early.ts reads it). */
   disconnection_reason?: unknown;
+  /** The agent and its version the call ran on: the storage check reads it back (./agent-storage.ts). */
+  agent_id?: unknown;
+  agent_version?: unknown;
 };
 
 /** Read a call back from Retell. Throws on anything but a 200 with a JSON object, so the job retries. */
@@ -347,7 +358,37 @@ export type BackstopDeps = {
   transport?: EmailTransport;
   /** Defaults to deleteRetellCallAfterIngest (./recording-alerts.ts) with this key. */
   deleteCall?: (clinicId: string, callId: string) => Promise<RetellCallDeletion>;
+  /** Defaults to checkCallAgentStorage (./agent-storage.ts) with this key. */
+  checkStorage?: (clinicId: string, call: RetellCall) => Promise<AgentStorageOutcome>;
 };
+
+/**
+ * Read the call's agent back and alert on storage that is not ours, before
+ * the call is deleted at Retell (after the delete the call, and with it the
+ * agent's id, is gone). Never throws and never holds up the delete.
+ */
+async function checkStorageOf(clinicId: string, call: RetellCall, deps: BackstopDeps): Promise<void> {
+  const apiKey = deps.apiKey === undefined ? retellApiKey() : deps.apiKey;
+  try {
+    await (deps.checkStorage ?? ((c, k) => checkCallAgentStorage(c, k, { apiKey })))(clinicId, call);
+  } catch (error) {
+    log.warn("retell agent storage not checked", { clinicId, error: describeError(error) });
+  }
+}
+
+/** The already-recorded path reads the call only for the storage check; a failure to read is logged, never thrown. */
+async function readAndCheckStorage(clinicId: string, callId: string, deps: BackstopDeps): Promise<void> {
+  const apiKey = deps.apiKey === undefined ? retellApiKey() : deps.apiKey;
+  if (!apiKey) return;
+  let call: RetellCall;
+  try {
+    call = await (deps.fetchCall ?? fetchRetellCall)(callId, apiKey);
+  } catch (error) {
+    log.warn("retell agent storage not checked", { clinicId, error: describeError(error) });
+    return;
+  }
+  if (call.call_id === callId) await checkStorageOf(clinicId, call, deps);
+}
 
 /**
  * Delete the recorded call at Retell, or throw so the job is retried. Only
@@ -419,7 +460,9 @@ export async function runCallBackstop(payload: CallBackstopPayload, deps: Backst
       });
     }
     // The usual case: the live socket recorded the call, and its transcript
-    // is sealed with it. Retell's copy goes now.
+    // is sealed with it. Its agent's storage is read back first, while the
+    // call still names it; then Retell's copy goes.
+    await readAndCheckStorage(clinicId, callId, deps);
     await deleteAtRetellOrRetry(clinicId, callId, deps);
     return { status: "already_recorded" };
   }
@@ -428,6 +471,9 @@ export async function runCallBackstop(payload: CallBackstopPayload, deps: Backst
   const apiKey = deps.apiKey === undefined ? retellApiKey() : deps.apiKey;
   if (!apiKey) throw new Error("HEALDESK_RETELL_API_KEY is unset: the call cannot be read back from Retell");
   const call = await (deps.fetchCall ?? fetchRetellCall)(callId, apiKey);
+  // Every call of this clinic's, ended, whether recorded below or refused:
+  // the agent's storage applies to them all (./agent-storage.ts).
+  if (call.call_id === callId && call.call_status === "ended") await checkStorageOf(clinicId, call, deps);
 
   const mapped = callEventFromRetell(call, { clinicId, callId, assistantNumber: state.assistantNumber, raised: state.raised });
   if ("refused" in mapped) {

@@ -27,8 +27,10 @@ import { s3MailStore, type MailStore } from "./store";
  *     still waits for the drafter (lane P7h), when it is left alone;
  *   - an object older than that is deleted unread, kept for the drafter or
  *     not, and any row naming it has its key cleared. The bucket's one-day
- *     lifecycle rule is only the backstop behind this: S3 applies it
- *     asynchronously, up to about two days after an object is written.
+ *     lifecycle rule is only the backstop behind this: S3 makes an object
+ *     eligible one to two days after it is written (the day is rounded up
+ *     to midnight UTC) and removes it asynchronously after that, with no
+ *     stated limit, so normally within a few days.
  *   - and every row still naming an object after six hours (one the
  *     lifecycle rule took first, or a delete that failed) has its object
  *     deleted again (a delete of nothing is not an error) and its key

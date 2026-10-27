@@ -32,6 +32,7 @@ export const SETUP: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
   "web_widget_to_confirm",
   "voice_provision_failed",
   "voice_agent_drift",
+  "voice_agent_storage",
   "voice_direct_line_loops",
   "voice_deprovision_failed",
   "voice_fallback_no_direct_line",
@@ -180,6 +181,7 @@ export const NO_CLINIC_PAGE: Readonly<Record<OpsEvent, string>> = {
   // no clinic: a day's cap.
   voice_provision_cap_reached: "/admin/clinics",
   voice_agent_drift: "/admin/clinics",
+  voice_agent_storage: "/admin/clinics",
   voice_deprovision_failed: "/admin/clinics",
   voice_direct_line_loops: "/admin/clinics",
   voice_test_mode_refused: "/admin/clinics",

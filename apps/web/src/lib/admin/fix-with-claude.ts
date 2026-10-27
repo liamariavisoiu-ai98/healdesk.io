@@ -97,6 +97,7 @@ export const RUNBOOK_ANCHOR: Record<OpsEvent, RunbookAnchor> = {
   voice_provision_failed: "voice",
   voice_provision_cap_reached: "voice",
   voice_agent_drift: "voice",
+  voice_agent_storage: "voice",
   voice_deprovision_failed: "voice",
   voice_direct_line_loops: "voice",
   voice_test_mode_refused: "voice",

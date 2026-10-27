@@ -78,6 +78,12 @@ export const OPS_EVENTS = [
   "voice_provision_failed",
   "voice_provision_cap_reached",
   "voice_agent_drift",
+  // A call's own Retell agent, read back by the backstop job before the call
+  // is deleted at Retell (lib/voice/agent-storage.ts): its retention is not
+  // one day, or its storage setting is not `everything`. Once per clinic,
+  // problem (`status`) and UTC day. It covers agents made by hand, which the
+  // read-back above never sees.
+  "voice_agent_storage",
   "voice_deprovision_failed",
   // A clinic's direct line is its published number or its AYA number, so
   // a call put through to it would come straight back: the answer gate

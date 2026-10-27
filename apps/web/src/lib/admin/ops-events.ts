@@ -44,6 +44,7 @@ export const OPS_EVENTS = [
   "voice_provision_failed",
   "voice_provision_cap_reached",
   "voice_agent_drift",
+  "voice_agent_storage",
   "voice_deprovision_failed",
   "voice_direct_line_loops",
   "voice_test_mode_refused",

@@ -1096,16 +1096,18 @@ works the same either way. Not yet tried against Slack itself: try it on the dem
 5. **Check.** `/admin/map` shows the five keys present. Within a minute of a reply waiting, its
    message appears in the channel. Try Edit only first, then Review and send on the demo clinic.
 
-To turn it off: put `__unset__` back in any one of the four Slack parameters
+To turn it off: put `__unset__` back in `SLACK_BOT_TOKEN`
 (`bash put-external-secrets.sh SLACK_BOT_TOKEN` and paste `__unset__`) and restart. Nothing posts;
-old messages keep their buttons but pressing one gets a 404. To stop someone acting, take their id
+old messages keep their buttons but pressing one gets a 404 (as it does with the signing secret or
+the operator ids unset). The worker is given only the token and the channel. To stop someone acting, take their id
 out of `SLACK_OPERATOR_IDS` and restart. A leaked token: revoke it in the app's OAuth & Permissions,
 reinstall, paste the new one.
 
 What Slack holds: the case's ref, the clinic's name, the urgency, the reply-by day, the drafted
 reply while it waits (the message is edited to remove the words once it is sent, rejected,
-expired or closed; Slack's own retention keeps what it keeps of the edit) and the names of failing
-checks; and from the dialog, your edits and the passcode you type (Slack has no hidden input:
+expired or closed, and deleted before the clinic's data is destroyed; Slack's own retention and
+edit history keep what they keep, so set a retention period on the channel) and the names of
+failing checks; and from the dialog, your edits and the passcode you type (Slack has no hidden input:
 the passcode crosses Slack in the dialog's state and is shown as you type it). Slack signs no
 business associate agreement; by your decision it carries our drafted reply only.
 

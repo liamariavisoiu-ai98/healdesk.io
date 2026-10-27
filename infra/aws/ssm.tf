@@ -101,11 +101,13 @@ locals {
   # token posts and updates the message, the signing secret checks every
   # request to /api/webhooks/slack, the channel id and the operators' Slack
   # user ids are settings, kept here because the host has nowhere else for
-  # them. HEALDESK_APPROVAL_PASSCODE_HASH is the SAME scrypt hash as the
+  # them. The worker gets the token and the channel only (locals.tf).
+  # HEALDESK_APPROVAL_PASSCODE_HASH is the SAME scrypt hash as the
   # Vercel variable of that name (apps/web), so the Slack dialog checks the
-  # same approval passcode as the console; never the passcode itself. Any
-  # one of the four Slack values unset: the feature is off; the hash unset:
-  # nothing approves from Slack.
+  # same approval passcode as the console; never the passcode itself. The
+  # token or the channel unset: nothing is posted; the signing secret or
+  # the operator ids unset: the buttons answer 404; the hash unset: nothing
+  # approves from Slack.
   external_parameter_names = [
     "HEALDESK_PROVISION_SECRET",
     "STRIPE_SECRET_KEY",

@@ -723,10 +723,17 @@ approvals on that web task for fifteen minutes (logged as `approval_code_locked`
 id; the console's lock on Vercel is separate). Anyone not on `SLACK_OPERATOR_IDS` who presses a
 button is told no, and a log line names their member id. The message is updated when a newer
 draft replaces it and turned final, with the buttons and the reply's words removed, once it is
-sent, rejected, expired or closed; if Slack is down the console is unaffected and the sweep
-retries at 1, 5 and 30 minutes, then every six hours. To turn it off, set any of the four Slack
-parameters back to `__unset__` and restart: nothing posts, and the buttons on old messages get
-a 404.
+sent, rejected, expired or closed (a later new draft for the same case is a new message); if
+Slack is down the console is unaffected and the sweep retries at 1, 5 and 30 minutes, then every
+six hours. An edit to approve is answered at once with a working note, and the dialog then says
+how it went. Before a clinic's data is destroyed, its messages are deleted in Slack, best effort
+(a failure is logged and the destruction goes on). Slack keeps what its own retention and edit
+history keep of an edited or deleted message, so give the channel a retention period (channel
+settings, or the workspace's message retention). Five wrong passcodes raise
+`slack_approvals_locked` (Support replies, below). The worker posts with `SLACK_BOT_TOKEN` and
+`SLACK_SUPPORT_CHANNEL` alone; the buttons also need `SLACK_SIGNING_SECRET` and
+`SLACK_OPERATOR_IDS`. To turn it off, set `SLACK_BOT_TOKEN` back to `__unset__` and restart:
+nothing posts, and the buttons on old messages get a 404.
 
 ### Compliance pack
 
@@ -805,6 +812,13 @@ until it is on, only the first try at approval happens, and a failed first try s
 with no alert. If the clinic's sign-in address changed between a try Resend took and the next
 one, Resend refuses the retry because its key was already used with another address; the send
 treats that refusal as sent (the reply went, to the address at the time) and raises no alert.
+
+`slack_approvals_locked`. Five wrong approval passcodes were typed in the Slack dialog that
+approves support replies (lane P7i, `apps/app/src/lib/support/slack-passcode.ts`) within fifteen
+minutes, so approvals from Slack are locked on that web task for fifteen minutes; nothing was
+approved or sent, and the console's approvals are not affected. The alert carries the count only;
+the ops log line `approval_code_locked` names the Slack member. If it was not you, take that member
+out of `SLACK_OPERATOR_IDS`, restart, and make a new approval passcode (Vercel and AWS together).
 
 ### Support cases
 

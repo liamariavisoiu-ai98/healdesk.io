@@ -363,9 +363,9 @@ run "production_defaults" {
       "BETTER_AUTH_SECRET", "DATABASE_URL", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
       "HEALDESK_IDENTIFIER_REF_KEY", "HEALDESK_PROVISION_SECRET", "HEALDESK_RETELL_API_KEY", "RESEND_API_KEY",
       "SLACK_WEBHOOK_URL", "STRIPE_SECRET_KEY",
-      "SLACK_BOT_TOKEN", "SLACK_OPERATOR_IDS", "SLACK_SIGNING_SECRET", "SLACK_SUPPORT_CHANNEL",
+      "SLACK_BOT_TOKEN", "SLACK_SUPPORT_CHANNEL",
     ])
-    error_message = "The worker's secrets differ from what its code reads (Google included, for the calendar watch, Retell's key, for the voice call backstop, the Slack webhook, for ops alerts, and the Slack app, for support replies)."
+    error_message = "The worker's secrets differ from what its code reads (Google included, for the calendar watch, Retell's key, for the voice call backstop, the Slack webhook, for ops alerts, and the Slack app's token and channel, for support replies; never its signing secret or operator ids)."
   }
 
   assert {

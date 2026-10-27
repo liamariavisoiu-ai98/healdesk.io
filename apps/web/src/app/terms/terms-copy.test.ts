@@ -127,8 +127,11 @@ describe("the terms describe v1 as the spec defines it", () => {
     // owner item and is not signed yet (release gate 17), so the terms may
     // not describe it as in force (release gate 14). The page names no
     // vendor (the owner's direction of 9 October 2026).
+    // The support drafter (owner, 27 October 2026; apps/app
+    // lib/support/draft/email.ts) sends a clinic's support email to the same
+    // provider, under the same agreement, for a reply a person approves.
     expect(text).toContain(
-      "Our language-model provider receives the content of each conversation, to generate the agent's replies, only under a business associate agreement with us signed before any patient's information reaches it.",
+      "Our language-model provider receives the content of each conversation, to generate the agent's replies, and may receive the text of an email your Practice sends to our support, to draft our reply, which one of our team approves before it is sent. It receives both only under a business associate agreement with us signed before any patient's information reaches it.",
     );
     expect(text).toContain(
       "We process no real patient information for your Practice until each business associate agreement in the chain is in place: yours with us, and ours with every vendor that will handle it, which are our hosting provider, our database provider, our voice provider and our language-model provider.",

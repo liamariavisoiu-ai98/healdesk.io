@@ -267,6 +267,25 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * the privacy policy's retention section says it in the same words. The
  * Business Associate Agreement and the Data Protection Agreement were edited
  * in place for it (docs/counsel/agreement-changes.md §19).
+ *
+ * Revised on 27 October 2026 as LEGAL_VERSION 2026-10-27.1, for the support
+ * system (ops automation lanes P7g, P7h and P7i; owner, 27 October 2026).
+ * Section 9's language-model paragraph says the provider may also receive the
+ * text of a Practice's email to our support, to draft a reply one of our team
+ * approves before it is sent: the support-draft job sends a clinic case's
+ * email to the model unmasked, under the BAA (apps/app/src/lib/support/draft/
+ * email.ts), and sends nothing itself; a reply goes only through the
+ * support_reply_send approval. The annex's "Where there is no agreement" list
+ * has a support item: a draft quoting five or more words in a row of the email
+ * is not kept (draft/checks.ts, EMAIL_RUN_WORDS; draft/store.ts,
+ * checks_failed); the draft is shown in /admin on Vercel and in Slack
+ * (lib/support/slack-reply.ts), neither under a BAA, each described by what it
+ * does, as every vendor on these pages is ("console" stays out of this page:
+ * terms-copy.test.ts); the reply checks are designed to keep patient details
+ * out; and the email itself also reaches the owner's mailbox, which keeps a
+ * copy (docs/handover.md, "Inbound support mail", step 6). No agreement text
+ * changes, so apps/app re-renders nothing new: its re-render hash check
+ * covers the agreement templates in packages/catalog, not these pages.
  */
 export default function TermsPage() {
   const products = productsForTerms();
@@ -659,8 +678,10 @@ export default function TermsPage() {
         </p>
         <p>
           <strong>The language model.</strong> Our language-model provider receives the content of
-          each conversation, to generate the agent&apos;s replies, only under a business associate
-          agreement with us signed before any patient&apos;s information reaches it.{" "}
+          each conversation, to generate the agent&apos;s replies, and may receive the text of an
+          email your Practice sends to our support, to draft our reply, which one of our team
+          approves before it is sent. It receives both only under a business associate agreement
+          with us signed before any patient&apos;s information reaches it.{" "}
           {MODEL_RETENTION_PUBLIC} This is the provider&apos;s own documented retention, which
           neither we nor you control.
         </p>
@@ -1011,6 +1032,16 @@ export default function TermsPage() {
             for no more than {MODEL_STANDARD_RETENTION_DAYS} days, and then deletes it.{" "}
             {MODEL_RETENTION_EXCEPTIONS} Everywhere else we push retention down; this one we
             cannot, so we say so here rather than leave it for your counsel to find.
+          </li>
+          <li>
+            <strong>Our replies to your support emails.</strong> When we answer an email your
+            Practice sends to our support, the reply drafted for us is written in our words, not
+            copied from your email, and a draft that repeats five or more words in a row from your
+            email is not kept. The draft may be shown for approval in our internal administration
+            tool and in our team&apos;s messaging service, neither of which runs under a business
+            associate agreement. Automated checks are designed to keep patient details out of the
+            draft. No check catches every wording, and your email itself also reaches our support
+            inbox as ordinary email, so do not send patient information to our support.
           </li>
           <li>
             <strong>Your calendar is yours.</strong> Bookings are written into your own Google

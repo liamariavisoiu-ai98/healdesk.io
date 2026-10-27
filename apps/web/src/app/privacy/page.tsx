@@ -137,6 +137,23 @@ export const metadata: Metadata = {
  * provider holds a call's transcript and recording only until we have the
  * transcript, and for no more than a day." The demo call's line is unchanged:
  * the demo agents keep only a basic record, no recording or transcript.
+ *
+ * Revised on 27 October 2026 as LEGAL_VERSION 2026-10-27.1 (see the terms),
+ * for the support system (ops automation lanes P7g, P7h and P7i): section
+ * 6 says what happens to an email to support@ or hello@. The owner's mailbox
+ * keeps it as ordinary correspondence (docs/handover.md, "Inbound support
+ * mail", step 6: forwarded "keeping a copy in the mailbox"); the database
+ * keeps facts only (apps/app/src/lib/support/inbound/record.ts); an email on
+ * a new case about a clinic is sent unmasked to the model under the BAA to
+ * draft a reply that waits for approval (lib/support/draft/email.ts, run.ts);
+ * the bucket copy goes when the handler or the drafter is done (handle.ts,
+ * draft/email.ts), else at six hours (inbound/sweep.ts, a job the owner
+ * switches on) and at the latest by the bucket's one-day lifecycle rule, which
+ * S3 applies up to about a day late (infra/aws/ses-inbound.tf): hence "within
+ * about two days", not "within hours". The draft is shown in /admin on Vercel
+ * (apps/web/src/app/admin/support/[caseId]) and in Slack
+ * (apps/app/src/lib/support/slack-reply.ts), neither under a BAA, each
+ * described by what it does, as every vendor on these pages is.
  */
 export default function PrivacyPage() {
   return (
@@ -471,6 +488,19 @@ export default function PrivacyPage() {
           <li>A follow-up you asked for on the demo call: as ordinary email correspondence, until the request is answered and closed.</li>
           <li>A call back you asked for on a demo call: the number and the line about what to discuss are deleted once our team has called you, or after {POLICY.demoCallbackRetentionDays} days, whichever comes first. The record that you asked is kept with the demo-call consent records above.</li>
           <li>Contact-form messages: as ordinary email correspondence, until the enquiry is closed.</li>
+          <li>
+            Your emails to our support at support@healdesk.io or hello@healdesk.io: they reach our
+            support inbox as ordinary email correspondence. Our support system keeps only facts
+            about each one, such as its topic, its urgency and counts, never its words. When an
+            email is matched to a customer clinic&apos;s account, its text may be sent to our AI
+            model provider, under our business associate agreement with it, to draft our reply,
+            which one of our team approves before it is sent. The support system deletes its copy
+            of each email once the facts are taken or the reply is drafted, normally within
+            minutes, and in any case within about two days. Our drafted reply, which is our words
+            and not your email, may be shown for approval in our internal administration tool and
+            in our team&apos;s messaging service, neither of which runs under a business associate
+            agreement; automated checks are designed to keep patient details out of it.
+          </li>
           <li>Customer billing records: for as long as tax and accounting law require.</li>
           <li>The record of a signed Business Associate Agreement: for six years after the relationship ends, as HIPAA requires.</li>
           <li>

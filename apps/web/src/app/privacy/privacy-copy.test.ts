@@ -110,7 +110,14 @@ describe("the product's commitments the policy repeats", () => {
 
   test("every address is the one address", () => {
     expect(text).toContain(ENTITY.email);
-    expect(text.match(/[\w.+-]+@healdesk\.io/g)?.every((address) => address === ENTITY.email)).toBe(true);
+    // support@ is printed once, in section 6, beside hello@, as where support
+    // emails go (owner, 27 October 2026: both reach the same inbox and the
+    // same support system). Requests still go to the one address.
+    expect(
+      text
+        .match(/[\w.+-]+@healdesk\.io/g)
+        ?.every((address) => address === ENTITY.email || address === "support@healdesk.io"),
+    ).toBe(true);
   });
 });
 

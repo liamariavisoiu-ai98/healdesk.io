@@ -877,7 +877,7 @@ aws ecs describe-tasks --cluster healdesk-production --tasks "$TASK" \
 ```
 
 Exit code 0 means the copy accepted `verify-full` TLS, the master sign-in, the role provisioning
-and both roles' sign-ins. init-secrets keeps all ten values and notes that the URLs name the
+and the four roles' sign-ins. init-secrets keeps all ten values and notes that the URLs name the
 production host, not the copy: that is expected while `PGHOST` is overridden, and production's
 URLs must not follow it. The master sign-in uses the RDS-managed secret, whose value the copy
 shares unless RDS rotated it since the restore point. The output is in
@@ -906,63 +906,45 @@ Never take a manual snapshot of the copy. Record the RTO (restore command to ava
 `security_events` entry, a Reviews row in `docs/policies/training-log.md`, and the result in T9.
 The copy costs a few cents an hour while it exists.
 
+The rehearsal plan in `docs/design/launch-readiness-2026-10-27/restore-into-production.md` extends
+this drill to what a restore into production also needs (a rename, the modify that hands the master
+password to RDS, the deletion-copy pipeline, Terraform in CloudShell read-only), still on side
+instances only.
+
 ---
 
 ## Restoring production
 
-The drill proves a backup can be read. Putting a restored copy in production's place is **not
-designed in full or rehearsed**: do both before the first live clinic, with the drill. What is
-fixed is the order, set by `docs/handover.md` ("Restoring"): a restore brings back every clinic
-destroyed since the point restored to, with its patients, so destruction runs again before
-anything reads the data.
+The drill proves a backup can be read. Putting a restored copy in production's place is designed,
+step by step with every command, in
+[`docs/design/launch-readiness-2026-10-27/restore-into-production.md`](../../docs/design/launch-readiness-2026-10-27/restore-into-production.md),
+and **not rehearsed**: run that document's rehearsal plan (side instances only) before the first
+live clinic, with the drill. Its shape:
 
-1. Log the restore in `security_events`, as for the drill.
-2. Stop the service, so nothing serves or writes the restored data before step 6:
+1. Freeze: Retell outage mode on; `/healdesk/production/host/mode` set to `restoring`, which
+   `infra.yml` refuses; `host.yml`, `deploy-app.yml` and `infra.yml` disabled in GitHub, because
+   `apps/web/src/lib/host/wake.ts` dispatches `host.yml` by itself when a paid invoice finds no
+   host. Then every service to 0.
+2. A point-in-time restore to a new instance with production's settings, then two renames:
+   production to `healdesk-production-old-<stamp>`, the copy to `healdesk-production`, which keeps
+   every database URL in Parameter Store right (the endpoint follows the identifier).
+3. Before anything serves the data, the order `docs/handover.md` ("Restoring") fixes: the lost
+   destruction dates put back as the migrator, `run-task.sh migrate`, `run-task.sh destroy-due`
+   (until it exits 0), the lost deletion requests copied from the old instance,
+   `run-task.sh reapply-erasures`, amendments.
+4. Terraform adopts the copy: `terraform state rm 'aws_db_instance.main[0]'` by hand in CloudShell,
+   then a temporary `import` block applied through `infra.yml`. Until then no `infra.yml` may run:
+   the state names the old instance by its resource id, a plan would rename it back, and the plan
+   guard does not refuse a rename (gaps G1 and G2 there).
+5. Reopen with `deploy-app.yml`, `bootstrap_db` and `migrate` ticked (every service at 0 is a first
+   deploy), then `infra.yml` again to subscribe SES's events, then `host.yml` enabled again.
+6. The old instance deleted within seven days, its automated backups left to their 35 days.
 
-   ```bash
-   # With the worker in the web task (the lean default) there is only the web service; add
-   # healdesk-production-worker to both lists when worker_placement is "separate", and
-   # healdesk-production-voice when enable_voice is on (its calls drain first, up to an hour).
-   for s in healdesk-production-web; do
-     aws ecs update-service --cluster healdesk-production --service "$s" --desired-count 0 \
-       --query 'service.desiredCount' --output text
-   done
-   aws ecs wait services-stable --cluster healdesk-production \
-     --services healdesk-production-web
-   ```
-
-3. Restore, and make the copy production's database. **This is the open part.** What is known:
-   RDS names the endpoint after the instance identifier, so renaming production away
-   (`modify-db-instance --new-db-instance-identifier`) and then the copy to
-   `healdesk-production` keeps every URL in Parameter Store right; the restore call needs
-   production's settings, not the drill's (35 days of backups, deletion protection, the
-   `postgresql` log export, the master password managed by RDS); and Terraform's state still
-   names the old instance until it is re-pointed by a commit with an `import` block, so no
-   `infra.yml` apply may run between the swap and that commit.
-4. Put back, as `healdesk_migrator`, any destruction dates the restore lost (handover
-   "Restoring", step 2), from the CloudShell VPC environment the drill describes.
-5. Bring the schema up to the code, destroy what is due, and delete again everyone deleted since
-   the point restored to (handover "Restoring", step 5):
-
-   ```bash
-   bash run-task.sh migrate
-   bash run-task.sh destroy-due
-   bash run-task.sh reapply-erasures
-   ```
-
-   `destroy-due` uses the runtime role's `DATABASE_URL` from Parameter Store, which names
-   production's endpoint: it runs against the copy only once step 3 has given the copy that name.
-   Do not go on until it exits 0. A clinic still due is named, by id only, in
-   `/healdesk/production/destroy-due`. `reapply-erasures` is the same for people: it exits 1 while
-   any clinic's deletions could not be done again.
-6. Reopen: `deploy-app.yml` with `bootstrap_db` and `migrate` ticked. With every service at 0 the
-   workflow treats it as a first deploy and asks for both; db-bootstrap keeps every parameter that
-   is set and only re-asserts the roles.
-
-Step 4 uses the CloudShell VPC environment as the migrator, typing the password at psql's
-prompt. That works, but it is the only write path into the database outside the code, so log
-each use in `security_events`. Offboarding's return bundle, the other handover step that needed a
-file, is `run-task.sh patient-export` (above).
+Step 3's dates and deletion copies use the CloudShell VPC environment as the migrator, typing the
+password at psql's prompt or into a password file deleted afterwards. That is the only write path
+into the database outside the code, so the document records each use in the `security_events` row
+it writes into the restored database. Offboarding's return bundle, the other handover step that
+needed a file, is `run-task.sh patient-export` (above).
 
 ---
 

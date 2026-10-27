@@ -337,7 +337,8 @@ describeDb("safety suite: web chat, end to end", () => {
       const notices = await queuedNotices(clinic.clinicId);
       // A handover too: a chat above whose model was refused twice running is handed over rather than told the same refusal again (turn.ts, 23 October 2026).
       expect(new Set(notices.map((n) => n.kind))).toEqual(new Set(["urgent", "booking_request", "handover"]));
-      for (const n of notices) expect(JSON.stringify(n.payload)).not.toMatch(/0192|Dana|breathe/);
+      // Random ids are taken out first: a conversation uuid such as 80192ab3-... holds the digits "0192" by chance and failed CI once (27 October 2026).
+      for (const n of notices) expect(JSON.stringify(n.payload).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, "<id>")).not.toMatch(/0192|Dana|breathe/);
     });
   });
 });

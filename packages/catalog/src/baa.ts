@@ -17,7 +17,10 @@ import {
   type CalendarClauseId,
   type CalendarTermsKind,
 } from "./calendar-terms";
-import { DIRECT_BOOKING_CLAUSE_BODY, DIRECT_BOOKING_CLAUSE_HEADING } from "./direct-booking-addendum";
+import {
+  DIRECT_BOOKING_CLAUSE_BODY,
+  DIRECT_BOOKING_CLAUSE_HEADING,
+} from "./direct-booking-addendum";
 import { MODEL_RETENTION_AGREEMENT } from "./model-retention";
 import type { BookingSync } from "./platforms";
 import { subprocessorNoticeClauseBody } from "./subprocessor-notice";
@@ -627,11 +630,7 @@ const CLAUSES: readonly BaaClause[] = [
         "       ",
       ) +
       "\n" +
-      wrap(
-        `c. It authorises healdesk to send those messages as its agent.`,
-        "    ",
-        "       ",
-      ) +
+      wrap(`c. It authorises healdesk to send those messages as its agent.`, "    ", "       ") +
       "\n" +
       wrap(
         `d. It will tell healdesk promptly when a patient withdraws consent by any ` +
@@ -852,7 +851,8 @@ const CLAUSES: readonly BaaClause[] = [
  *                    hash — and is imported here so the two cannot drift.
  */
 const ENTITY = "Viixi FZC";
-const ENTITY_FORM = "a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates";
+const ENTITY_FORM =
+  "a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates";
 // The Delaware registered-agent mailbox the legal pages and the CAN-SPAM
 // footer print, plus email. Unlike the website, the BAA names the entity
 // plainly — a BAA needs an identifiable party — and carries no
@@ -864,7 +864,8 @@ const ENTITY_FORM = "a company registered under the Sharjah Publishing City Free
 // NOTICE_ADDRESS_1_2_2 is the same mailbox with hello@healdesk.io, from 1.2.2
 // on: hello@ is healdesk's only email address, for notices as for everything
 // else, and legal@ is no longer used (owner, 9 October 2026).
-const NOTICE_ADDRESS = "800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States, and by email to legal@healdesk.io";
+const NOTICE_ADDRESS =
+  "800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States, and by email to legal@healdesk.io";
 const NOTICE_ADDRESS_1_2_2 =
   "800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States, and by email to hello@healdesk.io";
 const GOVERNING_STATE = "Delaware";
@@ -4831,43 +4832,47 @@ function validate160(v: BaaVariables): void {
   validateFrom130(v, "1.6.0");
 }
 
-export const BAA_TEMPLATES: readonly BaaTemplate[] = [
-  // Newest RELEASED first — CURRENT_BAA_VERSION and currentBaaTemplate() both
-  // read [0], so a version stays at [0] until its successor is approved for
-  // release too.
-  {
-    version: "1.5.1",
-    publishedOn: "2026-10-19",
-    // Approved for release by the OWNER on 2026-10-19, on the owner's own
-    // instruction and without external counsel: as the field's doc comment
-    // on BaaTemplate defines it, the flag records the owner's release, not a
-    // lawyer's approval. agreement-changes.md §16 recommends counsel review
-    // it. 1.5.0 with the optional booking details asked in a website chat as
-    // well as on a call (above MINIMUM_NECESSARY_1_5_1). Edited in place on
-    // 2026-10-21, on the owner's authorisation and with the version number
-    // unchanged, to say what the voice provider holds of a call (§19).
-    approvedByCounsel: true,
-    preamble: preamble151,
-    clauses: CLAUSES_1_5_1,
-    validate: validate151,
-  },
-  // ⚖️ Drafted on 2026-10-19 and NOT released: 1.5.1 with Anthropic's
-  // retention said as Anthropic's documentation says it for the models the
-  // product calls (above SUBCONTRACTORS_1_6; agreement-changes.md §17).
-  // After the release it follows, as a draft is (isBaaVersionAcceptable), and
-  // never offered, signed or accepted at go-live while approvedByCounsel is
-  // false. Releasing it is the owner's call: it then moves to [0]. Until it
-  // does, checkout offers 1.5.1's retention clause, so apps/web's launch
-  // tracker (lib/admin/seo/launch.ts, baa-1-6-0-retention) holds the release
-  // as an item that blocks go-live.
-  {
-    version: "1.6.0",
-    publishedOn: "2026-10-19",
-    approvedByCounsel: false,
-    preamble: preamble160,
-    clauses: CLAUSES_1_6,
-    validate: validate160,
-  },
+/**
+ * ⚖️ THE ONE SWITCH for releasing BAA 1.6.0 (owner's word only; see
+ * docs/design/launch-readiness-2026-10-27/baa-1-6-0-owner-checklist.md).
+ * False: checkout offers 1.5.1, the floor is 1.5.1 and 1.6.0 is a draft after
+ * it, exactly as before the switch existed. True: 1.6.0 is BAA_TEMPLATES[0]
+ * with approvedByCounsel true, the floor is 1.6.0 with no overlap, 1.5.1 stays
+ * registered and frozen below the floor, apps/web's LEGAL_VERSION moves and
+ * Terms section 9 gets back "The Business Associate Agreement states the
+ * same". The release migration (a *_baa_release_1_6_0.sql in apps/app/drizzle)
+ * must land in the same commit: tests/baa-release-1-6-0.test.ts fails on a
+ * flip without it and on it without a flip.
+ */
+export const BAA_1_6_0_RELEASED: boolean = false;
+
+const TEMPLATE_1_5_1: BaaTemplate = {
+  version: "1.5.1",
+  publishedOn: "2026-10-19",
+  // Approved for release by the OWNER on 2026-10-19, on the owner's own
+  // instruction and without external counsel: as the field's doc comment
+  // on BaaTemplate defines it, the flag records the owner's release, not a
+  // lawyer's approval. agreement-changes.md §16 recommends counsel review
+  // it. 1.5.0 with the optional booking details asked in a website chat as
+  // well as on a call (above MINIMUM_NECESSARY_1_5_1). Edited in place on
+  // 2026-10-21, on the owner's authorisation and with the version number
+  // unchanged, to say what the voice provider holds of a call (§19).
+  approvedByCounsel: true,
+  preamble: preamble151,
+  clauses: CLAUSES_1_5_1,
+  validate: validate151,
+};
+
+const TEMPLATE_1_6_0_DRAFT: BaaTemplate = {
+  version: "1.6.0",
+  publishedOn: "2026-10-19",
+  approvedByCounsel: false,
+  preamble: preamble160,
+  clauses: CLAUSES_1_6,
+  validate: validate160,
+};
+
+const TEMPLATES_BEFORE_1_5_1: readonly BaaTemplate[] = [
   // Released on 2026-10-14 and offered until 1.5.1 replaced it on
   // 2026-10-19, outright and with no overlap: no clinic signed it, and it
   // says the optional booking details are asked only on a call, while the
@@ -5005,6 +5010,31 @@ export const BAA_TEMPLATES: readonly BaaTemplate[] = [
   },
 ] as const;
 
+/** BAA_TEMPLATES as it reads once the switch is in the given state. */
+export function baaTemplatesFor(released: boolean): readonly BaaTemplate[] {
+  return released
+    ? [
+        { ...TEMPLATE_1_6_0_DRAFT, approvedByCounsel: true },
+        TEMPLATE_1_5_1,
+        ...TEMPLATES_BEFORE_1_5_1,
+      ]
+    : [TEMPLATE_1_5_1, TEMPLATE_1_6_0_DRAFT, ...TEMPLATES_BEFORE_1_5_1];
+}
+
+// Newest RELEASED first — CURRENT_BAA_VERSION and currentBaaTemplate() both
+// read [0], so a version stays at [0] until its successor is approved for
+// release too.
+// ⚖️ Drafted on 2026-10-19 and NOT released: 1.5.1 with Anthropic's
+// retention said as Anthropic's documentation says it for the models the
+// product calls (above SUBCONTRACTORS_1_6; agreement-changes.md §17).
+// After the release it follows, as a draft is (isBaaVersionAcceptable), and
+// never offered, signed or accepted at go-live while approvedByCounsel is
+// false. Releasing it is the owner's call: it then moves to [0]. Until it
+// does, checkout offers 1.5.1's retention clause, so apps/web's launch
+// tracker (lib/admin/seo/launch.ts, baa-1-6-0-retention) holds the release
+// as an item that blocks go-live.
+export const BAA_TEMPLATES: readonly BaaTemplate[] = baaTemplatesFor(BAA_1_6_0_RELEASED);
+
 export const CURRENT_BAA_VERSION = BAA_TEMPLATES[0]!.version;
 
 /**
@@ -5070,7 +5100,12 @@ export const CURRENT_BAA_VERSION = BAA_TEMPLATES[0]!.version;
  * Go-live refuses any version that SQL list leaves out, and the parity test
  * in apps/app/tests/database-audit.test.ts fails until the two agree.
  */
-export const MIN_ACCEPTABLE_BAA_VERSION = "1.5.1";
+export const MIN_ACCEPTABLE_BAA_VERSION = minAcceptableBaaVersionFor(BAA_1_6_0_RELEASED);
+
+/** The go-live floor once the switch is in the given state: 1.6.0 released, else 1.5.1. */
+export function minAcceptableBaaVersionFor(released: boolean): string {
+  return released ? "1.6.0" : "1.5.1";
+}
 
 /**
  * Whether a clinic may go live under an agreement of this version: the
@@ -5083,11 +5118,16 @@ export const MIN_ACCEPTABLE_BAA_VERSION = "1.5.1";
  * it sits: it is not approved for release.
  */
 export function isBaaVersionAcceptable(version: string): boolean {
-  const at = BAA_TEMPLATES.findIndex((t) => t.version === version);
-  const floor = BAA_TEMPLATES.findIndex((t) => t.version === MIN_ACCEPTABLE_BAA_VERSION);
-  return at !== -1 && floor !== -1 && at <= floor && BAA_TEMPLATES[at]!.approvedByCounsel;
+  return baaVersionAcceptableWhen(BAA_1_6_0_RELEASED, version);
 }
 
+/** isBaaVersionAcceptable() with the switch in the given state (the release test reads both). */
+export function baaVersionAcceptableWhen(released: boolean, version: string): boolean {
+  const templates = baaTemplatesFor(released);
+  const at = templates.findIndex((t) => t.version === version);
+  const floor = templates.findIndex((t) => t.version === minAcceptableBaaVersionFor(released));
+  return at !== -1 && floor !== -1 && at <= floor && templates[at]!.approvedByCounsel;
+}
 /**
  * The calendar clause ids of 1.3.0, which 1.4.0, 1.5.0, 1.5.1 and the 1.6.0
  * draft carry as the same objects.
@@ -5215,10 +5255,7 @@ export function applicableClauses(
  * a contract that names nobody. The dangerous failure here is not a crash, it
  * is a document that looks complete and binds no one.
  */
-export function renderBaa(
-  template: BaaTemplate,
-  variables: BaaVariables,
-): string {
+export function renderBaa(template: BaaTemplate, variables: BaaVariables): string {
   // The version's own guard first: a selection the version cannot do
   // without is a refusal, never a clause chosen on a default.
   template.validate?.(variables);
@@ -5228,13 +5265,8 @@ export function renderBaa(
   requireField(variables.signatoryEmail, "signatoryEmail");
   requireField(variables.specialty, "specialty");
 
-  if (
-    variables.attributionMode !== "estimated" &&
-    variables.attributionMode !== "verified"
-  ) {
-    throw new BaaRenderError(
-      `Unknown attribution mode: ${String(variables.attributionMode)}`,
-    );
+  if (variables.attributionMode !== "estimated" && variables.attributionMode !== "verified") {
+    throw new BaaRenderError(`Unknown attribution mode: ${String(variables.attributionMode)}`);
   }
 
   /**
@@ -5265,9 +5297,7 @@ export function renderBaa(
     return `${index + 1}. ${clause.heading.toUpperCase()}\n\n${body}`;
   });
 
-  const text = [template.preamble(variables), "", ...intersperse(numbered)].join(
-    "\n",
-  );
+  const text = [template.preamble(variables), "", ...intersperse(numbered)].join("\n");
 
   // A placeholder that survived assembly means a clause body was written with
   // template syntax it no longer supports. Never show that to a customer.
@@ -5279,9 +5309,7 @@ export function renderBaa(
 }
 
 function intersperse(sections: string[]): string[] {
-  return sections.flatMap((section, index) =>
-    index === 0 ? [section] : ["", section],
-  );
+  return sections.flatMap((section, index) => (index === 0 ? [section] : ["", section]));
 }
 
 /**

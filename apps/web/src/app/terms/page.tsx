@@ -1,4 +1,5 @@
 import {
+  BAA_1_6_0_RELEASED,
   MAX_STEP_UNITS,
   MIN_STEP_UNITS,
   MODEL_RETENTION_EXCEPTIONS,
@@ -682,7 +683,9 @@ export default function TermsPage() {
           email your Practice sends to our support, to draft our reply, which one of our team
           approves before it is sent. It receives both only under a business associate agreement
           with us signed before any patient&apos;s information reaches it.{" "}
-          {MODEL_RETENTION_PUBLIC} This is the provider&apos;s own documented retention, which
+          {MODEL_RETENTION_PUBLIC}
+          {/* Back only with BAA 1.6.0's release: 1.5.1, offered until then, still carries the old clause, and terms section 1 lets the agreement win. */}
+          {BAA_1_6_0_RELEASED ? " The Business Associate Agreement states the same." : ""} This is the provider&apos;s own documented retention, which
           neither we nor you control.
         </p>
         <p>

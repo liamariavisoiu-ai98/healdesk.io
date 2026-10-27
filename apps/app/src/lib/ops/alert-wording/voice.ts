@@ -128,6 +128,26 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Press Clear flag and recheck on the Voice agent card once Retell matches our settings again, with a fresh code from your authenticator. It clears the flag and runs the check once: what re-applying can put right is written again, and in that check the flag comes back only if the agent or number is missing at Retell. On later nights it comes back as before, after three repairs with no clean night between, or when the agent or number goes missing. You are done when Drift reads Not flagged and the check says Retell matches.",
     ],
   },
+  // lib/voice/agent-storage.ts, from the backstop job before each call is
+  // deleted at Retell: the agent the call ran on, at that version, read back
+  // (GET only). `status` retention (not one day, or unset: kept for ever) or
+  // setting (not everything). Once per clinic, problem and UTC day. Agents
+  // made by hand are covered; nothing is written to Retell.
+  voice_agent_storage: {
+    title: "A Retell agent's call storage is not ours",
+    headline: "{clinicName}'s Retell agent stores calls wrongly[: {status}]",
+    whatHappened:
+      "{clinicName}'s Retell agent stores calls wrongly[: {status}]. Before deleting a call at Retell, the code read back the agent the call ran on, and its data storage retention was not one day, or its data storage setting was not everything. Nothing was changed at Retell, and the call was handled as usual: deleted there once it was recorded here.",
+    whyItMatters:
+      "We tell clinics and patients that the voice provider holds a call for a day at most. The retention of one day is Retell's own deletion of anything our delete misses; without it Retell keeps such a call, and an unset retention keeps it for ever. A storage setting other than everything leaves no transcript for the backstop to recover a call whose voice task stopped.",
+    steps: [
+      "Open the clinic's Setup tab and read Phone line: note the assistant number.",
+      "Open Retell's dashboard, find the agent the assistant number from Phone line points at, and read its data storage settings: the retention must be 1 day and the storage setting everything. Set them, and publish the agent if Retell asks, so the version the number uses carries them.",
+      "Ask whoever has Retell access who changed them, and note it in the Touch log on the clinic's Care tab.",
+      "Tell the owner: until it is fixed, a call this agent took that we did not record stays at Retell past a day, for ever if the retention was unset. The Retell deletions on the Queues page list only calls recorded here, so read the agent's call history in Retell's dashboard with the owner before deleting anything there.",
+      "Press Record in the Touch log on the Care tab with what was set and when. You are done when a call the clinic takes after the fix, on a later day, raises no new alert of this kind: the alert comes at most once a day for each problem.",
+    ],
+  },
   // lib/voice/provision.ts deprovisionVoiceAgent, once a day per clinic: the
   // service and the pass-through have ended, and releasing the number or
   // deleting the agent at Retell failed. The hourly sweep tries again.

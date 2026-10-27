@@ -88,6 +88,7 @@ const SETUP: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
   "web_widget_to_confirm",
   "voice_provision_failed",
   "voice_agent_drift",
+  "voice_agent_storage",
   "voice_direct_line_loops",
   "voice_deprovision_failed",
   "voice_fallback_no_direct_line",

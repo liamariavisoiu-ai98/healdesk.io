@@ -12,7 +12,7 @@ import { packSections, slackName, SLACK_SECTION_MAX, SLACK_TAG } from "@/lib/ops
 import { printRef } from "./case-vocab";
 import { checkReplyText, currentReplyDraft, factsOfDraft, readCaseForReply } from "./send";
 import { failedRules } from "./send-checks";
-import { slackApi, slackSupportConfig, type SlackSupportConfig } from "./slack-api";
+import { slackApi, slackPostingConfig, type SlackPostingConfig } from "./slack-api";
 
 /**
  * A support reply, shown in the owner's Slack channel to read and act on
@@ -210,7 +210,7 @@ export function replyMessage(view: ReplyView): { text: string; blocks: SlackBloc
     blocks.push({ type: "section", text: { type: "mrkdwn", text: finalLine(view) || ":white_circle: Nothing is waiting." } });
     if (link) blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `<${link}|Open ${view.ref} in the console>` }] });
   }
-  return { text: headline, blocks };
+  return { text: escapeMrkdwn(headline), blocks };
 }
 
 // -----------------------------------------------------------------------------
@@ -277,10 +277,10 @@ export type SyncOutcome = "posted" | "updated" | "unchanged" | "not_due" | "held
  */
 export async function syncCaseMessage(
   caseId: string,
-  options: { now?: Date; force?: boolean; config?: SlackSupportConfig | null } = {},
+  options: { now?: Date; force?: boolean; config?: SlackPostingConfig | null } = {},
 ): Promise<SyncOutcome> {
   const now = options.now ?? new Date();
-  const config = options.config === undefined ? slackSupportConfig() : options.config;
+  const config = options.config === undefined ? slackPostingConfig() : options.config;
   if (!config) return "off";
   try {
     const view = await readReplyView(caseId);
@@ -319,10 +319,13 @@ export async function syncCaseMessage(
       return "unchanged";
     }
     const message = replyMessage(fresh);
-    let result = row.ts && row.channel
+    // A message already final stays as it ended: a new item for the case (a new passing draft
+    // after an expiry or a rejection) is a new message, so the old one's outcome stays readable.
+    const reuse = Boolean(row.ts && row.channel) && !(row.final && fresh.item?.id !== row.approvalId);
+    let result = reuse
       ? await slackApi("chat.update", config.token, { channel: row.channel, ts: row.ts, text: message.text, blocks: message.blocks })
       : await slackApi("chat.postMessage", config.token, { channel: config.channel, text: message.text, blocks: message.blocks, unfurl_links: false, unfurl_media: false });
-    let posted = !(row.ts && row.channel);
+    let posted = !reuse;
     // The old message was deleted by hand, or the channel changed: post a new one.
     if (!result.ok && !posted && ["message_not_found", "channel_not_found", "cant_update_message"].includes(result.error)) {
       result = await slackApi("chat.postMessage", config.token, { channel: config.channel, text: message.text, blocks: message.blocks, unfurl_links: false, unfurl_media: false });
@@ -371,8 +374,8 @@ export async function syncCaseMessage(
  * nothing is read or written.
  */
 export async function runSupportSlackSweep(now: Date = new Date()): Promise<{ status: "ok" | "failed"; note: string }> {
-  const config = slackSupportConfig();
-  if (!config) return { status: "ok", note: "Slack support replies are off: a SLACK_ setting is missing." };
+  const config = slackPostingConfig();
+  if (!config) return { status: "ok", note: "Slack support replies are off: SLACK_BOT_TOKEN or SLACK_SUPPORT_CHANNEL is missing." };
   const waiting = await listByStatus(["waiting"], 200, [SUPPORT_REPLY_KIND]);
   const open = await unsafeDb
     .select({ caseId: supportSlackMessages.caseId })
@@ -397,4 +400,41 @@ export async function runSupportSlackSweep(now: Date = new Date()): Promise<{ st
     .map(([k, v]) => `${v} ${k}`)
     .join(", ");
   return { status: (counts.failed ?? 0) > 0 && !counts.posted && !counts.updated ? "failed" : "ok", note: note || "nothing to show" };
+}
+
+/**
+ * Before a clinic's data is destroyed (lib/offboarding/offboarding.ts): each
+ * of its cases' Slack messages is deleted (chat.delete; a bot may delete its
+ * own posts with chat:write), so the channel keeps no clinic name or reply
+ * of a clinic that has left. Best effort: never throws and never holds the
+ * destruction up; a message Slack would not delete is logged, and the rows
+ * go with the cases by cascade. Slack may keep what its own retention keeps.
+ */
+export async function deleteSlackMessagesForClinic(clinicId: string): Promise<{ deleted: number; failed: number }> {
+  let deleted = 0;
+  let failed = 0;
+  try {
+    const rows = await unsafeDb.execute<{ channel: string | null; ts: string | null }>(sql`
+      select m.channel, m.ts from support_slack_messages m
+        join support_cases c on c.id = m.case_id
+       where c.subject_clinic_id = ${clinicId}::uuid and m.ts is not null
+    `);
+    if (rows.rows.length === 0) return { deleted, failed };
+    const config = slackPostingConfig();
+    if (!config) {
+      log.warn("support slack: messages of a destroyed clinic left in Slack, the token is not set", { clinicId, count: rows.rows.length });
+      return { deleted, failed: rows.rows.length };
+    }
+    for (const row of rows.rows) {
+      const result = await slackApi("chat.delete", config.token, { channel: row.channel, ts: row.ts });
+      if (result.ok || (!result.ok && result.error === "message_not_found")) deleted += 1;
+      else {
+        failed += 1;
+        log.warn("support slack: message not deleted before destruction", { clinicId, reason: result.error });
+      }
+    }
+  } catch (error) {
+    log.warn("support slack: messages not read before destruction", { clinicId, error: describeError(error) });
+  }
+  return { deleted, failed };
 }

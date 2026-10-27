@@ -17,8 +17,11 @@
  *   SLACK_OPERATOR_IDS    the Slack user ids (U…, comma separated) allowed
  *                         to press a button; anyone else is refused.
  *
- * All four set (and well formed): on. Any one missing: off, nothing is
- * posted, the route answers 404, and the console works as before. Neither
+ * Posting (the worker's sweep) needs only the token and the channel
+ * (`slackPostingConfig`), so the worker is given nothing else; the buttons
+ * (the route) need all four (`slackSupportConfig`): any one missing and the
+ * route answers 404. With the token or the channel missing nothing is
+ * posted, and either way the console works as before. Neither
  * the token nor the secret is ever logged or recorded: a failure is kept as
  * Slack's error code or an HTTP status.
  */
@@ -35,10 +38,11 @@ const CHANNEL = /^[CG][A-Z0-9]{2,30}$/;
 const USER = /^[UW][A-Z0-9]{2,30}$/;
 const SECRET = /^[A-Za-z0-9]{16,128}$/;
 
-export type SlackSupportConfig = {
-  token: string;
+/** What posting and updating a message needs: the bot token and the channel. */
+export type SlackPostingConfig = { token: string; channel: string };
+
+export type SlackSupportConfig = SlackPostingConfig & {
   signingSecret: string;
-  channel: string;
   operators: ReadonlySet<string>;
 };
 
@@ -50,17 +54,24 @@ export function parseOperatorIds(raw: string | null): ReadonlySet<string> | null
   return new Set(ids);
 }
 
-/** The feature's settings, or null when it is off (any one missing or malformed). */
-export function slackSupportConfig(): SlackSupportConfig | null {
+/** The token and channel the sweep posts with, or null when either is missing or malformed. */
+export function slackPostingConfig(): SlackPostingConfig | null {
   const token = setting("SLACK_BOT_TOKEN");
-  const signingSecret = setting("SLACK_SIGNING_SECRET");
   const channel = setting("SLACK_SUPPORT_CHANNEL");
-  const operators = parseOperatorIds(setting("SLACK_OPERATOR_IDS"));
   if (!token || !TOKEN.test(token)) return null;
-  if (!signingSecret || !SECRET.test(signingSecret)) return null;
   if (!channel || !CHANNEL.test(channel)) return null;
+  return { token, channel };
+}
+
+/** The route's settings, all four, or null when the buttons are off (any one missing or malformed). */
+export function slackSupportConfig(): SlackSupportConfig | null {
+  const posting = slackPostingConfig();
+  const signingSecret = setting("SLACK_SIGNING_SECRET");
+  const operators = parseOperatorIds(setting("SLACK_OPERATOR_IDS"));
+  if (!posting) return null;
+  if (!signingSecret || !SECRET.test(signingSecret)) return null;
   if (!operators) return null;
-  return { token, signingSecret, channel, operators };
+  return { ...posting, signingSecret, operators };
 }
 
 export type SlackApiResult =
@@ -82,7 +93,7 @@ function errorWord(raw: unknown): string {
  * within Slack's three seconds of the click.
  */
 export async function slackApi(
-  method: "chat.postMessage" | "chat.update" | "views.open" | "chat.postEphemeral",
+  method: "chat.postMessage" | "chat.update" | "chat.delete" | "views.open" | "views.update" | "chat.postEphemeral",
   token: string,
   body: Record<string, unknown>,
 ): Promise<SlackApiResult> {

@@ -224,7 +224,7 @@ function dialog(meta: DialogMeta, ref: string, clinicName: string | null, body: 
       type: "input",
       block_id: "passcode",
       label: { type: "plain_text", text: "Approval passcode" },
-      hint: { type: "plain_text", text: "The same 6-digit passcode the console takes. Checked on our host, never stored." },
+      hint: { type: "plain_text", text: "The same 6-digit passcode the console takes. Slack shows it as you type and passes it to our host, which checks it and never stores it." },
       element: { type: "plain_text_input", action_id: "code", min_length: 6, max_length: 6, placeholder: { type: "plain_text", text: "6 digits" } },
     });
   }
@@ -256,7 +256,7 @@ type Payload = {
   channel?: { id?: unknown };
   container?: { channel_id?: unknown };
   actions?: { action_id?: unknown; value?: unknown }[];
-  view?: { callback_id?: unknown; private_metadata?: unknown; state?: { values?: Record<string, Record<string, { value?: unknown }>> } };
+  view?: { id?: unknown; callback_id?: unknown; private_metadata?: unknown; state?: { values?: Record<string, Record<string, { value?: unknown }>> } };
 };
 
 const SLACK_ID = /^[A-Z0-9]{3,32}$/;
@@ -298,14 +298,14 @@ export async function slackInteractionWebhook(request: Request, deps: SlackRoute
 
   if (!config.operators.has(user)) {
     log.warn("support slack: refused a user not on SLACK_OPERATOR_IDS", { slackUser: user, type: typeof payload.type === "string" ? payload.type.slice(0, 40) : "unknown" });
-    if (payload.type === "view_submission") return dialogErrors({ reply: "You are not one of the operators who may act on support replies here." });
+    if (payload.type === "view_submission") return dialogErrors({ [submissionBox(payload)]: "You are not one of the operators who may act on support replies here." });
     defer(() => privateNote(config, channel, user, "You are not one of the operators who may act on support replies, so nothing was done."));
     return EMPTY();
   }
   const operator = slackOperator(user);
   if (!operator) {
     log.error("support slack: HEALDESK_ADMIN_EMAIL is not set, so no act can be recorded");
-    if (payload.type === "view_submission") return dialogErrors({ reply: "The host has no operator address set, so nothing can be recorded. Use the console." });
+    if (payload.type === "view_submission") return dialogErrors({ [submissionBox(payload)]: "The host has no operator address set, so nothing can be recorded. Use the console." });
     return EMPTY();
   }
 
@@ -315,9 +315,15 @@ export async function slackInteractionWebhook(request: Request, deps: SlackRoute
     return EMPTY();
   } catch (error) {
     log.error("support slack: act failed", { error: describeError(error) });
-    if (payload.type === "view_submission") return dialogErrors({ reply: "Something went wrong on our side. Nothing was sent. Try the console." });
+    if (payload.type === "view_submission") return dialogErrors({ [submissionBox(payload)]: "Something went wrong on our side. Nothing was sent. Try the console." });
     return EMPTY();
   }
+}
+
+/** A submitted dialog's error box, read from its metadata when it can be. */
+function submissionBox(payload: Payload): "reply" | "passcode" {
+  const meta = parseDialogMeta(payload.view?.private_metadata);
+  return meta ? boxesOf(meta).text : fallbackBox(payload.view?.callback_id);
 }
 
 type Ctx = {
@@ -407,104 +413,167 @@ function decisionNote(ref: string, outcome: OpsOutcome): string {
   return `${ref}: ${data.message ?? "not sent."}`;
 }
 
-async function onSubmit(payload: Payload, ctx: Ctx): Promise<Response> {
-  const callback = payload.view?.callback_id;
-  if (callback !== "support_review" && callback !== "support_edit") return EMPTY();
-  const meta = parseDialogMeta(payload.view?.private_metadata);
-  if (!meta || meta.mode !== (callback === "support_review" ? "review" : "edit")) {
-    return dialogErrors({ passcode: "This dialog could not be read. Nothing was changed." });
-  }
-  const values = payload.view?.state?.values ?? {};
-  const typed = values.reply?.text?.value;
-  const code = values.passcode?.code?.value;
-  const textBlock = meta.long ? "passcode" : "reply";
-  const refresh = () => syncCaseMessage(meta.caseId, { now: ctx.now, force: true, config: ctx.config }).then(() => {});
+/** The box a dialog's error goes under: one the dialog has (a long draft's has only the passcode, Edit only's only the reply). */
+function boxesOf(meta: Pick<DialogMeta, "mode" | "long">): { text: "reply" | "passcode"; passcode: "passcode" | "reply" } {
+  if (meta.mode === "edit") return { text: "reply", passcode: "reply" };
+  return { text: meta.long ? "passcode" : "reply", passcode: "passcode" };
+}
 
-  // The passcode first, with the console's verifier and lockout: nothing else is looked at without it.
+/** The box for an error before the dialog's metadata could be read: by its callback, a box every such dialog has. */
+function fallbackBox(callback: unknown): "reply" | "passcode" {
+  return callback === "support_edit" ? "reply" : "passcode";
+}
+
+type Prepared =
+  | { ok: false; box: "reply" | "passcode"; message: string; refresh: boolean }
+  | { ok: true; ref: string; approvalId: string | null };
+
+/**
+ * Everything before the decision, in order: the passcode (review only, with
+ * the console's verifier and lockout, before any state changes); the item
+ * still waiting on the version and text the dialog opened on; the reply
+ * checks (on the unchanged draft, or on the edit before anything is saved);
+ * for an edit, the save (which proposes it) and the proposed item pinned to
+ * exactly that version and text. `approvalId` is what to approve, or null
+ * when nothing is (Edit only).
+ */
+async function prepare(meta: DialogMeta, typed: unknown, code: unknown, ctx: Ctx): Promise<Prepared> {
+  const boxes = boxesOf(meta);
+  const fail = (box: "reply" | "passcode", message: string, refresh = false): Prepared => ({ ok: false, box, message, refresh });
+
   if (meta.mode === "review") {
     const check = await checkSlackPasscode(code, ctx.user, ctx.now.getTime());
-    if (!check.ok) return dialogErrors({ passcode: check.message });
+    if (!check.ok) return fail(boxes.passcode, check.message);
   }
 
-  // The item as it stands now: still waiting, the same version and the same text the dialog opened on.
   const found = await waitingItem(meta);
   if (!found.ok || found.draftVersion !== meta.draftVersion || found.item.draftHash !== meta.draftHash) {
-    ctx.defer(refresh);
-    return dialogErrors({
-      [textBlock]: found.ok
-        ? "A newer draft replaced the one this dialog opened on. Nothing was sent. The message in the channel now shows the new one."
-        : found.why,
-    });
+    return fail(
+      boxes.text,
+      found.ok ? "A newer draft replaced the one this dialog opened on. Nothing was sent. The message in the channel now shows the new one." : found.why,
+      true,
+    );
   }
-
   const unchanged = meta.long || typeof typed !== "string" || normaliseDraftText(typed) === normaliseDraftText(found.body) || typed.trim() === found.body.trim();
-  const ref = found.ref;
-
-  if (unchanged && meta.mode === "edit") return json({ response_action: "clear" });
+  if (unchanged && meta.mode === "edit") return { ok: true, ref: found.ref, approvalId: null };
 
   const read = await readCaseForReply(meta.caseId);
-  if (!read) return dialogErrors({ [textBlock]: "The case could not be read. Nothing was changed." });
+  if (!read) return fail(boxes.text, "The case could not be read. Nothing was changed.");
   const current = await currentReplyDraft(meta.caseId);
   const facts = current ? factsOfDraft(current) : [];
   if (unchanged) {
     // The checks as Send will run them, so a draft that would be refused is named here rather than burnt.
     const checks = await checkReplyText(found.body, { supportCase: read.supportCase, clinicName: read.clinicName, facts });
-    if (!checks.ok) {
-      return dialogErrors({ [textBlock]: `Fails: ${failedRules(checks).join("; ")}. Nothing was sent: edit it first.`.slice(0, 1900) });
-    }
+    if (!checks.ok) return fail(boxes.text, `Fails: ${failedRules(checks).join("; ")}. Nothing was sent: edit it first.`.slice(0, 1900));
+    return { ok: true, ref: found.ref, approvalId: found.item.id };
   }
 
-  let approvalId = found.item.id;
-  if (!unchanged) {
-    const text = normaliseDraftText(typed);
-    if (!text) {
-      return dialogErrors({ reply: `The reply must be 1 to ${MAX_DRAFT_CHARS.toLocaleString("en-US")} characters. Nothing was changed.` });
-    }
-    // The checks before anything is saved: a failing rule is named, never the words, and nothing is kept or sent.
-    const checks = await checkReplyText(text, { supportCase: read.supportCase, clinicName: read.clinicName, facts });
-    if (!checks.ok) return dialogErrors({ reply: `Fails: ${failedRules(checks).join("; ")}. Nothing was saved or sent.`.slice(0, 1900) });
-    const saved = await opSaveSupportDraft({ caseId: meta.caseId, text }, ctx.operator, ctx.now);
-    const refused = refusalOf(saved);
-    if (refused) return dialogErrors({ reply: `${refused} Nothing was sent.` });
-    const data = (saved.body as { data: { ok: boolean; failed: string[]; approvalId: string | null; draftVersion: number } }).data;
-    if (!data.ok || !data.approvalId) {
-      ctx.defer(refresh);
-      return dialogErrors({
-        reply: data.ok
-          ? `Saved as draft v${data.draftVersion}, but it could not be put up for approval. Nothing was sent. Open the case in the console.`
-          : `Saved as draft v${data.draftVersion}, but it now fails: ${data.failed.join("; ")}. Nothing was sent.`.slice(0, 1900),
+  const text = normaliseDraftText(typed);
+  if (!text) return fail(boxes.text, `The reply must be 1 to ${MAX_DRAFT_CHARS.toLocaleString("en-US")} characters. Nothing was changed.`);
+  // The checks before anything is saved: a failing rule is named, never the words, and nothing is kept or sent.
+  const checks = await checkReplyText(text, { supportCase: read.supportCase, clinicName: read.clinicName, facts });
+  if (!checks.ok) return fail(boxes.text, `Fails: ${failedRules(checks).join("; ")}. Nothing was saved or sent.`.slice(0, 1900));
+  const saved = await opSaveSupportDraft({ caseId: meta.caseId, text }, ctx.operator, ctx.now);
+  const refused = refusalOf(saved);
+  if (refused) return fail(boxes.text, `${refused} Nothing was sent.`);
+  const data = (saved.body as { data: { ok: boolean; failed: string[]; approvalId: string | null; draftVersion: number } }).data;
+  if (!data.ok || !data.approvalId) {
+    return fail(
+      boxes.text,
+      data.ok
+        ? `Saved as draft v${data.draftVersion}, but it could not be put up for approval. Nothing was sent. Open the case in the console.`
+        : `Saved as draft v${data.draftVersion}, but it now fails: ${data.failed.join("; ")}. Nothing was sent.`.slice(0, 1900),
+      true,
+    );
+  }
+  // The item proposed must be exactly the text just saved: a console save in between would make it someone else's draft.
+  const proposed = await getApproval(data.approvalId);
+  const proposedPayload = proposed ? parseSupportReplyPayload(proposed.payload) : null;
+  const expectedHash = draftHash(serialiseDraft({ subject: subjectForCase(read.supportCase), body: text }));
+  if (!proposed || proposedPayload?.draftVersion !== data.draftVersion || proposed.draftHash !== expectedHash) {
+    return fail(boxes.text, "A newer draft was saved at the same moment, so your edit was not approved. Nothing was sent. The message in the channel now shows the newest one.", true);
+  }
+  return { ok: true, ref: found.ref, approvalId: meta.mode === "review" ? data.approvalId : null };
+}
+
+/** Approve through the console's own decision path; the outcome in words for the note. Never throws. */
+async function approve(approvalId: string, ref: string, ctx: Ctx): Promise<string> {
+  let outcome: OpsOutcome;
+  try {
+    outcome = await opDecideApproval(
+      { id: approvalId, action: "approve", reasonCode: SLACK_APPROVE_REASON, codeChecked: true },
+      ctx.operator,
+      { now: ctx.now, factor: SLACK_FACTOR },
+    );
+  } catch (error) {
+    log.error("support slack: decision failed", { error: describeError(error) });
+    outcome = { status: 500, body: { error: "The decision could not be recorded. Check the case in the console.", code: "failed" } };
+  }
+  return decisionNote(ref, outcome);
+}
+
+/** A dialog that only says something: the working note, or the outcome. */
+function noteView(text: string): Record<string, unknown> {
+  return {
+    type: "modal",
+    callback_id: "support_note",
+    title: { type: "plain_text", text: "Review and send" },
+    close: { type: "plain_text", text: "Close" },
+    blocks: [{ type: "section", text: { type: "mrkdwn", text: escapeMrkdwn(text) } }],
+  };
+}
+
+export const WORKING_TEXT = "Working: checking your passcode and the reply rules, saving your edit and approving it. This dialog says how it went in a moment, and the message in the channel updates.";
+
+async function onSubmit(payload: Payload, ctx: Ctx): Promise<Response> {
+  const callback = payload.view?.callback_id;
+  if (callback !== "support_review" && callback !== "support_edit") return EMPTY();
+  const meta = parseDialogMeta(payload.view?.private_metadata);
+  if (!meta || meta.mode !== (callback === "support_review" ? "review" : "edit")) {
+    return dialogErrors({ [fallbackBox(callback)]: "This dialog could not be read. Nothing was changed." });
+  }
+  const values = payload.view?.state?.values ?? {};
+  const typed = values.reply?.text?.value;
+  const code = values.passcode?.code?.value;
+  const refresh = () => syncCaseMessage(meta.caseId, { now: ctx.now, force: true, config: ctx.config }).then(() => {});
+
+  // An edit to approve is the slow case (the passcode, the checks twice, the save, the proposal):
+  // Slack is answered first with a working note, and the dialog is updated with the outcome.
+  const viewId = typeof payload.view?.id === "string" && /^V[A-Z0-9]{2,30}$/.test(payload.view.id) ? payload.view.id : null;
+  if (meta.mode === "review" && !meta.long && typeof typed === "string" && viewId) {
+    const item = await getApproval(meta.approvalId);
+    const body = item ? parseDraft(item.draft)?.body : null;
+    const edited = body !== undefined && body !== null && normaliseDraftText(typed) !== normaliseDraftText(body) && typed.trim() !== body.trim();
+    if (edited) {
+      ctx.defer(async () => {
+        const prepared = await prepare(meta, typed, code, ctx);
+        let text: string;
+        if (!prepared.ok) text = `Not sent. ${prepared.message}`;
+        else text = await approve(prepared.approvalId!, prepared.ref, ctx);
+        const updated = await slackApi("views.update", ctx.config.token, { view_id: viewId, view: noteView(text) });
+        if (!updated.ok) log.warn("support slack: dialog not updated", { reason: updated.error });
+        await refresh();
+        await privateNote(ctx.config, ctx.channel, ctx.user, escapeMrkdwn(text));
       });
-    }
-    // The item proposed must be exactly the text just saved: a console save in between would make it someone else's draft.
-    const proposed = await getApproval(data.approvalId);
-    const proposedPayload = proposed ? parseSupportReplyPayload(proposed.payload) : null;
-    const expectedHash = draftHash(serialiseDraft({ subject: subjectForCase(read.supportCase), body: text }));
-    if (!proposed || proposedPayload?.draftVersion !== data.draftVersion || proposed.draftHash !== expectedHash) {
-      ctx.defer(refresh);
-      return dialogErrors({ reply: "A newer draft was saved at the same moment, so your edit was not approved. Nothing was sent. The message in the channel now shows the newest one." });
-    }
-    approvalId = data.approvalId;
-    if (meta.mode === "edit") {
-      ctx.defer(refresh);
-      return json({ response_action: "clear" });
+      return json({ response_action: "update", view: noteView(WORKING_TEXT) });
     }
   }
 
-  // Approve: the console's own decision path, after the answer (it sends the email).
+  const prepared = await prepare(meta, typed, code, ctx);
+  if (!prepared.ok) {
+    if (prepared.refresh) ctx.defer(refresh);
+    return dialogErrors({ [prepared.box]: prepared.message });
+  }
+  if (!prepared.approvalId) {
+    ctx.defer(refresh);
+    return json({ response_action: "clear" });
+  }
+  const approvalId = prepared.approvalId;
+  // Approve after the answer (it sends the email).
   ctx.defer(async () => {
-    let outcome: OpsOutcome;
-    try {
-      outcome = await opDecideApproval(
-        { id: approvalId, action: "approve", reasonCode: SLACK_APPROVE_REASON, codeChecked: true },
-        ctx.operator,
-        { now: ctx.now, factor: SLACK_FACTOR },
-      );
-    } catch (error) {
-      log.error("support slack: decision failed", { error: describeError(error) });
-      outcome = { status: 500, body: { error: "The decision could not be recorded. Check the case in the console.", code: "failed" } };
-    }
+    const note = await approve(approvalId, prepared.ref, ctx);
     await refresh();
-    await privateNote(ctx.config, ctx.channel, ctx.user, escapeMrkdwn(decisionNote(ref, outcome)));
+    await privateNote(ctx.config, ctx.channel, ctx.user, escapeMrkdwn(note));
   });
   return json({ response_action: "clear" });
 }

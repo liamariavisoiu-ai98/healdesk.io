@@ -38,6 +38,7 @@ import { recordSecurityEvent } from "@/lib/audit";
 import { billingRecipients } from "@/lib/billing/recipients";
 import { sweepCalendarTerms } from "@/lib/connections/google-calendar";
 import { describeError, log } from "@/lib/log";
+import { deleteSlackMessagesForClinic } from "@/lib/support/slack-reply";
 import { revokeMetaAccess } from "@/lib/meta/revoke";
 import { listClinics } from "@/lib/ops/clinics";
 import { notifyOps, notifyOpsOnce } from "@/lib/ops/notify";
@@ -898,6 +899,9 @@ export async function destroyDueClinics(
     if (meta.failed > 0) {
       await notifyOps("meta_revoke_failed", { clinicId: clinic.id, phase: "destruction", count: meta.failed });
     }
+    // The clinic's support replies shown in Slack (lane P7i) are deleted there
+    // first, best effort: never throws, never holds the destruction up.
+    await deleteSlackMessagesForClinic(clinic.id);
     let result: DestructionResult;
     try {
       result = await withTenant({ clinicId: clinic.id, actor }, (tx) => destroyClinicData(tx));

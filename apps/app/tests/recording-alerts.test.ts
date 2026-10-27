@@ -600,7 +600,7 @@ describeDb("recording alerts, against the real tables", () => {
     expect(asked.seen).toEqual([]);
   });
 
-  test("a delete that fails retries the job, which then finds the call recorded and deletes it without reading Retell again", async () => {
+  test("a delete that fails retries the job, which then finds the call recorded and deletes it without recording it again", async () => {
     await getMigratorPool().query(`update clinics set assistant_number_e164 = $2 where id = $1`, [c.clinicId, ASSISTANT]);
     const fetchCall = vi.fn(async (id: string) => endedCall(id));
     const ingest = async (event: VoiceCallEvent) => {
@@ -623,7 +623,8 @@ describeDb("recording alerts, against the real tables", () => {
         { apiKey: KEY, realCalls: true, fetchCall, ingest, deleteCall: (cl, id) => deleteRetellCallAfterIngest(cl, id, { fetch: up.fetch, apiKey: KEY, now: at(12) }) },
       ),
     ).toEqual({ status: "already_recorded" });
-    expect(fetchCall).toHaveBeenCalledTimes(1);
+    // Read once more on the retry, only for the agent's storage check (lib/voice/agent-storage.ts).
+    expect(fetchCall).toHaveBeenCalledTimes(2);
     expect(down.seen).toHaveLength(1);
     expect(up.seen.map((s) => s.url)).toEqual(["https://api.retellai.com/v2/delete-call/call_retry"]);
   });

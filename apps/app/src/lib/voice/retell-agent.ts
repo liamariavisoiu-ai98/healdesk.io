@@ -291,14 +291,31 @@ export function checkRetellAgent(body: unknown, clinicId: string, options: Retel
     ? (b.data_storage_setting as RetellDataStorageSetting)
     : null;
   return {
-    // Retell says a missing setting is `everything`, but a missing retention
-    // is "kept forever": both must be read back as written.
-    storageAsWritten: setting === RETELL_DATA_STORAGE_SETTING && b.data_storage_retention_days === RETELL_DATA_RETENTION_DAYS,
+    storageAsWritten: retellStorageProblem(b) === null,
     storageSetting: setting,
     engineIsOurs: sameEngine(b.response_engine, expected.response_engine),
     webhookIsOurs: b.webhook_url === expected.webhook_url,
   };
 }
+
+/**
+ * What is wrong with an agent's storage, as Retell describes it, or null
+ * when it holds what this code writes. `retention`: the retention is not one
+ * day (a missing one is Retell's "kept forever", so the promise that Retell
+ * holds a call a day at most is broken); `setting`: the storage setting is
+ * not `everything` (a missing one too: Retell says it defaults to
+ * `everything`, but a renamed field would read the same, so it must be read
+ * back as written), which leaves the backstop no transcript to read. Pure;
+ * checkRetellAgent and the per-call check (./agent-storage.ts) share it.
+ */
+export function retellStorageProblem(body: unknown): RetellStorageProblem | null {
+  const b = (body && typeof body === "object" ? body : {}) as { data_storage_setting?: unknown; data_storage_retention_days?: unknown };
+  if (b.data_storage_retention_days !== RETELL_DATA_RETENTION_DAYS) return "retention";
+  if (b.data_storage_setting !== RETELL_DATA_STORAGE_SETTING) return "setting";
+  return null;
+}
+
+export type RetellStorageProblem = "retention" | "setting";
 
 function sameEngine(
   actual: { type?: unknown; llm_websocket_url?: unknown; llm_id?: unknown; version?: unknown } | null | undefined,
@@ -408,9 +425,12 @@ export async function verifyRetellAgent(
  * 404, or 422 "Cannot find requested asset" (its API reference). Throws on
  * any other failure, so "unknown" is never read as "absent".
  */
-export async function getRetellAgent(agentId: string, options: RetellApiOptions): Promise<unknown | null> {
+export async function getRetellAgent(agentId: string, options: RetellApiOptions, version?: number): Promise<unknown | null> {
+  // Retell's get-agent takes `version` (an integer, or a tag); without it,
+  // the latest version, which need not be the one a call ran on.
+  const query = version !== undefined && Number.isInteger(version) && version >= 0 ? `?version=${version}` : "";
   try {
-    return await send(`/get-agent/${agentPath(agentId)}`, { method: "GET" }, options);
+    return await send(`/get-agent/${agentPath(agentId)}${query}`, { method: "GET" }, options);
   } catch (error) {
     if (error instanceof RetellApiError && (error.missing || error.status === 422)) return null;
     throw error;

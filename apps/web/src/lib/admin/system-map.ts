@@ -1388,14 +1388,14 @@ export const BRIDGES: readonly BridgeDef[] = [
     to: "retell",
     title: "The engine has Retell delete each call once it is recorded",
     carries:
-      "Retell's call id, once the call and its transcript are safely recorded here, and again when you press Delete at Retell on Retell deletions; Retell answers that the call (its recording, transcript and logs) is deleted, or why not",
+      "Retell's call id, once the call and its transcript are safely recorded here, and again when you press Delete at Retell on Retell deletions; before the delete, the id of the agent the call ran on, to read its storage settings back; Retell answers that the call (its recording, transcript and logs) is deleted, or why not",
     example:
       "Maria's call ends. Ten minutes later the engine finds it recorded, its transcript sealed for the clinic's email, and asks Retell to delete the call with its own key. Had Retell been down for the next half hour, the call would show on Retell deletions for you to delete by hand.",
     keys: ["aws.HEALDESK_RETELL_API_KEY"],
     phi: false,
     build: "built",
     buildNote:
-      "Since 21 October 2026 Retell keeps each call's transcript, and with it the recording, until the call is processed (data storage Everything, kept at most one day), so the backstop can read a call whose voice task died. The engine writes and reads back those settings when it sets up a clinic's agent (lib/voice/provision.ts, app-retell-provisioning), which waits on your switch; until it is on, agents are set up by hand. The backstop job, ten minutes after Retell's call-ended message, deletes the call at Retell once it has a conversation here with its sealed transcript, without waiting for the email to be delivered; a failure is retried for about an hour. A call never recorded here is left to Retell's one-day deletion. A call still at Retell 30 minutes after it ended becomes one alert on Retell deletions: the clinic, Retell's call id and when, never the recording or its address. Your browser never sees the Retell key.",
+      "Since 21 October 2026 Retell keeps each call's transcript, and with it the recording, until the call is processed (data storage Everything, kept at most one day), so the backstop can read a call whose voice task died. The engine writes and reads back those settings when it sets up a clinic's agent (lib/voice/provision.ts, app-retell-provisioning), which waits on your switch; until it is on, agents are set up by hand, so before each delete the backstop job also reads back the agent the call ran on (GET only, lib/voice/agent-storage.ts) and raises voice_agent_storage, once a day per clinic and problem, when its retention is not one day or its storage is not Everything. The backstop job, ten minutes after Retell's call-ended message, deletes the call at Retell once it has a conversation here with its sealed transcript, without waiting for the email to be delivered; a failure is retried for about an hour. A call never recorded here is left to Retell's one-day deletion. A call still at Retell 30 minutes after it ended becomes one alert on Retell deletions: the clinic, Retell's call id and when, never the recording or its address. Your browser never sees the Retell key.",
   },
   {
     id: "app-retell-provisioning",

@@ -334,6 +334,9 @@ private subnet of `healdesk-production` with the `healdesk-production-tasks` sec
 one `healdesk-production-rds` admits, `rds.tf`), then in it:
 
 ```bash
+# A VPC environment is a separate shell: set the session's names again first.
+export AWS_REGION=us-east-1 AWS_PAGER=""
+STAMP='<the STAMP written down>'; T='<the T chosen in A1>'; OLD=healdesk-production-old-$STAMP
 sudo dnf install -y postgresql16
 curl -fsSo ~/rds.pem https://truststore.pki.rds.amazonaws.com/us-east-1/us-east-1-bundle.pem
 HOST=$(aws rds describe-db-instances --db-instance-identifier healdesk-production \

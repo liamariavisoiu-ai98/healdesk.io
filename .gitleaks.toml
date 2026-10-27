@@ -250,3 +250,14 @@ condition = "AND"
 regexTarget = "line"
 paths = ['''^apps/web/src/lib/admin/ops-client-rights\.test\.ts$''', '''^apps/web/src/app/admin/rights/record-input\.test\.ts$''']
 regexes = ['''^\s*const KEY = "0b5e1c2d-3f40-4a51-8b62-7c83d94ea5f6";$''']
+
+# Phase 7's Slack tests (27 October 2026) stand in for the Slack app's signing
+# secret with a made-up hex string; it was never issued and opens nothing.
+# Only that exact declaration, in this file, is excepted.
+[[allowlists]]
+description = "Slack support tests: made-up signing secret, never issued"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+paths = ['''^apps/app/tests/support-slack\.test\.ts$''']
+regexes = ['''^\s*const SECRET = "8f742231b10e8888abcd99aaabbb85a5";$''']

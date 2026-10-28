@@ -78,7 +78,7 @@ describe("the Clinic switches section", () => {
       ],
     });
     expect(valueWords(tone)).toBe("Warm and welcoming");
-    expect(offeredChanges(tone)).toEqual([{ label: "Set to Clinical and professional", value: "clinical" }]);
+    expect(offeredChanges(tone)).toEqual([{ label: "Set to Clinical and professional", value: "clinical", turnsOn: true }]);
     // No options sent: shown as its value, nothing offered.
     expect(offeredChanges(row({ key: "mystery", kind: "choice", value: "x" }))).toEqual([]);
   });
@@ -89,6 +89,33 @@ describe("the Clinic switches section", () => {
     expect(page).toContain("Connect Stripe first.");
     expect(page).toMatch(/<button[^>]*disabled=""[^>]*>Switch on<\/button>/);
     expect(page).toMatch(/<button type="button" class="[^"]*">Switch off<\/button>/);
+  });
+
+  test("a failing rule blocks only turning on: turning off, or back to the safe option, stays pressable", () => {
+    const locked = (over: Partial<ClinicSwitchView> & { key: string }) =>
+      html({ ok: true, data: { switches: [row({ enabled: false, reason: "Why not.", ...over })] } });
+    const on = locked({ key: "text_payment_link", value: true });
+    expect(on).toMatch(/<button type="button" class="[^"]*">Switch off<\/button>/);
+    const full = locked({
+      key: "payment_ask",
+      kind: "choice",
+      value: "full_payment",
+      options: [
+        { id: "deposit_only", label: "Deposit only" },
+        { id: "full_payment", label: "Full payment" },
+      ],
+    });
+    expect(full).toMatch(/<button type="button" class="[^"]*">Set to Deposit only<\/button>/);
+    const toFull = locked({
+      key: "payment_ask",
+      kind: "choice",
+      value: "deposit_only",
+      options: [
+        { id: "deposit_only", label: "Deposit only" },
+        { id: "full_payment", label: "Full payment" },
+      ],
+    });
+    expect(toFull).toMatch(/<button[^>]*disabled=""[^>]*>Set to Full payment<\/button>/);
   });
 
   test("a choice offers the other option; a switch the clinic alone changes offers nothing", () => {

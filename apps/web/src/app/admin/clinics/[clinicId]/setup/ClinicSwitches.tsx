@@ -25,13 +25,20 @@ export function doneWords(outcome: Extract<SetClinicSwitchOutcome, { status: "se
   return [outcome.toast, ...outcome.resets.map((r) => r.notice)].join(" ");
 }
 
-type Choice = { label: string; value: boolean | string };
+type Choice = { label: string; value: boolean | string; /** Turns something on or picks a gated option: the only kind a failing rule blocks. */ turnsOn: boolean };
 
 /** What the operator may set it to: the other side of a switch, or a choice's other options as the server sent them. */
 export function offeredChanges(row: ClinicSwitchView): Choice[] {
   if (!row.operatorMayChange) return [];
-  if (row.kind === "switch") return [{ label: row.value === true ? "Switch off" : "Switch on", value: row.value !== true }];
-  return (row.options ?? []).filter((o) => o.id !== row.value).map((o) => ({ label: `Set to ${o.label}`, value: o.id }));
+  if (row.kind === "switch") {
+    return [{ label: row.value === true ? "Switch off" : "Switch on", value: row.value !== true, turnsOn: row.value !== true }];
+  }
+  // The portal lists a choice's safe option first (Deposit only before Full
+  // payment), so turning back to it is never blocked; any other option may be.
+  const options = row.options ?? [];
+  return options
+    .filter((o) => o.id !== row.value)
+    .map((o) => ({ label: `Set to ${o.label}`, value: o.id, turnsOn: o.id !== options[0]?.id }));
 }
 
 function SwitchRow({ row, onSet }: { row: ClinicSwitchView; onSet: SetClinicSwitch }) {
@@ -52,7 +59,7 @@ function SwitchRow({ row, onSet }: { row: ClinicSwitchView; onSet: SetClinicSwit
           <ActionButton
             key={String(change.value)}
             label={change.label}
-            disabled={!row.enabled}
+            disabled={!row.enabled && change.turnsOn}
             confirm={`Change "${row.label}" for this clinic? It is saved and logged as ours, and ops is emailed.`}
             run={() => onSet(row.key, change.value)}
             done={(data) => (data.status === "set" ? doneWords(data) : null)}

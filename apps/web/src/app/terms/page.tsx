@@ -296,6 +296,21 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * unqualified "never receive patient information"; and the chat tool is
  * "our team's internal chat tool", so it is not read as privacy § 5's
  * messaging platform, which is Meta.
+ *
+ * Revised on 28 October 2026 as LEGAL_VERSION 2026-10-28.1 (lane LEGAL-1b,
+ * owner-approved after an independent review): the pages left out that the
+ * owner's mailbox, which receives a clinic's support email and keeps a copy
+ * when it forwards it to SES (docs/handover.md, "Inbound support mail", step
+ * 6), works under no business associate agreement, and "Who handles it" said
+ * the drafted reply was the nearest the no-BAA vendors come, when the raw
+ * email in the mailbox comes nearer. Both annex items now name the mailbox,
+ * described by what it does. Section 8 gains "Support correspondence": the
+ * clinic keeps patient information out of support email and the portal
+ * support chat (whose screen masks numbers and treatment names and whose
+ * panel asks staff not to paste patient information, apps/app/src/lib/
+ * support/screen.ts, SupportChat.tsx), scoped to support correspondence and
+ * changing nothing in the Data Agreement (BAA or DPA), whose own clauses (minimum necessary,
+ * subcontractors) stand. No agreement template changes.
  */
 export default function TermsPage() {
   const products = productsForTerms();
@@ -659,6 +674,13 @@ export default function TermsPage() {
             compromised.
           </li>
           <li>
+            <strong>Support correspondence.</strong> You are responsible for not including
+            patient information in anything you send to our support, by email or through the
+            support chat in your portal. We do not ask for it, and our support channels are not
+            set up to receive it. This concerns support correspondence only and changes nothing in
+            your Data Agreement.
+          </li>
+          <li>
             <strong>Lawful use.</strong> You will not use the service for emergencies, for
             anything unlawful, to harass anyone, or to circumvent the agent's clinical boundaries.
           </li>
@@ -990,7 +1012,10 @@ export default function TermsPage() {
             clinic&apos;s Data Agreement. The vendors that serve this website, its demo and our
             billing are never sent patient information by design; the nearest they come is our
             drafted reply to a support email, which automated checks are designed to keep free of
-            patient details (&ldquo;Our replies to your support emails&rdquo;, below).
+            patient details (&ldquo;Our replies to your support emails&rdquo;, below). Your
+            Practice&apos;s emails to our support come nearer still: they reach our support
+            mailbox as ordinary correspondence, and that mailbox is not covered by a business
+            associate agreement, so keep patient information out of them (section 8).
           </li>
           <li>
             <strong>Every access is recorded.</strong> Reads and writes of patient information are
@@ -1060,8 +1085,9 @@ export default function TermsPage() {
             none of the three works under a business associate agreement. Automated checks are
             designed to keep patient details out of the draft, and run again on the approved text
             before it is sent. No check catches every wording, and your email itself also reaches
-            our support inbox as ordinary email, so do not send patient information to our
-            support.
+            our support mailbox as ordinary correspondence, and that mailbox is not covered by a
+            business associate agreement, so do not send patient information to our support
+            (section 8).
           </li>
           <li>
             <strong>Your calendar is yours.</strong> Bookings are written into your own Google

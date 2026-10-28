@@ -42,8 +42,8 @@ import { LEGAL_LAST_UPDATED, LEGAL_VERSION } from "@/lib/legal";
  */
 
 const PINNED_BEFORE_1_6_0 = {
-  version: "2026-10-27.1",
-  lastUpdated: "27 October 2026",
+  version: "2026-10-28.1",
+  lastUpdated: "28 October 2026",
   /**
    * The version these pages replace: the last one that went out, which was
    * main's live text when this one was numbered. A note may cite it, an earlier
@@ -52,10 +52,10 @@ const PINNED_BEFORE_1_6_0 = {
    * when you renumber a version that never did, because that number was never
    * published.
    */
-  replaces: "2026-10-26.1",
+  replaces: "2026-10-27.1",
   sha256: {
-    "/terms": "be641804ed52a6b373848642dbb8dad34bc23a3f1780e120c267341732a62350",
-    "/privacy": "62865d2345df84a6b79acc28a034b76f6b97142477f75cb66e7f03b448e24cec",
+    "/terms": "13c577eb7889b04fbf9b75926b382cc5b246b9df1bd877f1cb5ea581e6355451",
+    "/privacy": "f815572103bb42ff425a254425477113021e7931a9ac30df693289dd79e158e5",
     "/data-deletion": "d77557279849e427006387afa3c427ee976e10be5afd29cbba04a7356afd1042",
   },
 } as const;
@@ -64,24 +64,26 @@ const PINNED_BEFORE_1_6_0 = {
  * The text once BAA 1.6.0 is released (BAA_1_6_0_RELEASED in
  * packages/catalog/src/baa.ts): terms section 9 says "The Business Associate
  * Agreement states the same" again, nothing else moves, and LEGAL_VERSION is
- * 2026-10-27.2. Privacy and the deletion page are word for word the same.
+ * 2026-10-28.2. Privacy and the deletion page are word for word the same.
  * Pinned now so the flip is not also a hash edit; if it goes out on a later
  * day, move lastUpdated here and LEGAL_LAST_UPDATED in src/lib/legal.ts
- * together and re-pin /terms. The release replaces 2026-10-27.1 only if that
- * went out, which `replaces` records as the live text.
+ * together and re-pin /terms. The release replaces 2026-10-28.1 only if that
+ * went out, which `replaces` records as the live text (if 2026-10-28.1 never
+ * went out, `replaces` stays at the last version that did).
  */
 const PINNED_WITH_1_6_0 = {
-  version: "2026-10-27.2",
+  version: "2026-10-28.2",
   /**
    * Written out, not copied from the pin above: the release day is 28 October
    * 2026 or later, and LEGAL_LAST_UPDATED in src/lib/legal.ts and this value
    * move together to that day (the page prints it, outside the hash).
-   * "27 October 2026" is what legal.ts says today.
+   * "28 October 2026" is what legal.ts says today; a release on a later day
+   * moves both again.
    */
-  lastUpdated: "27 October 2026",
-  /** 2026-10-27.1 is the live text this release replaces. */
-  replaces: "2026-10-27.1",
-  sha256: { ...PINNED_BEFORE_1_6_0.sha256, "/terms": "8a440e174c8285c0f40118495544063d2171a9bc0781c76d26c26192f1b02d88" },
+  lastUpdated: "28 October 2026",
+  /** 2026-10-28.1 is the live text this release replaces, once it has gone out. */
+  replaces: "2026-10-28.1",
+  sha256: { ...PINNED_BEFORE_1_6_0.sha256, "/terms": "9fa6d20e9bee1e6323e90fe6de51dc48f1a879d0bfb7554851af5c75d7255f37" },
 } as const;
 
 const PINNED = BAA_1_6_0_RELEASED ? PINNED_WITH_1_6_0 : PINNED_BEFORE_1_6_0;

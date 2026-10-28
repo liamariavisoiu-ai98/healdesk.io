@@ -348,8 +348,10 @@ export type WebsiteProcessing = {
 export const WEBSITE_PROCESSING: readonly WebsiteProcessing[] = [
   {
     category: "website-hosting",
-    purpose: "Hosts this website and runs its server code",
-    receives: "Page requests, the email you unlock the demo with, and contact-form submissions",
+    purpose:
+      "Hosts this website and runs its server code, including our internal administration tool, which shows our team our drafted replies to support emails",
+    receives:
+      "Page requests, the email you unlock the demo with, contact-form submissions, and our drafted replies to support emails, which automated checks are designed to keep free of patient details, never the support email itself",
   },
   {
     category: "ai-model",
@@ -374,7 +376,8 @@ export const WEBSITE_PROCESSING: readonly WebsiteProcessing[] = [
   {
     category: "email",
     purpose: "Sends our email: replies, setup links, agreement copies, account and billing notices",
-    receives: "The recipient's address, and content that carries no patient information",
+    receives:
+      "The recipient's address, and content designed to carry no patient information, including our approved replies to support emails",
   },
   {
     category: "payments",

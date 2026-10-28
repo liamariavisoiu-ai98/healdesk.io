@@ -35,8 +35,12 @@ import {
 // BAA 1.6.0's release brings back terms section 9's "The Business Associate
 // Agreement states the same", so it is a new text and a new version; the flag
 // is the same one that moves the agreement (packages/catalog/src/baa.ts).
-export const LEGAL_VERSION = BAA_1_6_0_RELEASED ? "2026-10-27.2" : "2026-10-27.1";
-export const LEGAL_LAST_UPDATED = "27 October 2026";
+// 2026-10-28.1 (lane LEGAL-1b) names the support mailbox, which no business
+// associate agreement covers, and the clinic's part in keeping patient
+// information out of support correspondence; 1.6.0's release text is
+// 2026-10-28.2 on the same terms.
+export const LEGAL_VERSION = BAA_1_6_0_RELEASED ? "2026-10-28.2" : "2026-10-28.1";
+export const LEGAL_LAST_UPDATED = "28 October 2026";
 
 export const ENTITY = {
   /** Full legal name, e.g. "Healdesk, Inc." Empty until the founder supplies it. */

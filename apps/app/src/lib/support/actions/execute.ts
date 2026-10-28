@@ -221,13 +221,13 @@ export async function runSupportAction(input: { caseId: string; messageId: strin
   try {
     outcome = await makeChange(claim.clinicId, claim.action, input.now);
   } catch (error) {
-    log.error("support action failed", { clinicId: claim.clinicId, key: claim.action.key, error: describeError(error) });
+    log.error("support action failed", { clinicId: claim.clinicId, field: claim.action.key, error: describeError(error) });
     outcome = { ok: false, reason: COULD_NOT_RUN };
   }
   const settled: SupportAction = outcome.ok
     ? { ...claim.action, status: "done", reason: null, at }
     : { ...claim.action, status: "refused", reason: keptReason(outcome.reason) ?? COULD_NOT_RUN, at };
   await setRowAction(unsafeDb, input.messageId, settled);
-  log.info("support action run", { clinicId: claim.clinicId, key: settled.key, code: settled.status });
+  log.info("support action run", { clinicId: claim.clinicId, field: settled.key, code: settled.status });
   return settled;
 }

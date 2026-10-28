@@ -71,3 +71,92 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* Switch explainer (settings/SwitchExplainer.tsx): the picture beside a switch
+   that is unavailable or moves another one. Its words are real text; this is
+   only the picture, so with motion off it simply sits in its last state. The
+   app has no dark theme, so these use the same tokens as everything else. */
+.sx-picture {
+  display: block;
+  width: 15rem;
+  max-width: 100%;
+  height: 2.25rem;
+  margin-top: 0.25rem;
+}
+.sx-box {
+  fill: var(--color-paper-2);
+  stroke: var(--color-line-strong);
+}
+.sx-glow {
+  fill: var(--color-tint-mint);
+  stroke: var(--color-green);
+  opacity: 0;
+}
+.sx-text {
+  fill: var(--color-ink);
+  font: 600 11px system-ui, sans-serif;
+}
+.sx-wire {
+  stroke: var(--color-line-strong);
+  stroke-width: 2;
+}
+.sx-wire-lit {
+  stroke: var(--color-green);
+  opacity: 0;
+}
+/* Still state: "needs" ends with both lit, "resets" ends with both dark. */
+.sx-needs .sx-glow,
+.sx-needs .sx-wire-lit {
+  opacity: 1;
+}
+.sx-needs .sx-text {
+  fill: var(--color-green);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sx-needs .sx-from .sx-glow {
+    animation: sx-on 4s ease-in-out infinite;
+  }
+  .sx-needs .sx-wire-lit {
+    animation: sx-on 4s ease-in-out 0.5s infinite;
+  }
+  .sx-needs .sx-to .sx-glow {
+    animation: sx-on 4s ease-in-out 1s infinite;
+  }
+  .sx-resets .sx-glow,
+  .sx-resets .sx-wire-lit {
+    animation: sx-off 4s ease-in-out infinite;
+  }
+  .sx-resets .sx-wire-lit {
+    animation-delay: 0.5s;
+  }
+  .sx-resets .sx-to .sx-glow {
+    animation-delay: 1s;
+  }
+}
+@keyframes sx-on {
+  0%,
+  8% {
+    opacity: 0;
+  }
+  22%,
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes sx-off {
+  0%,
+  8% {
+    opacity: 1;
+  }
+  22%,
+  85% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}

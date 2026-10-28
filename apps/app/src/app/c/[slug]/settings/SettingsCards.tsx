@@ -24,6 +24,15 @@ import {
   TextSetting,
 } from "./controls";
 import { DisconnectPayments } from "./DisconnectPayments";
+import {
+  DEPOSITS_LINE,
+  DepositsExplainer,
+  FullPaymentExplainer,
+  PAYMENT_ASK_LINE,
+  TEXT_LINK_LINE,
+  TextLinkExplainer,
+} from "./payment-explainers";
+import type { UnlockTargets } from "./SwitchExplainer";
 
 /**
  * Settings' cards (plan Part F2's card table, in its order): Channels, How
@@ -339,11 +348,16 @@ export function PaymentsCard({
   const { payments } = view;
   const outcome = connectOutcome ? CONNECT_OUTCOMES[connectOutcome] : undefined;
   const chat = view.bought.web || view.bought.meta;
-  const blocked = !payments.isConnected
-    ? "Connect your Stripe account first."
-    : !payments.hasDepositAmount
-      ? "Set a deposit on a treatment in Knowledge → Prices first."
-      : null;
+  const { rules } = payments;
+  // Where each unlock button goes; what is blocked and why is `rules`' alone.
+  const targets: UnlockTargets = {
+    connect_stripe: payments.connectAvailable
+      ? `/api/connect/stripe/start?clinic=${encodeURIComponent(view.slug)}&from=settings`
+      : null,
+    set_deposit: isBuiltSection("knowledge") ? `${sectionPath(view.slug, "knowledge")}#prices` : null,
+    connect_calendar: "#calendar",
+    turn_on_auto_confirm: "#auto-confirm",
+  };
   const holdOptions = [30, 60, 120, 240, 1440].includes(payments.holdMinutes)
     ? [30, 60, 120, 240, 1440]
     : [payments.holdMinutes, 30, 60, 120, 240, 1440].sort((a, b) => a - b);
@@ -392,10 +406,16 @@ export function PaymentsCard({
         slug={view.slug}
         settingKey="deposits_enabled"
         label="Take deposits"
-        line="Whether AYA can ask for a deposit at all. In chat she sends a secure payment link; on a call she can't take a card, so she books and flags the deposit for your team."
+        line={DEPOSITS_LINE}
         applies={view.applies.deposits_enabled}
         initial={payments.depositsEnabled}
-        blockedLine={payments.depositsEnabled ? null : blocked}
+        blockedLine={rules.deposits.enabled ? null : rules.deposits.reason}
+        explainerId="explain-deposits"
+        explainer={
+          payments.depositsEnabled ? null : (
+            <DepositsExplainer id="explain-deposits" rule={rules.deposits} targets={targets} />
+          )
+        }
       />
       <div className="py-3">
         <p className="font-semibold">Deposit per treatment</p>
@@ -415,6 +435,39 @@ export function PaymentsCard({
           ) : null}
         </p>
       </div>
+      {view.bought.voice ? (
+        <SwitchSetting
+          slug={view.slug}
+          settingKey="text_payment_link"
+          label="Text the payment link after a call"
+          line={TEXT_LINK_LINE}
+          initial={payments.textPaymentLink}
+          blockedLine={rules.text_payment_link.enabled ? null : rules.text_payment_link.reason}
+          explainerId="explain-text-link"
+          explainer={
+            <TextLinkExplainer id="explain-text-link" rule={rules.text_payment_link} targets={targets} />
+          }
+        />
+      ) : null}
+      <ChoiceSetting
+        slug={view.slug}
+        settingKey="payment_ask"
+        legend="What AYA asks the patient to pay"
+        line={PAYMENT_ASK_LINE}
+        options={[
+          { id: "deposit_only", label: "Deposit only" },
+          {
+            id: "full_payment",
+            label: "Full payment",
+            disabled: !rules.full_payment.enabled,
+          },
+        ]}
+        initial={payments.paymentAsk}
+        explainerId="explain-payment-ask"
+        explainer={
+          <FullPaymentExplainer id="explain-payment-ask" rule={rules.full_payment} targets={targets} />
+        }
+      />
       {view.bought.voice ? (
         <SwitchSetting
           slug={view.slug}
@@ -439,7 +492,7 @@ export function PaymentsCard({
             slug={view.slug}
             settingKey="deposit_uncollectable"
             legend="When a deposit can't be collected"
-            line="A channel's own “book without a deposit” switch decides first; this applies when it's off and a link can't be sent."
+            line="What AYA does when a payment link can't be sent."
             applies={view.applies.deposit_uncollectable}
             options={[
               {

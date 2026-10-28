@@ -134,7 +134,12 @@ export default async function SettingsPage({
             metaOutcome={typeof meta === "string" ? meta : null}
           />
           <TalkCard view={view} />
-          <CalendarCard card={calendarCard} timeZone={page.state.clinic.timezone} now={now} />
+          <CalendarCard
+            card={calendarCard}
+            timeZone={page.state.clinic.timezone}
+            now={now}
+            fullPaymentOn={view.payments.paymentAsk === "full_payment"}
+          />
           <PaymentsCard view={view} connectOutcome={typeof connect === "string" ? connect : null} />
           <SafetyNetCard view={view} />
           <AlertsCard view={view} />

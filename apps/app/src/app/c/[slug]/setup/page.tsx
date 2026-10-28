@@ -62,6 +62,7 @@ import { snippetOpen, widgetSnippet } from "@/lib/setup/snippet";
 import { loadSetupState, type SetupState } from "@/lib/setup/state";
 import { urgentHelpField } from "@/lib/setup/urgent";
 import { readMetaConnectView } from "@/lib/meta/reconnect";
+import { switchRules } from "@/lib/portal/switch-rules";
 import { withTenant } from "@/lib/tenant";
 
 import { HelpPanel } from "../HelpPanel";
@@ -504,6 +505,36 @@ async function DepositsStep({
         depositUsd: s.depositUsd ?? null,
       }))}
       collectionLine={depositCollectionLine({ channels, isConnected: deposits.isConnected })}
+      paymentSwitches={(() => {
+        const stripeView = setupStripeView({
+          slug: common.slug,
+          channels,
+          isConnected: deposits.isConnected,
+          connectConfigured: connectConfigured(),
+          outcome,
+        });
+        // Placeholder facts until lane A supplies the calendar and Auto-confirm
+        // readings here: the calendar is connected on the next step, so full
+        // payment is still locked in the wizard and the rule says why.
+        const rules = switchRules({
+          gatewayConnected: deposits.isConnected,
+          hasDepositAmount: state.knowledge.services.some((s) => (s.depositUsd ?? 0) > 0),
+          calendarConnected: false,
+          autoConfirm: true,
+          hasVoice: channels.includes("voice"),
+        });
+        return {
+          voice: channels.includes("voice"),
+          text: rules.text_payment_link,
+          full: rules.full_payment,
+          targets: {
+            connect_stripe: stripeView.available ? stripeView.href : null,
+            set_deposit: null,
+            connect_calendar: null,
+            turn_on_auto_confirm: null,
+          },
+        };
+      })()}
       stripe={setupStripeView({
         slug: common.slug,
         channels,

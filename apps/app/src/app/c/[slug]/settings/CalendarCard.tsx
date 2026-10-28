@@ -8,6 +8,7 @@ import {
   GoogleSignIn,
 } from "./CalendarControls";
 import { Card } from "./SettingsCards";
+import { SwitchExplainer } from "./SwitchExplainer";
 
 /**
  * Settings → Calendar (plan Part F2): the connected calendar with Change,
@@ -29,7 +30,10 @@ export function CalendarCard({
   card,
   timeZone,
   now,
+  fullPaymentOn = false,
 }: {
+  /** Full payment is on, so turning Auto-confirm off moves it: say so beside the switch. */
+  fullPaymentOn?: boolean;
   card: CalendarCardView;
   timeZone: string;
   now: Date;
@@ -97,7 +101,21 @@ export function CalendarCard({
           </a>
         </p>
       </div>
-      <AutoConfirmSwitch slug={card.slug} initial={card.autoConfirm} rightNow={card.rightNow} />
+      <AutoConfirmSwitch
+        slug={card.slug}
+        initial={card.autoConfirm}
+        rightNow={card.rightNow}
+        explainerId={fullPaymentOn ? "explain-auto-confirm" : undefined}
+        explainer={
+          fullPaymentOn ? (
+            <SwitchExplainer
+              id="explain-auto-confirm"
+              note="Turning this off also sets “What AYA asks the patient to pay” back to Deposit only, and we tell you."
+              picture={{ mode: "resets", from: "Auto-confirm", to: "Full payment" }}
+            />
+          ) : undefined
+        }
+      />
       <BookingDetailControls
         slug={card.slug}
         detail={card.bookingDetail}

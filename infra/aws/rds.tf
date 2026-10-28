@@ -201,10 +201,9 @@ resource "aws_db_instance" "main" {
   #checkov:skip=CKV_AWS_161:IAM database authentication does not fit long-lived pg pools on a static URL (15-minute tokens) and costs 300-1000 MiB of instance memory; passwords are SCRAM over verified TLS.
 }
 
-# The instance's endpoint, id and master secret, or null in standby, for the
+# The instance's endpoint and master secret, or null in standby, for the
 # db-bootstrap task definition, the execution role, the alarms and the outputs.
 locals {
   db_address           = one(aws_db_instance.main[*].address)
-  db_resource_id       = one(aws_db_instance.main[*].resource_id)
   db_master_secret_arn = try(aws_db_instance.main[0].master_user_secret[0].secret_arn, null)
 }

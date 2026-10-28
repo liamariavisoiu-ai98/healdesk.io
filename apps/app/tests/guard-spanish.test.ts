@@ -407,14 +407,36 @@ describe("the Spanish patterns are safe from catastrophic backtracking", () => {
       "número de su tarjeta ",
       "four two forty ",
     ];
+    // Measured in this process's CPU time, not wall time, and the best of up
+    // to three tries: on a busy machine (other test runs, other worktrees)
+    // the wall clock counts time this process spent waiting for a core, and
+    // one slow try failed the test with nothing wrong in the patterns. The
+    // claim is unchanged: a catastrophic pattern costs minutes of CPU on
+    // every try, so it still fails all three, and the bound is still 5s.
+    // Tries stop at the first one under the bound, so a healthy run costs
+    // what it did before. (`fileParallelism: false` keeps other suites out of
+    // this process while it runs.)
+    const cpuMs = (run: () => void): number => {
+      const before = process.cpuUsage();
+      run();
+      const used = process.cpuUsage(before);
+      return (used.user + used.system) / 1000;
+    };
     for (const piece of pieces) {
       const long = piece.repeat(Math.ceil(6000 / piece.length));
-      const started = performance.now();
-      guardAssistantReply(long, SAFETY_FACTS);
-      guardAssistantReply(`${long}.`, SAFETY_FACTS);
-      cardNumberIn(`${long}x`);
-      // Generous for a loaded machine: a catastrophic pattern takes minutes, not seconds.
-      expect(performance.now() - started, piece).toBeLessThan(5000);
+      let best = Infinity;
+      for (let attempt = 0; attempt < 3 && best >= 5000; attempt++) {
+        best = Math.min(
+          best,
+          cpuMs(() => {
+            guardAssistantReply(long, SAFETY_FACTS);
+            guardAssistantReply(`${long}.`, SAFETY_FACTS);
+            cardNumberIn(`${long}x`);
+          }),
+        );
+      }
+      // A catastrophic pattern takes minutes, not seconds.
+      expect(best, piece).toBeLessThan(5000);
     }
   });
 });

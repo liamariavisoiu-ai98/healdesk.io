@@ -104,7 +104,35 @@ function acceptanceOf(
   });
 }
 
-const WIN_ANSI = new TextDecoder("windows-1252");
+/**
+ * WinAnsi (windows-1252) decoded by hand, not by `TextDecoder("windows-1252")`.
+ *
+ * Node 22.22's TextDecoder takes a Latin-1 fast path for that label and reads
+ * 0x80-0x9F as C1 control characters instead of the windows-1252 glyphs (0x97
+ * came back as U+0097, not the em dash pdf-lib wrote), while Node 24, which CI
+ * runs, decodes them correctly. The renderer was right on both: the bytes in
+ * the file are the em dash. Only this reader was wrong, so the round trip is
+ * read against the WHATWG windows-1252 index itself, the same on every Node.
+ * Bytes outside 0x80-0x9F are the Latin-1 code points in both encodings; the
+ * five unassigned bytes of that block decode to themselves, as the index says.
+ */
+const CP1252_HIGH = [
+  0x20ac, 0x81, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021, 0x02c6,
+  0x2030, 0x0160, 0x2039, 0x0152, 0x8d, 0x017d, 0x8f, 0x90, 0x2018, 0x2019,
+  0x201c, 0x201d, 0x2022, 0x2013, 0x2014, 0x02dc, 0x2122, 0x0161, 0x203a,
+  0x0153, 0x9d, 0x017e, 0x0178,
+];
+const WIN_ANSI = {
+  decode(bytes: Uint8Array): string {
+    let out = "";
+    for (const byte of bytes) {
+      out += String.fromCharCode(
+        byte >= 0x80 && byte <= 0x9f ? CP1252_HIGH[byte - 0x80]! : byte,
+      );
+    }
+    return out;
+  },
+};
 
 /**
  * Each page's content stream, decompressed, in page order.

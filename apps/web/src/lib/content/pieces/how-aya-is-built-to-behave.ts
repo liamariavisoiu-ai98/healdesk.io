@@ -9,7 +9,11 @@ import type { Piece } from "@/lib/content/types";
  * booking, the deposit link in website chat, the urgent alert, the never-say
  * list on the Meta channels, the direct-line fallbacks and recording off at
  * the voice provider are described as designed; check each against that list
- * before this page goes live.
+ * before this page goes live. Revised on 28 October 2026 with the owner's
+ * approved wording for the optional payment-link text after a call
+ * (docs/design/launch-readiness-2026-10-27/legal-wording-proposal-payment-text.md),
+ * also described as designed: nothing sends it yet (register item
+ * `payment-link-text`).
  */
 export const piece: Piece = {
   slug: "how-aya-is-built-to-behave",
@@ -23,7 +27,7 @@ export const piece: Piece = {
   stage: "draft",
   legal: false,
   published: "2026-10-19",
-  lastReviewed: "2026-10-19",
+  lastReviewed: "2026-10-28",
   sections: [
     {
       id: "what-this-page-describes",
@@ -98,7 +102,8 @@ export const piece: Piece = {
           kind: "p",
           text:
             "AYA is built to speak only in reply, inside a conversation the other person started. " +
-            "It places no calls and sends no text messages, reminders, follow-up sequences, win-back messages or review requests. " +
+            "It places no calls and sends no reminders, follow-up sequences, win-back messages or review requests. " +
+            "One optional text is the only exception: after a booking by phone, if the caller says yes, AYA is designed to send one text with the clinic's own payment link, in fixed words, once. " +
             "A call that the voice provider reports as outbound is ended as soon as AYA learns of it. " +
             "On Instagram, Messenger and WhatsApp it replies only inside the 24-hour window that Meta opens when the person writes. " +
             "When staff decide a booking request taken there, the person gets one fixed line saying the practice will call, sent only inside that window.",
@@ -157,6 +162,7 @@ export const piece: Piece = {
             "On calls and website chat, a card number that reaches it as a run of digits is cut before the AI model sees it or the emailed transcript carries it. " +
             "The person is then asked not to share card details, and on Instagram, Messenger and WhatsApp no such filter runs. " +
             "On a call AYA cannot take payment, so where a service needs a deposit it is designed to book and flag the deposit for the clinic's staff to collect. " +
+            "Where the clinic has turned it on, AYA is also designed to offer to text the caller the clinic's own payment link. " +
             "On Instagram, Messenger and WhatsApp it sends no payment link.",
           cite: ["terms"],
         },

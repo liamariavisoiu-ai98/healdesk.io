@@ -472,8 +472,14 @@ export async function runCallBackstop(payload: CallBackstopPayload, deps: Backst
   if (!apiKey) throw new Error("HEALDESK_RETELL_API_KEY is unset: the call cannot be read back from Retell");
   const call = await (deps.fetchCall ?? fetchRetellCall)(callId, apiKey);
   // Every call of this clinic's, ended, whether recorded below or refused:
-  // the agent's storage applies to them all (./agent-storage.ts).
-  if (call.call_id === callId && call.call_status === "ended") await checkStorageOf(clinicId, call, deps);
+  // the agent's storage applies to them all (./agent-storage.ts). It runs
+  // after the call is recorded and before Retell's copy is deleted (after the
+  // delete the call, and the agent's id with it, is gone), never before the
+  // ingest: a hanging get-agent (ten seconds, then the alert email) must not
+  // delay recording the call, on every attempt of the job.
+  const checkStorageIfEnded = async () => {
+    if (call.call_id === callId && call.call_status === "ended") await checkStorageOf(clinicId, call, deps);
+  };
 
   const mapped = callEventFromRetell(call, { clinicId, callId, assistantNumber: state.assistantNumber, raised: state.raised });
   if ("refused" in mapped) {
@@ -481,6 +487,7 @@ export async function runCallBackstop(payload: CallBackstopPayload, deps: Backst
     if (mapped.refused === "not_ended" && (call.call_status === "ongoing" || call.call_status === "registered")) {
       throw new Error("Retell has the call as still in progress");
     }
+    await checkStorageIfEnded();
     return { status: "refused", reason: mapped.refused };
   }
   // A duplicate here is the live socket, or a second job, recording first:
@@ -491,12 +498,17 @@ export async function runCallBackstop(payload: CallBackstopPayload, deps: Backst
   } catch (error) {
     // A refusal is final; retrying it would refuse it again. Either way the
     // call is not recorded here, so Retell's copy is not touched.
-    if (error instanceof VoiceIngestError) return { status: "refused", reason: "ingest_refused" };
+    if (error instanceof VoiceIngestError) {
+      await checkStorageIfEnded();
+      return { status: "refused", reason: "ingest_refused" };
+    }
     throw error;
   }
   // Committed: the conversation and its sealed transcript, and the email
   // tried once. Retell's copy goes now; a failure retries the job, which
-  // then finds the conversation and comes straight back here.
+  // then finds the conversation and comes straight back here. The agent's
+  // storage is read back first (never throws, never blocks the delete).
+  await checkStorageIfEnded();
   await deleteAtRetellOrRetry(clinicId, callId, deps);
   return { status: "recorded", result };
 }

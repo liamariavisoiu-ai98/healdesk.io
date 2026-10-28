@@ -396,6 +396,10 @@ dashboard, which have no voice set-up row and so no "Voice agent" card or read-b
 writes to Retell: set both in Retell's dashboard on the agent the clinic's assistant number
 points at, publish it so the number's version carries them, and tell the owner, since a call
 this agent took that was not recorded here may still be at Retell past a day.
+Limitation: an agent that cannot be read (no agent id on the call, the Retell key unset, Retell answering
+404 or 422, or a timeout) is only logged as a warning (`retell agent storage not checked`) and never
+alerts, so a persistently unreadable agent is never reported by this alert; check such an agent in Retell's
+dashboard.
 
 ### Calendar
 

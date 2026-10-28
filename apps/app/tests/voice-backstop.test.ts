@@ -37,6 +37,7 @@ import {
   type RetellCall,
 } from "@/lib/voice/backstop";
 import { checkCallAgentStorage } from "@/lib/voice/agent-storage";
+import { ingestCall } from "@/lib/voice/ingest";
 import { TROUBLE_TRANSFER_LINE } from "@/lib/voice/retell";
 import { verifyRetellSignature } from "@/lib/voice/retell-signature";
 import { createVoiceServer } from "@/voice/server";
@@ -463,6 +464,44 @@ describeDb("the backstop against the database", () => {
     const failing = { ...deps(1), checkStorage: async () => { throw new Error("boom"); } };
     expect(await runCallBackstop({ clinicId: clinic.clinicId, callId: "call_storage_1" }, failing)).toEqual({ status: "already_recorded" });
     expect(order).toEqual(["delete call_storage_1"]);
+  });
+
+  test("the storage check runs after the call is recorded, and a hanging check does not delay recording", async () => {
+    const clinic = await clinicWithNumber("backstop-order");
+    const order: string[] = [];
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const run = runCallBackstop(
+      { clinicId: clinic.clinicId, callId: "call_order_1" },
+      {
+        apiKey: KEY,
+        realCalls: true,
+        transport,
+        fetchCall: async (id: string) => retellCall({ call_id: id }),
+        ingest: async (event) => {
+          const result = await ingestCall(event, { type: "agent", serviceName: "retell-backstop" }, { transport });
+          order.push("ingested");
+          return result;
+        },
+        checkStorage: async () => {
+          order.push("check-start");
+          await gate; // a hanging get-agent
+          order.push("check-end");
+          return { status: "ok" } as never;
+        },
+        deleteCall: async (_c: string, id: string) => {
+          order.push(`delete ${id}`);
+          return { status: "deleted" as const };
+        },
+      },
+    );
+    await vi.waitFor(() => expect(order).toContain("check-start"));
+    // The call is already recorded while the check hangs, and not yet deleted.
+    expect(order).toEqual(["ingested", "check-start"]);
+    expect((await counts(clinic.clinicId)).conversations).toBe(1);
+    release();
+    expect((await run).status).toBe("recorded");
+    expect(order).toEqual(["ingested", "check-start", "check-end", "delete call_order_1"]);
   });
 
   test("two backstop runs at once record the call once", async () => {

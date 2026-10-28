@@ -218,6 +218,19 @@ function requireBoolean(field: keyof ClinicSettingsPatch, value: unknown): boole
  * reads; a caller that reads Auto-confirm itself to say what it changed
  * (setAutoConfirm) takes it first. Taking it twice in one transaction is
  * harmless.
+ *
+ * It is also the one lock over the payment switches and the facts their
+ * rules weigh (lib/portal/switch-rules.ts): writeDepositSettings takes it
+ * before it reads the facts, applySwitchResets before it reads the switches,
+ * and every writer that takes a fact away (Auto-confirm off, a booking
+ * system that turns it off, the calendar disconnected or broken, the Stripe
+ * account disconnected or deauthorized) takes it first in its transaction.
+ * Under READ COMMITTED each statement after the lock sees what the other
+ * side committed, so a "full payment" save racing an "Auto-confirm off"
+ * either commits first and is reset, or reads Auto-confirm off and is
+ * refused: never full payment with Auto-confirm off. Taking it first, before
+ * any row is written, keeps every writer in the same order, so none waits on
+ * a row another holds while it waits on this.
  */
 export async function lockAutoConfirm(tx: TenantTx): Promise<void> {
   await tx.db.execute(

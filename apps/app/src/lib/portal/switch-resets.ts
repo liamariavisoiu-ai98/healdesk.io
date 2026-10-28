@@ -4,6 +4,7 @@ import {
   writeDepositSettings,
   type DepositSettingsPatch,
 } from "@/lib/billing/deposits";
+import { lockAutoConfirm } from "@/lib/billing/settings";
 import { SYSTEM_ORIGIN } from "@/lib/clinic/change-events";
 import { recordSettingChange } from "@/lib/clinic/setting-changes";
 import { notifySwitchesReset } from "@/lib/notices/setting-changed";
@@ -107,6 +108,10 @@ export async function applySwitchResets(
 ): Promise<SwitchReset[]> {
   const now = input.now ?? new Date();
   const { fact } = CAUSES[input.cause];
+  // Read under the payment-facts lock, as writeDepositSettings reads, so a
+  // switch turned on by another session is either committed and seen here,
+  // or reads this writer's lost fact once it commits (lockAutoConfirm).
+  await lockAutoConfirm(tx);
   const current = await getDepositSettings(tx);
   const after: SwitchFacts = { ...switchFactsOf(current), [fact]: false };
   const before = switchRules({ ...after, [fact]: true });

@@ -19,6 +19,7 @@ import {
   providerConnections,
 } from "@/db/schema";
 import { recordSecurityEvent, type ActorContext, type RequestContext } from "@/lib/audit";
+import { lockAutoConfirm } from "@/lib/billing/settings";
 import { releaseLiveHolds } from "@/lib/booking/holds";
 import { changeOriginOf, recordClinicChange, type ChangeOrigin } from "@/lib/clinic/change-events";
 import { calendarTermsFor, type CalendarTermsInEffect } from "@/lib/booking/terms";
@@ -396,6 +397,9 @@ export async function markCalendarBrokenWithin(
   if (!isCalendarBreak(input.code)) {
     throw new Error(`Not a definitive calendar break: ${String(input.code)}.`);
   }
+  // The calendar is a fact full payment needs: the payment-facts lock first,
+  // before the row, as every writer of those facts takes it (lockAutoConfirm).
+  await lockAutoConfirm(tx);
   const row = await googleCalendarConnection(tx, { forUpdate: true });
   if (!row || row.id !== input.connectionId) return { status: "not_connected" };
   if (row.status === "revoked" && row.brokenAt === null) return { status: "not_connected" };
@@ -724,6 +728,8 @@ export async function disconnectGoogleCalendar(
 ): Promise<DisconnectOutcome> {
   const actor = input.actor ?? CALENDAR_ACTOR;
   const taken = await withTenant({ clinicId, actor, request: input.request }, async (tx) => {
+    // The payment-facts lock first, before the row (lockAutoConfirm).
+    await lockAutoConfirm(tx);
     const row = await googleCalendarConnection(tx, { forUpdate: true });
     if (!row || row.status === "revoked") return null;
     const erased = await eraseGoogleCalendarWithin(tx, {
@@ -849,6 +855,8 @@ export async function sweepCalendarTerms(
   for (const clinicId of targets) {
     try {
       const taken = await withTenant({ clinicId, actor }, async (tx) => {
+        // The payment-facts lock first, before the row (lockAutoConfirm).
+        await lockAutoConfirm(tx);
         const row = await googleCalendarConnection(tx, { forUpdate: true });
         if (!row || row.status === "revoked") return null;
         const reason = await reasonTheTermsEnded(tx, row);
@@ -860,6 +868,12 @@ export async function sweepCalendarTerms(
         });
         if (!erased) return null;
         await recordDisconnect(tx, actor, undefined, erased, reason);
+        // The calendar taken away is a lost fact like a disconnect's: full
+        // payment goes back to deposit only here too (switch-rules.ts).
+        await applySwitchResets(tx, {
+          cause: "calendar_disconnected",
+          actorLabel: actorLabelOf(actor),
+        });
         return { erased, reason };
       });
       result.checked += 1;

@@ -25,7 +25,7 @@ import { and, eq, sql } from "drizzle-orm";
 import type { Transaction } from "@/db";
 import { clinicProviders, clinics, clinicSettings, clinicSettingsHistory } from "@/db/schema";
 import { guardGreeting, neverSayIn, type GreetingRefusal } from "@/lib/assistant/guard";
-import { normaliseE164, updateClinicSettings } from "@/lib/billing/settings";
+import { lockAutoConfirm, normaliseE164, updateClinicSettings } from "@/lib/billing/settings";
 import { notifySettingChanged } from "@/lib/notices/setting-changed";
 import { completeStep } from "@/lib/onboarding/steps";
 import { applySwitchResets } from "@/lib/portal/switch-resets";
@@ -203,6 +203,11 @@ export async function saveSetupSettings(
   now: Date = new Date(),
 ): Promise<SetupSettings> {
   const wanted = validate(patch);
+  // A booking system can switch Auto-confirm, a fact full payment needs:
+  // taken under the payment-facts lock before anything is read or written,
+  // as every writer of those facts does (lockAutoConfirm), so a full-payment
+  // save racing this one is either reset below or refused.
+  if (wanted.bookingSystem !== undefined) await lockAutoConfirm(tx);
   await screenGreetings(tx, wanted);
   const current = await readSetupSettings(tx.db, tx.clinicId);
 

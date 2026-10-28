@@ -20,6 +20,7 @@ import {
   DEPOSIT_HOLD_MINUTES_MIN,
   DEPOSIT_UNCOLLECTABLE_OPTIONS,
   getClinicSettings,
+  lockAutoConfirm,
 } from "@/lib/billing/settings";
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import { readCalendarConnected, readHasVoice } from "@/lib/portal/switch-facts";
@@ -552,6 +553,11 @@ export async function writeDepositSettings(
     wanted.paymentAsk = patch.paymentAsk;
   }
 
+  // The facts are read under the payment-facts lock (lockAutoConfirm), the
+  // one every writer that takes a fact away holds: a fact lost by another
+  // session is either committed before this read, and the rule refuses, or
+  // waits for this commit and its reset sees what this wrote.
+  await lockAutoConfirm(tx);
   const current = await getDepositSettings(tx);
   if (wanted.depositsEnabled === true && !current.depositsEnabled) {
     if (!current.isConnected) {

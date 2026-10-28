@@ -19,6 +19,7 @@ import {
   switchDepositsOff,
 } from "@/lib/billing/deposits";
 import { enqueueNotice, type ConnectSource } from "@/lib/billing/notices";
+import { lockAutoConfirm } from "@/lib/billing/settings";
 import { getStripe } from "@/lib/billing/stripe-client";
 import { env } from "@/lib/env";
 import { log } from "@/lib/log";
@@ -832,6 +833,9 @@ export async function disconnectStripeConnect(input: {
   };
 
   const prepared = await withTenant({ clinicId: input.clinicId, actor }, async (tx) => {
+    // The account is a fact the payment switches need: the payment-facts
+    // lock first, before anything is read or written (lockAutoConfirm).
+    await lockAutoConfirm(tx);
     const [clinic] = await tx.db
       .select({ accountId: clinics.stripeConnectAccountId })
       .from(clinics)
@@ -1173,6 +1177,8 @@ export async function applyDeauthorization(input: {
   const result = await withTenant(
     { clinicId: input.clinicId, actor: WEBHOOK_ACTOR },
     async (tx) => {
+      // The payment-facts lock first, as disconnectStripeConnect takes it.
+      await lockAutoConfirm(tx);
       const [clinic] = await tx.db
         .select({
           accountId: clinics.stripeConnectAccountId,

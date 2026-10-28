@@ -536,9 +536,10 @@ describeDb("Settings", () => {
       `update clinics set stripe_connect_account_id = 'acct_1TestDeposit', stripe_connect_connected_at = now() where id = $1`,
       [portal.clinicId],
     );
+    // The rule's own sentence (lib/portal/switch-rules.ts), as the page shows it.
     expect(await save("deposits_enabled", true)).toMatchObject({
       ok: false,
-      message: expect.stringMatching(/Set a deposit amount/),
+      message: expect.stringMatching(/Set a deposit on a treatment/),
     });
     await inTenant(portal.clinicId, async (c) => {
       await c.query(

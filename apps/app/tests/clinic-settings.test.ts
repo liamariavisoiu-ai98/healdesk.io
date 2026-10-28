@@ -82,6 +82,8 @@ describeDb("clinic settings", () => {
       autoConfirmChangedAt: row.auto_confirm_changed_at,
       autoConfirmChangedByLabel: row.auto_confirm_changed_by_label,
       directLineE164: row.direct_line_e164,
+      textPaymentLink: row.text_payment_link,
+      paymentAsk: row.payment_ask,
     }).toEqual({
       depositsEnabled: DEFAULT_CLINIC_SETTINGS.depositsEnabled,
       bookVoiceWithoutDeposit: DEFAULT_CLINIC_SETTINGS.bookVoiceWithoutDeposit,
@@ -95,8 +97,13 @@ describeDb("clinic settings", () => {
       autoConfirmChangedAt: DEFAULT_CLINIC_SETTINGS.autoConfirmChangedAt,
       autoConfirmChangedByLabel: DEFAULT_CLINIC_SETTINGS.autoConfirmChangedByLabel,
       directLineE164: null,
+      // The payment switches (drizzle/0133): off, and deposit only.
+      textPaymentLink: DEFAULT_CLINIC_SETTINGS.textPaymentLink,
+      paymentAsk: DEFAULT_CLINIC_SETTINGS.paymentAsk,
     });
     expect(DEFAULT_CLINIC_SETTINGS.autoConfirmBookings).toBe(true);
+    expect(DEFAULT_CLINIC_SETTINGS.textPaymentLink).toBe(false);
+    expect(DEFAULT_CLINIC_SETTINGS.paymentAsk).toBe("deposit_only");
   });
 
   test("switching Auto-confirm stamps who and when together and audits a boolean; re-saving moves neither", async () => {

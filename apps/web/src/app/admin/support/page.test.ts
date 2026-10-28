@@ -101,6 +101,7 @@ const item: SupportReplyApprovalItem = {
       draftVersion: 1,
       currentDraftVersion: 1,
       checks: [],
+      action: null,
     },
     draft: { subject: "Re: Your call forwarding (ref HD-7F3KQ)", body: "Hi, calls are reaching your line." },
   },

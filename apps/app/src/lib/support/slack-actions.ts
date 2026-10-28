@@ -11,9 +11,11 @@ import { env } from "@/lib/env";
 import { describeError, log } from "@/lib/log";
 import { readBoundedBody, type Operator, type OpsOutcome } from "@/lib/ops/api";
 import { opDecideApproval } from "@/lib/ops/approval-ops";
+import { supportActionSlackLine } from "@/lib/ops/slack";
 import { opCloseSupportCase, opSnoozeSupportCase } from "@/lib/ops/support-case-ops";
 import { opSaveSupportDraft } from "@/lib/ops/support-reply-ops";
 
+import { actionOfFacts, actionView } from "./actions/tiers";
 import { printRef } from "./case-vocab";
 import { checkReplyText, currentReplyDraft, factsOfDraft, MAX_DRAFT_CHARS, normaliseDraftText, readCaseForReply, subjectForCase } from "./send";
 import { failedRules } from "./send-checks";
@@ -188,7 +190,7 @@ function refusalOf(outcome: OpsOutcome): string | null {
 // The dialog
 // -----------------------------------------------------------------------------
 
-function dialog(meta: DialogMeta, ref: string, clinicName: string | null, body: string): Record<string, unknown> {
+function dialog(meta: DialogMeta, ref: string, clinicName: string | null, body: string, actionLine: string | null = null): Record<string, unknown> {
   const review = meta.mode === "review";
   const link = caseConsoleLink(meta.caseId);
   const blocks: Record<string, unknown>[] = [
@@ -197,6 +199,8 @@ function dialog(meta: DialogMeta, ref: string, clinicName: string | null, body: 
       elements: [{ type: "mrkdwn", text: `${escapeMrkdwn(ref)}${clinicName ? `, ${escapeMrkdwn(clinicName)}` : ""} · draft v${meta.draftVersion}` }],
     },
   ];
+  // Lane D: the change approving makes first, closed words only (lib/ops/slack.ts).
+  if (actionLine) blocks.push({ type: "section", text: { type: "mrkdwn", text: actionLine } });
   if (meta.long) {
     blocks.push({
       type: "section",
@@ -371,7 +375,10 @@ async function onButton(payload: Payload, ctx: Ctx): Promise<Response> {
         long,
       };
       const triggerId = typeof payload.trigger_id === "string" ? payload.trigger_id : "";
-      const view = dialog(meta, read ? printRef(read.supportCase.ref) : "the case", read?.clinicName ?? null, found.body);
+      const current = await currentReplyDraft(value.caseId);
+      const actionLine =
+        current && current.draftVersion === found.draftVersion ? supportActionSlackLine(actionView(actionOfFacts(current.factsJson))) : null;
+      const view = dialog(meta, read ? printRef(read.supportCase.ref) : "the case", read?.clinicName ?? null, found.body, actionLine);
       // After the answer: Slack wants it within three seconds, and the trigger stays good that long from the click.
       ctx.defer(async () => {
         const opened = await slackApi("views.open", ctx.config.token, { trigger_id: triggerId, view });

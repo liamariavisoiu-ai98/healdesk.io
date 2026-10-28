@@ -1,7 +1,9 @@
 import { sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
+import { SETTING_CHANGE_LABELS, SETTING_ENTRIES } from "@/lib/clinic/setting-words";
 import { describeError, log } from "@/lib/log";
+import type { ActionStatus } from "@/lib/support/actions/tiers";
 
 import { alertWording } from "./alert-wording";
 import { allowedAlertFields, wordingValues } from "./alert-wording/allow-list";
@@ -127,6 +129,41 @@ function slackGroups(alert: SlackAlert): string[][] {
 
   const then = layout.then.length > 0 ? ["*Then:*", ...layout.then.map((step, i) => `${i + 2}. ${rich(step)}`)] : [];
   return [top, [SLACK_DIVIDER], detail, then, [`_${alert.event}_`]].filter((group) => group.length > 0);
+}
+
+// -----------------------------------------------------------------------------
+// The support reply's proposed change (lane D): closed words only
+// -----------------------------------------------------------------------------
+
+/**
+ * The lead of the one line a support reply's Slack message
+ * (lib/support/slack-reply.ts) may add about the Settings change its draft
+ * proposed, by where the change stands. Fixed words.
+ */
+export const SUPPORT_ACTION_SLACK_LEADS: Readonly<Record<ActionStatus, string>> = {
+  pending: ":gear: Proposed change, made when you approve:",
+  running: ":hourglass_flowing_sand: Change being made:",
+  done: ":white_check_mark: Change made:",
+  already: ":white_circle: Already set, nothing to change:",
+  refused: ":x: Change not made:",
+  unavailable: ":x: Change not made:",
+  not_run: ":x: Change not made:",
+};
+
+/**
+ * That line, on the allow-list: the lead for its status, the switch's label
+ * (lib/clinic/setting-words.ts SETTING_CHANGE_LABELS) and the value as on,
+ * off or the choice's own label. Anything else (a label or a value not on
+ * those lists, a reason, the clinic's email) is refused: null, no line.
+ */
+export function supportActionSlackLine(action: { label: string; value: string; status: string } | null): string | null {
+  if (!action) return null;
+  const lead = (SUPPORT_ACTION_SLACK_LEADS as Readonly<Record<string, string>>)[action.status];
+  if (!lead) return null;
+  if (!Object.values(SETTING_CHANGE_LABELS).includes(action.label)) return null;
+  const values = new Set(["on", "off", ...Object.values(SETTING_ENTRIES).flatMap((e) => (e.options ?? []).map((o) => o.label))]);
+  if (!values.has(action.value)) return null;
+  return `${lead} *${escapeSlack(slackName(action.label))}* → *${escapeSlack(slackName(action.value))}*`;
 }
 
 /** The whole message as one mrkdwn text: the post's `text`, and its notification. */

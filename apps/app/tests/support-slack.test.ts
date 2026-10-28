@@ -312,6 +312,7 @@ describe("the message", () => {
     draftVersion: 2,
     draft: GOOD,
     failed: [],
+    action: null,
   };
 
   test("carries the ref, the clinic, urgency, reply-by day, the escaped draft, the checks and five buttons", () => {

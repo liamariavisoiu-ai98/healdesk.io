@@ -7,7 +7,7 @@ import { isMutating, isOpName, runOperation, type Operator } from "@/lib/ops/api
 import { opRegenerateSupportDraft, supportDraftFor } from "@/lib/ops/support-draft-ops";
 import { JOB_SUPPORT_DRAFT, runSupportDraftJob } from "@/lib/scheduler/support-draft";
 import { closeSupportCase, insertCase, recordChatEscalation } from "@/lib/support/cases";
-import { CHECK_IDS } from "@/lib/support/draft/checks";
+import { ACTION_CHECK_ID, CHECK_IDS } from "@/lib/support/draft/checks";
 import { DRAFT_PROMPT_STABLE } from "@/lib/support/draft/prompt";
 import { draftNextCase, draftRequest, NO_CLINIC_NOTE, type DraftModelClient } from "@/lib/support/draft/run";
 import { claimCaseToDraft, DRAFTS_PER_CASE, queueRegeneration, readCurrentDraft, recordDraft } from "@/lib/support/draft/store";
@@ -186,7 +186,7 @@ describeDb("support drafter", () => {
     expect(row!.draft_version).toBe(1);
     expect(row!.draft_text).toBe(BY_WEDNESDAY);
     expect(row!.checks_json!.ok).toBe(true);
-    expect(row!.checks_json!.results.map((r) => r.id)).toEqual([...CHECK_IDS]);
+    expect(row!.checks_json!.results.map((r) => r.id)).toEqual([...CHECK_IDS, ACTION_CHECK_ID]);
     expect(row!.facts_json).toMatchObject({ by: "drafter", attempt: 1, confidence: "medium", toolsRun: [...READ_TOOL_NAMES] });
 
     // The request: the drafter's cached prefix, its tools, the case's fields and never a word typed.
@@ -221,7 +221,7 @@ describeDb("support drafter", () => {
       ["checks", "confidence", "createdAt", "factsUsed", "failure", "messageId", "questionsForOps", "text", "version"].sort(),
     );
     expect(draft).toMatchObject({ version: 1, text: BY_WEDNESDAY, failure: null });
-    expect((draft.checks as { id: string }[]).map((x) => x.id)).toEqual([...CHECK_IDS]);
+    expect((draft.checks as { id: string }[]).map((x) => x.id)).toEqual([...CHECK_IDS, ACTION_CHECK_ID]);
   });
 
   test("the last request of a run must propose", () => {

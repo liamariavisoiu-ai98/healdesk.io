@@ -965,8 +965,13 @@ describeDb("the setup wizard", () => {
         // Left blank, the amount shows "None": no deposit, which BD27 stores as 0.
         expect.objectContaining({ name: "Consultation", depositUsd: 0 }),
       ]);
+      // Yes with every amount blanked is no deposit at all, and refused. An
+      // amount the screen does not send is left as it is (absent = unchanged).
       expect(
-        await saveSetupScreen(contextOf(clinic), "deposits", { needsDeposits: true, deposits: {} }),
+        await saveSetupScreen(contextOf(clinic), "deposits", {
+          needsDeposits: true,
+          deposits: { "Signature facial": "", Consultation: null },
+        }),
       ).toMatchObject({
         ok: false,
         field: "deposits",

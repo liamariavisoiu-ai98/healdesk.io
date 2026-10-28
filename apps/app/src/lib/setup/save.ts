@@ -19,6 +19,8 @@ import {
   type DepositSettingsPatch,
 } from "@/lib/billing/deposits";
 import { clinicActorOf } from "@/lib/clinic/change-events";
+import { readSettingSnapshotSafely, recordSettingChange } from "@/lib/clinic/setting-changes";
+import { settingKeysResetIn } from "@/lib/portal/switch-resets";
 
 import {
   KnowledgeError,
@@ -119,7 +121,12 @@ export async function saveSetupScreen(
       if (!state.screens.includes(screen)) {
         return { ok: false, field: "screen", message: "That step isn't part of your setup." };
       }
+      // Ops hears of every change, from any source (lib/clinic/setting-changes.ts):
+      // the settings before and after the screen's write, each that moved
+      // recorded as the wizard's. Never throws, never costs the save.
+      const before = await readSettingSnapshotSafely(tx, now);
       await writeScreen(tx, state, screen, (input ?? {}) as Record<string, unknown>, ctx, now);
+      if (before) await recordWizardChanges(tx, before, ctx, now);
       const section = PRACTICE_SCREENS[screen];
       if (section) await requestPracticeQuestions(tx, { reason: "wizard", section, now });
       await recordScreen(tx, screen, "done", ctx.actorLabel, now);
@@ -169,6 +176,29 @@ const PRACTICE_SCREENS: Partial<Record<SetupScreenId, PracticeSection>> = {
   direct_line: "safety_net",
   urgent: "safety_net",
 };
+
+/**
+ * Record each setting the screen's write moved, as the wizard's change: a
+ * payment switch, Auto-confirm turned off by a booking system that does not
+ * read Google, a greeting (its key alone, never its words). A switch a reset
+ * set back in the same transaction is already in the feed as healdesk's own
+ * change (switch-resets.ts) and is not recorded again.
+ */
+async function recordWizardChanges(
+  tx: TenantTx,
+  before: Record<string, unknown>,
+  ctx: SaveContext,
+  now: Date,
+): Promise<void> {
+  const after = await readSettingSnapshotSafely(tx, now);
+  if (!after) return;
+  const reset = settingKeysResetIn(tx);
+  const origin = { source: "wizard", actor: clinicActorOf(ctx.actorLabel) } as const;
+  for (const key of Object.keys(after)) {
+    if (reset.has(key)) continue;
+    await recordSettingChange(tx, { key, before: before[key], after: after[key], origin, now });
+  }
+}
 
 // -----------------------------------------------------------------------------
 // One screen's write
@@ -279,25 +309,41 @@ async function writeScreen(
     }
 
     case "deposits": {
+      // Only what the screen sent is written (the page sends the fields the
+      // clinic touched): an absent answer, amount or switch stays as it is.
+      //
       // "No", and an amount left blank under "Yes" (it shows "None"), are no
       // deposit, stored as 0. BD27 reads a service's 0 as none even when the
       // clinic has a default, and an absent one as that default
       // (AgentService.depositUsd), which a clinic answering No never chose.
-      const wanted = input.needsDeposits === true;
-      const amounts = (input.deposits ?? {}) as Record<string, unknown>;
-      const deposits: Record<string, number> = {};
-      for (const service of state.knowledge.services) {
-        const raw = wanted ? amounts[service.name] : null;
-        deposits[service.name] =
-          raw === null || raw === undefined || raw === "" ? 0 : (raw as number);
-      }
-      if (wanted && Object.values(deposits).every((d) => d === 0)) {
-        throw new KnowledgeError(
-          "deposits",
-          "Enter the deposit for at least one treatment, or choose No.",
+      if (input.needsDeposits !== undefined || input.deposits !== undefined) {
+        const no = input.needsDeposits === false;
+        const amounts = (input.deposits ?? {}) as Record<string, unknown>;
+        const deposits: Record<string, number> = {};
+        for (const service of state.knowledge.services) {
+          if (no) {
+            deposits[service.name] = 0;
+            continue;
+          }
+          if (!Object.prototype.hasOwnProperty.call(amounts, service.name)) continue;
+          const raw = amounts[service.name];
+          deposits[service.name] =
+            raw === null || raw === undefined || raw === "" ? 0 : (raw as number);
+        }
+        // "Yes" needs some deposit above $0 once the sent amounts are applied.
+        const resulting = state.knowledge.services.map((service) =>
+          Object.prototype.hasOwnProperty.call(deposits, service.name)
+            ? deposits[service.name]!
+            : (service.depositUsd ?? 0),
         );
+        if (input.needsDeposits === true && resulting.every((d) => !(Number(d) > 0))) {
+          throw new KnowledgeError(
+            "deposits",
+            "Enter the deposit for at least one treatment, or choose No.",
+          );
+        }
+        if (Object.keys(deposits).length > 0) await saveServiceDeposits(tx, deposits, now);
       }
-      await saveServiceDeposits(tx, deposits, now);
       // The two payment switches on this step (owner, 28 October 2026), each
       // through their one writer, which refuses turning on what
       // switch-rules.ts says is unavailable, in its own words, as Settings

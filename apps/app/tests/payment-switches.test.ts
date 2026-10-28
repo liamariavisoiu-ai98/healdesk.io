@@ -408,6 +408,93 @@ describeDb("payment switches", () => {
     });
   });
 
+  test("the wizard's deposits step writes only the fields it was sent; absent leaves each as it is", async () => {
+    const save = (input: Record<string, unknown>) =>
+      saveSetupScreen(
+        { clinicId: clinic.clinicId, slug: clinic.clinicSlug, userId: clinic.userId, actorLabel: "Front desk Mac" },
+        "deposits",
+        input,
+        NOW,
+      );
+    await ready(clinic, { calendar: false });
+    const depositOf = async () =>
+      (
+        await tenantRows<{ deposit: string | null }>(
+          clinic.clinicId,
+          `select (services->0->>'depositUsd') as deposit from agent_configs where clinic_id = $1`,
+          [clinic.clinicId],
+        )
+      )[0]!.deposit;
+    expect(await depositOf()).toBe("50");
+
+    // Only the text switch: the amounts and the ask are left alone.
+    expect(await save({ textPaymentLink: true })).toMatchObject({ ok: true });
+    expect(await depositOf()).toBe("50");
+    expect(await switches(clinic.clinicId)).toMatchObject({ text_payment_link: true, payment_ask: "deposit_only" });
+
+    // Only the ask: the text stays on.
+    expect(await save({ paymentAsk: "deposit_only" })).toMatchObject({ ok: true });
+    expect((await switches(clinic.clinicId)).text_payment_link).toBe(true);
+
+    // Nothing sent: nothing changes.
+    expect(await save({})).toMatchObject({ ok: true });
+    expect(await depositOf()).toBe("50");
+    expect((await switches(clinic.clinicId)).text_payment_link).toBe(true);
+
+    // "Yes" with no amounts keeps the amounts already set; "No" clears them.
+    expect(await save({ needsDeposits: true })).toMatchObject({ ok: true });
+    expect(await depositOf()).toBe("50");
+    expect(await save({ needsDeposits: false })).toMatchObject({ ok: true });
+    expect(await depositOf()).toBe("0");
+    expect(await save({ needsDeposits: true })).toMatchObject({ ok: false, field: "deposits" });
+  });
+
+  test("the wizard's changes reach ops as the wizard's, and a booking system turning Auto-confirm off as well", async () => {
+    await ready(clinic);
+    const ctx = {
+      clinicId: clinic.clinicId,
+      slug: clinic.clinicSlug,
+      userId: clinic.userId,
+      actorLabel: "Front desk Mac",
+    };
+    await inTenant(clinic.clinicId, (c) =>
+      c.query(`update clinic_change_events set alerted_at = now() where alerted_at is null`),
+    );
+    const feed = async () =>
+      (
+        await tenantRows<{ source: string; actor_kind: string; summary: Record<string, unknown> }>(
+          clinic.clinicId,
+          `select source, actor_kind, summary from clinic_change_events
+            where kind = 'setting' and alerted_at is null order by changed_at, id`,
+        )
+      )
+        .map((r) => [r.source, r.actor_kind, r.summary] as const)
+        .sort((a, b) => String(a[2].setting).localeCompare(String(b[2].setting)));
+
+    expect(
+      await saveSetupScreen(ctx, "deposits", { textPaymentLink: true, paymentAsk: "full_payment" }, tick()),
+    ).toMatchObject({ ok: true });
+    expect(await feed()).toEqual([
+      ["wizard", "clinic_device", { setting: "payment_ask", before: "deposit_only", after: "full_payment" }],
+      ["wizard", "clinic_device", { setting: "text_payment_link", before: "off", after: "on" }],
+    ]);
+    // Re-saving the same answers records nothing more.
+    await saveSetupScreen(ctx, "deposits", { textPaymentLink: true, paymentAsk: "full_payment" }, tick());
+    expect(await feed()).toHaveLength(2);
+
+    await inTenant(clinic.clinicId, (c) =>
+      c.query(`update clinic_change_events set alerted_at = now() where alerted_at is null`),
+    );
+    // A booking system that does not read Google turns Auto-confirm off: the
+    // wizard's change, and healdesk's reset of full payment, each once.
+    expect(await saveSetupScreen(ctx, "calendar", { bookingSystem: "mindbody" }, tick())).toMatchObject({ ok: true });
+    expect(await feed()).toEqual([
+      ["wizard", "clinic_device", { setting: "auto_confirm", before: "on", after: "off" }],
+      ["system", "system", { setting: "payment_ask", before: "full_payment", after: "deposit_only" }],
+    ]);
+    expect((await switches(clinic.clinicId)).payment_ask).toBe("deposit_only");
+  });
+
   test("the settings view shows the stored values, the real facts and the rules from them", async () => {
     await ready(clinic);
     await saveSetting(ctxFor(clinic), "payment_ask", "full_payment", tick());

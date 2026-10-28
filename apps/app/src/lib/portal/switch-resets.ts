@@ -80,6 +80,15 @@ export function resetsAppliedIn(tx: TenantTx): SwitchReset[] {
 }
 
 /**
+ * The Settings keys a reset in this transaction already recorded as
+ * healdesk's own change, so a writer that records its own changes by
+ * comparing before and after (the wizard) does not record them twice.
+ */
+export function settingKeysResetIn(tx: TenantTx): Set<string> {
+  return new Set(resetsAppliedIn(tx).map((reset) => FEED[reset.switch].key));
+}
+
+/**
  * Set back every payment switch the lost fact turned unavailable, in the
  * caller's transaction. The fact is taken as lost whatever the database says
  * yet (a disconnect clears the Stripe account only after Stripe answers), and

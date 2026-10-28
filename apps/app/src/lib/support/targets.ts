@@ -133,6 +133,16 @@ export const SETTING_PLACES: Readonly<Record<SettingKey, SettingPlace>> = {
     label: "How long a slot is held for its deposit",
     does: "How long a slot waits for the deposit to be paid through the link.",
   },
+  text_payment_link: {
+    card: "payments",
+    label: "Text the payment link after a call",
+    does: "Off by default. On: after a call, AYA is designed to text a secure payment link when a treatment needs one. Needs phone and your Stripe account connected.",
+  },
+  payment_ask: {
+    card: "payments",
+    label: "What AYA asks the patient to pay",
+    does: "Deposit only, or Full payment. Full payment needs your Stripe account and calendar connected and Auto-confirm bookings on.",
+  },
   direct_line: {
     card: "safety-net",
     label: "Direct line",

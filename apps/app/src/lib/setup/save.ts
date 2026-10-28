@@ -12,6 +12,12 @@ import { requestPracticeQuestions } from "@/lib/engine/practice/store";
 import type { PracticeSection } from "@/lib/engine/practice/types";
 import { evaluateChannels } from "@/lib/channels/events";
 import { withTenant, type TenantTx } from "@/lib/tenant";
+import type { PaymentAsk } from "@/db/schema";
+import {
+  DepositSettingsError,
+  setDepositSettings,
+  type DepositSettingsPatch,
+} from "@/lib/billing/deposits";
 import { clinicActorOf } from "@/lib/clinic/change-events";
 
 import {
@@ -78,7 +84,8 @@ function refusal(error: unknown): ScreenResult | null {
   if (
     error instanceof KnowledgeError ||
     error instanceof PracticeError ||
-    error instanceof SetupSettingsError
+    error instanceof SetupSettingsError ||
+    error instanceof DepositSettingsError
   ) {
     return { ok: false, field: error.field, message: error.message };
   }
@@ -291,6 +298,19 @@ async function writeScreen(
         );
       }
       await saveServiceDeposits(tx, deposits, now);
+      // The two payment switches on this step (owner, 28 October 2026), each
+      // through their one writer, which refuses turning on what
+      // switch-rules.ts says is unavailable, in its own words, as Settings
+      // does: a crafted payload gets no further than the page. Absent, they
+      // stay as they are.
+      const payments: DepositSettingsPatch = {};
+      if (input.textPaymentLink !== undefined) {
+        payments.textPaymentLink = input.textPaymentLink as boolean;
+      }
+      if (input.paymentAsk !== undefined) payments.paymentAsk = input.paymentAsk as PaymentAsk;
+      if (Object.keys(payments).length > 0) {
+        await setDepositSettings(tx, payments, ctx.actorLabel, now);
+      }
       return;
     }
 

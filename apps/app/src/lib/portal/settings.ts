@@ -14,7 +14,12 @@ import type { ActorContext } from "@/lib/audit";
 import { requestPracticeQuestions } from "@/lib/engine/practice/store";
 import type { PracticeSection } from "@/lib/engine/practice/types";
 import { DepositSettingsError, setDepositSettings } from "@/lib/billing/deposits";
-import { DIRECT_LINE_NEEDED_WHILE_LIVE, voiceIsLive } from "@/lib/billing/settings";
+import { PAYMENT_ASKS, type PaymentAsk } from "@/db/schema";
+import {
+  DIRECT_LINE_NEEDED_WHILE_LIVE,
+  getClinicSettings,
+  voiceIsLive,
+} from "@/lib/billing/settings";
 import {
   connectedMetaPlatforms,
   META_PLATFORM_NAMES,
@@ -38,6 +43,8 @@ import { urgentHelpDefault, urgentHelpNumber } from "@/lib/setup/urgent";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import { appliesWhen, CHANNEL_WORDS } from "./applies";
+import { readPaymentFacts } from "./switch-resets";
+import { switchRules, type RuledSwitch } from "./switch-rules";
 
 /**
  * Settings (plan Part F2; spec, "Every switch in the portal"): every switch
@@ -95,6 +102,8 @@ export const SETTING_KEYS = [
   "book_chat_without_deposit",
   "deposit_uncollectable",
   "deposit_hold_minutes",
+  "text_payment_link",
+  "payment_ask",
   "direct_line",
   "urgent_help",
   "vet_referral",
@@ -140,6 +149,10 @@ export const SETTING_CHANNELS: Readonly<Record<SettingKey, readonly Channel[]>> 
   book_chat_without_deposit: ["web", "meta"],
   deposit_uncollectable: ["web", "meta"],
   deposit_hold_minutes: ["web", "meta"],
+  // Texting a payment link is for phone calls; what the assistant asks a
+  // patient to pay holds on every channel (owner, 28 October 2026).
+  text_payment_link: ["voice"],
+  payment_ask: ["web", "meta", "voice"],
   direct_line: ["voice"],
   urgent_help: ["web", "meta", "voice"],
   vet_referral: ["web", "meta", "voice"],
@@ -351,6 +364,9 @@ async function write(
 
     case "deposits_enabled": {
       const on = requireBoolean(value, key);
+      // Only from off: re-saving a switch already on is not refused because
+      // an amount was removed later (setDepositSettings' own rule).
+      if (on && !(await readDepositsOn(tx))) await requireAvailable(tx, key, "deposits");
       await setDepositSettings(tx, { depositsEnabled: on }, label, now);
       return on
         ? "Deposits on. In chat, AYA sends a secure payment link when a treatment needs a deposit; on a call she books it and flags the deposit for your team."
@@ -390,6 +406,24 @@ async function write(
         now,
       );
       return `A slot waiting for its deposit is held for ${saved.depositHoldMinutes} minutes.`;
+    }
+
+    case "text_payment_link": {
+      const on = requireBoolean(value, key);
+      if (on) await requireAvailable(tx, key, "text_payment_link");
+      await setDepositSettings(tx, { textPaymentLink: on }, label, now);
+      return on
+        ? "Payment-link texts on. After a call, AYA is designed to text a secure payment link when a treatment needs one."
+        : "Payment-link texts off. AYA won't text a payment link after a call.";
+    }
+
+    case "payment_ask": {
+      if (!isPaymentAsk(value)) throw new Refusal(key, "Choose deposit only or full payment.");
+      if (value === "full_payment") await requireAvailable(tx, key, "full_payment");
+      await setDepositSettings(tx, { paymentAsk: value }, label, now);
+      return value === "full_payment"
+        ? "Full payment. AYA asks patients to pay the full price through a secure payment link."
+        : "Deposit only. AYA asks for the deposit and nothing more.";
     }
 
     case "direct_line": {
@@ -487,6 +521,28 @@ async function write(
 function requireBoolean(value: unknown, field: string): boolean {
   if (typeof value !== "boolean") throw new Refusal(field, "Choose on or off.");
   return value;
+}
+
+/**
+ * Turning a payment switch on is refused, in the rule's own words, while
+ * switch-rules.ts says it can't be used (the page greys it out with the same
+ * answer). Turning one off never comes here. setDepositSettings checks again.
+ */
+async function requireAvailable(
+  tx: TenantTx,
+  key: SettingKey,
+  which: RuledSwitch,
+): Promise<void> {
+  const rule = switchRules(await readPaymentFacts(tx))[which];
+  if (!rule.enabled) throw new Refusal(key, rule.reason ?? "That can't be turned on yet.");
+}
+
+async function readDepositsOn(tx: TenantTx): Promise<boolean> {
+  return (await getClinicSettings(tx)).depositsEnabled;
+}
+
+function isPaymentAsk(value: unknown): value is PaymentAsk {
+  return typeof value === "string" && (PAYMENT_ASKS as readonly string[]).includes(value);
 }
 
 /** A change to where calls go, after the value was first set, needs a live passkey step-up. */

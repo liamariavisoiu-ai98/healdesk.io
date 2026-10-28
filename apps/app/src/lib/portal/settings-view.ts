@@ -21,7 +21,7 @@ import { eq } from "drizzle-orm";
 import { clinics, type DepositUncollectable } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { connectConfigured } from "@/lib/billing/connect";
-import { getDepositSettings } from "@/lib/billing/deposits";
+import { getDepositSettings, switchFactsOf } from "@/lib/billing/deposits";
 import { GRACE_DAYS } from "@/lib/billing/events";
 import {
   connectedMetaPlatforms,
@@ -315,18 +315,14 @@ export async function readSettingsView(input: {
       uncollectable: tenant.deposits.depositUncollectable,
       holdMinutes: tenant.deposits.depositHoldMinutes,
       servicesWithDeposit: knowledge.services.filter((s) => (s.depositUsd ?? 0) > 0).length,
-      // Placeholders until lane A reads the real values (portal-dashboard-lanes.md).
-      textPaymentLink: false,
-      paymentAsk: "deposit_only",
-      autoConfirm: settings.autoConfirmBookings,
-      calendarConnected: false,
-      rules: switchRules({
-        gatewayConnected: tenant.deposits.isConnected,
-        hasDepositAmount: tenant.deposits.hasDepositAmount,
-        calendarConnected: false,
-        autoConfirm: settings.autoConfirmBookings,
-        hasVoice: bought.voice,
-      }),
+      textPaymentLink: tenant.deposits.textPaymentLink,
+      paymentAsk: tenant.deposits.paymentAsk,
+      autoConfirm: tenant.deposits.autoConfirm,
+      calendarConnected: tenant.deposits.calendarConnected,
+      // The same facts readPaymentFacts reads (switch-resets.ts), from the
+      // deposit settings already read above, so the page and the writer that
+      // refuses a crafted request give one answer.
+      rules: switchRules(switchFactsOf(tenant.deposits)),
     },
     safety: {
       directLine: settings.directLineE164 ? formatPhone(settings.directLineE164) : "",

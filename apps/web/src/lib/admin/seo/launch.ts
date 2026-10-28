@@ -104,8 +104,8 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     id: "never-say-meta",
     promise: "The clinic's never-say list applies on every channel",
     where: "Settings, How AYA is built to behave",
-    status: "owner",
-    left: "Built: Instagram, Messenger and WhatsApp read the same list as calls and website chat (the defaults, then the clinic's own, approved script or not), list it in the prompt, and refuse a reply containing an entry with the same matcher (neverSayIn). The Meta QA gate (npm run qa:meta) passed live on 22 October 2026 (13 of 13, one sample) and the code is deployed. Left: your word that this is enough; it moves to On when you give it.",
+    status: "on",
+    left: "Built: Instagram, Messenger and WhatsApp read the same list as calls and website chat (the defaults, then the clinic's own, approved script or not), list it in the prompt, and refuse a reply containing an entry with the same matcher (neverSayIn). The Meta QA gate (npm run qa:meta) passed live on 22 October 2026 (13 of 13, one sample) and the code is deployed. Moved to On on 28 October 2026 on your word that this evidence is enough: the block on a reply is code, not the prompt, and one live sample is the evidence behind it.",
     evidence:
       "apps/app/src/lib/meta/front-door.ts, apps/app/src/lib/assistant/guard.ts, apps/app/tests/meta-screen-and-greeting.test.ts",
     blocksGoLive: true,

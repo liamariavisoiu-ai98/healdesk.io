@@ -255,8 +255,11 @@ export async function saveReplyDraft(input: {
       .from(supportMessages)
       .where(and(eq(supportMessages.caseId, input.caseId), eq(supportMessages.kind, "reply"), eq(supportMessages.direction, "out")));
     const version = Number(top?.top ?? 0) + 1;
-    // Lane D: an edit of a draft that proposed a change keeps the change, so
-    // approving the edited reply still runs it (and its claim check still holds).
+    // Lane D: an edit of a draft that proposed a change keeps the change as it
+    // stands: a pending one still runs when the edited reply is approved, and
+    // a settled one (done, refused, not run) keeps the claim check holding the
+    // operator's text to what happened. Only a change that runs inside the
+    // approval and fails there stops the send (approvals/support-reply.ts).
     const current = await currentReplyDraft(input.caseId, tx);
     const action = current ? actionOfFacts(current.factsJson) : null;
     const [row] = await tx

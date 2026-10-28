@@ -17,8 +17,8 @@ import {
   readCaseForReply,
   subjectForCase,
 } from "@/lib/support/send";
-import type { FactsUsed } from "@/lib/support/draft/checks";
 import { runSupportAction } from "@/lib/support/actions/execute";
+import { ACTION_CHECK_ID, CHECK_RULES, checkActionClaim, type FactsUsed } from "@/lib/support/draft/checks";
 import { actionOfFacts, actionView, type ActionView, type SupportAction } from "@/lib/support/actions/tiers";
 import { failedRules, type ReplyCheck } from "@/lib/support/send-checks";
 import type { SendEmailOptions } from "@/lib/email/send";
@@ -58,9 +58,10 @@ import { moveStatus, propose, SERVICE_ACTOR, subjectAfterRejections, type EventA
  *     Settings change still pending (lane D: an APPROVAL-tier change, or a
  *     DIRECT one held for approval), that change is made through the
  *     clinic's own Settings door (lib/support/actions/execute.ts), and if it
- *     is refused nothing is sent (`action_refused`), so the reply never says
- *     a change was made that was not; then the text is frozen on the reply
- *     row and sent (lib/support/send.ts). A case closed since, or a newer
+ *     is refused there nothing is sent (`action_refused`), so the reply never
+ *     says a change was made that was not; a change settled before (refused,
+ *     not run) does not block a reply whose text passes the claim check;
+ *     then the text is frozen on the reply row and sent (lib/support/send.ts). A case closed since, or a newer
  *     draft, sends nothing (`no_longer_needed`).
  */
 
@@ -402,15 +403,28 @@ export async function sendSupportReply(
   if (!checks.ok) {
     return fail("checks_failed", `Nothing was sent: the reply fails ${failedRules(checks).join("; ")}. Edit it and propose it again.`);
   }
-  // Lane D: the draft's pending Settings change is made first; refused, nothing is sent.
-  const action = s.action?.status === "pending" ? await runSupportAction({ caseId: c.id, messageId: payload.messageId, now }) : s.action;
-  if (action && (action.status === "refused" || action.status === "not_run" || action.status === "running")) {
-    return fail(
-      "action_refused",
-      action.status === "running"
-        ? "The Settings change this reply describes was already being made and its outcome is not known yet, so nothing was sent. Check the clinic's switches, then edit the reply and propose it again."
-        : `The Settings change this reply describes was not made, so nothing was sent: ${action.reason ?? "it was refused"} Edit the reply and propose it again.`,
-    );
+  // Lane D: only a change still PENDING is made here, before the send, and
+  // when this approval runs it and it does not happen (refused, or not run
+  // because the case already made another), nothing is sent. A change that
+  // was settled before (refused, not run, already so, an unknown outcome)
+  // never blocks on its own: the claim check holds the text to what
+  // happened, so a reply that says a person will look at it still goes,
+  // and one that says it was made does not.
+  let action = s.action;
+  if (action?.status === "pending") {
+    const ran = await runSupportAction({ caseId: c.id, messageId: payload.messageId, now });
+    if (ran && ran.status !== "done" && ran.status !== "already") {
+      return fail(
+        "action_refused",
+        ran.status === "running"
+          ? "The Settings change this reply describes was already being made and its outcome is not known yet, so nothing was sent. Check the clinic's switches, then edit the reply and propose it again."
+          : `The Settings change this reply describes was not made, so nothing was sent: ${ran.reason ?? "it was refused"} Edit the reply and propose it again.`,
+      );
+    }
+    action = ran;
+  }
+  if (action && !checkActionClaim(draft.body, action).ok) {
+    return fail("checks_failed", `Nothing was sent: the reply fails ${CHECK_RULES[ACTION_CHECK_ID]} Edit it and propose it again.`);
   }
   const frozen = await freezeApproval({
     caseId: c.id,

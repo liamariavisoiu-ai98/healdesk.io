@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vit
 
 import { parseDraft } from "@/lib/approvals/drafts";
 import { getApproval } from "@/lib/approvals/store";
-import { sendSupportReply, supportReplyPacket } from "@/lib/approvals/support-reply";
+import { proposeSupportReplyFor, sendSupportReply, supportReplyPacket } from "@/lib/approvals/support-reply";
 import type { Operator } from "@/lib/ops/api";
 import { opSaveSupportDraft } from "@/lib/ops/support-reply-ops";
 import type { ClinicSwitchView } from "@/lib/ops/switch-ops";
@@ -65,6 +65,7 @@ const SENT = { data: { id: "re_msg_lane_d" }, error: null, headers: {} };
 const OPERATOR: Operator = { email: "ops@healdesk.test", request: { requestId: randomUUID(), ipAddress: "203.0.113.9", userAgent: "vitest" } };
 const DONE_REPLY = "Hi, I've turned the daily summary email off for you.";
 const CONFIRM_REPLY = "Hi, we'll confirm once the change is made.";
+const FOLLOW_UP_REPLY = "Hi, a person at healdesk will look at the tone and write back.";
 
 function email(from: string, id: string, body: string): string {
   return [
@@ -430,6 +431,71 @@ describeDb("support email to action (lane D)", () => {
     expect(await waitingItem(caseId)).toBeNull();
     expect((await settings(clinic.clinicId)).daily_summary).toBe(true);
     expect(await runSupportAction({ caseId, messageId: row.id, now: NOW })).toMatchObject({ status: "refused" });
+  });
+
+  test("a case that made one change, then a follow-up asking another: the not-run change does not block an honest reply, drafted or edited", async () => {
+    const store = memoryMailStore();
+    const { caseId } = await deliver(store, "Hello, please stop the morning summary emails.");
+    await draftNextCase({ client: new ActingDrafter([{ key: "daily_summary", value: "off" }], DONE_REPLY), now: NOW, mailStore: store }, caseId);
+    expect((await lastReply(caseId)).facts_json.action).toMatchObject({ status: "done" });
+    // The follow-up's draft: a different change, not run (one per case), and a reply that says a person will look at it.
+    const pool = getMigratorPool();
+    const { rows: top } = await pool.query<{ v: number }>(
+      `select coalesce(max(coalesce(draft_version, (facts_json->>'attempt')::int)), 0)::int as v from support_messages where case_id = $1 and kind = 'reply'`,
+      [caseId],
+    );
+    const version = top[0]!.v + 1;
+    await pool.query(
+      `insert into support_messages (case_id, direction, kind, draft_text, draft_version, checks_json, facts_json, created_at)
+       values ($1, 'out', 'reply', $2, $3, $4::jsonb, $5::jsonb, $6)`,
+      [
+        caseId,
+        FOLLOW_UP_REPLY,
+        version,
+        JSON.stringify({ ok: true, results: [] }),
+        JSON.stringify({ by: "drafter", attempt: version, action: { key: "tone", value: "clinical", tier: "direct", status: "not_run", reason: ONE_PER_CASE, at: NOW.toISOString() } }),
+        new Date(NOW.getTime() + MINUTE),
+      ],
+    );
+    expect(await proposeSupportReplyFor({ caseId, now: new Date(NOW.getTime() + 2 * MINUTE) })).toMatchObject({ status: "proposed" });
+
+    // An operator edit keeps the not-run change: an honest edit is proposed and sends; nothing runs.
+    const saved = await opSaveSupportDraft({ caseId, text: `${FOLLOW_UP_REPLY} Thank you for your patience.` }, OPERATOR, new Date(NOW.getTime() + 3 * MINUTE));
+    expect(saved.status).toBe(200);
+    expect((await lastReply(caseId)).facts_json.action).toMatchObject({ key: "tone", status: "not_run" });
+    const item = await waitingItem(caseId);
+    expect(item).not.toBeNull();
+    const result = await sendSupportReply(item!, parseDraft(item!.draft), new Date(NOW.getTime() + 10 * MINUTE));
+    expect(result).toMatchObject({ ok: true, outcomeCode: "sent" });
+    expect((await settings(clinic.clinicId)).tone).toBe("warm");
+    expect(await changes(clinic.clinicId)).toHaveLength(1);
+    expect(replySends()).toHaveLength(1);
+  });
+
+  test("a DIRECT change refused when it ran, then an operator edit: an honest reply is proposed and sends; one claiming the change is not proposed", async () => {
+    const store = memoryMailStore();
+    const { caseId } = await deliver(store, "Hello, please stop the morning summary emails.");
+    const pool = getMigratorPool();
+    await pool.query(`update clinics set offboarding_started_at = $1 where id = $2`, [NOW, clinic.clinicId]);
+    expect(await draftNextCase({ client: new ActingDrafter([{ key: "daily_summary", value: "off" }], DONE_REPLY), now: NOW, mailStore: store }, caseId)).toMatchObject({
+      outcome: "needs_edit",
+    });
+    await pool.query(`update clinics set offboarding_started_at = null where id = $1`, [clinic.clinicId]);
+
+    const claiming = await opSaveSupportDraft({ caseId, text: DONE_REPLY }, OPERATOR, new Date(NOW.getTime() + MINUTE));
+    expect(claiming.status).toBe(200);
+    expect(await waitingItem(caseId)).toBeNull();
+
+    const honest = await opSaveSupportDraft({ caseId, text: "Hi, a person at healdesk will look at the daily summary email and write back." }, OPERATOR, new Date(NOW.getTime() + 2 * MINUTE));
+    expect(honest.status).toBe(200);
+    expect((await lastReply(caseId)).facts_json.action).toMatchObject({ status: "refused" });
+    const item = await waitingItem(caseId);
+    expect(item).not.toBeNull();
+    const result = await sendSupportReply(item!, parseDraft(item!.draft), new Date(NOW.getTime() + 10 * MINUTE));
+    expect(result).toMatchObject({ ok: true, outcomeCode: "sent" });
+    expect((await settings(clinic.clinicId)).daily_summary).toBe(true);
+    expect(await changes(clinic.clinicId)).toHaveLength(0);
+    expect(replySends()).toHaveLength(1);
   });
 
   test("prompt injection: a NEVER switch, another clinic and two changes at once run nothing beyond one listed change for the matched clinic", async () => {

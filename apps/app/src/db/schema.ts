@@ -7426,6 +7426,10 @@ export const CLINIC_CHANGE_KINDS = [
   "location_hours",
   "providers",
   "provider_services",
+  // A Settings switch or choice (lib/clinic/setting-changes.ts; owner, 28
+  // October 2026: ops hears of every change to a clinic's settings, from
+  // the clinic, an operator or a support action).
+  "setting",
 ] as const;
 export type ClinicChangeKind = (typeof CLINIC_CHANGE_KINDS)[number];
 
@@ -7442,6 +7446,9 @@ export const CLINIC_CHANGE_SOURCES = [
   "calendar_link",
   "ops_console",
   "direct",
+  // A support request carried out as an action (lane D's support drafter):
+  // a setting changed on a clinic's emailed request.
+  "support_action",
 ] as const;
 export type ClinicChangeSource = (typeof CLINIC_CHANGE_SOURCES)[number];
 
@@ -7450,7 +7457,7 @@ export type ClinicChangeSource = (typeof CLINIC_CHANGE_SOURCES)[number];
  * the portal or wizard, ops, a change file (db-apply) or another direct
  * edit. Never the device's own label, which the clinic's staff typed.
  */
-export const CLINIC_CHANGE_ACTORS = ["clinic_device", "clinic_signin", "ops", "change_file", "direct"] as const;
+export const CLINIC_CHANGE_ACTORS = ["clinic_device", "clinic_signin", "ops", "change_file", "direct", "support"] as const;
 export type ClinicChangeActor = (typeof CLINIC_CHANGE_ACTORS)[number];
 
 /**
@@ -7477,6 +7484,15 @@ export type ClinicChangeSummary = {
   rows?: number;
   operation?: "insert" | "update" | "delete";
   table?: "clinic_closures" | "clinic_providers" | "clinic_provider_services";
+  /**
+   * A `setting` change: which switch (a key of lib/clinic/setting-changes.ts
+   * SETTING_CHANGE_LABELS) and, for a switch or a choice, its value before
+   * and after as a closed token ("on", "off", a choice's id). A text setting
+   * (a greeting, a number) carries the key alone: never the words.
+   */
+  setting?: string;
+  before?: string;
+  after?: string;
 };
 
 /**

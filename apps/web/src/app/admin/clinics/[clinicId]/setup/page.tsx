@@ -14,6 +14,7 @@ import {
   fetchClinicAudits,
   fetchClinicCards,
   fetchClinicBilling,
+  fetchClinicSwitches,
   fetchClinicChanges,
   fetchLifecycle,
   fetchLifecycleIgnored,
@@ -38,6 +39,7 @@ import {
   retryCalendarWrite as retryWriteUpstream,
   setAutoConfirm as autoConfirmUpstream,
   setBookingRequirements as requirementsUpstream,
+  setClinicSwitch as switchUpstream,
   setClinicTimezone as timezoneUpstream,
   setPhoneSettings as phoneUpstream,
   startForwardingTest as forwardingTestUpstream,
@@ -55,10 +57,12 @@ import { isHostUnreachable } from "@/lib/host/state";
 
 import { AvailabilityChanges } from "./AvailabilityChanges";
 import { CalendarWrites } from "./CalendarWrites";
+import { ClinicSwitches } from "./ClinicSwitches";
 import { ConnectLink } from "./ConnectLink";
 import { DemoVoiceAgent } from "./DemoVoiceAgent";
 import { OnboardingPanel } from "./OnboardingPanel";
 import { SetupSummary } from "./SetupSummary";
+import { setSwitchAction } from "./switch-action";
 import { SetupWatchStub, SetupWindow, type SnoozeDays, type WindowDeadline } from "./SetupWindow";
 import { VoiceAgentCard } from "./VoiceAgentCard";
 
@@ -95,7 +99,7 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
   // demo or not, so the demo clinic's own tab shows its own), and the watch's ignore list for this clinic alone, read apart
   // from the lifecycle row so a mark set before the watch's first tick is
   // drawn. One that fails costs its card.
-  const [view, cards, changes, audits, lifecycle, billing, voice, stuckWrites, ignoreList] = await Promise.all([
+  const [view, cards, changes, audits, lifecycle, billing, voice, stuckWrites, ignoreList, switches] = await Promise.all([
     fetchOnboarding(clinicId),
     fetchClinicCards(),
     fetchClinicChanges({ clinicId }),
@@ -105,6 +109,7 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
     fetchVoiceAgentStatus(clinicId),
     fetchStuckCalendarWrites({ clinicId }),
     fetchLifecycleIgnored(clinicId),
+    fetchClinicSwitches(clinicId),
   ]);
   if (isHostUnreachable(view)) return <HostStandbyNotice what="Setup" />;
   const path = clinicTabPath(clinicId, "setup");
@@ -227,6 +232,15 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
   async function disconnectCalendar() {
     "use server";
     const result = await disconnectCalendarUpstream(clinicId);
+    revalidatePath(path);
+    return result;
+  }
+
+  // The clinic's switches from our side: the clinic's id is this page's, and
+  // apps/app decides, audits and emails ops; nothing is decided here.
+  async function setSwitch(key: string, value: boolean | string) {
+    "use server";
+    const result = await setSwitchAction(switchUpstream, clinicId, key, value);
     revalidatePath(path);
     return result;
   }
@@ -407,6 +421,7 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
         }}
       />
       {demo ? <DemoVoiceAgent onSync={syncDemoAgent} /> : null}
+      <ClinicSwitches read={switches} onSet={setSwitch} />
       <ConnectLink clinicId={clinicId} connection={connection} onIssue={issueConnectLink} />
     </>
   );

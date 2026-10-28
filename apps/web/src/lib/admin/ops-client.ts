@@ -266,6 +266,10 @@ type OperatorOp =
   // The booking mode and the Google Calendar (plan §10): Auto-confirm, the
   // calendar link mailed to the practice's own address, and a disconnect.
   | "setAutoConfirm"
+  // The clinic's portal switches, read and set from the operator console
+  // (Setup tab, "Clinic switches"); apps/app's switch-rules decide availability.
+  | "getClinicSwitches"
+  | "setClinicSwitch"
   | "issueCalendarLink"
   | "disconnectCalendar"
   // The AWS host's standby switch (/admin/host): three counts, asked before
@@ -9916,6 +9920,76 @@ export function regenerateSupportDraft(caseId: string): Promise<OpsResult<Suppor
       ref: supportRef(data.ref, "regenerateSupportDraft.ref"),
       state: literal(data.state, ["new"] as const, "regenerateSupportDraft.state"),
       auditRecorded: bool(data.auditRecorded, "regenerateSupportDraft.auditRecorded"),
+    };
+  });
+}
+
+// -----------------------------------------------------------------------------
+// The clinic's portal switches, from our side (lane C2, 28 October 2026). The
+// answer is apps/app's: whether a switch is available, and the one plain
+// reason when it is not, come from its switch rules and are shown as sent.
+// This client decides nothing about availability.
+// -----------------------------------------------------------------------------
+
+export type ClinicSwitchView = {
+  key: string;
+  label: string;
+  kind: "switch" | "choice";
+  value: boolean | string;
+  enabled: boolean;
+  /** The plain reason a switch is unavailable; null when it is available. */
+  reason: string | null;
+  operatorMayChange: boolean;
+};
+
+export type ClinicSwitches = { switches: ClinicSwitchView[] };
+
+export function fetchClinicSwitches(clinicId: string): Promise<OpsResult<ClinicSwitches>> {
+  return callOps("getClinicSwitches", "read", { clinicId }, (value) => {
+    const data = object(value, "getClinicSwitches");
+    return {
+      switches: list(data.switches, "getClinicSwitches.switches").map((row, i) => {
+        const at = `getClinicSwitches.switches[${i}]`;
+        const r = object(row, at);
+        const kind = literal(r.kind, ["switch", "choice"], `${at}.kind`);
+        const raw = r.value;
+        if (kind === "switch" ? typeof raw !== "boolean" : typeof raw !== "string") throw new ShapeError(`${at}.value`);
+        return {
+          key: text(r.key, `${at}.key`),
+          label: text(r.label, `${at}.label`),
+          kind,
+          value: kind === "switch" ? (raw as boolean) : text(raw, `${at}.value`),
+          enabled: bool(r.enabled, `${at}.enabled`),
+          reason: optionalText(r.reason, `${at}.reason`),
+          operatorMayChange: bool(r.operatorMayChange, `${at}.operatorMayChange`),
+        };
+      }),
+    };
+  });
+}
+
+export type ClinicSwitchReset = { switch: string; notice: string };
+
+export type SetClinicSwitchOutcome =
+  | { status: "set"; toast: string; resets: ClinicSwitchReset[] }
+  | { status: "refused"; message: string };
+
+/** Set one switch on the clinic's behalf. apps/app checks the rules again and audits the change; a refusal carries its own sentence. */
+export function setClinicSwitch(clinicId: string, key: string, value: boolean | string): Promise<OpsResult<SetClinicSwitchOutcome>> {
+  return callOps("setClinicSwitch", "write", { clinicId, key, value }, (raw) => {
+    const data = object(raw, "setClinicSwitch");
+    if (data.ok !== true) {
+      // The contract's "problem": whatever sentence it carries is shown; none still refuses.
+      const said = [data.message, data.reason, data.problem].find((v) => typeof v === "string");
+      return refusal({ message: said }, "setClinicSwitch");
+    }
+    return {
+      status: "set",
+      toast: text(data.toast, "setClinicSwitch.toast"),
+      resets: list(data.resets, "setClinicSwitch.resets").map((r, i) => {
+        const item = object(r, `setClinicSwitch.resets[${i}]`);
+        return { switch: text(item.switch, `setClinicSwitch.resets[${i}].switch`), notice: text(item.notice, `setClinicSwitch.resets[${i}].notice`) };
+      }),
     };
   });
 }

@@ -7,6 +7,11 @@
  * be greyed out on the screen yet accepted by a crafted request, and no rule is
  * written twice. Pure: facts in, answers out, nothing read or written here.
  *
+ * The text switch is a clinic's choice like any other. Whether a text can
+ * actually go out yet is not a clinic matter and is not decided here: the tool
+ * layer checks it where the text would be offered, and the launch register
+ * keeps every clinic from going live while it is open.
+ *
  * Every `reason` is what the clinic reads: what is missing, in plain words,
  * with no mention of how the thing works inside.
  */
@@ -22,12 +27,6 @@ export type SwitchFacts = {
   autoConfirm: boolean;
   /** The clinic bought phone. */
   hasVoice: boolean;
-  /**
-   * Whether payment-link texts can be sent at all. False until the owner has
-   * chosen a sender and one is switched on in production; the switch then
-   * says "Coming soon" and nothing else.
-   */
-  textSendingAvailable: boolean;
 };
 
 export type RuledSwitch = "deposits" | "text_payment_link" | "full_payment";
@@ -37,14 +36,25 @@ export type SwitchRule = {
   /** One plain sentence for the clinic when `enabled` is false; null otherwise. */
   reason: string | null;
   /** What to do to unlock it, as a short label ("Connect Stripe"); null when there is nothing to do. */
-  unlock: "connect_stripe" | "set_deposit" | "connect_calendar" | "turn_on_auto_confirm" | null;
+  unlock:
+    | "connect_stripe"
+    | "set_deposit"
+    | "connect_calendar"
+    | "turn_on_auto_confirm"
+    | null;
 };
 
 const OPEN: SwitchRule = { enabled: true, reason: null, unlock: null };
 
-export function switchRules(facts: SwitchFacts): Record<RuledSwitch, SwitchRule> {
+export function switchRules(
+  facts: SwitchFacts,
+): Record<RuledSwitch, SwitchRule> {
   const deposits: SwitchRule = !facts.gatewayConnected
-    ? { enabled: false, reason: "Connect your Stripe account first.", unlock: "connect_stripe" }
+    ? {
+        enabled: false,
+        reason: "Connect your Stripe account first.",
+        unlock: "connect_stripe",
+      }
     : !facts.hasDepositAmount
       ? {
           enabled: false,
@@ -54,17 +64,31 @@ export function switchRules(facts: SwitchFacts): Record<RuledSwitch, SwitchRule>
       : OPEN;
 
   const text: SwitchRule = !facts.hasVoice
-    ? { enabled: false, reason: "Texting a payment link is for phone calls.", unlock: null }
-    : !facts.textSendingAvailable
-      ? { enabled: false, reason: "Coming soon.", unlock: null }
-      : !facts.gatewayConnected
-        ? { enabled: false, reason: "Connect your Stripe account first.", unlock: "connect_stripe" }
-        : OPEN;
+    ? {
+        enabled: false,
+        reason: "Texting a payment link is for phone calls.",
+        unlock: null,
+      }
+    : !facts.gatewayConnected
+      ? {
+          enabled: false,
+          reason: "Connect your Stripe account first.",
+          unlock: "connect_stripe",
+        }
+      : OPEN;
 
   const full: SwitchRule = !facts.gatewayConnected
-    ? { enabled: false, reason: "Connect your Stripe account first.", unlock: "connect_stripe" }
+    ? {
+        enabled: false,
+        reason: "Connect your Stripe account first.",
+        unlock: "connect_stripe",
+      }
     : !facts.calendarConnected
-      ? { enabled: false, reason: "Connect your calendar first.", unlock: "connect_calendar" }
+      ? {
+          enabled: false,
+          reason: "Connect your calendar first.",
+          unlock: "connect_calendar",
+        }
       : !facts.autoConfirm
         ? {
             enabled: false,
@@ -93,7 +117,10 @@ export type SwitchReset = { switch: RuledSwitch; notice: string };
  * off, disconnecting the calendar or the gateway returns full payment to
  * deposit only in the same moment and says why).
  */
-export function resetsAfter(facts: SwitchFacts, values: RuledValues): SwitchReset[] {
+export function resetsAfter(
+  facts: SwitchFacts,
+  values: RuledValues,
+): SwitchReset[] {
   const rules = switchRules(facts);
   const out: SwitchReset[] = [];
   if (values.fullPayment && !rules.full_payment.enabled) {

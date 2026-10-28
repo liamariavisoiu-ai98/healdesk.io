@@ -8,7 +8,6 @@ const READY: SwitchFacts = {
   calendarConnected: true,
   autoConfirm: true,
   hasVoice: true,
-  textSendingAvailable: true,
 };
 
 const facts = (patch: Partial<SwitchFacts>): SwitchFacts => ({ ...READY, ...patch });
@@ -35,14 +34,7 @@ describe("switchRules", () => {
     expect(off.unlock).toBe("turn_on_auto_confirm");
   });
 
-  test("the payment-link text says only 'Coming soon.' while no sender exists", () => {
-    const rule = switchRules(facts({ textSendingAvailable: false })).text_payment_link;
-    expect(rule).toEqual({ enabled: false, reason: "Coming soon.", unlock: null });
-    // Not even a gateway problem is mentioned first: the clinic cannot act on it yet.
-    expect(switchRules(facts({ textSendingAvailable: false, gatewayConnected: false })).text_payment_link.reason).toBe("Coming soon.");
-  });
-
-  test("the text is a phone feature, and needs the gateway once sending exists", () => {
+  test("the text is a phone feature, and needs the gateway", () => {
     expect(switchRules(facts({ hasVoice: false })).text_payment_link.enabled).toBe(false);
     expect(switchRules(facts({ gatewayConnected: false })).text_payment_link.unlock).toBe("connect_stripe");
   });
@@ -53,7 +45,6 @@ describe("switchRules", () => {
       facts({ hasDepositAmount: false }),
       facts({ calendarConnected: false }),
       facts({ autoConfirm: false }),
-      facts({ textSendingAvailable: false }),
       facts({ hasVoice: false }),
     ].flatMap((f) => Object.values(switchRules(f)).map((r) => r.reason ?? ""));
     for (const reason of all) expect(reason).not.toMatch(/BAA|agreement|sender|regist|carrier|SMS|webhook/i);

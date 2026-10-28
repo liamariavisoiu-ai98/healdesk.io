@@ -1,16 +1,15 @@
 import type { Channel } from "@healdesk/catalog";
 
-import { getDepositSettings } from "@/lib/billing/deposits";
 import { setAutoConfirm } from "@/lib/booking/mode";
 import { connectedMetaPlatforms, META_PLATFORM_NAMES } from "@/lib/channels/meta-platforms";
 import { readChannelStates } from "@/lib/channels/state";
 import { readSettingSnapshot } from "@/lib/clinic/setting-changes";
 import { SETTING_ENTRIES, settingValueToken, type SwitchOption } from "@/lib/clinic/setting-words";
-import { googleCalendarConnection } from "@/lib/connections/google-calendar";
 import { describeError, log } from "@/lib/log";
 import type { MetaPlatform } from "@/lib/meta/front-door";
 import { CLINIC_ONLY_MESSAGE, saveSetting, SENSITIVE_SETTINGS, SETTING_CHANNELS, SETTING_KEYS, type SettingKey } from "@/lib/portal/settings";
-import { switchRules, type SwitchReset, type SwitchRule } from "@/lib/portal/switch-rules";
+import { readPaymentFacts } from "@/lib/portal/switch-resets";
+import { switchRules, type SwitchFacts, type SwitchReset, type SwitchRule } from "@/lib/portal/switch-rules";
 import { withTenant } from "@/lib/tenant";
 
 import { actorFor, audit, clinicById, ok, opsProblem, stringArg, type Operator, type OpsOutcome } from "./api";
@@ -78,20 +77,17 @@ export type SwitchFactsRead = {
   snapshot: Record<string, unknown>;
   bought: Channel[];
   connectedMeta: MetaPlatform[];
-  gatewayConnected: boolean;
-  hasDepositAmount: boolean;
-  calendarConnected: boolean;
+  /**
+   * The payment switches' facts, read by lane A's readPaymentFacts, the same
+   * reading the Settings page, the wizard and the writers use, so the
+   * console never disagrees with them (a degraded calendar still counts).
+   */
+  facts: SwitchFacts;
 };
 
 /** The rows, from what was read. Pure: exported for the tests. */
 export function switchViews(read: SwitchFactsRead): ClinicSwitchView[] {
-  const rules = switchRules({
-    gatewayConnected: read.gatewayConnected,
-    hasDepositAmount: read.hasDepositAmount,
-    calendarConnected: read.calendarConnected,
-    autoConfirm: read.snapshot.auto_confirm === true,
-    hasVoice: read.bought.includes("voice"),
-  });
+  const rules = switchRules(read.facts);
   const views: ClinicSwitchView[] = [];
   for (const key of switchKeys()) {
     const entry = SETTING_ENTRIES[key]!;
@@ -136,17 +132,8 @@ export async function opGetClinicSwitches(args: Record<string, unknown>, operato
         const now = new Date();
         const snapshot = await readSettingSnapshot(tx, now);
         const bought = (await readChannelStates(tx.db, tx.clinicId, now)).map((c) => c.channel);
-        const deposits = await getDepositSettings(tx);
-        const calendar = await googleCalendarConnection(tx);
         const connectedMeta = bought.includes("meta") ? await connectedMetaPlatforms(tx.db, tx.clinicId) : [];
-        return {
-          snapshot,
-          bought,
-          connectedMeta,
-          gatewayConnected: deposits.isConnected,
-          hasDepositAmount: deposits.hasDepositAmount,
-          calendarConnected: calendar?.status === "active",
-        };
+        return { snapshot, bought, connectedMeta, facts: await readPaymentFacts(tx) };
       },
     );
     return ok({ switches: switchViews(read) });
@@ -193,13 +180,12 @@ export async function opSetClinicSwitch(args: Record<string, unknown>, operator:
     if (outcome.changed) {
       await audit(operator, "clinic_switch_set", { clinicId: clinic.id, key, value: value ? "on" : "off" });
     }
-    const resets = (outcome as { resets?: SwitchReset[] }).resets ?? [];
     return ok({
       ok: true,
       toast: outcome.autoConfirm
         ? "Auto-confirm is on. AYA's bookings go straight into the calendar where it can write them."
         : "Auto-confirm is off. Every booking AYA takes is a request the team approves.",
-      resets,
+      resets: outcome.resets,
     } satisfies SetClinicSwitchState);
   }
 
@@ -222,6 +208,5 @@ export async function opSetClinicSwitch(args: Record<string, unknown>, operator:
     key,
     value: settingValueToken(key, value) ?? null,
   });
-  const resets = (result as { resets?: SwitchReset[] }).resets ?? [];
-  return ok({ ok: true, toast: result.toast, resets } satisfies SetClinicSwitchState);
+  return ok({ ok: true, toast: result.toast, resets: result.resets } satisfies SetClinicSwitchState);
 }

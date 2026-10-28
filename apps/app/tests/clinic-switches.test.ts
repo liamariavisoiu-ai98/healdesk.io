@@ -12,6 +12,7 @@ import { operatorRefusal, switchKeys, switchViews, type SwitchFactsRead } from "
 import { saveSetting, SETTING_KEYS } from "@/lib/portal/settings";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
+import { insertGoogleConnection } from "./setup/calendar-db";
 import { inTenant } from "./setup/factories";
 import { provisionPortalClinic, type PortalClinic } from "./setup/portal-clinic";
 
@@ -40,8 +41,6 @@ const describeDb = hasTestDatabase ? describe : describe.skip;
 const OPERATOR: Operator = { email: "ops@healdesk.test", request: { ipAddress: "203.0.113.9", userAgent: "vitest" } };
 const CLINIC = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
 const ALERT = "9b2f1c3e-0a4d-4e5f-8a6b-7c8d9e0f1a2b";
-/** The contract's two keys, which lane A adds to SETTING_KEYS. */
-const LANE_A_MERGED = (SETTING_KEYS as readonly string[]).includes("payment_ask");
 
 const FACTS: SwitchFactsRead = {
   snapshot: {
@@ -69,9 +68,7 @@ const FACTS: SwitchFactsRead = {
   },
   bought: ["web", "meta", "voice"],
   connectedMeta: ["instagram"],
-  gatewayConnected: false,
-  hasDepositAmount: false,
-  calendarConnected: false,
+  facts: { gatewayConnected: false, hasDepositAmount: false, calendarConnected: false, autoConfirm: true, hasVoice: true },
 };
 
 describe("the switches an operator sees", () => {
@@ -122,10 +119,10 @@ describe("the switches an operator sees", () => {
     }
   });
 
-  test.skipIf(!LANE_A_MERGED)(
-    "after lane A: text_payment_link and payment_ask, each governed by its rule (skipped until lane A adds the keys to SETTING_KEYS)",
+  test(
+    "text_payment_link and payment_ask, each governed by its rule",
     () => {
-      const by = Object.fromEntries(switchViews({ ...FACTS, gatewayConnected: true }).map((v) => [v.key, v]));
+      const by = Object.fromEntries(switchViews({ ...FACTS, facts: { ...FACTS.facts, gatewayConnected: true } }).map((v) => [v.key, v]));
       expect(by.text_payment_link).toMatchObject({ kind: "switch", value: false, enabled: true });
       expect(by.payment_ask).toMatchObject({
         kind: "choice",
@@ -412,6 +409,70 @@ describeDb("settings changes reach ops, and operators set switches", () => {
     expect((await settingRows()).slice(before)).toEqual([
       expect.objectContaining({ actor_kind: "ops", summary: { setting: "auto_confirm", before: "on", after: "off" } }),
     ]);
+  });
+
+  test("the payment switches: refused with the rule's reason, set from our side, and an Auto-confirm off lists its reset", async () => {
+    const pay = await provisionPortalClinic("switches-pay", { plan: "voice-webchat-1000-1000" });
+    const set = async (key: string, value: unknown) =>
+      (
+        (await runOperation("setClinicSwitch", { clinicId: pay.clinicId, key, value }, OPERATOR)).body as {
+          data: { ok: boolean; message?: string; resets?: { switch: string; notice: string }[] };
+        }
+      ).data;
+    const read = async () =>
+      Object.fromEntries(
+        (
+          (await runOperation("getClinicSwitches", { clinicId: pay.clinicId }, OPERATOR)).body as {
+            data: { switches: { key: string; value: unknown; enabled: boolean; reason: string | null }[] };
+          }
+        ).data.switches.map((s) => [s.key, s]),
+      );
+
+    // Nothing connected: both refused with the rule's own sentence.
+    expect(await set("text_payment_link", true)).toEqual({ ok: false, message: "Connect your Stripe account first.", field: "text_payment_link" });
+    expect(await set("payment_ask", "full_payment")).toMatchObject({ ok: false, message: "Connect your Stripe account first." });
+
+    // Stripe, a deposit, and a calendar that is only degraded (Google briefly
+    // unreachable): connected, as the Settings page and the wizard read it.
+    await getMigratorPool().query(
+      `update clinics set stripe_connect_account_id = $2, stripe_connect_connected_at = $3 where id = $1`,
+      [pay.clinicId, `acct_1Swi${pay.clinicId.slice(0, 8)}`, new Date("2026-10-01T00:00:00Z")],
+    );
+    await inTenant(pay.clinicId, (c) =>
+      c.query(
+        `update agent_configs set services = '[{"name":"Consultation","priceKind":"exact","priceFromUsd":150,"priceToUsd":150,"durationMinutes":30,"depositUsd":50}]'::jsonb where clinic_id = $1`,
+        [pay.clinicId],
+      ),
+    );
+    await insertGoogleConnection(pay.clinicId, { managed: true, status: "degraded" });
+    const ready = await read();
+    expect(ready.payment_ask).toMatchObject({ value: "deposit_only", enabled: true, reason: null });
+    expect(ready.text_payment_link).toMatchObject({ value: false, enabled: true, reason: null });
+
+    expect(await set("payment_ask", "full_payment")).toMatchObject({ ok: true, resets: [] });
+    expect(await set("text_payment_link", true)).toMatchObject({ ok: true, resets: [] });
+
+    // Auto-confirm off from the console: full payment goes back to deposit
+    // only in the same write, and the console is told so.
+    const off = await set("auto_confirm", false);
+    expect(off).toMatchObject({
+      ok: true,
+      resets: [
+        {
+          switch: "full_payment",
+          notice: "Back to deposit only. Turn on Auto-confirm bookings first, so nobody pays for a time your team might decline.",
+        },
+      ],
+    });
+    const after = await read();
+    expect(after.payment_ask).toMatchObject({ value: "deposit_only", enabled: false });
+    expect(after.text_payment_link).toMatchObject({ value: true, enabled: true });
+    expect(await set("payment_ask", "full_payment")).toMatchObject({
+      ok: false,
+      message: "Turn on Auto-confirm bookings first, so nobody pays for a time your team might decline.",
+    });
+    // Off again changes nothing, so it resets nothing.
+    expect(await set("auto_confirm", false)).toMatchObject({ ok: true, resets: [] });
   });
 
   test("where calls go, and which calls reach AYA, are refused with a message and change nothing", async () => {

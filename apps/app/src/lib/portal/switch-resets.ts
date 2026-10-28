@@ -67,6 +67,18 @@ const FEED: Readonly<Record<SwitchReset["switch"], { key: string; before: unknow
 };
 
 /**
+ * The resets each transaction has applied so far, for a writer that reaches
+ * applySwitchResets through another writer (saveSetting through the setup
+ * settings) and answers its caller with what the change caused.
+ */
+const APPLIED = new WeakMap<TenantTx, SwitchReset[]>();
+
+/** Every reset applied in this transaction so far, in order; empty when none. */
+export function resetsAppliedIn(tx: TenantTx): SwitchReset[] {
+  return [...(APPLIED.get(tx) ?? [])];
+}
+
+/**
  * Set back every payment switch the lost fact turned unavailable, in the
  * caller's transaction. The fact is taken as lost whatever the database says
  * yet (a disconnect clears the Stripe account only after Stripe answers), and
@@ -90,6 +102,7 @@ export async function applySwitchResets(
     fullPayment: current.paymentAsk === "full_payment",
   }).filter((reset) => before[reset.switch].enabled);
   if (resets.length === 0) return [];
+  APPLIED.set(tx, [...(APPLIED.get(tx) ?? []), ...resets]);
 
   const patch: DepositSettingsPatch = Object.assign({}, ...resets.map((r) => PATCHES[r.switch]));
   const { historyIds } = await writeDepositSettings(tx, patch, input.actorLabel, now, {

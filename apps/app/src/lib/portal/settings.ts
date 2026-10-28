@@ -45,8 +45,8 @@ import { urgentHelpDefault, urgentHelpNumber } from "@/lib/setup/urgent";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import { appliesWhen, CHANNEL_WORDS } from "./applies";
-import { readPaymentFacts } from "./switch-resets";
-import { switchRules, type RuledSwitch } from "./switch-rules";
+import { readPaymentFacts, resetsAppliedIn } from "./switch-resets";
+import { switchRules, type RuledSwitch, type SwitchReset } from "./switch-rules";
 
 /**
  * Settings (plan Part F2; spec, "Every switch in the portal"): every switch
@@ -199,7 +199,8 @@ export type SettingContext = {
 };
 
 export type SettingResult =
-  { ok: true; toast: string } | { ok: false; field: string; message: string; needsStepUp?: true };
+  /** `resets`: payment switches the change set back (lib/portal/switch-resets.ts); empty when none. */
+  { ok: true; toast: string; resets: SwitchReset[] } | { ok: false; field: string; message: string; needsStepUp?: true };
 
 const STEP_UP_MESSAGE: Partial<Record<SettingKey, string>> = {
   direct_line:
@@ -245,7 +246,7 @@ export async function saveSetting(
   }
   const actor: ActorContext = ctx.actor ?? { type: "user", userId: ctx.userId!, label: ctx.actorLabel };
   try {
-    const toast = await withTenant({ clinicId: ctx.clinicId, actor }, async (tx) => {
+    const { toast, resets } = await withTenant({ clinicId: ctx.clinicId, actor }, async (tx) => {
       const state = await readSetupState(tx, { userId: ctx.actor ? null : ctx.userId, now });
       if (!state) throw new Refusal("key", "This clinic could not be found.");
       if (state.clinic.offboardingStartedAt) {
@@ -272,9 +273,9 @@ export async function saveSetting(
       const section = PRACTICE_SETTINGS[key];
       if (section) await requestPracticeQuestions(tx, { reason: "settings", section, now });
       const applies = appliesWhen(state.channels, SETTING_CHANNELS[key]);
-      return applies ? `${consequence} ${applies}` : consequence;
+      return { toast: applies ? `${consequence} ${applies}` : consequence, resets: resetsAppliedIn(tx) };
     });
-    return { ok: true, toast };
+    return { ok: true, toast, resets };
   } catch (error) {
     if (error instanceof Refusal) {
       return error.needsStepUp

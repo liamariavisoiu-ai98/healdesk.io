@@ -920,6 +920,22 @@ export async function disconnectStripeConnect(input: {
       await emailResets(tx, { ...resetEmail(prepared.resets, now), stripeKept: true });
       return { kind: "kept" as const, counts };
     }
+    // The account stayed connected while Stripe was called, so a switch may
+    // have been turned on again since the first transaction. Take the lock
+    // and reset whatever is on now, before the account is cleared, and tell
+    // the clinic in the same disconnect email.
+    const late = await applySwitchResets(tx, {
+      cause: "stripe_disconnected",
+      actorLabel,
+      now,
+      auditReason: "stripe_disconnect",
+      email: false,
+    });
+    await switchDepositsOff(tx, now);
+    const resets = [
+      ...prepared.resets,
+      ...late.filter((l) => !prepared.resets.some((r) => r.switch === l.switch)),
+    ];
     const stamped = await clearAccount(tx, {
       accountId: prepared.accountId,
       at: now,
@@ -928,10 +944,10 @@ export async function disconnectStripeConnect(input: {
       actorLabel,
       deauthorized,
       hasUncheckedLinks: counts.unchecked > 0,
-      resets: prepared.resets,
+      resets,
     });
     // Another path stamped the disconnection and sends its email.
-    if (!stamped) await emailResets(tx, resetEmail(prepared.resets, now));
+    if (!stamped) await emailResets(tx, resetEmail(resets, now));
     return { kind: "cleared" as const, counts, stamped };
   });
 

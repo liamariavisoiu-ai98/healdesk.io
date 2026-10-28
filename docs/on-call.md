@@ -355,6 +355,12 @@ Provisioning). `assistant_knows_no_services` is AYA answering a
 clinic that has no approved service or price in Knowledge: add the services in its Knowledge page
 or get the practice questions approved, then the alert stops.
 
+`support_action_reply_unsent`. A support request led to a change in the clinic's settings (the
+change is in the alert's case, on Support), but the reply that confirms it did not go: the case
+closed, the clinic left, or the send failed. The setting is already changed. Open the case,
+tell the clinic from hello@ what was changed (the Settings change is also in the clinic's change
+list), and mark the case replied.
+
 ### Agreements
 
 `agreement_unsigned_7_days`, `agreement_resign_unrenderable`, `agreement_below_floor_unsigned`,
@@ -555,7 +561,9 @@ can delete what a hold still covers.
 
 ### Availability
 
-`clinic_availability_changed`. A clinic changed its opening hours, its closed days, a location's
+`clinic_availability_changed` also carries a change to one of a clinic's Settings switches (its headline reads "<clinic>'s <switch> setting changed from <before> to <after>", with who made it: the clinic, an operator, a support action, or healdesk itself when something a switch needs was lost). Nothing to fix by itself: it is the record that ops hear of every change. Check it only if the change surprises you, and undo it on the clinic's Clinic switches panel.
+
+`clinic_availability_changed` for hours and providers. A clinic changed its opening hours, its closed days, a location's
 hours, or its named providers and what they offer, or an edit made outside the portal did (an
 ops change file through `db-apply`, or a direct database edit, which the database's own
 trigger records as a count-only row). AYA uses the change the moment it is saved. The alert

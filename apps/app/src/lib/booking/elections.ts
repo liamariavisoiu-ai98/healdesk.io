@@ -44,7 +44,9 @@ import {
 } from "@/lib/connections/google-calendar";
 import { calendarRecipients, ownerRecipients } from "@/lib/connections/recipients";
 import { mailCalendarElectionCopy, type CalendarMailClinic } from "@/lib/email/calendar-link";
+import { lockAutoConfirm } from "@/lib/billing/settings";
 import { log } from "@/lib/log";
+import { applySwitchResets } from "@/lib/portal/switch-resets";
 import { TENANT_GUC, withTenant, type TenantTx } from "@/lib/tenant";
 
 import { releaseLiveHolds } from "./holds";
@@ -628,6 +630,9 @@ export async function recordCalendarElection(
   // watch's next run (takesConnectionAway).
   let erased: RecordedElection["erased"] = null;
   let releasedHolds = 0;
+  // Full payment needs a connected calendar: the payment switches' lock goes
+  // first, as in every writer that can take the calendar away.
+  await lockAutoConfirm(tx);
   const connection = await googleCalendarConnection(tx, { forUpdate: true });
   if (connection && takesConnectionAway(connection, prepared.kind, input.choice.calendarAccount)) {
     const taken = await eraseGoogleCalendarWithin(tx, {
@@ -635,6 +640,7 @@ export async function recordCalendarElection(
       reason: "election_changed",
     });
     if (taken) {
+      await applySwitchResets(tx, { cause: "calendar_disconnected", actorLabel: label });
       erased = {
         connectionId: taken.connectionId,
         accountRef: taken.accountRef,

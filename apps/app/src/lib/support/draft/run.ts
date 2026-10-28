@@ -494,7 +494,7 @@ async function draftWithEmails(claimed: ClaimedCase, deps: DraftDeps, emails: Ca
     if (!stillClinic) {
       await setRowAction(unsafeDb, written.messageId, { ...proposed, tier: "approval", senderVerified: false });
     } else {
-      const ran = await runSupportAction({ caseId: claimed.id, messageId: written.messageId, now });
+      const ran = await runSupportAction({ caseId: claimed.id, messageId: written.messageId, now: new Date() });
       // Refused or not run: a reply that says it was made no longer passes.
       if (ran && !checkActionClaim(proposal.reply, ran).ok) {
         await failActionClaim(claimed.id, written.messageId, now);

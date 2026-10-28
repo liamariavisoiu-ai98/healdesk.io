@@ -1065,7 +1065,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: false,
     build: "built",
     buildNote:
-      "The Clinic switches panel is on /admin/clinics/<id>/setup (operations getClinicSwitches and setClinicSwitch on /api/ops). A switch only the clinic may change (where calls and money go) shows as read only. Every change to a clinic's profile, from the clinic, from here or later from a support action, emails healdesk and posts to Slack once, as the switch's label, before and after, and who made it. Slack posts nothing while SLACK_WEBHOOK_URL is unset (its parameter holds __unset__ in production), and the email goes either way. Turning on a payment-link text only saves the choice: no text is sent, because no sender exists yet (launch register: payment-link-text).",
+      "The Clinic switches panel is on /admin/clinics/<id>/setup (operations getClinicSwitches and setClinicSwitch on /api/ops). A switch only the clinic may change (where calls and money go) shows as read only. Every change to a clinic's profile, from the clinic, from here or from a support action, emails healdesk and posts to Slack once, as the switch's label, before and after, and who made it. Slack posts nothing while SLACK_WEBHOOK_URL is unset (its parameter holds __unset__ in production), and the email goes either way. Turning on a payment-link text only saves the choice: no text is sent, because no sender exists yet (launch register: payment-link-text).",
     proof: "ops",
   },
 
@@ -1734,7 +1734,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     title: "A clinic's email to support becomes a case",
     carries: "Facts only, into the database: the topic and urgency read from fixed word lists, how it matched a clinic, counts of what looked like patient details, and the number and kind of attachments. Never the email's words, subject, sender's name or file names. The email itself stays in the locked bucket until the support drafter has read it, while the support-draft job is on",
     example:
-      "A clinic emails support@ (or hello@) that calls ring out; your mailbox forwards it to the same name on in.healdesk.io, Amazon holds it, the engine reads it in memory, opens a case \"call forwarding, now\" for that clinic, and the clinic gets \"We've got your email\" with its reference. Within a minute or so the drafter reads the email, Claude drafts the reply for your yes, and the email is deleted.",
+      "A clinic emails support@ (or hello@) that calls ring out; your mailbox forwards it to the same name on in.healdesk.io, Amazon holds it, the engine reads it in memory, opens a case \"call forwarding, now\" for that clinic, and the clinic gets \"We've got your email\" with its reference. Within a minute or so the drafter reads the email, Claude drafts the reply for your yes, and the email is deleted. If the request is a switch the clinic could flip itself in Settings (tone, add-on suggestions, promotions, the daily summary) and the email is verified as the clinic's own, the drafter changes it and drafts a reply that says so; deposits, payments, Auto-confirm and the channel switches wait for your approval first, in /admin or in Slack, and nothing about where calls or money go is ever changed this way.",
     keys: ["aws.HEALDESK_INBOUND_MAIL_TOPIC_ARN", "aws.HEALDESK_INBOUND_MAIL_BUCKET"],
     keyless: "No password: Amazon signs each notice and the engine checks it; the engine reads and deletes the email because of the role it runs as.",
     phi: true,

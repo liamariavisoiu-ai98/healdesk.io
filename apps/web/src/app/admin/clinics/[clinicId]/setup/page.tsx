@@ -27,6 +27,7 @@ import {
   setMetaPlatform as metaPlatformUpstream,
   completeOnboardingStep as completeUpstream,
   disconnectCalendar as disconnectCalendarUpstream,
+  fetchBookingSwitch,
   fetchOnboarding,
   goLive as goLiveUpstream,
   issueCalendarLink as calendarLinkUpstream,
@@ -95,7 +96,7 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
   // demo or not, so the demo clinic's own tab shows its own), and the watch's ignore list for this clinic alone, read apart
   // from the lifecycle row so a mark set before the watch's first tick is
   // drawn. One that fails costs its card.
-  const [view, cards, changes, audits, lifecycle, billing, voice, stuckWrites, ignoreList] = await Promise.all([
+  const [view, cards, changes, audits, lifecycle, billing, voice, stuckWrites, ignoreList, switchTicks] = await Promise.all([
     fetchOnboarding(clinicId),
     fetchClinicCards(),
     fetchClinicChanges({ clinicId }),
@@ -105,6 +106,7 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
     fetchVoiceAgentStatus(clinicId),
     fetchStuckCalendarWrites({ clinicId }),
     fetchLifecycleIgnored(clinicId),
+    fetchBookingSwitch(),
   ]);
   if (isHostUnreachable(view)) return <HostStandbyNotice what="Setup" />;
   const path = clinicTabPath(clinicId, "setup");
@@ -400,6 +402,7 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
       <AvailabilityChanges clinicId={clinicId} changes={changes} audits={audits} now={now} onRunAudit={runAudit} onAcknowledge={acknowledgeChange} />
       <OnboardingPanel
         view={view}
+        switchTicks={switchTicks}
         actions={{
           completeStep, reopenStep, savePhone, saveAgent, goLive, startForwardingTest, attachMeta, setMeta, setMetaPlatform,
           saveRequirements, confirmTimezone, retryCalendarWrite, setAutoConfirm, sendCalendarLink,

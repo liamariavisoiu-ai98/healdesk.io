@@ -7,6 +7,7 @@ import { Section } from "@/components/admin/ui";
 import type {
   AgentService,
   AutoConfirmOutcome,
+  BookingSwitch,
   BookingView,
   CalendarConnectionStatus,
   CalendarLinkOutcome,
@@ -85,7 +86,16 @@ function describe(result: OpsResult<SimpleOutcome> | OpsResult<GoLiveOutcome> | 
   return null;
 }
 
-export function OnboardingPanel({ view, actions }: { view: OpsResult<OnboardingView>; actions: Actions }) {
+export function OnboardingPanel({
+  view,
+  actions,
+  switchTicks,
+}: {
+  view: OpsResult<OnboardingView>;
+  actions: Actions;
+  /** The three live ticks of the owner's booking switch; absent when not read. */
+  switchTicks?: OpsResult<BookingSwitch>;
+}) {
   if (!view.ok) {
     return (
       <div className="py-6">
@@ -183,7 +193,7 @@ export function OnboardingPanel({ view, actions }: { view: OpsResult<OnboardingV
                 : "requests for staff to confirm"
         }`}
       >
-        <BookingCard booking={v.booking} onAutoConfirm={actions.setAutoConfirm} />
+        <BookingCard booking={v.booking} onAutoConfirm={actions.setAutoConfirm} switchTicks={switchTicks} />
       </Section>
 
       <Section title="Time zone">
@@ -1024,12 +1034,37 @@ function channelsNow(b: BookingView): string[] {
  * where the terms let healdesk write nothing yet, the card says it takes
  * effect once they do.
  */
+function tickWords(on: boolean | null, yes: string, no: string): string {
+  return on === null ? "○ Not reported by this version of apps/app" : on ? `✓ ${yes}` : `○ ${no}`;
+}
+
+/** The owner's switch, read live and never set here: Terraform's `direct_booking_enabled` sets it. */
+function SwitchTicks({ ticks }: { ticks: OpsResult<BookingSwitch> }) {
+  if (!ticks.ok) return <>Could not be read: {ticks.message}</>;
+  const t = ticks.data;
+  return (
+    <>
+      {t.directBooking ? "Open: AYA books straight into the calendar." : "Closed: every booking is a request for staff."}
+      <ul className="mt-1 grid gap-0.5 text-xs">
+        <li>{tickWords(t.env, "Switch on in the task environment", "Switch off in the task environment")}</li>
+        <li>{tickWords(t.released, "Addendum released in the running build", "Addendum not released in the running build")}</li>
+        <li>{tickWords(t.versionMatches, "Addendum version matches", "Addendum version does not match")}</li>
+      </ul>
+      <span className="text-muted block text-xs">
+        There is no button: it is set in Terraform, <code>direct_booking_enabled</code>, and rolled by a deploy. It covers web chat and calls.
+      </span>
+    </>
+  );
+}
+
 function BookingCard({
   booking: b,
   onAutoConfirm,
+  switchTicks,
 }: {
   booking: BookingView | "unreadable" | null;
   onAutoConfirm: Actions["setAutoConfirm"];
+  switchTicks?: OpsResult<BookingSwitch>;
 }) {
   const [pending, start] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
@@ -1075,6 +1110,11 @@ function BookingCard({
         <dd>
           {b.killSwitchOn ? "On" : "Off: the assistant books nothing itself, for any clinic"}. HEALDESK_DIRECT_BOOKING_ENABLED is the
           owner&rsquo;s, set only in the environment.
+          {switchTicks ? (
+            <span className="mt-1 block">
+              <SwitchTicks ticks={switchTicks} />
+            </span>
+          ) : null}
         </dd>
         <dt className="text-muted text-xs font-bold uppercase">Calendar terms</dt>
         <dd>

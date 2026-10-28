@@ -45,9 +45,9 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     promise: "AYA books into the clinic's Google Calendar during the conversation",
     where: "Homepage, pricing, terms section 2, How AYA is built to behave",
     status: "building",
-    left: "The booking engine is wired into calls and website chat and is offered only when the HEALDESK_DIRECT_BOOKING_ENABLED switch, counsel's direct-booking addendum and a live calendar all allow it. Left: the addendum, and a safe way to set the switch: Terraform refuses it on every task (never_on_app_tasks in locals.tf, and the app_environment validation in variables.tf), so no route sets it today and every channel takes booking requests for staff.",
+    left: "The booking engine is wired into calls and website chat and is designed to be offered only when three things are true: the switch is on in the task environment, counsel's direct-booking addendum is released in the running build, and the addendum version matches. Left: counsel's release of the addendum, then the switch. It is set in Terraform (direct_booking_enabled, refused until direct_booking_addendum_released; direct_booking_on_voice adds the phone, which books directly at launch), by two reviewed commits and a deploy, and a voice roll needs the owner's word that no call is running or planned. The booking card in a clinic's Setup shows the three ticks live. Until then every channel takes booking requests for staff.",
     evidence:
-      "apps/app/src/lib/booking/engine.ts, apps/app/src/lib/assistant/booking-tools.ts, apps/app/src/lib/assistant/prompt.ts, infra/aws/locals.tf (never_on_app_tasks), infra/aws/variables.tf",
+      "apps/app/src/lib/booking/engine.ts, apps/app/src/lib/assistant/booking-tools.ts, apps/app/src/lib/assistant/prompt.ts, infra/aws/variables.tf (direct_booking_enabled), infra/aws/locals.tf (direct_booking_environment), docs/design/launch-readiness-2026-10-27/db-1-direct-booking-switch.md",
     blocksGoLive: true,
   },
   {

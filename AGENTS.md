@@ -165,6 +165,8 @@ From `docs/design/launch-readiness-2026-10-27/status.md` sections 1 and 8 and th
 - SEC-02 "go" (lands with the rest). Merge everything to `main`. `enable_voice` through Terraform after deploy; `voice_real_calls` is held for a test call.
 - Spanish voice: opener by caller language (English line first, Spanish disclosure said once when Spanish is detected), Retell locale `["en-US","es-419"]`.
 
+- **DB-1 lane C (web/docs, branch `db1/web`, 28 Oct, local, not pushed to main):** ops client parses `bookingSwitch` `{directBooking, env, released, versionMatches}` defensively; booking card in a clinic's Setup shows three live ticks (no button); system map, launch register and `docs/handover.md` runbook rewritten. Depends on lanes A (Terraform) and B (app) landing.
+
 ### Hard stops
 No merge, push, production deploy, Terraform apply, live vendor changes, real patient traffic, compliance attestation or final go-live without specific Owner approval. Preserve existing code and report any dirty worktree.
 

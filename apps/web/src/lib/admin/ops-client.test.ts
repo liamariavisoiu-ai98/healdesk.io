@@ -1407,6 +1407,30 @@ describe("directBookingOpen", () => {
     expect(await opsClient.directBookingOpen(0)).toBe(false);
   });
 
+  test("an old-shaped reply (directBooking alone) still parses, ticks unknown", () => {
+    expect(opsClient.readBookingSwitch({ directBooking: true })).toEqual({
+      directBooking: true,
+      env: null,
+      released: null,
+      versionMatches: null,
+    });
+    expect(() => opsClient.readBookingSwitch({ env: true })).toThrow();
+    expect(opsClient.readBookingSwitch({ directBooking: false, env: true, released: false, versionMatches: "x" })).toEqual({
+      directBooking: false,
+      env: true,
+      released: false,
+      versionMatches: null,
+    });
+  });
+
+  test("reads the four booleans for the console, fresh each time", async () => {
+    reply({ data: { directBooking: false, env: true, released: false, versionMatches: false } });
+    expect(await opsClient.fetchBookingSwitch()).toEqual({
+      ok: true,
+      data: { directBooking: false, env: true, released: false, versionMatches: false },
+    });
+  });
+
   test("remembers the answer, success or failure, for five minutes", async () => {
     reply({ data: { directBooking: true } });
     expect(await opsClient.directBookingOpen(0)).toBe(true);

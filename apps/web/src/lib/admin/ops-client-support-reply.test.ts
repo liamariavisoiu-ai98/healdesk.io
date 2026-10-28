@@ -129,6 +129,12 @@ describe("the support reply's clients", () => {
     });
     const saved = await saveSupportDraft(CASE_ID, BODY);
     expect(sent.at(-1)).toEqual({ op: "saveSupportDraft", args: { caseId: CASE_ID, text: BODY } });
+    // Dropping the pending change is one more flag, sent only when asked.
+    reply({
+      data: { ref: "HD-6V104", draftVersion: 3, state: "drafted", approvalId: APPROVAL_ID, ok: true, checks: [], failed: [], auditRecorded: true },
+    });
+    await saveSupportDraft(CASE_ID, BODY, true);
+    expect(sent.at(-1)).toEqual({ op: "saveSupportDraft", args: { caseId: CASE_ID, text: BODY, dropChange: true } });
     expect(saved.ok && saved.data).toMatchObject({ draftVersion: 2, state: "drafted", approvalId: APPROVAL_ID });
 
     reply({ data: { outcome: "checks_failed", ref: "HD-6V104", approvalId: null, draftVersion: 2, failed: ["Names no person"], auditRecorded: true } });
@@ -153,7 +159,7 @@ describe("the support reply's clients", () => {
   });
 
   test("a support reply's proposed change is read as closed words: label, value, tier and status, nothing more", async () => {
-    const action = { label: "Website chat", value: "on", tier: "approval", status: "pending" };
+    const action = { label: "Website chat", value: "on", tier: "approval", status: "pending", senderVerified: false };
     const withAction = { ...ITEM, packet: { ...ITEM.packet, facts: { ...ITEM.packet.facts, action } } };
     reply({ data: { items: [withAction], partial: [] } });
     const result = await fetchSupportReplyApprovals();
@@ -162,6 +168,8 @@ describe("the support reply's clients", () => {
       { ...action, reason: "free text" },
       { ...action, status: "made" },
       { ...action, tier: "never" },
+      { ...action, senderVerified: "no" },
+      (({ senderVerified: _s, ...rest }) => rest)(action),
       "Website chat on",
     ]) {
       reply({ data: { items: [{ ...ITEM, packet: { ...ITEM.packet, facts: { ...ITEM.packet.facts, action: bad } } }], partial: [] } });

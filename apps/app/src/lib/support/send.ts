@@ -16,7 +16,7 @@ import { claimDelivery, recordDelivery } from "@/lib/reporting/recipients";
 import { clinicSignIn } from "@/lib/sign-in/address-change";
 import { withTenant } from "@/lib/tenant";
 
-import { actionOfFacts } from "./actions/tiers";
+import { actionOfFacts, DROPPED_BY_OPERATOR, type SupportAction } from "./actions/tiers";
 import { canMove, printRef } from "./case-vocab";
 import type { FactsUsed } from "./draft/checks";
 import { readReplyCheckContext } from "./draft/run";
@@ -167,14 +167,25 @@ export function subjectForCase(c: Pick<SupportCase, "category" | "ref">): string
  */
 export async function checkReplyText(
   text: string,
-  context: { supportCase: SupportCase; clinicName: string | null; facts?: readonly FactsUsed[] },
+  context: {
+    supportCase: SupportCase;
+    clinicName: string | null;
+    facts?: readonly FactsUsed[];
+    /** The change the text is held to instead of the current draft's (an edit that drops it); null for none. */
+    action?: SupportAction | null;
+  },
   actor: ActorContext = SERVICE,
 ): Promise<ReplyCheckResult> {
   const clinicId = context.supportCase.subjectClinicId;
   // Lane D: a reply on a case whose current draft carries a proposed change
   // may say it was made only as that change stands (draft/checks.ts action_claim).
-  const current = await currentReplyDraft(context.supportCase.id);
-  const action = current ? actionOfFacts(current.factsJson) : null;
+  let action: SupportAction | null;
+  if (context.action !== undefined) {
+    action = context.action;
+  } else {
+    const current = await currentReplyDraft(context.supportCase.id);
+    action = current ? actionOfFacts(current.factsJson) : null;
+  }
   const practice = clinicId ? await readReplyCheckContext({ clinicId, actor }).catch(() => null) : null;
   // Without the practice's context, check 8 cannot see the other practices' names: fail closed.
   if (clinicId && !practice) {
@@ -244,6 +255,13 @@ export async function saveReplyDraft(input: {
   text: string;
   checks: ReplyCheckResult;
   now: Date;
+  /**
+   * Drop the current draft's pending change from this edit: kept as
+   * `not_run` with DROPPED_BY_OPERATOR, so approving the edit makes no
+   * change and the claim check holds the text to that. Ignored unless the
+   * change is pending.
+   */
+  dropAction?: boolean;
 }): Promise<SavedDraft | null> {
   return unsafeDb.transaction(async (tx) => {
     const [c] = await tx.select({ state: supportCases.state }).from(supportCases).where(eq(supportCases.id, input.caseId)).limit(1).for("update");
@@ -261,7 +279,11 @@ export async function saveReplyDraft(input: {
     // operator's text to what happened. Only a change that runs inside the
     // approval and fails there stops the send (approvals/support-reply.ts).
     const current = await currentReplyDraft(input.caseId, tx);
-    const action = current ? actionOfFacts(current.factsJson) : null;
+    const kept = current ? actionOfFacts(current.factsJson) : null;
+    const action: SupportAction | null =
+      kept && input.dropAction && kept.status === "pending"
+        ? { ...kept, status: "not_run", reason: DROPPED_BY_OPERATOR, at: input.now.toISOString() }
+        : kept;
     const [row] = await tx
       .insert(supportMessages)
       .values({

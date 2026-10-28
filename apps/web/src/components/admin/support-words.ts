@@ -311,13 +311,20 @@ export const ACTION_STATUS_WORDS: Record<SupportActionView["status"], string> = 
   already: "already set, nothing to change",
   refused: "not made: the clinic's Settings refused it",
   unavailable: "not made: it can't be changed yet",
-  not_run: "not made: this case already made a change",
+  not_run: "not made: this case already made a change, or it was dropped from the reply",
 };
+
+/** Said after the change when the email was not from the clinic's one sign-in address. */
+export const SENDER_NOT_VERIFIED_WORDS = "Sender not verified: the email did not come from the clinic's sign-in address, so the change waits for your approval.";
 
 /** "Proposed change: Website chat → on (made when you approve the reply)." Closed words only. */
 export function proposedChangeWords(action: SupportActionView): string {
-  return `Proposed change: ${action.label} → ${action.value} (${ACTION_STATUS_WORDS[action.status]}).`;
+  const line = `Proposed change: ${action.label} → ${action.value} (${ACTION_STATUS_WORDS[action.status]}).`;
+  return action.senderVerified ? line : `${line} ${SENDER_NOT_VERIFIED_WORDS}`;
 }
+
+/** The edit option that drops a pending change from the reply (lane D; apps/app saveReplyDraft dropAction). */
+export const DROP_CHANGE_LABEL = "Drop the proposed change: save this reply without it, so approving it changes nothing";
 
 export const CONFIDENCE_WORDS: Record<NonNullable<SupportDraftView["confidence"]>, string> = {
   high: "high",

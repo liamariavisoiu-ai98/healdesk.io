@@ -7,11 +7,11 @@ import { parseDraft } from "@/lib/approvals/drafts";
 import { getApproval } from "@/lib/approvals/store";
 import { proposeSupportReplyFor, sendSupportReply, supportReplyPacket } from "@/lib/approvals/support-reply";
 import type { Operator } from "@/lib/ops/api";
-import { opSaveSupportDraft } from "@/lib/ops/support-reply-ops";
+import { NO_CHANGE_TO_DROP, opSaveSupportDraft } from "@/lib/ops/support-reply-ops";
 import type { ClinicSwitchView } from "@/lib/ops/switch-ops";
 import { NEVER_TEXT, TWICE_TEXT } from "@/lib/support/actions/propose";
 import { ONE_PER_CASE, runSupportAction, runSupportActionForApproval } from "@/lib/support/actions/execute";
-import { OUTCOME_UNKNOWN, RUNNING_STALE_MS } from "@/lib/support/actions/tiers";
+import { DROPPED_BY_OPERATOR, OUTCOME_UNKNOWN, RUNNING_STALE_MS } from "@/lib/support/actions/tiers";
 import { handleInboundNotice } from "@/lib/support/inbound/handle";
 import type { InboundNotice } from "@/lib/support/inbound/notice";
 import { ACTION_CHECK_ID } from "@/lib/support/draft/checks";
@@ -277,7 +277,7 @@ describeDb("support email to action (lane D)", () => {
     const row = await lastReply(caseId);
     expect(row.facts_json.action).toMatchObject({ key: "daily_summary", value: "off", tier: "direct", status: "done" });
     // Closed words only: nothing of the email is in the action.
-    expect(Object.keys(row.facts_json.action!).sort()).toEqual(["at", "key", "reason", "status", "tier", "value"]);
+    expect(Object.keys(row.facts_json.action!).sort()).toEqual(["at", "key", "reason", "senderVerified", "status", "tier", "value"]);
     expect(row.checks_json!.results.find((r) => r.id === ACTION_CHECK_ID)).toMatchObject({ ok: true });
     expect(await changes(clinic.clinicId)).toEqual([expect.objectContaining({ source: "support_action", actor_kind: "support" })]);
 
@@ -286,7 +286,7 @@ describeDb("support email to action (lane D)", () => {
     expect(item).not.toBeNull();
     expect(replySends()).toHaveLength(0);
     const packet = await supportReplyPacket(item!, { actor: { type: "system" } });
-    expect(packet!.facts.action).toEqual({ label: "Daily summary email", value: "off", tier: "direct", status: "done" });
+    expect(packet!.facts.action).toEqual({ label: "Daily summary email", value: "off", tier: "direct", status: "done", senderVerified: true });
 
     // A redraft proposing the same change is told it was made, and nothing runs again.
     await setDailySummary(clinic.clinicId, true);
@@ -325,7 +325,7 @@ describeDb("support email to action (lane D)", () => {
 
       const item = await waitingItem(caseId);
       const packet = await supportReplyPacket(item!, { actor: { type: "system" } });
-      expect(packet!.facts.action).toEqual({ label: "Tone", value: "Clinical and professional", tier: "approval", status: "pending" });
+      expect(packet!.facts.action).toEqual({ label: "Tone", value: "Clinical and professional", tier: "approval", status: "pending", senderVerified: false });
       expect(packet!.facts.checks.find((c) => c.id === ACTION_CHECK_ID)).toMatchObject({ ok: true });
 
       const result = await sendSupportReply(item!, parseDraft(item!.draft), new Date(NOW.getTime() + 10 * MINUTE));
@@ -596,6 +596,37 @@ describeDb("support email to action (lane D)", () => {
     expect(result).toMatchObject({ ok: false, outcomeCode: "no_longer_needed" });
     expect((await settings(clinic.clinicId)).auto_confirm_bookings).toBe(true);
     expect(replySends()).toHaveLength(0);
+  });
+
+  test("an operator drops the pending change while editing the reply: approving the edit sends it and makes no change; a claim of the change no longer passes", async () => {
+    const store = memoryMailStore();
+    const { caseId } = await deliver(store, "Hi team, we want to approve every booking ourselves from now on.");
+    const model = new ActingDrafter([{ key: "auto_confirm", value: "off" }], "Hi, I've switched auto-confirm off, so every booking comes to you as a request.");
+    expect(await draftNextCase({ client: model, now: NOW, mailStore: store }, caseId)).toMatchObject({ outcome: "drafted" });
+
+    // Kept claiming the change while dropping it: saved, but it fails the claim check and is not proposed.
+    const claiming = await opSaveSupportDraft({ caseId, text: "Hi, auto-confirm is now off.", dropChange: true }, OPERATOR, NOW);
+    expect(claiming.status).toBe(200);
+    expect((await lastReply(caseId)).facts_json.action).toMatchObject({ key: "auto_confirm", status: "not_run", reason: DROPPED_BY_OPERATOR });
+    expect(await waitingItem(caseId)).toBeNull();
+
+    // Nothing pending is left to drop now.
+    const twice = await opSaveSupportDraft({ caseId, text: "Hi, a person at healdesk will call you about bookings.", dropChange: true }, OPERATOR, NOW);
+    expect(twice.status).toBe(409);
+    expect(JSON.stringify(twice)).toContain(NO_CHANGE_TO_DROP);
+    expect(await opSaveSupportDraft({ caseId, text: "Hi.", dropChange: "yes" }, OPERATOR, NOW)).toMatchObject({ status: 400 });
+
+    // An honest edit (the dropped change carried as not run) is proposed and sends; the setting stays.
+    const honest = await opSaveSupportDraft({ caseId, text: "Hi, a person at healdesk will call you about how bookings are confirmed." }, OPERATOR, new Date(NOW.getTime() + MINUTE));
+    expect(honest.status).toBe(200);
+    const item = await waitingItem(caseId);
+    const packet = await supportReplyPacket(item!, { actor: { type: "system" } });
+    expect(packet!.facts.action).toMatchObject({ label: "Auto-confirm bookings", status: "not_run" });
+    const result = await sendSupportReply(item!, parseDraft(item!.draft), new Date(NOW.getTime() + 10 * MINUTE));
+    expect(result).toMatchObject({ ok: true, outcomeCode: "sent" });
+    expect((await settings(clinic.clinicId)).auto_confirm_bookings).toBe(true);
+    expect(await changes(clinic.clinicId)).toHaveLength(0);
+    expect(replySends()).toHaveLength(1);
   });
 
   test("prompt injection: a NEVER switch, another clinic and two changes at once run nothing beyond one listed change for the matched clinic", async () => {

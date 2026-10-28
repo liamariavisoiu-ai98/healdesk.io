@@ -9636,9 +9636,12 @@ export type SupportDraftSaved = {
   auditRecorded: boolean;
 };
 
-/** The operator's own text, saved as the reply's next draft version; a passing one is proposed for the owner's yes. Sends nothing. */
-export function saveSupportDraft(caseId: string, text: string): Promise<OpsResult<SupportDraftSaved>> {
-  return callOps("saveSupportDraft", "write", { caseId, text }, (value) => {
+/**
+ * The operator's own text, saved as the reply's next draft version; a passing one is proposed for the owner's yes. Sends nothing.
+ * `dropChange` drops the draft's pending Settings change from this version (lane D): approving it then makes no change.
+ */
+export function saveSupportDraft(caseId: string, text: string, dropChange = false): Promise<OpsResult<SupportDraftSaved>> {
+  return callOps("saveSupportDraft", "write", dropChange ? { caseId, text, dropChange: true } : { caseId, text }, (value) => {
     const data = exactKeys(
       value,
       ["ref", "draftVersion", "state", "approvalId", "ok", "checks", "failed", "auditRecorded"],
@@ -9694,15 +9697,18 @@ export type SupportActionView = {
   value: string;
   tier: "direct" | "approval";
   status: (typeof SUPPORT_ACTION_STATUSES)[number];
+  /** False when the email was not from the clinic's one sign-in address (a DIRECT change held for approval for that reason). */
+  senderVerified: boolean;
 };
 
 function readSupportAction(value: unknown, at: string): SupportActionView {
-  const a = exactKeys(value, ["label", "value", "tier", "status"], at);
+  const a = exactKeys(value, ["label", "value", "tier", "status", "senderVerified"], at);
   return {
     label: text(a.label, `${at}.label`),
     value: text(a.value, `${at}.value`),
     tier: literal(a.tier, ["direct", "approval"] as const, `${at}.tier`),
     status: literal(a.status, SUPPORT_ACTION_STATUSES, `${at}.status`),
+    senderVerified: bool(a.senderVerified, `${at}.senderVerified`),
   };
 }
 

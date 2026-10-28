@@ -6,7 +6,8 @@ import { CONSOLE_PROPOSER } from "@/lib/approvals/kinds";
 import { proposeSupportReplyFor, type ProposeReplyOutcome } from "@/lib/approvals/support-reply";
 import { describeError, log } from "@/lib/log";
 import { canMove, printRef, type SupportCaseState } from "@/lib/support/case-vocab";
-import { checkReplyText, MAX_DRAFT_CHARS, normaliseDraftText, readCaseForReply, saveReplyDraft } from "@/lib/support/send";
+import { actionOfFacts, DROPPED_BY_OPERATOR, type SupportAction } from "@/lib/support/actions/tiers";
+import { checkReplyText, MAX_DRAFT_CHARS, normaliseDraftText, openReplyDraft, readCaseForReply, saveReplyDraft } from "@/lib/support/send";
 import { failedRules, type ReplyCheck } from "@/lib/support/send-checks";
 
 import { actorFor, audit, ok, opsProblem, UUID_SHAPED, type Operator, type OpsOutcome } from "./api";
@@ -67,6 +68,9 @@ export async function opPreviewSupportReply(args: Record<string, unknown>, opera
     return opsProblem("The reply could not be checked.", 500, "failed");
   }
 }
+
+/** Refused when the operator asks to drop a change the current draft does not carry as pending. */
+export const NO_CHANGE_TO_DROP = "The current draft has no pending change to drop. Reload the case and save the reply again.";
 
 /** The proposal's outcome as the console reads it, or the refusal in words. */
 function proposalAnswer(ref: string, outcome: ProposeReplyOutcome): Record<string, unknown> {
@@ -131,9 +135,13 @@ export async function opSaveSupportDraft(
   operator: Operator,
   now: Date = new Date(),
 ): Promise<OpsOutcome> {
-  if (UNKNOWN(args, ["caseId", "text"]).length > 0) {
-    return opsProblem("saveSupportDraft takes only caseId and text.", 400, "invalid_args");
+  if (UNKNOWN(args, ["caseId", "text", "dropChange"]).length > 0) {
+    return opsProblem("saveSupportDraft takes only caseId, text and dropChange.", 400, "invalid_args");
   }
+  if (args.dropChange !== undefined && typeof args.dropChange !== "boolean") {
+    return opsProblem("dropChange is true or false.", 400, "invalid_args");
+  }
+  const dropChange = args.dropChange === true;
   const caseId = caseIdOf(args);
   if (!caseId) return opsProblem("The case id is a uuid.", 400, "invalid_args");
   const text = normaliseDraftText(args.text);
@@ -145,12 +153,20 @@ export async function opSaveSupportDraft(
     const ref = printRef(c.ref);
     if (c.state === "closed") return opsProblem(REFUSAL_WORDS.closed!, 409, "invalid_args");
     if (!c.subjectClinicId) return opsProblem(REFUSAL_WORDS.no_clinic!, 409, "invalid_args");
-    const checks = await checkReplyText(text, read, actorFor(operator));
+    // Lane D: dropping the draft's pending change holds the new text to the change as dropped (not run).
+    let dropped: SupportAction | undefined;
+    if (dropChange) {
+      const current = await openReplyDraft(caseId);
+      const action = current ? actionOfFacts(current.factsJson) : null;
+      if (!action || action.status !== "pending") return opsProblem(NO_CHANGE_TO_DROP, 409, "invalid_args");
+      dropped = { ...action, status: "not_run", reason: DROPPED_BY_OPERATOR, at: now.toISOString() };
+    }
+    const checks = await checkReplyText(text, dropped ? { ...read, action: dropped } : read, actorFor(operator));
     const to: SupportCaseState = checks.ok ? "drafted" : "needs_edit";
     if (c.state !== to && !canMove(c.state, to)) {
       return opsProblem(`${ref} cannot take a new draft while it is ${c.state.replace(/_/g, " ")}.`, 409, "invalid_args");
     }
-    const saved = await saveReplyDraft({ caseId, text, checks, now });
+    const saved = await saveReplyDraft({ caseId, text, checks, now, dropAction: dropChange });
     if (!saved) return opsProblem(REFUSAL_WORDS.closed!, 409, "invalid_args");
     const moved = await unsafeDb
       .update(supportCases)

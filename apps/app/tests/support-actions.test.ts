@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import { SETTING_ENTRIES } from "@/lib/clinic/setting-words";
 import type { ClinicSwitchView } from "@/lib/ops/switch-ops";
 import { OPS_SWITCH_LABEL } from "@/lib/ops/calendar-ops";
-import { SUPPORT_ACTION_SLACK_LEADS, supportActionSlackLine } from "@/lib/ops/slack";
+import { SUPPORT_ACTION_SENDER_NOT_VERIFIED, SUPPORT_ACTION_SLACK_LEADS, supportActionSlackLine } from "@/lib/ops/slack";
 import { SETTING_KEYS } from "@/lib/portal/settings";
 import { replyMessage, viewKey, type ReplyView } from "@/lib/support/slack-reply";
 import { assessAction, COULD_NOT_RUN, NOT_IN_PLAN, SUPPORT_ACTION_LABEL } from "@/lib/support/actions/execute";
@@ -173,8 +173,21 @@ describe("the kept action", () => {
     expect(actionWords("deposit_hold_minutes", "1440")).toEqual({ label: "How long a slot waits for its deposit", value: "24 hours" });
     expect(actionWords("direct_line", "on")).toBeNull();
     const view = actionView({ key: "channel_web", value: "on", tier: "approval", status: "pending", reason: "free text never shown" });
-    expect(view).toEqual({ label: "Website chat", value: "on", tier: "approval", status: "pending" });
+    expect(view).toEqual({ label: "Website chat", value: "on", tier: "approval", status: "pending", senderVerified: true });
     expect(JSON.stringify(view)).not.toContain("free text");
+  });
+
+  test("the view says whether the sender was verified: as kept, or for an older row, false only on a DIRECT-listed change held for approval", () => {
+    const tone = { key: "tone", value: "clinical", status: "pending" } as const;
+    expect(actionView({ ...tone, tier: "approval", senderVerified: false })!.senderVerified).toBe(false);
+    expect(actionView({ ...tone, tier: "direct", senderVerified: true })!.senderVerified).toBe(true);
+    // Kept before the flag: a downgraded DIRECT reads unverified; an APPROVAL-listed one, or a DIRECT, verified.
+    expect(actionView({ ...tone, tier: "approval" })!.senderVerified).toBe(false);
+    expect(actionView({ ...tone, tier: "direct" })!.senderVerified).toBe(true);
+    expect(actionView({ key: "auto_confirm", value: "off", status: "pending", tier: "approval" })!.senderVerified).toBe(true);
+    // Read strictly: a non-boolean flag is dropped.
+    expect(readStoredAction({ ...tone, tier: "approval", senderVerified: "no" })).not.toHaveProperty("senderVerified");
+    expect(readStoredAction({ ...tone, tier: "approval", senderVerified: false })).toMatchObject({ senderVerified: false });
   });
 });
 
@@ -272,6 +285,18 @@ describe("Slack carries the proposed change in closed words only", () => {
     for (const status of ACTION_STATUSES) expect(SUPPORT_ACTION_SLACK_LEADS[status]).toMatch(/^:[a-z_]+: [A-Z][a-z ,]+:$/);
   });
 
+  test("a change whose email was not from the clinic's sign-in says so in fixed words; only an exact false adds it", () => {
+    expect(supportActionSlackLine({ label: "Tone", value: "Clinical and professional", status: "pending", senderVerified: false })).toBe(
+      `${SUPPORT_ACTION_SLACK_LEADS.pending} *Tone* → *Clinical and professional* ${SUPPORT_ACTION_SENDER_NOT_VERIFIED}`,
+    );
+    expect(supportActionSlackLine({ label: "Tone", value: "Clinical and professional", status: "pending", senderVerified: true })).toBe(
+      `${SUPPORT_ACTION_SLACK_LEADS.pending} *Tone* → *Clinical and professional*`,
+    );
+    expect(SUPPORT_ACTION_SENDER_NOT_VERIFIED).toBe("(sender not verified)");
+    // The flag is never a way in for other words: a free-text label is still refused.
+    expect(supportActionSlackLine({ label: "front@clinic.test", value: "off", status: "pending", senderVerified: false })).toBeNull();
+  });
+
   test("anything off the allow-list is refused: a free-text label or value, an address, a reason, an unknown status", () => {
     expect(supportActionSlackLine(null)).toBeNull();
     expect(supportActionSlackLine({ label: "Please switch off the summary for Dr Rivera", value: "off", status: "pending" })).toBeNull();
@@ -293,7 +318,7 @@ describe("Slack carries the proposed change in closed words only", () => {
       draftVersion: 1,
       draft: "Hi, website chat will be on once you approve.",
       failed: [],
-      action: { label: "Website chat", value: "on", tier: "approval", status: "pending" },
+      action: { label: "Website chat", value: "on", tier: "approval", status: "pending", senderVerified: true },
     };
     const text = JSON.stringify(replyMessage(view).blocks);
     expect(text).toContain(`${SUPPORT_ACTION_SLACK_LEADS.pending} *Website chat* → *on*`);

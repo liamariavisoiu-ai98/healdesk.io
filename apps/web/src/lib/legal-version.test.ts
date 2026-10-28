@@ -71,9 +71,17 @@ const PINNED_BEFORE_1_6_0 = {
  * went out, which `replaces` records as the live text.
  */
 const PINNED_WITH_1_6_0 = {
-  ...PINNED_BEFORE_1_6_0,
   version: "2026-10-27.2",
-  sha256: { ...PINNED_BEFORE_1_6_0.sha256, "/terms": "5a98654b9a4d93f8ec497f870d1271d8001a54049460145783e849cd4d618f6e" },
+  /**
+   * Written out, not copied from the pin above: the release day is 28 October
+   * 2026 or later, and LEGAL_LAST_UPDATED in src/lib/legal.ts and this value
+   * move together to that day (the page prints it, outside the hash).
+   * "27 October 2026" is what legal.ts says today.
+   */
+  lastUpdated: "27 October 2026",
+  /** 2026-10-27.1 is the live text this release replaces. */
+  replaces: "2026-10-27.1",
+  sha256: { ...PINNED_BEFORE_1_6_0.sha256, "/terms": "8a440e174c8285c0f40118495544063d2171a9bc0781c76d26c26192f1b02d88" },
 } as const;
 
 const PINNED = BAA_1_6_0_RELEASED ? PINNED_WITH_1_6_0 : PINNED_BEFORE_1_6_0;

@@ -145,6 +145,29 @@ export function actionOfFacts(factsJson: unknown): SupportAction | null {
   return readStoredAction((factsJson as { action?: unknown } | null)?.action);
 }
 
+/**
+ * A `running` claim older than this is taken to have died between its claim
+ * and its settle write (the task stopped mid-change): no change through the
+ * Settings door takes anywhere near this long.
+ */
+export const RUNNING_STALE_MS = 5 * 60 * 1000;
+
+/** Kept on a claim that never settled: whether the change happened is not known. */
+export const OUTCOME_UNKNOWN = "The change was started but its outcome is not known: check the clinic's switches before saying it was made.";
+
+/**
+ * The action as it stands at `now`: a `running` claim older than
+ * RUNNING_STALE_MS (or with no time) is read as refused with OUTCOME_UNKNOWN,
+ * so a claim whose task died never counts as a change made and never blocks
+ * the case for good. Anything else comes back as it is. Pure.
+ */
+export function settleStale<A extends SupportAction | null>(action: A, now: Date): A {
+  if (!action || action.status !== "running") return action;
+  const at = action.at ? Date.parse(action.at) : Number.NaN;
+  if (Number.isFinite(at) && now.getTime() - at < RUNNING_STALE_MS) return action;
+  return { ...action, status: "refused", reason: OUTCOME_UNKNOWN, at: now.toISOString() };
+}
+
 /** Cap our own sentence before it is kept. */
 export function keptReason(reason: string | null | undefined): string | null {
   return reason ? reason.replace(/\s+/g, " ").trim().slice(0, MAX_REASON) : null;

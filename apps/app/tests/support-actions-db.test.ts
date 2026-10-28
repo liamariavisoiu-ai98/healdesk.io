@@ -11,6 +11,7 @@ import { opSaveSupportDraft } from "@/lib/ops/support-reply-ops";
 import type { ClinicSwitchView } from "@/lib/ops/switch-ops";
 import { NEVER_TEXT, TWICE_TEXT } from "@/lib/support/actions/propose";
 import { ONE_PER_CASE, runSupportAction } from "@/lib/support/actions/execute";
+import { OUTCOME_UNKNOWN, RUNNING_STALE_MS } from "@/lib/support/actions/tiers";
 import { handleInboundNotice } from "@/lib/support/inbound/handle";
 import type { InboundNotice } from "@/lib/support/inbound/notice";
 import { ACTION_CHECK_ID } from "@/lib/support/draft/checks";
@@ -496,6 +497,54 @@ describeDb("support email to action (lane D)", () => {
     expect((await settings(clinic.clinicId)).daily_summary).toBe(true);
     expect(await changes(clinic.clinicId)).toHaveLength(0);
     expect(replySends()).toHaveLength(1);
+  });
+
+  test("a claim whose task died: a fresh one still counts as running; once stale it is settled as refused, outcome unknown, and blocks nothing", async () => {
+    const store = memoryMailStore();
+    const { caseId } = await deliver(store, "Hello, please make the assistant sound more clinical.");
+    const pool = getMigratorPool();
+    async function replyRow(version: number, action: Record<string, unknown>, text: string | null = null) {
+      const { rows } = await pool.query<{ id: string }>(
+        `insert into support_messages (case_id, direction, kind, draft_text, draft_version, checks_json, facts_json, created_at)
+         values ($1, 'out', 'reply', $2, $3, $4::jsonb, $5::jsonb, $6) returning id`,
+        [caseId, text, text === null ? null : version, JSON.stringify({ ok: true, results: [] }), JSON.stringify({ by: "drafter", attempt: version, action }), NOW],
+      );
+      return rows[0]!.id;
+    }
+    // A claim taken at NOW whose settle write never came (the task died after the claim).
+    const stuck = await replyRow(1, { key: "daily_summary", value: "off", tier: "direct", status: "running", reason: null, at: NOW.toISOString() });
+    const pending = await replyRow(2, { key: "tone", value: "clinical", tier: "direct", status: "pending", reason: null });
+
+    // Inside the window it may still be making its change: nothing else runs, as before.
+    const soon = new Date(NOW.getTime() + RUNNING_STALE_MS - MINUTE);
+    expect(await runSupportAction({ caseId, messageId: pending, now: soon })).toMatchObject({ status: "not_run", reason: ONE_PER_CASE });
+    expect((await settings(clinic.clinicId)).tone).toBe("warm");
+
+    // Past it: settled in place as refused with the plain reason, and it no longer counts as the case's change.
+    await pool.query(`update support_messages set facts_json = jsonb_set(facts_json, '{action,status}', '"pending"') where id = $1`, [pending]);
+    const later = new Date(NOW.getTime() + RUNNING_STALE_MS + MINUTE);
+    expect(await runSupportAction({ caseId, messageId: pending, now: later })).toMatchObject({ status: "done" });
+    expect((await settings(clinic.clinicId)).tone).toBe("clinical");
+    const { rows } = await pool.query<{ a: Record<string, unknown> }>(`select facts_json->'action' as a from support_messages where id = $1`, [stuck]);
+    expect(rows[0]!.a).toMatchObject({ status: "refused", reason: OUTCOME_UNKNOWN, at: later.toISOString() });
+  });
+
+  test("a reply whose own change was left running: once stale, an honest reply is approved and sent; nothing runs", async () => {
+    const store = memoryMailStore();
+    const { caseId } = await deliver(store, "Hello, please stop the morning summary emails.");
+    await draftNextCase({ client: new ActingDrafter([], "Hi, a person at healdesk will look at the daily summary email and write back."), now: NOW, mailStore: store }, caseId);
+    const row = await lastReply(caseId);
+    expect(row.facts_json.action).toBeUndefined();
+    await getMigratorPool().query(
+      `update support_messages set facts_json = jsonb_set(facts_json, '{action}', $2::jsonb) where id = $1`,
+      [row.id, JSON.stringify({ key: "daily_summary", value: "off", tier: "approval", status: "running", reason: null, at: NOW.toISOString() })],
+    );
+    const item = await waitingItem(caseId);
+    const result = await sendSupportReply(item!, parseDraft(item!.draft), new Date(NOW.getTime() + RUNNING_STALE_MS + MINUTE));
+    expect(result).toMatchObject({ ok: true, outcomeCode: "sent" });
+    expect((await lastReply(caseId)).facts_json.action).toMatchObject({ status: "refused", reason: OUTCOME_UNKNOWN });
+    expect((await settings(clinic.clinicId)).daily_summary).toBe(true);
+    expect(await changes(clinic.clinicId)).toHaveLength(0);
   });
 
   test("prompt injection: a NEVER switch, another clinic and two changes at once run nothing beyond one listed change for the matched clinic", async () => {

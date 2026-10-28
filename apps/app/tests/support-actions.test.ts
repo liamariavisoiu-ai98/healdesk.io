@@ -15,7 +15,10 @@ import {
   actionWords,
   mayClaimChange,
   NEVER_ACTION_KEYS,
+  OUTCOME_UNKNOWN,
   readStoredAction,
+  RUNNING_STALE_MS,
+  settleStale,
   SUPPORT_ACTION_TIERS,
   tierOf,
   typedValue,
@@ -147,6 +150,21 @@ describe("the kept action", () => {
     expect(mayClaimChange({ status: "pending" })).toBe(true);
     for (const status of ["running", "refused", "unavailable", "not_run"] as const) expect(mayClaimChange({ status })).toBe(false);
     expect(mayClaimChange(null)).toBe(false);
+  });
+
+  test("a running claim older than the stale window reads as refused, outcome unknown; a fresh one, or any other status, as it is", () => {
+    const now = new Date("2026-10-27T15:00:00Z");
+    const running = { key: "daily_summary", value: "off", tier: "direct", status: "running", reason: null } as const;
+    const fresh = { ...running, at: new Date(now.getTime() - RUNNING_STALE_MS + 1000).toISOString() };
+    expect(settleStale(fresh, now)).toBe(fresh);
+    const stale = { ...running, at: new Date(now.getTime() - RUNNING_STALE_MS).toISOString() };
+    expect(settleStale(stale, now)).toEqual({ ...running, status: "refused", reason: OUTCOME_UNKNOWN, at: now.toISOString() });
+    expect(settleStale({ ...running, at: null }, now)).toMatchObject({ status: "refused", reason: OUTCOME_UNKNOWN });
+    const done = { ...running, status: "done" as const, at: "2026-01-01T00:00:00.000Z" };
+    expect(settleStale(done, now)).toBe(done);
+    expect(settleStale(null, now)).toBeNull();
+    // Refused reads as no change made, so the claim check holds a reply to it.
+    expect(mayClaimChange(settleStale(stale, now))).toBe(false);
   });
 
   test("the console and Slack see the switch's label and on/off or the choice's label, nothing else", () => {

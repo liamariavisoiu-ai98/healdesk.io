@@ -17,7 +17,7 @@ import { clinicSignIn } from "@/lib/sign-in/address-change";
 import { withTenant } from "@/lib/tenant";
 
 import { senderRef } from "../inbound/facts";
-import { actionOfFacts, keptReason, tierOf, typedValue, valueToken, type SupportAction } from "./tiers";
+import { actionOfFacts, keptReason, settleStale, tierOf, typedValue, valueToken, type SupportAction } from "./tiers";
 
 /**
  * Support email to action, run in code, never by the model (lane D; the list
@@ -137,18 +137,58 @@ export async function emailRowsForKeys(caseId: string, keys: readonly string[]):
   return rows.map((r) => r.id);
 }
 
-/** The change any reply row of the case already made or is making, other than `except`'s. */
-export async function caseChange(caseId: string, except?: string, db: Transaction | typeof unsafeDb = unsafeDb): Promise<SupportAction | null> {
+/**
+ * The change any reply row of the case already made or is making, other than
+ * `except`'s. With `now`, a `running` claim gone stale (tiers.ts settleStale)
+ * is read as refused, so it does not count.
+ */
+export async function caseChange(
+  caseId: string,
+  except?: string,
+  db: Transaction | typeof unsafeDb = unsafeDb,
+  now?: Date,
+): Promise<SupportAction | null> {
   const rows = await db
     .select({ id: supportMessages.id, facts: supportMessages.factsJson })
     .from(supportMessages)
     .where(and(eq(supportMessages.caseId, caseId), eq(supportMessages.kind, "reply"), eq(supportMessages.direction, "out")));
   for (const row of rows) {
     if (row.id === except) continue;
-    const action = actionOfFacts(row.facts);
+    const kept = actionOfFacts(row.facts);
+    const action = now ? settleStale(kept, now) : kept;
     if (action && (action.status === "done" || action.status === "running")) return action;
   }
   return null;
+}
+
+/**
+ * Settle, in place, every `running` claim on the case's reply rows that went
+ * stale (tiers.ts settleStale): refused, OUTCOME_UNKNOWN. A task that died
+ * between its claim and its settle write otherwise leaves the case counting
+ * a change as made for good. Returns how many it settled.
+ */
+export async function settleStaleRunning(db: Transaction | typeof unsafeDb, caseId: string, now: Date): Promise<number> {
+  const rows = await db
+    .select({ id: supportMessages.id, facts: supportMessages.factsJson })
+    .from(supportMessages)
+    .where(
+      and(
+        eq(supportMessages.caseId, caseId),
+        eq(supportMessages.kind, "reply"),
+        eq(supportMessages.direction, "out"),
+        sql`${supportMessages.factsJson}->'action'->>'status' = 'running'`,
+      ),
+    );
+  let settled = 0;
+  for (const row of rows) {
+    const kept = actionOfFacts(row.facts);
+    const next = settleStale(kept, now);
+    if (!kept || next === kept) continue;
+    await setRowAction(db, row.id, next!);
+    log.warn("support action outcome unknown; settled as refused", { field: kept.key, code: "outcome_unknown" });
+    settled += 1;
+  }
+  return settled;
 }
 
 /** Write a row's action in place; nothing else of the row changes. */
@@ -191,6 +231,8 @@ export async function runSupportAction(input: { caseId: string; messageId: strin
       .where(eq(supportCases.id, input.caseId))
       .limit(1)
       .for("update");
+    // Under the case's lock: a claim whose task died is settled before anything reads it.
+    await settleStaleRunning(tx, input.caseId, input.now);
     const [row] = await tx
       .select({ facts: supportMessages.factsJson })
       .from(supportMessages)
@@ -198,7 +240,7 @@ export async function runSupportAction(input: { caseId: string; messageId: strin
       .limit(1);
     const action = row ? actionOfFacts(row.facts) : null;
     if (!c || !c.clinicId || c.state === "closed" || !action || action.status !== "pending") return { run: false as const, action };
-    const earlier = await caseChange(input.caseId, input.messageId, tx);
+    const earlier = await caseChange(input.caseId, input.messageId, tx, input.now);
     if (earlier) {
       const same = earlier.status === "done" && earlier.key === action.key && earlier.value === action.value;
       const next: SupportAction = same

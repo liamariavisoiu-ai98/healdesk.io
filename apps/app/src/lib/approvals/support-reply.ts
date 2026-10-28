@@ -17,9 +17,9 @@ import {
   readCaseForReply,
   subjectForCase,
 } from "@/lib/support/send";
-import { runSupportAction } from "@/lib/support/actions/execute";
+import { runSupportAction, settleStaleRunning } from "@/lib/support/actions/execute";
 import { ACTION_CHECK_ID, CHECK_RULES, checkActionClaim, type FactsUsed } from "@/lib/support/draft/checks";
-import { actionOfFacts, actionView, type ActionView, type SupportAction } from "@/lib/support/actions/tiers";
+import { actionOfFacts, actionView, settleStale, type ActionView, type SupportAction } from "@/lib/support/actions/tiers";
 import { failedRules, type ReplyCheck } from "@/lib/support/send-checks";
 import type { SendEmailOptions } from "@/lib/email/send";
 
@@ -237,7 +237,7 @@ type Standing = {
   action: SupportAction | null;
 };
 
-async function standing(payload: SupportReplyApprovalPayload, actor?: ActorContext): Promise<Standing> {
+async function standing(payload: SupportReplyApprovalPayload, actor?: ActorContext, now: Date = new Date()): Promise<Standing> {
   const read = await readCaseForReply(payload.caseId, actor);
   if (!read) return { stillNeeded: false, supportCase: null, currentVersion: null, clinicName: null, facts: [], action: null };
   // The case's current draft: only it can be approved, and only while unapproved.
@@ -253,7 +253,8 @@ async function standing(payload: SupportReplyApprovalPayload, actor?: ActorConte
     currentVersion: current?.draftVersion ?? null,
     clinicName: read.clinicName,
     facts: current ? factsOfDraft(current) : [],
-    action: current ? actionOfFacts(current.factsJson) : null,
+    // A claim whose task died reads as refused, outcome unknown (actions/tiers.ts settleStale).
+    action: current ? settleStale(actionOfFacts(current.factsJson), now) : null,
   };
 }
 
@@ -386,7 +387,9 @@ export async function sendSupportReply(
 ): Promise<ExecutionResult> {
   const payload = parseSupportReplyPayload(approval.payload);
   if (!payload || !draft) return fail("malformed_item", "This item's details could not be read, so nothing was sent.");
-  const s = await standing(payload);
+  // A change whose task died mid-run is settled first, so it neither counts as made nor blocks the reply for good.
+  await settleStaleRunning(unsafeDb, payload.caseId, now);
+  const s = await standing(payload, undefined, now);
   if (!s.stillNeeded || !s.supportCase) return NO_LONGER_NEEDED;
   const c = s.supportCase;
   if (!c.subjectClinicId || !(await clinicWroteFirst(c.id))) {

@@ -175,6 +175,8 @@ describe("the draft's closed lists have words", () => {
     expect(ids).toHaveLength(8);
     // The ninth, run only on a draft written from an email (lane P7h).
     ids.push(constValue("lib/support/draft/checks.ts", "EMAIL_CHECK_ID"));
+    // The tenth, a claim of a Settings change only when it was made (lane D).
+    ids.push(constValue("lib/support/draft/checks.ts", "ACTION_CHECK_ID"));
     const floor = [...source("lib/support/send-checks.ts").matchAll(/id: "([a-z_]+)"/g)].map((m) => m[1]!);
     expect(floor).toContain("send_shape");
     expect(floor).toContain("reply_checks");
@@ -199,7 +201,10 @@ describe("the draft's closed lists have words", () => {
   });
 
   test("every read tool a fact may come from, and every confidence (lib/support/draft/tools.ts)", () => {
-    expect(Object.keys(TOOL_WORDS).sort()).toEqual(constList("lib/support/draft/tools.ts", "READ_TOOL_NAMES").sort());
+    // The readers, then propose_action's answer (lane D: FACT_TOOL_NAMES).
+    expect(Object.keys(TOOL_WORDS).sort()).toEqual(
+      [...constList("lib/support/draft/tools.ts", "READ_TOOL_NAMES"), constValue("lib/support/draft/tools.ts", "PROPOSE_ACTION")].sort(),
+    );
     expect(Object.keys(CONFIDENCE_WORDS).sort()).toEqual(constList("lib/support/draft/tools.ts", "CONFIDENCE_LEVELS").sort());
   });
 
@@ -209,8 +214,8 @@ describe("the draft's closed lists have words", () => {
     const required = /required: \[([\s\S]*?)\]/.exec(tools.slice(tools.indexOf("confidence: {")))?.[1] ?? "";
     expect(required).toContain('"confidence"');
     expect(source("lib/support/draft/run.ts")).toContain("confidence: proposal.confidence");
-    // A saved edit's facts_json is `by` and `attempt` alone (send.ts saveReplyDraft).
-    expect(source("lib/support/send.ts")).toContain("factsJson: { by: OPERATOR_MARK, attempt: version }");
+    // A saved edit's facts_json is `by` and `attempt`, and the change its draft proposed if any (send.ts saveReplyDraft): never a confidence.
+    expect(source("lib/support/send.ts")).toContain("factsJson: { by: OPERATOR_MARK, attempt: version, ...(action ? { action } : {}) }");
     expect(draftAuthorWords({ confidence: "high" })).toBe("written by the assistant, confidence high");
     expect(draftAuthorWords({ confidence: null })).toBe("saved from this editor");
     const draft: SupportDraftView = {

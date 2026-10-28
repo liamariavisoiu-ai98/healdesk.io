@@ -38,6 +38,7 @@ import {
   SEND_NOTE,
   sendOutcomeWords,
   SIGN_OFF_NOTE,
+  proposedChangeWords,
   SNOOZE_NOTE,
   snoozedWords,
   SOURCE_WORDS,
@@ -272,6 +273,9 @@ export function CaseView({ view, item, waitingRead, clinics, now, actions }: Cas
             <p className="text-muted mt-3 text-sm">
               Subject: <span className="text-ink font-semibold">{item?.packet?.draft?.subject ?? replySubject(c.category, c.ref)}</span>
             </p>
+            {item?.packet?.facts.action ? (
+              <p className="mt-1 text-sm font-semibold">{proposedChangeWords(item.packet.facts.action)}</p>
+            ) : null}
             <label className="mt-2 block text-sm">
               <span className={LABEL}>Reply</span>
               <textarea

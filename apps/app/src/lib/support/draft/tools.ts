@@ -62,7 +62,7 @@ export const READ_TOOL_NAMES = [
 export type ReadToolName = (typeof READ_TOOL_NAMES)[number];
 export const PROPOSE_REPLY = "propose_reply";
 /** Lane D: the one Settings change the email asks for, from the closed list (lib/support/actions/tiers.ts). */
-export const PROPOSE_ACTION = "propose_action";
+export const PROPOSE_ACTION = "propose_action" as const;
 /** The tools a fact may cite: the readers, and propose_action's answer (its "- Setting:" and "- Value:" lines). */
 export const FACT_TOOL_NAMES = [...READ_TOOL_NAMES, PROPOSE_ACTION] as const;
 export type FactToolName = (typeof FACT_TOOL_NAMES)[number];

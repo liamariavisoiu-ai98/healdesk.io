@@ -167,6 +167,14 @@ describe("a drafted case", () => {
     expect(text(render(view, { waitingRead: false }))).toContain(WAITING_NOT_READ);
   });
 
+  test("a waiting reply that proposes a Settings change says it, in closed words, next to the draft; none says nothing", () => {
+    const withAction = { ...item, packet: { ...item.packet!, facts: { ...item.packet!.facts, action: { label: "Website chat", value: "on", tier: "approval" as const, status: "pending" as const } } } };
+    expect(text(render(view, { item: withAction }))).toContain("Proposed change: Website chat → on (made when you approve the reply).");
+    const done = { ...withAction, packet: { ...withAction.packet, facts: { ...withAction.packet.facts, action: { ...withAction.packet.facts.action, tier: "direct" as const, status: "done" as const } } } };
+    expect(text(render(view, { item: done }))).toContain("Proposed change: Website chat → on (made).");
+    expect(text(render(view, { item }))).not.toContain("Proposed change");
+  });
+
   test("the editor is the only text field, and the view has no element that could print inbound text", () => {
     const html = render(view, { item, clinics: [{ id: CLINIC, name: "Radiance Med Spa", synthetic: false }] });
     expect(html.match(/<textarea/g)).toHaveLength(1);

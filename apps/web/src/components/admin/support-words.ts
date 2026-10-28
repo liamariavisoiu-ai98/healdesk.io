@@ -3,6 +3,7 @@ import { CARRIERS, CHANNEL_NAMES, COVERAGE_MODE_OPTIONS, getPlan } from "@healde
 import type { ApprovalDecisionEntry } from "@/lib/admin/approval-decide";
 import type {
   SupportAccountFactsView,
+  SupportActionView,
   SupportCaseCategory,
   SupportCaseFactsView,
   SupportCaseMoveOutcome,
@@ -252,6 +253,7 @@ export const CHECK_NAMES: Record<SupportCheckId | "send_shape" | "send_tone" | "
   shape: "Shape",
   other_clinics: "Other practices",
   email_words: "Quotes the email",
+  action_claim: "Change made",
   send_shape: "Plain text",
   send_tone: "Tone",
   send_copy: "Copy",
@@ -298,7 +300,24 @@ export const TOOL_WORDS: Record<SupportDraftView["factsUsed"][number]["tool"], s
   get_forwarding_steps: "the forwarding steps",
   get_clinic_signals: "the clinic's signals",
   get_case_history: "the case history",
+  propose_action: "the proposed change",
 };
+
+/** Where a proposed change stands, in a few words (lane D). */
+export const ACTION_STATUS_WORDS: Record<SupportActionView["status"], string> = {
+  pending: "made when you approve the reply",
+  running: "being made now",
+  done: "made",
+  already: "already set, nothing to change",
+  refused: "not made: the clinic's Settings refused it",
+  unavailable: "not made: it can't be changed yet",
+  not_run: "not made: this case already made a change",
+};
+
+/** "Proposed change: Website chat → on (made when you approve the reply)." Closed words only. */
+export function proposedChangeWords(action: SupportActionView): string {
+  return `Proposed change: ${action.label} → ${action.value} (${ACTION_STATUS_WORDS[action.status]}).`;
+}
 
 export const CONFIDENCE_WORDS: Record<NonNullable<SupportDraftView["confidence"]>, string> = {
   high: "high",

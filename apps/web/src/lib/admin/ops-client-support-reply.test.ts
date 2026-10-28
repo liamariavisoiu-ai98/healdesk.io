@@ -107,6 +107,7 @@ const ITEM = {
       draftVersion: 1,
       currentDraftVersion: 1,
       checks: [{ id: "names", ok: true, rule: "Names no person" }],
+      action: null,
     },
     draft: { subject: "Re: Your call forwarding (ref HD-6V104)", body: BODY },
   },
@@ -148,6 +149,26 @@ describe("the support reply's clients", () => {
     expect(result.ok && result.data.items[0]!.packet!.draft).toEqual({ subject: "Re: Your call forwarding (ref HD-6V104)", body: BODY });
     expect(result.ok && result.data.items[0]!.packet!.facts.ref).toBe("HD-6V104");
     reply({ data: { items: [{ ...ITEM, packet: { ...ITEM.packet, facts: { ...ITEM.packet.facts, text: "hi" } } }], partial: [] } });
+    expect((await fetchSupportReplyApprovals()).ok).toBe(false);
+  });
+
+  test("a support reply's proposed change is read as closed words: label, value, tier and status, nothing more", async () => {
+    const action = { label: "Website chat", value: "on", tier: "approval", status: "pending" };
+    const withAction = { ...ITEM, packet: { ...ITEM.packet, facts: { ...ITEM.packet.facts, action } } };
+    reply({ data: { items: [withAction], partial: [] } });
+    const result = await fetchSupportReplyApprovals();
+    expect(result.ok && result.data.items[0]!.packet!.facts.action).toEqual(action);
+    for (const bad of [
+      { ...action, reason: "free text" },
+      { ...action, status: "made" },
+      { ...action, tier: "never" },
+      "Website chat on",
+    ]) {
+      reply({ data: { items: [{ ...ITEM, packet: { ...ITEM.packet, facts: { ...ITEM.packet.facts, action: bad } } }], partial: [] } });
+      expect((await fetchSupportReplyApprovals()).ok).toBe(false);
+    }
+    const { action: _gone, ...noAction } = ITEM.packet.facts;
+    reply({ data: { items: [{ ...ITEM, packet: { ...ITEM.packet, facts: noAction } }], partial: [] } });
     expect((await fetchSupportReplyApprovals()).ok).toBe(false);
   });
 

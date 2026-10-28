@@ -157,6 +157,7 @@ export const item: SupportReplyApprovalItem = {
       draftVersion: 2,
       currentDraftVersion: 2,
       checks: draft.checks,
+      action: null,
     },
     draft: { subject: "Re: Your call forwarding (ref HD-7F3KQ)", body: DRAFT_TEXT },
   },

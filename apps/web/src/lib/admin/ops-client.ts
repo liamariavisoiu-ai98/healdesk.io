@@ -9680,6 +9680,32 @@ export function proposeSupportReply(caseId: string): Promise<OpsResult<SupportRe
   });
 }
 
+/** apps/app lib/support/actions/tiers.ts ACTION_STATUSES. */
+export const SUPPORT_ACTION_STATUSES = ["pending", "running", "done", "already", "refused", "unavailable", "not_run"] as const;
+
+/**
+ * The Settings change a support draft proposed (lane D; apps/app
+ * lib/support/actions/tiers.ts actionView): closed words only, the switch's
+ * label and on/off or the choice's label, its tier and where it stands.
+ * Approving the reply makes a pending one before the reply is sent.
+ */
+export type SupportActionView = {
+  label: string;
+  value: string;
+  tier: "direct" | "approval";
+  status: (typeof SUPPORT_ACTION_STATUSES)[number];
+};
+
+function readSupportAction(value: unknown, at: string): SupportActionView {
+  const a = exactKeys(value, ["label", "value", "tier", "status"], at);
+  return {
+    label: text(a.label, `${at}.label`),
+    value: text(a.value, `${at}.value`),
+    tier: literal(a.tier, ["direct", "approval"] as const, `${at}.tier`),
+    status: literal(a.status, SUPPORT_ACTION_STATUSES, `${at}.status`),
+  };
+}
+
 export type SupportReplyFactsView = {
   kind: SupportApprovalKind;
   ref: string;
@@ -9692,6 +9718,8 @@ export type SupportReplyFactsView = {
   draftVersion: number;
   currentDraftVersion: number | null;
   checks: SupportReplyCheckView[];
+  /** The Settings change the draft proposed (lane D), or null. */
+  action: SupportActionView | null;
 };
 
 export type SupportReplyApprovalItem = Omit<ApprovalItem, "kind" | "operation" | "packet"> & {
@@ -9711,7 +9739,7 @@ export type SupportReplyApprovalItem = Omit<ApprovalItem, "kind" | "operation" |
 function readSupportReplyFacts(value: unknown, at: string): SupportReplyFactsView {
   const f = exactKeys(
     value,
-    ["kind", "ref", "caseId", "topic", "symptom", "caseUrgency", "caseState", "replyByOn", "draftVersion", "currentDraftVersion", "checks"],
+    ["kind", "ref", "caseId", "topic", "symptom", "caseUrgency", "caseState", "replyByOn", "draftVersion", "currentDraftVersion", "checks", "action"],
     at,
   );
   if (typeof f.replyByOn !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(f.replyByOn)) throw new ShapeError(`${at}.replyByOn`);
@@ -9727,6 +9755,7 @@ function readSupportReplyFacts(value: unknown, at: string): SupportReplyFactsVie
     draftVersion: count(f.draftVersion, `${at}.draftVersion`),
     currentDraftVersion: nullable(f.currentDraftVersion, (v) => count(v, `${at}.currentDraftVersion`)),
     checks: list(f.checks, `${at}.checks`).map((c, i) => readReplyCheck(c, `${at}.checks[${i}]`)),
+    action: nullable(f.action, (v) => readSupportAction(v, `${at}.action`)),
   };
 }
 
@@ -9831,11 +9860,11 @@ export function fetchSupportReplyHistory(options: { limit?: number } = {}): Prom
 // The support drafter (lane P7b)
 // -----------------------------------------------------------------------------
 
-/** apps/app lib/support/draft/checks.ts CHECK_IDS, in order, then EMAIL_CHECK_ID (lane P7h). */
-export const SUPPORT_CHECK_IDS = ["facts", "screen", "names", "clinical", "promises", "claims", "shape", "other_clinics", "email_words"] as const;
+/** apps/app lib/support/draft/checks.ts CHECK_IDS, in order, then EMAIL_CHECK_ID (lane P7h) and ACTION_CHECK_ID (lane D). */
+export const SUPPORT_CHECK_IDS = ["facts", "screen", "names", "clinical", "promises", "claims", "shape", "other_clinics", "email_words", "action_claim"] as const;
 export type SupportCheckId = (typeof SUPPORT_CHECK_IDS)[number];
-/** apps/app lib/support/draft/tools.ts READ_TOOL_NAMES. */
-const SUPPORT_DRAFT_TOOLS = ["get_account_state", "get_forwarding_steps", "get_clinic_signals", "get_case_history"] as const;
+/** apps/app lib/support/draft/tools.ts FACT_TOOL_NAMES: the readers, then propose_action (lane D). */
+const SUPPORT_DRAFT_TOOLS = ["get_account_state", "get_forwarding_steps", "get_clinic_signals", "get_case_history", "propose_action"] as const;
 /** apps/app lib/support/draft/store.ts DRAFT_FAILURES. */
 export const SUPPORT_DRAFT_FAILURES = [
   "model_unavailable",

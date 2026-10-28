@@ -53,5 +53,10 @@ export const SETTINGS_HISTORY_FIELDS = [
   "transcript_retention_days",
   "auto_confirm_bookings",
   "sign_in_email",
+  // The payment switches a lost fact sets back (lib/portal/switch-resets.ts):
+  // each reset keeps its before and after, as a change of where calls go does.
+  "deposits_enabled",
+  "text_payment_link",
+  "payment_ask",
 ] as const;
 export type SettingsHistoryField = (typeof SETTINGS_HISTORY_FIELDS)[number];

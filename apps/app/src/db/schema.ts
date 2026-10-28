@@ -4277,6 +4277,10 @@ export type SignInLink = typeof signInLinks.$inferSelect;
 
 export type DepositUncollectable = "book_and_flag" | "hold_and_alert" | "decline_and_alert";
 
+/** What the assistant asks the patient to pay (Settings → Payments). */
+export const PAYMENT_ASKS = ["deposit_only", "full_payment"] as const;
+export type PaymentAsk = (typeof PAYMENT_ASKS)[number];
+
 /**
  * Per-clinic switches the portal edits (design D9): deposits, Pause AI and
  * the direct line. A table of its own so an edit here never clears agent
@@ -4358,6 +4362,18 @@ export const clinicSettings = pgTable(
      * terms that allow writing and the owner's kill switch.
      */
     autoConfirmBookings: boolean("auto_confirm_bookings").notNull().default(true),
+    /**
+     * Payments (owner, 28 October 2026; drizzle/0133). "Text the payment
+     * link": the clinic's choice, off by default, usable once phone is
+     * bought and Stripe is connected; whether a text can go out at all is
+     * the tool layer's, and no sender exists yet. "What the assistant asks
+     * the patient to pay": deposit only, or the full price, which needs
+     * Stripe, the calendar and Auto-confirm (lib/portal/switch-rules.ts);
+     * losing any of them sets it back to deposit only in the same
+     * transaction (lib/portal/switch-resets.ts). Clinic configuration only.
+     */
+    textPaymentLink: boolean("text_payment_link").notNull().default(false),
+    paymentAsk: text("payment_ask").$type<PaymentAsk>().notNull().default("deposit_only"),
     /** Book into one shared calendar, or against a named provider's own. */
     bookingDetail: text("booking_detail").$type<BookingDetail>().notNull().default("generic"),
     /**
@@ -4431,6 +4447,10 @@ export const clinicSettings = pgTable(
     check(
       "clinic_settings_direct_line_check",
       sql`${t.directLineE164} is null or ${t.directLineE164} ~ '^\\+[1-9][0-9]{6,14}$'`,
+    ),
+    check(
+      "clinic_settings_payment_ask_check",
+      sql`${t.paymentAsk} in ('deposit_only', 'full_payment')`,
     ),
     check(
       "clinic_settings_auto_confirm_stamp_check",

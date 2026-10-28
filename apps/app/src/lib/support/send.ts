@@ -16,6 +16,7 @@ import { claimDelivery, recordDelivery } from "@/lib/reporting/recipients";
 import { clinicSignIn } from "@/lib/sign-in/address-change";
 import { withTenant } from "@/lib/tenant";
 
+import { actionOfFacts } from "./actions/tiers";
 import { canMove, printRef } from "./case-vocab";
 import type { FactsUsed } from "./draft/checks";
 import { readReplyCheckContext } from "./draft/run";
@@ -170,6 +171,10 @@ export async function checkReplyText(
   actor: ActorContext = SERVICE,
 ): Promise<ReplyCheckResult> {
   const clinicId = context.supportCase.subjectClinicId;
+  // Lane D: a reply on a case whose current draft carries a proposed change
+  // may say it was made only as that change stands (draft/checks.ts action_claim).
+  const current = await currentReplyDraft(context.supportCase.id);
+  const action = current ? actionOfFacts(current.factsJson) : null;
   const practice = clinicId ? await readReplyCheckContext({ clinicId, actor }).catch(() => null) : null;
   // Without the practice's context, check 8 cannot see the other practices' names: fail closed.
   if (clinicId && !practice) {
@@ -181,6 +186,7 @@ export async function checkReplyText(
     ...(context.facts ? { facts: context.facts } : {}),
     ownCaseRef: printRef(context.supportCase.ref),
     mode: "send",
+    ...(action ? { action } : {}),
     ...(practice
       ? {
           context: {
@@ -249,6 +255,10 @@ export async function saveReplyDraft(input: {
       .from(supportMessages)
       .where(and(eq(supportMessages.caseId, input.caseId), eq(supportMessages.kind, "reply"), eq(supportMessages.direction, "out")));
     const version = Number(top?.top ?? 0) + 1;
+    // Lane D: an edit of a draft that proposed a change keeps the change, so
+    // approving the edited reply still runs it (and its claim check still holds).
+    const current = await currentReplyDraft(input.caseId, tx);
+    const action = current ? actionOfFacts(current.factsJson) : null;
     const [row] = await tx
       .insert(supportMessages)
       .values({
@@ -258,7 +268,7 @@ export async function saveReplyDraft(input: {
         draftText: input.text,
         draftVersion: version,
         checksJson: { ok: input.checks.ok, results: input.checks.results.map((r) => ({ id: r.id, ok: r.ok, rule: r.rule })) },
-        factsJson: { by: OPERATOR_MARK, attempt: version },
+        factsJson: { by: OPERATOR_MARK, attempt: version, ...(action ? { action } : {}) },
         createdAt: input.now,
       })
       .returning({ id: supportMessages.id });

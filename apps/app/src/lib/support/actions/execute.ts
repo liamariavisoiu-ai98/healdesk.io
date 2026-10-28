@@ -12,7 +12,7 @@ import { readSettingSnapshot } from "@/lib/clinic/setting-changes";
 import { SETTING_ENTRIES } from "@/lib/clinic/setting-words";
 import { googleCalendarConnection } from "@/lib/connections/google-calendar";
 import { describeError, log } from "@/lib/log";
-import { switchViews, type ClinicSwitchView } from "@/lib/ops/switch-ops";
+import type { ClinicSwitchView } from "@/lib/ops/switch-ops";
 import { saveSetting, type SettingKey } from "@/lib/portal/settings";
 import { clinicSignIn } from "@/lib/sign-in/address-change";
 import { withTenant } from "@/lib/tenant";
@@ -73,6 +73,9 @@ export async function readSwitchViews(clinicId: string, now: Date, actor: ActorC
       calendarConnected: calendar?.status === "active",
     };
   });
+  // Loaded here, not at the top: lib/ops/switch-ops.ts reaches lib/ops/api.ts,
+  // which loads the support send path, which loads the drafter that loads this.
+  const { switchViews } = await import("@/lib/ops/switch-ops");
   return switchViews(read);
 }
 

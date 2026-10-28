@@ -18,6 +18,8 @@ import {
   subjectForCase,
 } from "@/lib/support/send";
 import type { FactsUsed } from "@/lib/support/draft/checks";
+import { runSupportAction } from "@/lib/support/actions/execute";
+import { actionOfFacts, actionView, type ActionView, type SupportAction } from "@/lib/support/actions/tiers";
 import { failedRules, type ReplyCheck } from "@/lib/support/send-checks";
 import type { SendEmailOptions } from "@/lib/email/send";
 
@@ -52,7 +54,12 @@ import { moveStatus, propose, SERVICE_ACTOR, subjectAfterRejections, type EventA
  *     holds a reply that failed (scripts/readonly-tables.ts lists ops_approvals);
  *   - approving runs `sendSupportReply`: the checks again, in send mode, on
  *     the exact text approved (the edit when there is one), refusing with the
- *     rules' names, never the words; then the text is frozen on the reply
+ *     rules' names, never the words; then, when the draft proposed a
+ *     Settings change still pending (lane D: an APPROVAL-tier change, or a
+ *     DIRECT one held for approval), that change is made through the
+ *     clinic's own Settings door (lib/support/actions/execute.ts), and if it
+ *     is refused nothing is sent (`action_refused`), so the reply never says
+ *     a change was made that was not; then the text is frozen on the reply
  *     row and sent (lib/support/send.ts). A case closed since, or a newer
  *     draft, sends nothing (`no_longer_needed`).
  */
@@ -225,11 +232,13 @@ type Standing = {
   clinicName: string | null;
   /** The current draft's facts (check 5's billing facts). */
   facts: FactsUsed[];
+  /** The current draft's proposed Settings change (lane D), or null. */
+  action: SupportAction | null;
 };
 
 async function standing(payload: SupportReplyApprovalPayload, actor?: ActorContext): Promise<Standing> {
   const read = await readCaseForReply(payload.caseId, actor);
-  if (!read) return { stillNeeded: false, supportCase: null, currentVersion: null, clinicName: null, facts: [] };
+  if (!read) return { stillNeeded: false, supportCase: null, currentVersion: null, clinicName: null, facts: [], action: null };
   // The case's current draft: only it can be approved, and only while unapproved.
   const current = await currentReplyDraft(payload.caseId);
   return {
@@ -243,6 +252,7 @@ async function standing(payload: SupportReplyApprovalPayload, actor?: ActorConte
     currentVersion: current?.draftVersion ?? null,
     clinicName: read.clinicName,
     facts: current ? factsOfDraft(current) : [],
+    action: current ? actionOfFacts(current.factsJson) : null,
   };
 }
 
@@ -277,6 +287,12 @@ export type SupportReplyFacts = {
   currentDraftVersion: number | null;
   /** Each check on the draft as it stands, by id and rule; never the words. */
   checks: ReplyCheck[];
+  /**
+   * The Settings change the draft proposed (lane D), as closed words: the
+   * switch's label, on/off or the choice's label, its tier and where it
+   * stands. Approving runs a pending one before the reply is sent. Null: none.
+   */
+  action: ActionView | null;
 };
 
 export type SupportReplyPacket = {
@@ -320,6 +336,7 @@ export async function supportReplyPacket(
       draftVersion: payload.draftVersion,
       currentDraftVersion: s.currentVersion,
       checks: checks.results.map((c) => ({ id: c.id, ok: c.ok, rule: c.rule })),
+      action: actionView(s.action),
     },
     draft: stored,
   };
@@ -384,6 +401,16 @@ export async function sendSupportReply(
   const checks = await checkReplyText(draft.body, { supportCase: c, clinicName: s.clinicName, facts: s.facts });
   if (!checks.ok) {
     return fail("checks_failed", `Nothing was sent: the reply fails ${failedRules(checks).join("; ")}. Edit it and propose it again.`);
+  }
+  // Lane D: the draft's pending Settings change is made first; refused, nothing is sent.
+  const action = s.action?.status === "pending" ? await runSupportAction({ caseId: c.id, messageId: payload.messageId, now }) : s.action;
+  if (action && (action.status === "refused" || action.status === "not_run" || action.status === "running")) {
+    return fail(
+      "action_refused",
+      action.status === "running"
+        ? "The Settings change this reply describes was already being made and its outcome is not known yet, so nothing was sent. Check the clinic's switches, then edit the reply and propose it again."
+        : `The Settings change this reply describes was not made, so nothing was sent: ${action.reason ?? "it was refused"} Edit the reply and propose it again.`,
+    );
   }
   const frozen = await freezeApproval({
     caseId: c.id,

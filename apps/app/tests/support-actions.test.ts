@@ -3,7 +3,9 @@ import { describe, expect, test } from "vitest";
 import { SETTING_ENTRIES } from "@/lib/clinic/setting-words";
 import type { ClinicSwitchView } from "@/lib/ops/switch-ops";
 import { OPS_SWITCH_LABEL } from "@/lib/ops/calendar-ops";
+import { SUPPORT_ACTION_SLACK_LEADS, supportActionSlackLine } from "@/lib/ops/slack";
 import { SETTING_KEYS } from "@/lib/portal/settings";
+import { replyMessage, viewKey, type ReplyView } from "@/lib/support/slack-reply";
 import { assessAction, COULD_NOT_RUN, NOT_IN_PLAN, SUPPORT_ACTION_LABEL } from "@/lib/support/actions/execute";
 import {
   ACTION_KEYS,
@@ -103,7 +105,7 @@ describe("the propose_action tool", () => {
 
   test("is strict, takes a key and a value from the closed list only, and no clinic", () => {
     expect(tool.strict).toBe(true);
-    const schema = tool.input_schema as { properties: Record<string, { enum?: string[] }>; required: string[]; additionalProperties: boolean };
+    const schema = tool.input_schema as unknown as { properties: Record<string, { enum?: string[] }>; required: string[]; additionalProperties: boolean };
     expect(Object.keys(schema.properties)).toEqual(["key", "value"]);
     expect(schema.required).toEqual(["key", "value"]);
     expect(schema.additionalProperties).toBe(false);
@@ -238,5 +240,48 @@ describe("the action_claim reply check", () => {
     const result = claim("Thanks for writing. I've turned the daily summary off.", null)!;
     expect(Object.keys(result).sort()).toEqual(["id", "ok", "rule", "spans"]);
     expect(JSON.stringify(result)).not.toContain("daily summary");
+  });
+});
+
+describe("Slack carries the proposed change in closed words only", () => {
+  test("the line is the lead for its status, the switch's label and on/off or the choice's label", () => {
+    expect(supportActionSlackLine({ label: "Daily summary email", value: "off", status: "pending" })).toBe(
+      `${SUPPORT_ACTION_SLACK_LEADS.pending} *Daily summary email* → *off*`,
+    );
+    expect(supportActionSlackLine({ label: "What the assistant asks the patient to pay", value: "Full payment", status: "done" })).toBe(
+      `${SUPPORT_ACTION_SLACK_LEADS.done} *What the assistant asks the patient to pay* → *Full payment*`,
+    );
+    for (const status of ACTION_STATUSES) expect(SUPPORT_ACTION_SLACK_LEADS[status]).toMatch(/^:[a-z_]+: [A-Z][a-z ,]+:$/);
+  });
+
+  test("anything off the allow-list is refused: a free-text label or value, an address, a reason, an unknown status", () => {
+    expect(supportActionSlackLine(null)).toBeNull();
+    expect(supportActionSlackLine({ label: "Please switch off the summary for Dr Rivera", value: "off", status: "pending" })).toBeNull();
+    expect(supportActionSlackLine({ label: "Daily summary email", value: "front@clinic.test", status: "pending" })).toBeNull();
+    expect(supportActionSlackLine({ label: "Daily summary email", value: "off", status: "because the email said so" })).toBeNull();
+    expect(supportActionSlackLine({ label: "Direct line", value: "+14155550100", status: "pending" })).toBeNull();
+  });
+
+  test("the reply's Slack message shows the line beside the draft, and its change moves the message's key", () => {
+    const view: ReplyView = {
+      caseId: "8b0c9d1e-2f3a-4b5c-8d6e-7f8091a2b3c4",
+      ref: "HD-7F3KQ",
+      clinicName: "Glow Med Spa",
+      urgency: "this_week",
+      replyByOn: "2026-10-29",
+      caseState: "drafted",
+      snoozedUntil: null,
+      item: { id: "1b0c9d1e-2f3a-4b5c-8d6e-7f8091a2b3c4", status: "waiting", outcomeCode: null },
+      draftVersion: 1,
+      draft: "Hi, website chat will be on once you approve.",
+      failed: [],
+      action: { label: "Website chat", value: "on", tier: "approval", status: "pending" },
+    };
+    const text = JSON.stringify(replyMessage(view).blocks);
+    expect(text).toContain(`${SUPPORT_ACTION_SLACK_LEADS.pending} *Website chat* → *on*`);
+    const done = { ...view, item: { ...view.item!, status: "executed" as const, outcomeCode: "sent" }, action: { ...view.action!, status: "done" as const } };
+    expect(JSON.stringify(replyMessage(done).blocks)).toContain(`${SUPPORT_ACTION_SLACK_LEADS.done} *Website chat* → *on*`);
+    expect(viewKey(view)).not.toBe(viewKey({ ...view, action: { ...view.action!, status: "done" } }));
+    expect(JSON.stringify(replyMessage({ ...view, action: null }).blocks)).not.toContain("Proposed change");
   });
 });

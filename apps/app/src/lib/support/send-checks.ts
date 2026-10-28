@@ -2,7 +2,8 @@ import { lintSupportTone } from "@healdesk/catalog";
 
 import { copyProblems, isApprovedReplyShape, linkProblems } from "@/lib/email/lint";
 
-import { runReplyChecks, type FactsUsed, type ReplyCheckInput as DraftCheckInput } from "./draft/checks";
+import type { SupportAction } from "./actions/tiers";
+import { ACTION_CHECK_ID, CHECK_RULES, checkActionClaim, runReplyChecks, type FactsUsed, type ReplyCheckInput as DraftCheckInput } from "./draft/checks";
 
 /**
  * The reply checks a support reply must pass when it is drafted, and again on
@@ -44,6 +45,12 @@ export type ReplyCheckInput = {
   /** This case's printed ref ("HD-7F3KQ"): the only ref the reply may carry. */
   ownCaseRef: string;
   mode: "draft" | "send";
+  /**
+   * The case's current draft's proposed change (lane D), when it carries
+   * one: the `action_claim` check then runs beside the installed checks, so
+   * no reply says a change was made that was not. Absent: not run.
+   */
+  action?: Pick<SupportAction, "status"> | null;
   /** The practice's context for the eight (readReplyCheckContext), when its account could be read. */
   context?: Pick<
     DraftCheckInput,
@@ -162,6 +169,9 @@ export async function runSupportReplyChecks(input: ReplyCheckInput): Promise<Rep
     }
   }
   results.push(...floorChecks(input.text));
+  if (input.action !== undefined) {
+    results.push({ id: ACTION_CHECK_ID, ok: checkActionClaim(input.text, input.action).ok, rule: CHECK_RULES[ACTION_CHECK_ID] });
+  }
   return { ok: results.every((c) => c.ok), results };
 }
 

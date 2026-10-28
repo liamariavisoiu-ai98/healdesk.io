@@ -7,7 +7,9 @@ import { listByStatus } from "@/lib/approvals/store";
 import { parseSupportReplyPayload, SUPPORT_REPLY_KIND } from "@/lib/approvals/support-payload";
 import { consoleOrigin } from "@/lib/email/lint";
 import { describeError, log } from "@/lib/log";
-import { packSections, slackName, SLACK_SECTION_MAX, SLACK_TAG } from "@/lib/ops/slack";
+import { packSections, slackName, SLACK_SECTION_MAX, SLACK_TAG, supportActionSlackLine } from "@/lib/ops/slack";
+
+import { actionOfFacts, actionView, type ActionView } from "./actions/tiers";
 
 import { printRef } from "./case-vocab";
 import { checkReplyText, currentReplyDraft, factsOfDraft, readCaseForReply } from "./send";
@@ -80,6 +82,12 @@ export type ReplyView = {
   draft: string | null;
   /** The checks on the draft now: the names of those that fail, or none. Null when not run. */
   failed: string[] | null;
+  /**
+   * The Settings change the current draft proposed (lane D), as closed words
+   * (the switch's label, on/off or the choice's label), or null. Approving
+   * the reply makes a pending one first.
+   */
+  action: ActionView | null;
 };
 
 /** Whether the message shows buttons: the item waits and the case is open. */
@@ -103,6 +111,7 @@ export function viewKey(view: ReplyView): string {
     view.caseState,
     view.snoozedUntil ? view.snoozedUntil.toISOString().slice(0, 10) : "awake",
     view.failed === null ? "unchecked" : view.failed.length === 0 ? "pass" : `fail${view.failed.length}`,
+    view.action ? `action:${view.action.status}` : "noaction",
   ].join("|");
 }
 
@@ -169,6 +178,8 @@ export function replyMessage(view: ReplyView): { text: string; blocks: SlackBloc
     },
   ];
   const link = caseConsoleLink(view.caseId);
+  // Lane D: the proposed change, closed words only, through the allow-list (lib/ops/slack.ts).
+  const actionLine = supportActionSlackLine(view.action);
   if (isActionable(view) && view.draft) {
     blocks.push({ type: "divider" });
     for (const piece of packSections(escapeMrkdwn(view.draft).split("\n"), SLACK_SECTION_MAX)) {
@@ -181,6 +192,7 @@ export function replyMessage(view: ReplyView): { text: string; blocks: SlackBloc
         : view.failed.length === 0
           ? ":white_check_mark: Every check passes."
           : `:warning: Failing: ${view.failed.map((r) => escapeMrkdwn(r)).join("; ")}`;
+    if (actionLine) blocks.push({ type: "section", text: { type: "mrkdwn", text: actionLine } });
     blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: checks }] });
     const value = JSON.stringify({ a: view.item!.id, c: view.caseId });
     blocks.push({
@@ -208,6 +220,7 @@ export function replyMessage(view: ReplyView): { text: string; blocks: SlackBloc
     });
   } else {
     blocks.push({ type: "section", text: { type: "mrkdwn", text: finalLine(view) || ":white_circle: Nothing is waiting." } });
+    if (actionLine) blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: actionLine }] });
     if (link) blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `<${link}|Open ${view.ref} in the console>` }] });
   }
   return { text: escapeMrkdwn(headline), blocks };
@@ -237,6 +250,8 @@ export async function readReplyView(caseId: string): Promise<ReplyView | null> {
   const payload = item ? parseSupportReplyPayload(item.payload) : null;
   let draft: string | null = null;
   let failed: string[] | null = null;
+  const currentRow = await currentReplyDraft(caseId);
+  const action = currentRow && payload?.messageId === currentRow.id ? actionView(actionOfFacts(currentRow.factsJson)) : null;
   if (item && item.status === "waiting" && c.state !== "closed") {
     draft = parseDraft(item.draft)?.body ?? null;
     if (draft) {
@@ -261,6 +276,7 @@ export async function readReplyView(caseId: string): Promise<ReplyView | null> {
     draftVersion: payload?.draftVersion ?? null,
     draft,
     failed,
+    action,
   };
 }
 

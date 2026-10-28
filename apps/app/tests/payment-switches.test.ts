@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 
 import { applyDeauthorization } from "@/lib/billing/connect";
+import { runClinicChangeAlerts } from "@/lib/clinic/change-events";
 import { setAutoConfirm } from "@/lib/booking/mode";
 import { markCalendarBrokenWithin } from "@/lib/connections/google-calendar";
 import { saveSetting, type SettingContext } from "@/lib/portal/settings";
@@ -238,6 +239,42 @@ describeDb("payment switches", () => {
     await setAutoConfirm(clinic.clinicId, true, ACTOR, { label: "Front desk Mac", now: tick() });
     expect((await switches(clinic.clinicId)).payment_ask).toBe("deposit_only");
     expect(await resetEmails(clinic.clinicId)).toHaveLength(1);
+  });
+
+  test("a reset is healdesk's own change in the feed: one row per switch, one ops alert each, once", async () => {
+    await ready(clinic);
+    const ctx = ctxFor(clinic);
+    await saveSetting(ctx, "payment_ask", "full_payment", tick());
+    const feed = () =>
+      tenantRows<{ id: string; source: string; actor_kind: string; summary: Record<string, unknown> }>(
+        clinic.clinicId,
+        `select id, source, actor_kind, summary from clinic_change_events
+          where kind = 'setting' and alerted_at is null order by changed_at, id`,
+      );
+    await inTenant(clinic.clinicId, (c) =>
+      c.query(`update clinic_change_events set alerted_at = now() where alerted_at is null`),
+    );
+
+    await setAutoConfirm(clinic.clinicId, false, ACTOR, { label: "Front desk Mac", now: tick() });
+    // The person's switch, and healdesk's reset of what needed it (same moment).
+    const rows = (await feed()).sort((a, b) => String(a.summary.setting).localeCompare(String(b.summary.setting)));
+    expect(rows.map((r) => [r.source, r.actor_kind, r.summary])).toEqual([
+      ["portal", "clinic_signin", { setting: "auto_confirm", before: "on", after: "off" }],
+      ["system", "system", { setting: "payment_ask", before: "full_payment", after: "deposit_only" }],
+    ]);
+
+    await runClinicChangeAlerts();
+    await runClinicChangeAlerts();
+    const alerts = await migrator(
+      `select dedupe_key, fields from ops_alerts
+        where event = 'clinic_availability_changed' and fields->>'clinicId' = $1 and fields->>'section' = 'setting'
+        order by raised_at`,
+      [clinic.clinicId],
+    );
+    const reset = alerts.filter((a) => a.dedupe_key === `key:setting_change:${rows[1]!.id}`);
+    expect(reset).toHaveLength(1);
+    expect(reset[0]!.fields).toMatchObject({ setting: "payment_ask", before: "full_payment", after: "deposit_only", actor: "system" });
+    expect(alerts.filter((a) => a.dedupe_key === `key:setting_change:${rows[0]!.id}`)).toHaveLength(1);
   });
 
   test("a broken calendar returns full payment to deposit only", async () => {

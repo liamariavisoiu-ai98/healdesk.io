@@ -7469,6 +7469,9 @@ export const CLINIC_CHANGE_SOURCES = [
   // A support request carried out as an action (lane D's support drafter):
   // a setting changed on a clinic's emailed request.
   "support_action",
+  // healdesk itself: a payment switch set back because something it needs
+  // was lost (lib/portal/switch-resets.ts; owner, 28 October 2026).
+  "system",
 ] as const;
 export type ClinicChangeSource = (typeof CLINIC_CHANGE_SOURCES)[number];
 
@@ -7477,7 +7480,7 @@ export type ClinicChangeSource = (typeof CLINIC_CHANGE_SOURCES)[number];
  * the portal or wizard, ops, a change file (db-apply) or another direct
  * edit. Never the device's own label, which the clinic's staff typed.
  */
-export const CLINIC_CHANGE_ACTORS = ["clinic_device", "clinic_signin", "ops", "change_file", "direct", "support"] as const;
+export const CLINIC_CHANGE_ACTORS = ["clinic_device", "clinic_signin", "ops", "change_file", "direct", "support", "system"] as const;
 export type ClinicChangeActor = (typeof CLINIC_CHANGE_ACTORS)[number];
 
 /**

@@ -1,0 +1,4 @@
+ALTER TABLE "clinic_change_events" DROP CONSTRAINT "clinic_change_events_source_check";--> statement-breakpoint
+ALTER TABLE "clinic_change_events" DROP CONSTRAINT "clinic_change_events_actor_kind_check";--> statement-breakpoint
+ALTER TABLE "clinic_change_events" ADD CONSTRAINT "clinic_change_events_source_check" CHECK ("clinic_change_events"."source" in ('portal', 'wizard', 'website', 'calendar_link', 'ops_console', 'direct', 'support_action', 'system'));--> statement-breakpoint
+ALTER TABLE "clinic_change_events" ADD CONSTRAINT "clinic_change_events_actor_kind_check" CHECK ("clinic_change_events"."actor_kind" in ('clinic_device', 'clinic_signin', 'ops', 'change_file', 'direct', 'support', 'system'));

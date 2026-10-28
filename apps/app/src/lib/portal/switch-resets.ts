@@ -4,6 +4,8 @@ import {
   writeDepositSettings,
   type DepositSettingsPatch,
 } from "@/lib/billing/deposits";
+import { SYSTEM_ORIGIN } from "@/lib/clinic/change-events";
+import { recordSettingChange } from "@/lib/clinic/setting-changes";
 import { notifySwitchesReset } from "@/lib/notices/setting-changed";
 import type { TenantTx } from "@/lib/tenant";
 
@@ -28,7 +30,10 @@ import {
  * text off, deposits off. Each reset goes through setDepositSettings, so it
  * keeps its before and after in clinic_settings_history and an audit row
  * naming the reason, and the clinic gets ONE email naming every switch reset
- * and why (O4, lib/email/templates/setting_changed.ts). Business data only.
+ * and why (O4, lib/email/templates/setting_changed.ts). Each reset is also
+ * a row in the clinic change feed, as healdesk's own change
+ * (lib/clinic/setting-changes.ts, SYSTEM_ORIGIN), so ops hear of it once by
+ * email and in Slack, like any other change. Business data only.
  */
 
 /** The real facts the payment switches' rules weigh, for the Settings page, the wizard and the writers. */
@@ -52,6 +57,13 @@ const PATCHES: Readonly<Record<SwitchReset["switch"], DepositSettingsPatch>> = {
   full_payment: { paymentAsk: "deposit_only" },
   text_payment_link: { textPaymentLink: false },
   deposits: { depositsEnabled: false },
+};
+
+/** Each reset as the change feed records it: the Settings key, before and after. */
+const FEED: Readonly<Record<SwitchReset["switch"], { key: string; before: unknown; after: unknown }>> = {
+  full_payment: { key: "payment_ask", before: "full_payment", after: "deposit_only" },
+  text_payment_link: { key: "text_payment_link", before: true, after: false },
+  deposits: { key: "deposits_enabled", before: true, after: false },
 };
 
 /**
@@ -83,6 +95,9 @@ export async function applySwitchResets(
   const { historyIds } = await writeDepositSettings(tx, patch, input.actorLabel, now, {
     reason: input.cause,
   });
+  for (const reset of resets) {
+    await recordSettingChange(tx, { ...FEED[reset.switch], origin: SYSTEM_ORIGIN, now });
+  }
   await notifySwitchesReset(tx, {
     switchIds: resets.map((r) => r.switch),
     code: unlock,

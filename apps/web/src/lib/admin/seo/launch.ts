@@ -258,7 +258,7 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     left: "The switch is saved per clinic, off by default, and can be turned on once phone is bought and Stripe is connected. Nothing sends a text: no sender is chosen, no per-clinic carrier registration exists, and paymentLinkTextOffered() returns false so the assistant never offers one. Left: choose a sender, register each clinic with the carriers, write the sending in the tool layer (fixed words and the clinic's own checkout link only, nothing clinical), test it on a real call, then move this item to on. The Terms and Privacy still say AYA sends no texts; the proposed wording waits for the owner (docs/design/launch-readiness-2026-10-27/legal-wording-proposal-payment-text.md).",
     evidence:
       "apps/app/src/lib/portal/switch-resets.ts (paymentLinkTextOffered), apps/app/src/lib/portal/switch-rules.ts, apps/app/drizzle/0133_payment_switches.sql",
-    blocksGoLive: true,
+    blocksGoLive: false,
   },
   {
     id: "full-payment",
@@ -269,6 +269,6 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     left: "The choice is saved per clinic, needs the payment gateway, the calendar and Auto-confirm, and drops back to Deposit only (with an audit row, a notice and an email) when one is lost. fullPaymentActive() answers whether it may apply right now, but nothing calls it yet: the tool layer, the deposit link and the assistant's prompts still ask only for a deposit. Left: wire the tool layer and the prompts to it, test it on web chat and Meta, then move this item to on.",
     evidence:
       "apps/app/src/lib/portal/switch-resets.ts (fullPaymentActive), apps/app/src/lib/portal/switch-rules.ts, apps/app/src/lib/billing/deposits.ts",
-    blocksGoLive: true,
+    blocksGoLive: false,
   },
 ];

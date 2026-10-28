@@ -84,7 +84,7 @@ The code added in this lane (`apps/app/src/lib/voice/agent-storage.ts`) reads ba
 
 - **Action:** in Retell's dashboard, set the demo agent's data storage retention to 2 days and publish. Place one more synthetic call as in step 2. Wait 15 minutes.
 - **What you should see:** the ops alert email "healdesk ops: URGENT: A Retell agent's call storage is not ours" for the demo clinic, with "retention not one day" (and the same post in Slack `#alerts` if it is on); in CloudWatch the line `retell agent storage is not ours` with `status: retention`; the call itself still deleted (`get-call` 404, as in step 3).
-- **Pass / fail:** PASS if the alert came once and the call was still deleted. FAIL if no alert came: paste any `retell agent storage not checked` line's `code`.
+- **Pass / fail:** PASS if the alert came and the call was still deleted. The alert is deduplicated per clinic, problem and UTC day: if one for this problem was already raised today (UTC), run this step after midnight UTC or check the `/admin` alerts for it instead of waiting for an email. FAIL if no alert came: paste any `retell agent storage not checked` line's `code`.
 - **Clean up:** set the retention back to 1 day and publish; repeat step 1 to confirm it reads 1. The alert does not come again that day for this problem; you may leave it.
 
 ### Step 6. Retell's own one-day deletion (checklist G)

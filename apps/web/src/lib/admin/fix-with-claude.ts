@@ -170,6 +170,7 @@ export const RUNBOOK_ANCHOR: Record<OpsEvent, RunbookAnchor> = {
   incident_step_waiting: "incident-assistant",
   support_reply_dead: "support-replies",
   slack_approvals_locked: "support-replies",
+  support_action_reply_unsent: "support-replies",
   support_case_past_due: "support-cases",
   support_case_now: "support-cases",
 };

@@ -278,6 +278,8 @@ export const NO_CLINIC_PAGE: Readonly<Record<OpsEvent, string>> = {
   support_reply_dead: "/admin/support",
   // always raised with no clinic (lane P7i): the replies waiting are on the Support console.
   slack_approvals_locked: "/admin/support",
+  // always raised with a clinic (lane D); without one, the Support console, which lists the cases.
+  support_action_reply_unsent: "/admin/support",
   // a support case (lane P7e): listed on the Support console, with or without a clinic (lane P7d); Queues › Support
   // lists the chat's dated promises, not the cases.
   support_case_past_due: "/admin/support",

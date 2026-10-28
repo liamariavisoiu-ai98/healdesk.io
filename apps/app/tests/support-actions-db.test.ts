@@ -10,7 +10,7 @@ import type { Operator } from "@/lib/ops/api";
 import { opSaveSupportDraft } from "@/lib/ops/support-reply-ops";
 import type { ClinicSwitchView } from "@/lib/ops/switch-ops";
 import { NEVER_TEXT, TWICE_TEXT } from "@/lib/support/actions/propose";
-import { ONE_PER_CASE, runSupportAction } from "@/lib/support/actions/execute";
+import { ONE_PER_CASE, runSupportAction, runSupportActionForApproval } from "@/lib/support/actions/execute";
 import { OUTCOME_UNKNOWN, RUNNING_STALE_MS } from "@/lib/support/actions/tiers";
 import { handleInboundNotice } from "@/lib/support/inbound/handle";
 import type { InboundNotice } from "@/lib/support/inbound/notice";
@@ -545,6 +545,57 @@ describeDb("support email to action (lane D)", () => {
     expect((await lastReply(caseId)).facts_json.action).toMatchObject({ status: "refused", reason: OUTCOME_UNKNOWN });
     expect((await settings(clinic.clinicId)).daily_summary).toBe(true);
     expect(await changes(clinic.clinicId)).toHaveLength(0);
+  });
+
+  test("an approval whose draft is no longer the case's current one makes no change; a change made whose reply then cannot go tells ops once", async () => {
+    const store = memoryMailStore();
+    const { caseId } = await deliver(store, "Hi team, we want to approve every booking ourselves from now on.");
+    const model = new ActingDrafter([{ key: "auto_confirm", value: "off" }], "Hi, I've switched auto-confirm off, so every booking comes to you as a request.");
+    expect(await draftNextCase({ client: model, now: NOW, mailStore: store }, caseId)).toMatchObject({ outcome: "drafted" });
+    const item = await waitingItem(caseId);
+    const row = await lastReply(caseId);
+    const pool = getMigratorPool();
+    await pool.query(`delete from ops_alerts where event = 'support_action_reply_unsent'`);
+
+    // The guard itself: a draft version that is not the row's, or a row no longer current, runs nothing.
+    const version = (item!.payload as { draftVersion: number }).draftVersion;
+    expect(await runSupportActionForApproval({ caseId, messageId: row.id, draftVersion: version + 1, now: NOW })).toEqual({ stale: true });
+    expect((await lastReply(caseId)).facts_json.action).toMatchObject({ status: "pending" });
+    expect((await settings(clinic.clinicId)).auto_confirm_bookings).toBe(true);
+
+    // The clinic's sign-in is gone when the reply goes: the change is made, the reply stops, ops is told once.
+    await inTenant(clinic.clinicId, (c) => c.query(`update clinic_memberships set revoked_at = $2 where clinic_id = $1`, [clinic.clinicId, NOW]));
+    try {
+      const result = await sendSupportReply(item!, parseDraft(item!.draft), new Date(NOW.getTime() + 10 * MINUTE));
+      expect(result).toMatchObject({ ok: false, outcomeCode: "clinic_left" });
+      expect(result.message).toContain("The Settings change it describes was made");
+    } finally {
+      await inTenant(clinic.clinicId, (c) => c.query(`update clinic_memberships set revoked_at = null where clinic_id = $1`, [clinic.clinicId]));
+    }
+    expect((await settings(clinic.clinicId)).auto_confirm_bookings).toBe(false);
+    expect(replySends()).toHaveLength(0);
+    const { rows } = await pool.query<{ fields: Record<string, unknown> }>(`select fields from ops_alerts where event = 'support_action_reply_unsent'`);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.fields).toMatchObject({ clinicId: clinic.clinicId, requestId: caseId });
+    // Ids and the ref only: nothing of the email or the reply.
+    expect(JSON.stringify(rows[0]!.fields)).not.toMatch(/booking|auto-confirm/i);
+  });
+
+  test("a newer draft saved before the approval runs: nothing changes and nothing is sent", async () => {
+    const store = memoryMailStore();
+    const { caseId } = await deliver(store, "Hi team, we want to approve every booking ourselves from now on.");
+    const model = new ActingDrafter([{ key: "auto_confirm", value: "off" }], "Hi, I've switched auto-confirm off, so every booking comes to you as a request.");
+    expect(await draftNextCase({ client: model, now: NOW, mailStore: store }, caseId)).toMatchObject({ outcome: "drafted" });
+    const item = await waitingItem(caseId);
+    const row = await lastReply(caseId);
+    // An operator's edit lands first: the item's draft is no longer current.
+    await opSaveSupportDraft({ caseId, text: "Hi, auto-confirm is now off, so every booking comes to you as a request first." }, OPERATOR, NOW);
+    const version = (item!.payload as { draftVersion: number }).draftVersion;
+    expect(await runSupportActionForApproval({ caseId, messageId: row.id, draftVersion: version, now: NOW })).toEqual({ stale: true });
+    const result = await sendSupportReply(item!, parseDraft(item!.draft), new Date(NOW.getTime() + 10 * MINUTE));
+    expect(result).toMatchObject({ ok: false, outcomeCode: "no_longer_needed" });
+    expect((await settings(clinic.clinicId)).auto_confirm_bookings).toBe(true);
+    expect(replySends()).toHaveLength(0);
   });
 
   test("prompt injection: a NEVER switch, another clinic and two changes at once run nothing beyond one listed change for the matched clinic", async () => {

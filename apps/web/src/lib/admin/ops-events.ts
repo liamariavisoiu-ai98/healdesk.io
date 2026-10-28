@@ -117,6 +117,7 @@ export const OPS_EVENTS = [
   "incident_step_waiting",
   "support_reply_dead",
   "slack_approvals_locked",
+  "support_action_reply_unsent",
   "support_case_past_due",
   "support_case_now",
 ] as const;

@@ -19,7 +19,7 @@ Order: scope, then the three products and their limits, then booking, then onboa
 
 Three facts drive most of the decisions in here, and they are worth holding in mind throughout:
 
-1. **No outbound.** Every product is inbound only. That single choice removes SMS registration, WhatsApp templates and most of the Meta platform restrictions from the critical path.
+1. **No outbound.** Every product is inbound only: nothing contacts a patient first, and nothing follows a conversation up. That single choice removes WhatsApp templates and most of the Meta platform restrictions from the critical path. One optional exception, a clinic setting that is off by default: a single text carrying a payment link, sent to a caller who has just booked on a call and agreed to receive it ("Payment by text after a call", under Booking behaviour). It brings SMS sender registration back for the clinics that switch it on, and for no one else.
 2. **Meta will not sign a business associate agreement, ever.** So the Meta channels are scoped to carry no patient health information, by design and by contract.
 3. **The code is not the bottleneck.** Meta verification, App Review and the clinic's own call forwarding are. Three of those four clocks can be started before a single client exists.
 
@@ -32,7 +32,7 @@ Decisions now locked:
 | Decision | Status |
 | --- | --- |
 | No outbound on any product | Inbound only. No follow-up sequences, reminders, win-backs or missed-call text-back |
-| SMS cut from v1 entirely | Including as a delivery channel for the voice agent |
+| SMS is not a channel in v1 | Patients cannot text the assistant, and nothing is texted to a patient except the one optional payment-link text after a call (owner, 28 October 2026) |
 | Voice runs on Retell | Pay-as-you-go, pointed at a Healdesk-hosted Claude endpoint |
 | Meta built in house on the Cloud API | WhatsApp, Instagram and Messenger all in scope |
 | Web chatbot built with Claude Code on the Claude API | Confirmed |
@@ -182,8 +182,33 @@ Deposit rules are set per service, since a consultation fee and a package deposi
 | Book by voice without a deposit | On / Off | On: the agent books and flags the booking as deposit pending, for staff to collect. Off: the agent does not book by voice when a deposit is required |
 | Book by chat without a deposit | On / Off | Same rule for web and Meta. Default off, because those channels can take payment in the conversation |
 | When a deposit is required and cannot be collected | Book and flag / Hold and alert staff / Decline and alert staff | Hold and alert keeps the slot reserved for a set window while staff are pinged |
+| Text the payment link after a call | On / Off | On: after booking by voice, the agent offers to text the caller a secure payment link, and sends it only if the caller agrees. Needs a connected payment gateway |
+| What the assistant asks the patient to pay | Deposit only / Full payment | Full payment lets the assistant take the whole price of a service through the same hosted checkout. Needs a connected gateway, a connected calendar and auto-confirm on |
 
 The dashboard states the trade-off in one line under the toggle, because clinics will not infer it: booking without a deposit fills the calendar and raises no-show risk, requiring one protects the slot and loses some bookings to friction.
+
+### Payment by text after a call, and full payment (owner, 28 October 2026)
+
+Two optional clinic settings, both in the onboarding wizard's behaviour step and in the portal's Settings, each with a one-line reason shown wherever it is unavailable.
+
+**Payment link by text after a call.** Voice cannot collect a payment in the call, and it never takes card numbers. With this on, the agent finishes the booking, offers to text a secure payment link, and sends it only if the caller says yes and confirms the number by reading it back. The text goes once, to that number, in answer to that call. It is not a reminder, a follow-up or a resend, and nothing else is ever texted. The message is fixed text with the link: no treatment, time or amount in the words, and the link is the clinic's own hosted checkout, which carries only an amount, a generic descriptor and an opaque reference. If the text cannot be sent, the booking stands, the deposit is flagged for staff as it is today, and the caller is told so on the call when it can be known there.
+
+- **Needs the clinic's payment gateway connected,** since the link is the clinic's own checkout. A clinic with no gateway sees the setting greyed out with that reason and a button to connect.
+- **The text is sent through a route on the BAA chain.** A caller's number next to a clinic is a fact about care sought, so the sender must sign a business associate agreement with Healdesk, or be the clinic's own gateway under its terms if the gateway can send text. Which route exists is settled at build; the spec does not assume that a gateway texts a checkout link. If no compliant route exists, the setting stays unavailable and says why.
+- **Sender registration** is per clinic and takes one to four weeks (see "What v1 cannot do"). Until the clinic's registration is complete the setting is greyed out and says so. A clinic that never switches it on never registers anything.
+- **Default off.** The clinic turns it on in the wizard or in Settings, and can turn it off at any time; off takes effect on the next call.
+
+**Full payment.** If the clinic's gateway is connected, the assistant can ask for the whole price of a service instead of a deposit, on the channels that send a link (web chat and Meta in the conversation, voice by the text above). It uses the same hosted checkout and the clinic's own price list, never takes card numbers, and never names a treatment to the gateway. It is available only when:
+
+1. a payment gateway is connected,
+2. the clinic's calendar is connected, so the assistant can write the booking itself, and
+3. Auto-confirm bookings is on, because a payment must never be taken for a slot that staff may still decline.
+
+Turning Auto-confirm off, disconnecting the calendar or disconnecting the gateway returns the setting to Deposit only in the same moment and tells the clinic why. Full payments are payments taken through the clinic's own gateway: claims copy calls them that, never revenue, and the wording is settled in the copy review.
+
+**Both booking modes, every channel.** A clinic whose calendar is connected can let the assistant book directly on every channel it has switched on, or can keep a person in the loop: Auto-confirm off turns every booking on every channel into a request staff approve. The mode is one clinic-wide choice, not a per-channel one. Direct booking on the Meta channels waits for the direct-booking switch (DB-1) and a ruling on stating a time there; until then Meta takes booking requests.
+
+**How the portal explains it.** Each of these settings is a plain toggle. Whenever one is unavailable or changes what another can do, the portal shows a short animated explanation beside it: why it is greyed out and what unlocks it, and what happens when it is switched on or off. The animations explain; they never decide anything, and the page works fully without them.
 
 ### Where bookings are written
 
@@ -482,7 +507,7 @@ The flow documents already written stand, with five corrections that follow from
 | --- | --- |
 | Wizard step 2: calendar OAuth for Boulevard, Mindbody, Google Calendar | Google Calendar only. The clinic links its own booking system to that calendar. See the booking section for which systems this protects and which it does not |
 | Wizard step 3: Stripe Connect as a required step | Folded into the behaviour step as an optional toggle. Clinics that do not want deposits skip it and the agent books without one |
-| Delivery engine: email plus SMS | Email only. No SMS anywhere in v1 |
+| Delivery engine: email plus SMS | Email only, apart from the one optional payment-link text after a call |
 | Omnichannel deployment: bots go live instantly, under two minutes total | True for the chat channels. Not true for voice, which waits on call forwarding, or for WhatsApp, which waits on the clinic attaching billing. Replace with per-channel status |
 | Final delivery email: phone number routing instructions | Keep, but promote it. Forwarding is the highest-risk step in the whole onboarding and deserves its own screen, its own carrier-specific instructions and the offer of a call |
 
@@ -594,6 +619,8 @@ Settings shows the Channels, Behaviour and Escalation switches below as cards on
 | Suggest add-on treatments | On / Off | Off | On lets the assistant suggest complementary treatments and products during a booking. Off keeps it to what was asked |
 | Mention promotions | On / Off | On | Whether the promotions box is used in conversation |
 | Take deposits | On / Off | Off until a gateway is connected | Whether the assistant can send a payment link at all |
+| Text the payment link after a call | On / Off | Off | Voice only. After a call booking the agent offers to text the caller a hosted payment link, and sends it only if the caller says yes and reads the number back. Greyed out until a gateway is connected and text sending is registered for the clinic |
+| What the assistant asks the patient to pay | Deposit only / Full payment | Deposit only | Full payment sends the whole price of the service from the clinic's own list through the same hosted checkout. Greyed out unless a gateway and a calendar are connected and Auto-confirm bookings is on |
 | Book by phone without a deposit | On / Off | On | Off means the voice agent will not book a deposit-required service and routes to staff instead |
 | Book by chat without a deposit | On / Off | Off | Chat channels can take payment, so the default protects the slot |
 | When a deposit cannot be collected | Book and flag / Hold the slot and alert staff / Do not book and alert staff | Book and flag | Applies to any channel that cannot collect in the moment |
@@ -677,7 +704,7 @@ Every line here is a deliberate scope decision with a reason. None of it should 
 | Post-treatment check-ins and review requests | Outbound |
 | Warm-lead follow-up after a conversation ends | Outbound, and structurally impossible on Meta outside the 24-hour window |
 | SMS as a channel at all | US carriers block unregistered application messaging outright. Registration is per clinic, tied to each clinic's own tax ID, and takes one to four weeks per client. That does not fit a same-week onboarding |
-| Voice sending a payment or booking link | Requires SMS. The agent books on the call instead, which converts better anyway |
+| Voice sending a booking link | Never. The agent books on the call. A payment link by text after a call is the one optional exception (owner, 28 October 2026) |
 | Taking card details by voice or chat | Never. Payment always goes through a hosted checkout the patient opens |
 | Live writes into Mindbody or Boulevard | Their APIs require partner approval, per-clinic activation and per-location fees. Phase two |
 | Clinical advice, diagnosis, prescribing or treatment plans | Out of bounds permanently, not just in v1 |
@@ -923,7 +950,7 @@ The current product sheet and site promise things v1 does not do. These need cha
 - Missed-call text-back
 - Appointment reminders and no-show sequences
 - SMS or texting as a channel
-- Payment links by text
+- Payment links by text beyond the one optional text after a call, and any text a patient did not ask for
 - Any claim of going live across every channel in under two minutes
 - Any unqualified claim that the product is HIPAA compliant. The accurate line is that Healdesk signs a business associate agreement and handles patient data under it
 

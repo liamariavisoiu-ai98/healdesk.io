@@ -48,6 +48,7 @@ import { urgentHelpField } from "@/lib/setup/urgent";
 import { withTenant } from "@/lib/tenant";
 
 import { appliesWhen } from "./applies";
+import { switchRules } from "./switch-rules";
 import { SETTING_CHANNELS, type SettingKey } from "./settings";
 
 /**
@@ -125,6 +126,14 @@ export type SettingsView = {
     uncollectable: DepositUncollectable;
     holdMinutes: number;
     servicesWithDeposit: number;
+    /** Text the payment link after a call (clinic switch; default off). */
+    textPaymentLink: boolean;
+    /** What the assistant asks the patient to pay. */
+    paymentAsk: "deposit_only" | "full_payment";
+    /** Which payment switches can be used now, and why not: the one answer (switch-rules.ts). */
+    rules: ReturnType<typeof switchRules>;
+    autoConfirm: boolean;
+    calendarConnected: boolean;
   };
   safety: {
     directLine: string;
@@ -306,6 +315,18 @@ export async function readSettingsView(input: {
       uncollectable: tenant.deposits.depositUncollectable,
       holdMinutes: tenant.deposits.depositHoldMinutes,
       servicesWithDeposit: knowledge.services.filter((s) => (s.depositUsd ?? 0) > 0).length,
+      // Placeholders until lane A reads the real values (portal-dashboard-lanes.md).
+      textPaymentLink: false,
+      paymentAsk: "deposit_only",
+      autoConfirm: settings.autoConfirmBookings,
+      calendarConnected: false,
+      rules: switchRules({
+        gatewayConnected: tenant.deposits.isConnected,
+        hasDepositAmount: tenant.deposits.hasDepositAmount,
+        calendarConnected: false,
+        autoConfirm: settings.autoConfirmBookings,
+        hasVoice: bought.voice,
+      }),
     },
     safety: {
       directLine: settings.directLineE164 ? formatPhone(settings.directLineE164) : "",

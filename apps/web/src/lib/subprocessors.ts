@@ -115,6 +115,7 @@ export const PROCESSOR_CATEGORIES = {
   analytics: "Analytics",
   "web-research": "Web research",
   "team-chat": "Internal chat tool",
+  "support-mailbox": "Mailbox provider",
 } as const;
 
 export type ProcessorCategory = keyof typeof PROCESSOR_CATEGORIES;
@@ -269,6 +270,20 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
       state: "none-by-design",
       because:
         "No BAA (the owner accepted this on 26 October 2026). The drafted reply it shows is checked by the reply rules, designed to keep patient details out, which no check does for every wording.",
+    },
+    scope: "product",
+  },
+  {
+    name: "Mailbox provider (the owner's support mailbox)",
+    category: "support-mailbox",
+    purpose: "The owner's own mailbox, which the support@ and hello@ aliases deliver to before it forwards each message to in.healdesk.io for the support system; internal only, the legal pages describe no such vendor",
+    data: "A clinic's raw support email, as ordinary correspondence, and nothing else of ours. Clinics are told not to put patient information in it, but nothing stops one doing so, and the mailbox keeps its copy under its own rules, which healdesk does not control",
+    region: "",
+    handlesPhi: false,
+    baa: {
+      state: "none-by-design",
+      because:
+        "No BAA, and none is possible for an ordinary mailbox. The support system keeps facts only and deletes its own copy of the email; the mailbox's copy is outside it. Clinics are told not to send patient information.",
     },
     scope: "product",
   },

@@ -131,6 +131,8 @@ Launch-readiness H0 to H8 on local branches (none pushed to `main`): `pkg/voice-
 
 - NOAUDIO-2 review fixes (local, committed on `fix/noaudio-2`, not deployed): the Retell agent storage check in `apps/app/src/lib/voice/backstop.ts` now runs after the ingest commit and before the delete, so a hanging get-agent cannot delay recording; run sheet Step 5 and `docs/on-call.md` state the per-day dedupe and that unreadable agents only log. Tested: agent-storage, voice-backstop, recording-alerts, ops-alert-wording, alert-wording, 370 passed, 0 skipped (local Postgres via verify-local.sh); not CI-verified.
 
+- **CHECK-OPEN-ITEMS (28 Oct 2026), LOCAL on `check/open-items`, not deployed:** `apps/web/src/lib/site-read/decode.ts` decodes windows-1252 labels by the WHATWG index (Node 22 returned C1 controls for 0x80-0x9F), used by `site-read/fetch.ts`; the internal vendor register gained the owner's support mailbox provider (generic, no BAA, internal only, `scope: "product"`); no public page text or `LEGAL_VERSION` changed; `/admin/map` gets no new tool (the mailbox is already in the inbound-support story, and it is no key or connection of ours).
+
 ## Next actions — ordered
 From `docs/design/launch-readiness-2026-10-27/status.md` sections 1 and 8 and the owner's decisions of 27 Oct 2026. Owner-only and Claude Code actions are kept apart.
 

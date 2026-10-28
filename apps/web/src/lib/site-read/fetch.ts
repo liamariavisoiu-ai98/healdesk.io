@@ -10,6 +10,7 @@ import { CLINIC_PROFILE_LIMITS } from "@healdesk/catalog";
 import { site } from "@/lib/site";
 
 import { refusedAddress } from "./address";
+import { decodeWindows1252, isWindows1252 } from "./decode";
 import { pickPages, readLinks, sameSite } from "./html";
 import { parseRobots, robotsAllows, type Robots } from "./robots";
 
@@ -300,6 +301,7 @@ function decodeText(body: Buffer, contentType: string): string {
     /<meta[^>]{0,200}?charset\s*=\s*["']?([\w.:-]+)/i.exec(
       body.subarray(0, 4096).toString("latin1"),
     )?.[1];
+  if (declared && isWindows1252(declared)) return decodeWindows1252(body);
   try {
     return new TextDecoder(declared ?? "utf-8").decode(body);
   } catch {

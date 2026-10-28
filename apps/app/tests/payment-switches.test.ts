@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 
 import { applyDeauthorization } from "@/lib/billing/connect";
+import { runClinicChangeAlerts } from "@/lib/clinic/change-events";
 import { setAutoConfirm } from "@/lib/booking/mode";
 import { markCalendarBrokenWithin } from "@/lib/connections/google-calendar";
 import { saveSetting, type SettingContext } from "@/lib/portal/settings";
@@ -240,6 +241,42 @@ describeDb("payment switches", () => {
     expect(await resetEmails(clinic.clinicId)).toHaveLength(1);
   });
 
+  test("a reset is healdesk's own change in the feed: one row per switch, one ops alert each, once", async () => {
+    await ready(clinic);
+    const ctx = ctxFor(clinic);
+    await saveSetting(ctx, "payment_ask", "full_payment", tick());
+    const feed = () =>
+      tenantRows<{ id: string; source: string; actor_kind: string; summary: Record<string, unknown> }>(
+        clinic.clinicId,
+        `select id, source, actor_kind, summary from clinic_change_events
+          where kind = 'setting' and alerted_at is null order by changed_at, id`,
+      );
+    await inTenant(clinic.clinicId, (c) =>
+      c.query(`update clinic_change_events set alerted_at = now() where alerted_at is null`),
+    );
+
+    await setAutoConfirm(clinic.clinicId, false, ACTOR, { label: "Front desk Mac", now: tick() });
+    // The person's switch, and healdesk's reset of what needed it (same moment).
+    const rows = (await feed()).sort((a, b) => String(a.summary.setting).localeCompare(String(b.summary.setting)));
+    expect(rows.map((r) => [r.source, r.actor_kind, r.summary])).toEqual([
+      ["portal", "clinic_signin", { setting: "auto_confirm", before: "on", after: "off" }],
+      ["system", "system", { setting: "payment_ask", before: "full_payment", after: "deposit_only" }],
+    ]);
+
+    await runClinicChangeAlerts();
+    await runClinicChangeAlerts();
+    const alerts = await migrator(
+      `select dedupe_key, fields from ops_alerts
+        where event = 'clinic_availability_changed' and fields->>'clinicId' = $1 and fields->>'section' = 'setting'
+        order by raised_at`,
+      [clinic.clinicId],
+    );
+    const reset = alerts.filter((a) => a.dedupe_key === `key:setting_change:${rows[1]!.id}`);
+    expect(reset).toHaveLength(1);
+    expect(reset[0]!.fields).toMatchObject({ setting: "payment_ask", before: "full_payment", after: "deposit_only", actor: "system" });
+    expect(alerts.filter((a) => a.dedupe_key === `key:setting_change:${rows[0]!.id}`)).toHaveLength(1);
+  });
+
   test("a broken calendar returns full payment to deposit only", async () => {
     const connection = await ready(clinic);
     await saveSetting(ctxFor(clinic), "payment_ask", "full_payment", tick());
@@ -255,7 +292,7 @@ describeDb("payment switches", () => {
     expect(emails.map((e) => e.payload.code)).toEqual(["connect_calendar"]);
   });
 
-  test("Stripe taking our access away switches off deposits, full payment and the text together, in one email", async () => {
+  test("Stripe taking our access away switches off deposits, full payment and the text together, in the disconnect's one email", async () => {
     await ready(clinic);
     const ctx = ctxFor(clinic);
     await saveSetting(ctx, "deposits_enabled", true, tick());
@@ -274,11 +311,31 @@ describeDb("payment switches", () => {
       text_payment_link: false,
       payment_ask: "deposit_only",
     });
-    const emails = await resetEmails(clinic.clinicId);
-    expect(emails).toHaveLength(1);
-    expect(emails[0]!.payload).toMatchObject({
-      switchIds: ["full_payment", "text_payment_link", "deposits"],
-      code: "connect_stripe",
+    // One email, the disconnect's own, naming what it set back besides
+    // deposits; no second reset email.
+    expect(await resetEmails(clinic.clinicId)).toHaveLength(0);
+    const disconnected = await tenantRows<{ payload: Record<string, unknown> }>(
+      clinic.clinicId,
+      `select payload from billing_notices where kind = 'connect_disconnected'`,
+    );
+    expect(disconnected).toHaveLength(1);
+    expect(disconnected[0]!.payload).toMatchObject({
+      source: "stripe",
+      resetSwitchIds: ["full_payment", "text_payment_link"],
+    });
+    // One audit entry for the settings, with the disconnect's reason.
+    const audits = await tenantRows<{ metadata: Record<string, unknown> }>(
+      clinic.clinicId,
+      `select metadata from audit_log where clinic_id = $1 and resource_type = 'clinic_settings'
+         and metadata->>'reason' in ('stripe_deauthorized', 'stripe_disconnected')`,
+      [clinic.clinicId],
+    );
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.metadata).toMatchObject({
+      reason: "stripe_deauthorized",
+      depositsEnabled: false,
+      textPaymentLink: false,
+      paymentAsk: "deposit_only",
     });
     const reset = (await history(clinic.clinicId)).slice(-3);
     expect(reset.map((r) => r.field).sort()).toEqual([

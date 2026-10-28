@@ -38,10 +38,20 @@ const ROW = { key: "channel_web", label: "Website chat", kind: "switch", value: 
 
 describe("fetchClinicSwitches", () => {
   test("sends the clinic id and reads every row field", async () => {
-    replies.push({ body: { data: { switches: [ROW, { ...ROW, key: "payment_ask", kind: "choice", value: "deposit_only", enabled: false, reason: "Connect Stripe first." }] } } });
+    const options = [
+      { id: "deposit_only", label: "Deposit only" },
+      { id: "full_payment", label: "Full payment" },
+    ];
+    replies.push({ body: { data: { switches: [ROW, { ...ROW, key: "payment_ask", kind: "choice", value: "deposit_only", enabled: false, reason: "Connect Stripe first.", options }] } } });
     const result = await fetchClinicSwitches(CLINIC);
     expect(sent).toEqual([{ op: "getClinicSwitches", args: { clinicId: CLINIC } }]);
-    expect(result).toMatchObject({ ok: true, data: { switches: [{ key: "channel_web", value: true }, { value: "deposit_only", reason: "Connect Stripe first." }] } });
+    expect(result).toMatchObject({ ok: true, data: { switches: [{ key: "channel_web", value: true }, { value: "deposit_only", reason: "Connect Stripe first.", options }] } });
+    if (result.ok) expect(result.data.switches[0]!.options).toBeUndefined();
+  });
+
+  test("a choice's option without a label is a malformed answer", async () => {
+    replies.push({ body: { data: { switches: [{ ...ROW, kind: "choice", value: "warm", options: [{ id: "warm" }] }] } } });
+    expect(await fetchClinicSwitches(CLINIC)).toMatchObject({ ok: false, code: "malformed" });
   });
 
   test("a value of the wrong type for its kind is a malformed answer", async () => {

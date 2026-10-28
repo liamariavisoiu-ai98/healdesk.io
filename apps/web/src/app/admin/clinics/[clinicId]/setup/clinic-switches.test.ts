@@ -6,7 +6,7 @@ import type { ClinicSwitches as Read, ClinicSwitchView, OpsResult, SetClinicSwit
 
 import { ClinicSwitches, doneWords, offeredChanges } from "./ClinicSwitches";
 import { setSwitchAction } from "./switch-action";
-import { groupSwitches } from "./switch-groups";
+import { groupSwitches, valueWords } from "./switch-groups";
 
 /**
  * The Clinic switches section against the contract's rows. The reasons are
@@ -26,7 +26,16 @@ const read: OpsResult<Read> = {
     switches: [
       row({ key: "channel_web", label: "Website chat", value: true }),
       row({ key: "text_payment_link", label: "Text the payment link", enabled: false, reason: "Connect Stripe first." }),
-      row({ key: "payment_ask", label: "What the assistant asks the patient to pay", kind: "choice", value: "deposit_only" }),
+      row({
+        key: "payment_ask",
+        label: "What the assistant asks the patient to pay",
+        kind: "choice",
+        value: "deposit_only",
+        options: [
+          { id: "deposit_only", label: "Deposit only" },
+          { id: "full_payment", label: "Full payment" },
+        ],
+      }),
       row({ key: "direct_line", label: "Direct line", operatorMayChange: false }),
       row({ key: "brand_new_switch", label: "Brand new" }),
     ],
@@ -42,7 +51,36 @@ function html(r: OpsResult<Read>): string {
 describe("the Clinic switches section", () => {
   test("groups the rows in the portal's cards, unknown keys last", () => {
     const titles = groupSwitches((read as { ok: true; data: Read }).data.switches).map((g) => g.title);
-    expect(titles).toEqual(["Channels", "Bookings and payments", "Alerts", "Other"]);
+    expect(titles).toEqual(["Channels", "Payments", "Other"]);
+  });
+
+  test("puts every key apps/app sends in a card, none under Other", () => {
+    const keys = [
+      "channel_web", "channel_instagram", "channel_messenger", "channel_whatsapp", "channel_voice", "coverage_mode",
+      "tone", "suggest_add_ons", "mention_promotions",
+      "deposits_enabled", "book_voice_without_deposit", "book_chat_without_deposit", "deposit_uncollectable",
+      "deposit_hold_minutes", "text_payment_link", "payment_ask",
+      "daily_summary", "transfer_live_calls", "auto_confirm",
+    ];
+    const groups = groupSwitches(keys.map((key) => row({ key })));
+    expect(groups.map((g) => g.title)).toEqual(["Channels", "How AYA talks", "Calendar", "Payments", "Alerts"]);
+    expect(groups.flatMap((g) => g.rows.map((r) => r.key)).sort()).toEqual([...keys].sort());
+  });
+
+  test("a choice shows and offers the server's options, whatever the key", () => {
+    const tone = row({
+      key: "tone",
+      kind: "choice",
+      value: "warm",
+      options: [
+        { id: "warm", label: "Warm and welcoming" },
+        { id: "clinical", label: "Clinical and professional" },
+      ],
+    });
+    expect(valueWords(tone)).toBe("Warm and welcoming");
+    expect(offeredChanges(tone)).toEqual([{ label: "Set to Clinical and professional", value: "clinical" }]);
+    // No options sent: shown as its value, nothing offered.
+    expect(offeredChanges(row({ key: "mystery", kind: "choice", value: "x" }))).toEqual([]);
   });
 
   test("shows the current value and the server's reason verbatim, with the button off", () => {

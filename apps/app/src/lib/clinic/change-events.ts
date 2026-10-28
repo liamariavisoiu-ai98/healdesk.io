@@ -74,6 +74,13 @@ const SIGN_IN_LABEL = "the clinic's sign-in";
  */
 export const SUPPORT_ACTION_SERVICE = "support-action";
 
+/**
+ * healdesk itself: a payment switch set back because something it needs was
+ * lost (lib/portal/switch-resets.ts), whoever lost it. The person who turned
+ * Auto-confirm off or disconnected Stripe is recorded on their own change.
+ */
+export const SYSTEM_ORIGIN: ChangeOrigin = { source: "system", actor: "system" };
+
 /** A signed-in person's change: from one of the clinic's devices, or from its sign-in alone. */
 export function clinicActorOf(label: string | null | undefined): ClinicChangeActor {
   return !label || label === SIGN_IN_LABEL ? "clinic_signin" : "clinic_device";

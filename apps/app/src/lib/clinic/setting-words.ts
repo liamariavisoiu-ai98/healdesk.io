@@ -127,6 +127,7 @@ export const CHANGE_ACTOR_WORDS: Readonly<Record<string, string>> = {
   support: "a support action at healdesk",
   change_file: "a change file",
   direct: "an edit outside the portal",
+  system: "healdesk, automatically, because something it needs was lost",
 };
 
 /**

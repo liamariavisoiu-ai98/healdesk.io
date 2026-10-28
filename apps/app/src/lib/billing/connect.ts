@@ -22,7 +22,8 @@ import { enqueueNotice, type ConnectSource } from "@/lib/billing/notices";
 import { getStripe } from "@/lib/billing/stripe-client";
 import { env } from "@/lib/env";
 import { log } from "@/lib/log";
-import { applySwitchResets } from "@/lib/portal/switch-resets";
+import { applySwitchResets, emailResets } from "@/lib/portal/switch-resets";
+import type { SwitchReset } from "@/lib/portal/switch-rules";
 import { PublicUrlError, publicOriginProblem, publicUrl } from "@/lib/public-url";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
@@ -838,10 +839,17 @@ export async function disconnectStripeConnect(input: {
       .limit(1);
     if (!clinic?.accountId) return null;
     // Everything that needs the account goes off first, in this transaction,
-    // with history, audit and one email (switch-resets.ts): deposits, full
-    // payment, the payment-link text. switchDepositsOff then finds deposits
-    // off, and still guards a clinic the rules did not reach.
-    await applySwitchResets(tx, { cause: "stripe_disconnected", actorLabel, now });
+    // with history and audit (switch-resets.ts): deposits, full payment, the
+    // payment-link text. The clinic hears of them in the disconnect email,
+    // not a second one (enqueueDisconnected). switchDepositsOff then finds
+    // deposits off, and still guards a clinic the rules did not reach.
+    const resets = await applySwitchResets(tx, {
+      cause: "stripe_disconnected",
+      actorLabel,
+      now,
+      auditReason: "stripe_disconnect",
+      email: false,
+    });
     await switchDepositsOff(tx, now);
     // A link still being created has handed nobody a URL yet: cancelling the
     // row is enough, and createDepositLink expires the session it gets back.
@@ -865,17 +873,20 @@ export async function disconnectStripeConnect(input: {
           eq(depositPayments.status, "open"),
         ),
       );
-    tx.audit.record({
-      action: "update",
-      resourceType: "clinic_settings",
-      resourceId: tx.clinicId,
-      metadata: {
-        fields: ["depositsEnabled"],
-        depositsEnabled: false,
-        reason: "stripe_disconnect",
-      },
-    });
-    return { accountId: clinic.accountId, open };
+    // The reset's audit row already says deposits went off, with this reason.
+    if (!resets.some((r) => r.switch === "deposits")) {
+      tx.audit.record({
+        action: "update",
+        resourceType: "clinic_settings",
+        resourceId: tx.clinicId,
+        metadata: {
+          fields: ["depositsEnabled"],
+          depositsEnabled: false,
+          reason: "stripe_disconnect",
+        },
+      });
+    }
+    return { accountId: clinic.accountId, open, resets };
   });
   if (!prepared) return { status: "not_connected" };
 
@@ -900,6 +911,8 @@ export async function disconnectStripeConnect(input: {
         resourceId: tx.clinicId,
         metadata: { connected: true, outcome: "deauthorize_failed", source },
       });
+      // No disconnect email goes, so the resets get their own.
+      await emailResets(tx, resetEmail(prepared.resets, now));
       return { kind: "kept" as const, counts };
     }
     const stamped = await clearAccount(tx, {
@@ -910,7 +923,10 @@ export async function disconnectStripeConnect(input: {
       actorLabel,
       deauthorized,
       hasUncheckedLinks: counts.unchecked > 0,
+      resets: prepared.resets,
     });
+    // Another path stamped the disconnection and sends its email.
+    if (!stamped) await emailResets(tx, resetEmail(prepared.resets, now));
     return { kind: "cleared" as const, counts, stamped };
   });
 
@@ -930,6 +946,7 @@ export async function disconnectStripeConnect(input: {
         false,
         source,
         finished.counts.unchecked > 0,
+        prepared.resets,
       ),
     );
   }
@@ -1045,6 +1062,8 @@ async function clearAccount(
     actorLabel: string;
     deauthorized: boolean;
     hasUncheckedLinks: boolean;
+    /** The payment switches the disconnect set back, which its email names. */
+    resets: readonly SwitchReset[];
   },
 ): Promise<{ billingClinicId: string | null } | null> {
   const [cleared] = await tx.db
@@ -1098,6 +1117,7 @@ async function clearAccount(
       input.wasByWebhook,
       input.source,
       input.hasUncheckedLinks,
+      input.resets,
     );
   }
   return { billingClinicId: cleared.billingClinicId };
@@ -1111,14 +1131,25 @@ async function enqueueDisconnected(
   wasByWebhook: boolean,
   source: ConnectSource,
   hasUncheckedLinks: boolean,
+  resets: readonly SwitchReset[],
 ): Promise<void> {
   const iso = at.toISOString();
+  // The email already says deposits are off; it names the others it set back.
+  const resetSwitchIds = resets
+    .map((r) => r.switch)
+    .filter((s): s is "full_payment" | "text_payment_link" => s !== "deposits");
   await enqueueNotice(tx, "connect_disconnected", `disconnected:${accountRef(accountId)}:${iso}`, {
     disconnectedAt: iso,
     wasByWebhook,
     source,
     hasUncheckedLinks,
+    ...(resetSwitchIds.length > 0 ? { resetSwitchIds } : {}),
   });
+}
+
+/** The held-back reset email's input, for when the disconnect email does not go. */
+function resetEmail(resets: readonly SwitchReset[], at: Date) {
+  return { cause: "stripe_disconnected" as const, resets, key: `stripe_disconnected:${at.toISOString()}`, at };
 }
 
 /**
@@ -1155,7 +1186,13 @@ export async function applyDeauthorization(input: {
       if (clinic.connectedAt && clinic.connectedAt.getTime() > input.eventCreatedAt.getTime()) {
         return { kind: "stale" as const };
       }
-      await applySwitchResets(tx, { cause: "stripe_disconnected", actorLabel: "stripe", now });
+      const resets = await applySwitchResets(tx, {
+        cause: "stripe_disconnected",
+        actorLabel: "stripe",
+        now,
+        auditReason: "stripe_deauthorized",
+        email: false,
+      });
       await switchDepositsOff(tx, now);
       await tx.db
         .update(depositPayments)
@@ -1178,16 +1215,19 @@ export async function applyDeauthorization(input: {
           ),
         );
       for (const link of open) await handUncheckedLink(tx, link.id);
-      tx.audit.record({
-        action: "update",
-        resourceType: "clinic_settings",
-        resourceId: tx.clinicId,
-        metadata: {
-          fields: ["depositsEnabled"],
-          depositsEnabled: false,
-          reason: "stripe_deauthorized",
-        },
-      });
+      // The reset's audit row already says deposits went off, with this reason.
+      if (!resets.some((r) => r.switch === "deposits")) {
+        tx.audit.record({
+          action: "update",
+          resourceType: "clinic_settings",
+          resourceId: tx.clinicId,
+          metadata: {
+            fields: ["depositsEnabled"],
+            depositsEnabled: false,
+            reason: "stripe_deauthorized",
+          },
+        });
+      }
       // Every open link here is unchecked: our access is already gone.
       const hasUncheckedLinks = open.length > 0;
       const stamped = await clearAccount(tx, {
@@ -1198,14 +1238,16 @@ export async function applyDeauthorization(input: {
         actorLabel: "stripe",
         deauthorized: true,
         hasUncheckedLinks,
+        resets,
       });
-      return { kind: "applied" as const, stamped, hasUncheckedLinks };
+      if (!stamped) await emailResets(tx, resetEmail(resets, now));
+      return { kind: "applied" as const, stamped, hasUncheckedLinks, resets };
     },
   );
   if (result.kind !== "applied") return result.kind;
   if (result.stamped?.billingClinicId) {
     await withTenant({ clinicId: result.stamped.billingClinicId, actor: WEBHOOK_ACTOR }, (tx) =>
-      enqueueDisconnected(tx, input.accountId, now, true, "stripe", result.hasUncheckedLinks),
+      enqueueDisconnected(tx, input.accountId, now, true, "stripe", result.hasUncheckedLinks, result.resets),
     );
   }
   return "applied";

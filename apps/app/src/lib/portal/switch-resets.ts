@@ -4,6 +4,8 @@ import {
   writeDepositSettings,
   type DepositSettingsPatch,
 } from "@/lib/billing/deposits";
+import { SYSTEM_ORIGIN } from "@/lib/clinic/change-events";
+import { recordSettingChange } from "@/lib/clinic/setting-changes";
 import { notifySwitchesReset } from "@/lib/notices/setting-changed";
 import type { TenantTx } from "@/lib/tenant";
 
@@ -28,7 +30,10 @@ import {
  * text off, deposits off. Each reset goes through setDepositSettings, so it
  * keeps its before and after in clinic_settings_history and an audit row
  * naming the reason, and the clinic gets ONE email naming every switch reset
- * and why (O4, lib/email/templates/setting_changed.ts). Business data only.
+ * and why (O4, lib/email/templates/setting_changed.ts). Each reset is also
+ * a row in the clinic change feed, as healdesk's own change
+ * (lib/clinic/setting-changes.ts, SYSTEM_ORIGIN), so ops hear of it once by
+ * email and in Slack, like any other change. Business data only.
  */
 
 /** The real facts the payment switches' rules weigh, for the Settings page, the wizard and the writers. */
@@ -54,6 +59,25 @@ const PATCHES: Readonly<Record<SwitchReset["switch"], DepositSettingsPatch>> = {
   deposits: { depositsEnabled: false },
 };
 
+/** Each reset as the change feed records it: the Settings key, before and after. */
+const FEED: Readonly<Record<SwitchReset["switch"], { key: string; before: unknown; after: unknown }>> = {
+  full_payment: { key: "payment_ask", before: "full_payment", after: "deposit_only" },
+  text_payment_link: { key: "text_payment_link", before: true, after: false },
+  deposits: { key: "deposits_enabled", before: true, after: false },
+};
+
+/**
+ * The resets each transaction has applied so far, for a writer that reaches
+ * applySwitchResets through another writer (saveSetting through the setup
+ * settings) and answers its caller with what the change caused.
+ */
+const APPLIED = new WeakMap<TenantTx, SwitchReset[]>();
+
+/** Every reset applied in this transaction so far, in order; empty when none. */
+export function resetsAppliedIn(tx: TenantTx): SwitchReset[] {
+  return [...(APPLIED.get(tx) ?? [])];
+}
+
 /**
  * Set back every payment switch the lost fact turned unavailable, in the
  * caller's transaction. The fact is taken as lost whatever the database says
@@ -62,13 +86,27 @@ const PATCHES: Readonly<Record<SwitchReset["switch"], DepositSettingsPatch>> = {
  * unavailable for another reason is not the cause's to touch. Returns what
  * was reset, each with the sentence the clinic is shown; empty when nothing
  * needed to change, and then nothing is written or sent.
+ *
+ * A Stripe disconnect has its own audit row and its own email to the clinic
+ * (lib/billing/connect.ts), so it passes `auditReason`, making the reset's
+ * audit row the disconnect's one entry, and `email: false`, carrying the
+ * resets in its own email instead (or sending emailResets when that email
+ * does not go): one audit entry and one email where the two overlap.
  */
 export async function applySwitchResets(
   tx: TenantTx,
-  input: { cause: ResetCause; actorLabel: string; now?: Date },
+  input: {
+    cause: ResetCause;
+    actorLabel: string;
+    now?: Date;
+    /** The audit row's reason; the cause by default. */
+    auditReason?: string;
+    /** False when the caller's own email tells the clinic; true by default. */
+    email?: boolean;
+  },
 ): Promise<SwitchReset[]> {
   const now = input.now ?? new Date();
-  const { fact, unlock } = CAUSES[input.cause];
+  const { fact } = CAUSES[input.cause];
   const current = await getDepositSettings(tx);
   const after: SwitchFacts = { ...switchFactsOf(current), [fact]: false };
   const before = switchRules({ ...after, [fact]: true });
@@ -78,18 +116,41 @@ export async function applySwitchResets(
     fullPayment: current.paymentAsk === "full_payment",
   }).filter((reset) => before[reset.switch].enabled);
   if (resets.length === 0) return [];
+  APPLIED.set(tx, [...(APPLIED.get(tx) ?? []), ...resets]);
 
   const patch: DepositSettingsPatch = Object.assign({}, ...resets.map((r) => PATCHES[r.switch]));
   const { historyIds } = await writeDepositSettings(tx, patch, input.actorLabel, now, {
-    reason: input.cause,
+    reason: input.auditReason ?? input.cause,
   });
-  await notifySwitchesReset(tx, {
-    switchIds: resets.map((r) => r.switch),
-    code: unlock,
-    key: historyIds[0] ?? `${input.cause}:${now.toISOString()}`,
-    at: now,
-  });
+  for (const reset of resets) {
+    await recordSettingChange(tx, { ...FEED[reset.switch], origin: SYSTEM_ORIGIN, now });
+  }
+  if (input.email !== false) {
+    await emailResets(tx, {
+      cause: input.cause,
+      resets,
+      key: historyIds[0] ?? `${input.cause}:${now.toISOString()}`,
+      at: now,
+    });
+  }
   return resets;
+}
+
+/**
+ * The clinic's one email naming the resets and why (O4), for a caller that
+ * held it back with `email: false` and then found its own email would not go.
+ */
+export async function emailResets(
+  tx: TenantTx,
+  input: { cause: ResetCause; resets: readonly SwitchReset[]; key: string; at: Date },
+): Promise<void> {
+  if (input.resets.length === 0) return;
+  await notifySwitchesReset(tx, {
+    switchIds: input.resets.map((r) => r.switch),
+    code: CAUSES[input.cause].unlock,
+    key: input.key,
+    at: input.at,
+  });
 }
 
 /**

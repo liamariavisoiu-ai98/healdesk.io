@@ -9940,6 +9940,8 @@ export type ClinicSwitchView = {
   /** The plain reason a switch is unavailable; null when it is available. */
   reason: string | null;
   operatorMayChange: boolean;
+  /** A choice's options as apps/app sends them, in the portal's order; absent on a switch. */
+  options?: { id: string; label: string }[];
 };
 
 export type ClinicSwitches = { switches: ClinicSwitchView[] };
@@ -9962,6 +9964,14 @@ export function fetchClinicSwitches(clinicId: string): Promise<OpsResult<ClinicS
           enabled: bool(r.enabled, `${at}.enabled`),
           reason: optionalText(r.reason, `${at}.reason`),
           operatorMayChange: bool(r.operatorMayChange, `${at}.operatorMayChange`),
+          ...(kind === "choice"
+            ? {
+                options: (r.options === undefined ? [] : list(r.options, `${at}.options`)).map((o, j) => {
+                  const option = object(o, `${at}.options[${j}]`);
+                  return { id: text(option.id, `${at}.options[${j}].id`), label: text(option.label, `${at}.options[${j}].label`) };
+                }),
+              }
+            : {}),
         };
       }),
     };

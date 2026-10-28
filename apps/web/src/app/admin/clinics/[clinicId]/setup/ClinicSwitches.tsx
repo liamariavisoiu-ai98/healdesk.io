@@ -4,7 +4,7 @@ import { ActionButton, Failure, Section } from "@/components/admin/ui";
 import type { ClinicSwitches as ClinicSwitchesRead, ClinicSwitchView, OpsResult, SetClinicSwitchOutcome } from "@/lib/admin/ops-client";
 import { isHostUnreachable } from "@/lib/host/state";
 
-import { CHOICE_OPTIONS, groupSwitches, valueWords } from "./switch-groups";
+import { groupSwitches, valueWords } from "./switch-groups";
 
 /**
  * The Setup tab's "Clinic switches" section: every switch the clinic has in
@@ -27,11 +27,11 @@ export function doneWords(outcome: Extract<SetClinicSwitchOutcome, { status: "se
 
 type Choice = { label: string; value: boolean | string };
 
-/** What the operator may set it to: the other side of a switch, or the other options of a known choice. */
+/** What the operator may set it to: the other side of a switch, or a choice's other options as the server sent them. */
 export function offeredChanges(row: ClinicSwitchView): Choice[] {
   if (!row.operatorMayChange) return [];
   if (row.kind === "switch") return [{ label: row.value === true ? "Switch off" : "Switch on", value: row.value !== true }];
-  return (CHOICE_OPTIONS[row.key] ?? []).filter((o) => o.value !== row.value).map((o) => ({ label: `Set to ${o.label}`, value: o.value }));
+  return (row.options ?? []).filter((o) => o.id !== row.value).map((o) => ({ label: `Set to ${o.label}`, value: o.id }));
 }
 
 function SwitchRow({ row, onSet }: { row: ClinicSwitchView; onSet: SetClinicSwitch }) {

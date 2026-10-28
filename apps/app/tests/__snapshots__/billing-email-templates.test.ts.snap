@@ -376,6 +376,26 @@ Replies reach the healdesk team. Please leave out patient details.
 }
 `;
 
+exports[`every branch of every billing template > connect_disconnected: Stripe disconnected from the portal, with full payment and the text set back > the words, as a snapshot 1`] = `
+{
+  "preheader": "Deposits are off until Stripe is connected again.",
+  "subject": "Stripe was disconnected from healdesk",
+  "text": "Your Stripe account was disconnected from healdesk at 10:20 am EDT on Tuesday 6 October, from your healdesk account.
+
+Deposits are now off, so AYA no longer sends deposit links. Links she had already sent that weren't paid have stopped working, and those deposits are flagged in Bookings for your team to collect.
+
+AYA asks patients for a deposit only, not the full price. Texting the payment link is off. You can turn them on again in Settings once Stripe is connected.
+
+If nobody at your clinic disconnected it, reply to this email now.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
 exports[`every branch of every billing template > grace_ending: grace ends tomorrow > the words, as a snapshot 1`] = `
 {
   "preheader": "Your healdesk invoice for $897 is still unpaid.",

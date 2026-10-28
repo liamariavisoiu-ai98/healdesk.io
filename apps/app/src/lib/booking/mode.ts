@@ -13,6 +13,7 @@ import {
 } from "@/lib/connections/google-calendar";
 import { env } from "@/lib/env";
 import { applySwitchResets } from "@/lib/portal/switch-resets";
+import type { SwitchReset } from "@/lib/portal/switch-rules";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import { calendarTermsFor, type CalendarTerms } from "./terms";
@@ -348,6 +349,8 @@ export type AutoConfirmOutcome = EffectiveBookingMode & {
   autoConfirm: boolean;
   changedAt: Date | null;
   changedByLabel: string | null;
+  /** Payment switches set back because Auto-confirm went off (switch-resets.ts); empty when none. */
+  resets: SwitchReset[];
 };
 
 /**
@@ -390,15 +393,17 @@ export async function setAutoConfirm(
     });
     // Full payment needs Auto-confirm on (switch-rules.ts): turning it off
     // returns the ask to deposit only in this same transaction, and says so.
-    if (before.autoConfirmBookings && !after.autoConfirmBookings) {
-      await applySwitchResets(tx, { cause: "auto_confirm_off", actorLabel: label, now: options.now });
-    }
+    const resets =
+      before.autoConfirmBookings && !after.autoConfirmBookings
+        ? await applySwitchResets(tx, { cause: "auto_confirm_off", actorLabel: label, now: options.now })
+        : [];
     const mode = await bookingModeFor(tx);
     return {
       changed: after.autoConfirmBookings !== before.autoConfirmBookings,
       autoConfirm: after.autoConfirmBookings,
       changedAt: after.autoConfirmChangedAt,
       changedByLabel: after.autoConfirmChangedByLabel,
+      resets,
       ...effectiveOf(mode),
     };
   });

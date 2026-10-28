@@ -188,6 +188,8 @@ export function Choice<T extends string>(props: {
   value: T;
   onChange: (value: T) => void;
   options: readonly { id: T; label: string; line?: string; disabled?: boolean }[];
+  /** Id of an explainer beside the choices, read out with each radio. */
+  describedBy?: string;
 }) {
   const name = useId();
   return (
@@ -208,6 +210,7 @@ export function Choice<T extends string>(props: {
               value={option.id}
               checked={props.value === option.id}
               disabled={option.disabled}
+              aria-describedby={props.describedBy}
               onChange={() => props.onChange(option.id)}
               className="mt-1"
             />

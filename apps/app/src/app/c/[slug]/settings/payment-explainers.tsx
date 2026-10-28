@@ -70,6 +70,12 @@ export function FullPaymentExplainer(props: {
   id: string;
   rule: SwitchRule;
   targets: UnlockTargets;
+  /**
+   * The wizard only: the calendar step comes after this one. Printed beside the
+   * rule's own reason when that reason is the calendar; availability is still
+   * the rule's, never decided here.
+   */
+  calendarLater?: boolean;
 }) {
   return (
     <SwitchExplainer
@@ -81,7 +87,9 @@ export function FullPaymentExplainer(props: {
       note={
         props.rule.enabled
           ? "If you turn off Auto-confirm or disconnect Stripe or your calendar, this goes back to Deposit only, and we tell you."
-          : undefined
+          : props.calendarLater && props.rule.unlock === "connect_calendar"
+            ? "You connect your calendar in a later step."
+            : undefined
       }
       picture={
         props.rule.enabled

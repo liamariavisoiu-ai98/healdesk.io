@@ -513,6 +513,8 @@ async function DepositsStep({
           voice: channels.includes("voice"),
           text: rules.text_payment_link,
           full: rules.full_payment,
+          textPaymentLink: deposits.textPaymentLink,
+          paymentAsk: deposits.paymentAsk,
           targets: {
             // The screen's own Connect Stripe button sits outside its form,
             // so leaving for Stripe loses nothing typed; a second link here

@@ -94,6 +94,7 @@ by scoping.
 | Calendar | Google Calendar (the clinic's own) | Between the **clinic and Google**, on a paid Workspace plan; confirm per clinic at onboarding. The clinic's OAuth token, granted to Healdesk's Google Cloud app, is stored in `apps/app` (`lib/connections/google-oauth.ts`, `lib/connections/google-calendar.ts`); Google's verification of the calendar scope is not evidenced as submitted |
 | Payments (our subscription) | Stripe | **Never, on any tier.** Not needed: the buyer's name, work email and invoice are business contact data |
 | Payments (patient deposits) | Stripe Connect or the clinic's own gateway | **Never.** Used only inside the payment-processing carve-out: an amount, a generic descriptor and an opaque reference. No treatment name, diagnosis or clinical metadata in the description, the statement descriptor or metadata |
+| Messaging (the optional payment-link text after a call) | A text sender, **not chosen yet**; nothing sends a text today | **None sought, by scoping** (owner, 28 October 2026), as with Meta and Stripe: the text is fixed words and the clinic's own checkout link, nothing clinical. Registration with the carriers is per clinic and applies only to a clinic that switches the text on |
 | Messaging | Meta (Instagram, Messenger, WhatsApp) | **Never, by Meta's own terms.** Scoped to carry no clinical content: detected at the boundary, not persisted, not echoed, not summarised |
 | Lead register (marketing) | Google Sheets | Not needed — business contact data only, no PHI |
 | Analytics (marketing) | PostHog (US cloud) | Not needed — opt-out since 23 October 2026 (runs unless the visitor opts out on /privacy or sends Global Privacy Control; `apps/web/src/lib/consent-store.ts`), content-free, marketing site only |
@@ -102,7 +103,7 @@ by scoping.
 | Patient-bearing email, if any | AWS SES | Covered by the AWS agreement; configuration set `healdesk-phi` with `TlsPolicy=REQUIRE` |
 | Voice agent (marketing demo) | Retell (a demo agent, separate from the product's) | Not needed: `apps/web` only, talks to clinic owners, no PHI path |
 | Calendar write | ~~Cal.com~~ | **Not a v1 write target.** Google Calendar is the only one; Cal.com writes are phase two |
-| Telephony | ~~Twilio~~ | **Not used.** Retell supplies the numbers; no SMS in v1 |
+| Telephony | ~~Twilio~~ | **Not used.** Retell supplies the numbers; no SMS channel in v1. The one optional payment-link text after a call has no sender chosen yet and is handled by scoping, not a BAA (owner, 28 October 2026) |
 | Auth | ~~Clerk~~ | **Not used.** The operator console is a scrypt hash + TOTP, both checked on `apps/web` against Vercel environment variables (since 14 October 2026; signing in calls nothing in `apps/app`); the clinic portal will use Better Auth, a library inside `apps/app`, not a vendor |
 | Error tracking | ~~Sentry~~ | **Not used.** No error tracker is installed |
 

@@ -1048,6 +1048,26 @@ export const BRIDGES: readonly BridgeDef[] = [
       "While the host is off, a signer's agreement copy still owed reaches no one here: the signer is told on the page that it did not go and to email hello@ for it.",
     proof: "ops",
   },
+  {
+    // Lane C1 and C2 (owner, 28 October 2026): an operator reads and sets a
+    // clinic's switches from /admin, through the same signed ops envelope.
+    id: "web-app-switches",
+    theme: "running",
+    from: "web",
+    to: "app",
+    both: true,
+    title: "You read and set a clinic's switches from this console",
+    carries:
+      "Out: a clinic's id, and for a change the switch's name and its new on, off or choice. Back: each switch's label, its value, whether it can be used now and the one plain reason when it cannot. Only closed words, never a patient and never a clinic's own text",
+    example:
+      "A clinic asks by phone to stop collecting a deposit on calls. You open its Setup page, see the switch and press it; the engine saves it exactly as the clinic's own Settings would, with the same rules, and the clinic's Settings shows it.",
+    keys: ["vercel.HEALDESK_PROVISION_SECRET", "aws.HEALDESK_PROVISION_SECRET", "vercel.HEALDESK_APP_URL"],
+    phi: false,
+    build: "built",
+    buildNote:
+      "The Clinic switches panel is on /admin/clinics/<id>/setup (operations getClinicSwitches and setClinicSwitch on /api/ops). A switch only the clinic may change (where calls and money go) shows as read only. Every change to a clinic's profile, from the clinic, from here or later from a support action, emails healdesk and posts to Slack once, as the switch's label, before and after, and who made it. Slack posts nothing while SLACK_WEBHOOK_URL is unset (its parameter holds __unset__ in production), and the email goes either way. Turning on a payment-link text only saves the choice: no text is sent, because no sender exists yet (launch register: payment-link-text).",
+    proof: "ops",
+  },
 
   // --- The shop side -------------------------------------------------------------
   {
@@ -1586,7 +1606,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     to: "slack",
     title: "Ops alerts to your Slack",
     carries:
-      "Each ops alert as it is written for the operator: its title, what happened, why it matters and the numbered steps, the clinic's name and id, its counts and days, a few plain closed words (the vendor, the channel, the kind of email or request), a setup requester's business name, and the console link; never a patient, an address, a phone number, a time of an appointment or anything said",
+      "Each ops alert as it is written for the operator: its title, what happened, why it matters and the numbered steps, the clinic's name and id, its counts and days, a few plain closed words (the vendor, the channel, the kind of email or request), a setup requester's business name, a change to a clinic's settings (the switch's label, its value before and after, and who made the change), and the console link; never a patient, an address, a phone number, a time of an appointment or anything said",
     example: "A booking could not be written to a clinic's calendar: your phone buzzes with the clinic's name and id a minute after the email is sent.",
     keys: ["aws.SLACK_WEBHOOK_URL"],
     phi: false,

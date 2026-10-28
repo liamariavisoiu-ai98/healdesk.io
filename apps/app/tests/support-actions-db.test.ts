@@ -68,8 +68,18 @@ const DONE_REPLY = "Hi, I've turned the daily summary email off for you.";
 const CONFIRM_REPLY = "Hi, we'll confirm once the change is made.";
 const FOLLOW_UP_REPLY = "Hi, a person at healdesk will look at the tone and write back.";
 
-function email(from: string, id: string, body: string): string {
+function email(from: string, id: string, body: string, sesHeaders = false): string {
+  const domain = from.slice(from.lastIndexOf("@") + 1);
+  // As SES writes them, at the top of the stored message: an aligned DKIM pass.
+  const ses = sesHeaders
+    ? [
+        "X-SES-Spam-Verdict: PASS",
+        "X-SES-Virus-Verdict: PASS",
+        `Authentication-Results: amazonses.com; spf=pass smtp.mailfrom=${domain}; dkim=pass header.i=@${domain}; dmarc=pass header.from=${domain};`,
+      ]
+    : [];
   return [
+    ...ses,
     `From: "Front Desk" <${from}>`,
     "To: support@healdesk.io",
     "Subject: A change to our settings",
@@ -191,11 +201,16 @@ describeDb("support email to action (lane D)", () => {
   });
 
   /** One email from `from` (the clinic's sign-in by default), through the handler. */
-  async function deliver(store: ReturnType<typeof memoryMailStore>, body: string, from = clinic.email) {
+  async function deliver(
+    store: ReturnType<typeof memoryMailStore>,
+    body: string,
+    from = clinic.email,
+    opts: { verdicts?: InboundNotice["verdicts"]; sesHeaders?: boolean } = {},
+  ) {
     seq += 1;
     const id = `laned${String(seq).padStart(4, "0")}x`;
-    store.put(`mail/${id}`, email(from, id, body), NOW);
-    const notice: InboundNotice = { sesMessageId: id, bucket: BUCKET, key: `mail/${id}`, receivedAt: NOW, verdicts: PASS };
+    store.put(`mail/${id}`, email(from, id, body, opts.sesHeaders), NOW);
+    const notice: InboundNotice = { sesMessageId: id, bucket: BUCKET, key: `mail/${id}`, receivedAt: NOW, verdicts: opts.verdicts ?? PASS };
     const outcome = await handleInboundNotice(notice, { store, now: NOW, allowFor: async () => ({ numbers: [], emails: [] }), drafterOn: async () => true });
     if (outcome.outcome !== "recorded") throw new Error(`not recorded: ${outcome.outcome}`);
     return { id, caseId: outcome.caseId };
@@ -627,6 +642,29 @@ describeDb("support email to action (lane D)", () => {
     expect((await settings(clinic.clinicId)).auto_confirm_bookings).toBe(true);
     expect(await changes(clinic.clinicId)).toHaveLength(0);
     expect(replySends()).toHaveLength(1);
+  });
+
+  test("DIRECT needs SES's notice itself to pass: with the notice silent (headers only) or its SPF failing, the change waits for approval, marked sender not verified", async () => {
+    const UNKNOWN = { spam: "UNKNOWN", virus: "UNKNOWN", spf: "UNKNOWN", dkim: "UNKNOWN", dmarc: "UNKNOWN" } as const;
+    for (const verdicts of [UNKNOWN, { ...PASS, spf: "FAIL" } as const]) {
+      const store = memoryMailStore();
+      const { caseId } = await deliver(store, "Hello, please stop the morning summary emails.", clinic.email, { verdicts, sesHeaders: true });
+      const { rows: fields } = await getMigratorPool().query<{ f: Record<string, string> }>(
+        `select fields_json as f from support_messages where case_id = $1 and kind = 'email'`,
+        [caseId],
+      );
+      // Authenticated from SES's own headers and the clinic's sign-in, but not by the notice.
+      expect(fields[0]!.f).toMatchObject({ fromClinic: "yes", authenticated: "yes", noticeVerified: "no" });
+      const model = new ActingDrafter([{ key: "daily_summary", value: "off" }], DONE_REPLY);
+      expect(await draftNextCase({ client: model, now: NOW, mailStore: store }, caseId)).toMatchObject({ outcome: "drafted" });
+      expect(model.answers[0]!.content).toContain("A person at healdesk approves this change");
+      expect((await lastReply(caseId)).facts_json.action).toMatchObject({ tier: "approval", status: "pending", senderVerified: false });
+      expect((await settings(clinic.clinicId)).daily_summary).toBe(true);
+      const packet = await supportReplyPacket((await waitingItem(caseId))!, { actor: { type: "system" } });
+      expect(packet!.facts.action).toMatchObject({ tier: "approval", senderVerified: false });
+      await closeCase(caseId);
+    }
+    expect(await changes(clinic.clinicId)).toHaveLength(0);
   });
 
   test("prompt injection: a NEVER switch, another clinic and two changes at once run nothing beyond one listed change for the matched clinic", async () => {

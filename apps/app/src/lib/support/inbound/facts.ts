@@ -119,6 +119,8 @@ export function messageFields(input: {
   authenticated: boolean;
   /** From the case's clinic: its authenticated sign-in. Only such an email is threaded under (threading.ts). */
   fromClinic: boolean;
+  /** SES's notice itself passed the mail (auth.ts noticeVerdictsPass): a DIRECT support change needs it. */
+  noticeVerified: boolean;
 }): Record<string, string> {
   const v = (x: Verdict) => x.toLowerCase();
   return {
@@ -142,6 +144,7 @@ export function messageFields(input: {
     acknowledgement: input.acknowledged,
     authenticated: input.authenticated ? "yes" : "no",
     fromClinic: input.fromClinic ? "yes" : "no",
+    noticeVerified: input.noticeVerified ? "yes" : "no",
   };
 }
 

@@ -35,8 +35,10 @@ import { actionOfFacts, keptReason, settleStale, tierOf, typedValue, valueToken,
  *     drafter's reply can say what is missing in the rule's own words;
  *   - senderIsClinic: whether every email the drafter read came from the
  *     case clinic's ONE sign-in address, authenticated: recorded so when it
- *     arrived (fromClinic), and its sender reference still that of the
- *     clinic's sign-in now. Otherwise a DIRECT change is proposed as APPROVAL;
+ *     arrived (fromClinic), SES's notice itself passing it (noticeVerified:
+ *     DKIM, and SPF and DMARC where the notice has them), and its sender
+ *     reference still that of the clinic's sign-in now. Otherwise a DIRECT
+ *     change is proposed as APPROVAL;
  *   - runSupportAction: run a draft's pending change once per case. Claimed
  *     under the case's row lock (status `running`), so a retried job, a
  *     redraft or a second approval never repeats it; a case that already
@@ -115,7 +117,14 @@ export async function senderIsClinic(input: { caseId: string; clinicId: string; 
       ),
     );
   if (rows.length !== new Set(input.messageIds).size) return false;
-  if (!rows.every((r) => r.fields?.fromClinic === "yes" && r.fields?.authenticated === "yes" && typeof r.sender === "string")) return false;
+  // SES's notice itself must have passed each one too (inbound/auth.ts noticeVerdictsPass): the headers alone are not enough to act unasked.
+  if (
+    !rows.every(
+      (r) => r.fields?.fromClinic === "yes" && r.fields?.authenticated === "yes" && r.fields?.noticeVerified === "yes" && typeof r.sender === "string",
+    )
+  ) {
+    return false;
+  }
   try {
     const signIn = await withTenant({ clinicId: input.clinicId, actor: SUPPORT_ACTION_ACTOR }, (tx) => clinicSignIn(tx));
     if (!signIn) return false;

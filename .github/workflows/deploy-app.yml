@@ -714,13 +714,16 @@ jobs:
       # migrate (the db-admin role may write the internal secrets; no app
       # container may hold it). No container but migrate's and db-bootstrap's
       # may carry what Terraform refuses the app tasks (never_on_app_tasks in
-      # infra/aws/locals.tf), and only db-bootstrap may name a Secrets Manager
+      # infra/aws/locals.tf), but for the direct-booking switch on web, worker
+      # and voice alone, in Terraform's shape (direct_booking_names; DB-1),
+      # and only db-bootstrap may name a Secrets Manager
       # secret: the RDS master user's. On a deploy, every one must also
       # declare the CPU architecture the images were just built for.
       - name: Check the task definitions
         if: ${{ steps.run.outputs.mode == 'deploy' || steps.run.outputs.mode == 'rollback' }}
         env:
-          NEVER_ON_APP_TASKS: MIGRATION_DATABASE_URL READONLY_DATABASE_URL WRITER_DATABASE_URL HEALDESK_LOCAL_KEK HEALDESK_DIRECT_BOOKING_ENABLED HEALDESK_PHASE_TWO_ATTRIBUTION BETTER_AUTH_SECRETS
+          NEVER_ON_APP_TASKS: MIGRATION_DATABASE_URL READONLY_DATABASE_URL WRITER_DATABASE_URL HEALDESK_LOCAL_KEK HEALDESK_DIRECT_BOOKING_ENABLED HEALDESK_DIRECT_BOOKING_ADDENDUM HEALDESK_PHASE_TWO_ATTRIBUTION BETTER_AUTH_SECRETS
+          DIRECT_BOOKING_NAMES: HEALDESK_DIRECT_BOOKING_ENABLED HEALDESK_DIRECT_BOOKING_ADDENDUM
           MODE: ${{ steps.run.outputs.mode }}
           WORKER_SHARED: ${{ steps.services.outputs.worker_shared }}
           ARCHITECTURE: ${{ steps.services.outputs.architecture }}
@@ -770,10 +773,38 @@ jobs:
                 | select(test("DATABASE_URL|PASSWORD|SECRET|KEY|TOKEN"))] | join(" ")' "$file")
               [ -z "$found" ] || refuse "$label" "$file" "carries $found as plain environment"
             elif [ "$label" != migrate ] && [ "$label" != db-bootstrap ]; then
-              found=$(jq -r --arg never "$NEVER_ON_APP_TASKS" '($never | split(" ")) as $n
+              # The one carve-out (DB-1; infra/aws/locals.tf,
+              # direct_booking_names): web, worker and voice may carry the
+              # direct-booking switch, and only in the shape Terraform gives
+              # it. Every other family still refuses both names.
+              allowed=""
+              case "$label" in web | worker | voice) allowed="$DIRECT_BOOKING_NAMES" ;; esac
+              found=$(jq -r --arg never "$NEVER_ON_APP_TASKS" --arg allowed "$allowed" '
+                (($never | split(" ")) - ($allowed | split(" "))) as $n
                 | [.containerDefinitions[] | (.environment // []) + (.secrets // []) | .[].name
                   | select(. as $name | $n | index($name))] | unique | join(" ")' "$file")
               [ -z "$found" ] || refuse "$label" "$file" "carries $found, which no app task may"
+              if [ -n "$allowed" ]; then
+                # Both names or neither, as plain environment on the app
+                # container (and the web task's shared worker), never a
+                # secret or the sidecar's, with the switch exactly "true" and
+                # the version shaped like the catalog's.
+                found=$(jq -r --arg db "$DIRECT_BOOKING_NAMES" --arg label "$label" '
+                  ($db | split(" ")) as $d
+                  | [.containerDefinitions[] | .name as $c
+                    | ((.secrets // []) | .[].name | select(. as $x | $d | index($x)) | "\($c) has \(.) as a secret"),
+                      (((.environment // []) | map(select(.name as $x | $d | index($x)))) as $e
+                        | if ($e | length) == 0 then empty
+                          elif $c != "app" and ($label != "web" or $c != "worker") then "\($c) carries \($e | map(.name) | join(" "))"
+                          elif ($e | map(.name) | sort) != ($d | sort) then "\($c) carries \($e | map(.name) | join(" ")) but not exactly both"
+                          else ($e[] | select(
+                              (.name == "HEALDESK_DIRECT_BOOKING_ENABLED" and .value != "true") or
+                              (.name == "HEALDESK_DIRECT_BOOKING_ADDENDUM" and (.value | test("^direct-booking-addendum/[0-9]+\\.[0-9]+\\.[0-9]+$") | not)))
+                            | "\($c) sets \(.name)=\(.value)")
+                          end)
+                  ] | join("; ")' "$file")
+                [ -z "$found" ] || refuse "$label" "$file" "direct-booking switch not in Terraform's shape: $found"
+              fi
             fi
             if [ "$label" != db-bootstrap ]; then
               found=$(jq -r '[.containerDefinitions[] | (.secrets // [])[]

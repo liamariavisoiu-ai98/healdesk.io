@@ -4,12 +4,12 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
  * directBookingOpen() (lib/booking/direct-switch.ts, DB-1 §3): the one check
  * the booking mode, the console's projection, the ops bookingSwitch reply
  * and the assistant's tools all ask. True only when the owner's env var is
- * the literal "true", counsel has released the addendum in this build, and
+ * the literal "true", the owner has released the addendum in this build (approvedByCounsel, true since 28 October 2026), and
  * HEALDESK_DIRECT_BOOKING_ADDENDUM names exactly the catalog's current
  * version. Every other row of the table is false. Read on every call.
  *
- * Counsel's release is mocked in this process only; the committed catalog
- * keeps approvedByCounsel false. No database.
+ * The release is mocked per row in this process; the committed catalog has
+ * approvedByCounsel true. No database.
  */
 
 const released = vi.hoisted(() => ({ addendum: false }));
@@ -62,9 +62,9 @@ const ROWS = ENV_VALUES.flatMap((envValue) =>
 );
 
 describe("directBookingOpen", () => {
-  test("the committed catalog has the addendum unreleased, so the mock mirrors production by default", async () => {
+  test("the committed catalog has the addendum released by the owner (28 October 2026)", async () => {
     const { currentDirectBookingAddendum } = await vi.importActual<typeof import("@healdesk/catalog")>("@healdesk/catalog");
-    expect(currentDirectBookingAddendum().approvedByCounsel).toBe(false);
+    expect(currentDirectBookingAddendum().approvedByCounsel).toBe(true);
     expect(currentDirectBookingAddendum().version).toBe(DIRECT_BOOKING_ADDENDUM_VERSION);
     expect(DIRECT_BOOKING_ADDENDUMS[0]!.version).toBe(DIRECT_BOOKING_ADDENDUM_VERSION);
   });

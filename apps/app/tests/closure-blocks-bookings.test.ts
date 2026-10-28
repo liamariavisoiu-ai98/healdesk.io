@@ -4,10 +4,10 @@ import type { FakeGoogleCalendar } from "@healdesk/connectors";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 // The direct-booking switch is three facts (lib/booking/direct-switch.ts, DB-1):
-// the owner's env var, counsel's released addendum and the deployed addendum
-// version. The committed catalog keeps the addendum unreleased; it is released
-// here, in this test process only, so these suites book as production would
-// once all three are set.
+// the owner's env var, the owner's release of the addendum (28 October 2026)
+// and the deployed addendum version. The committed catalog now has the addendum
+// released, so this mock is redundant but harmless: it pins the release in this
+// test process, so these suites book as production does once all three are set.
 vi.mock("@healdesk/catalog", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@healdesk/catalog")>();
   return {

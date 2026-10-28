@@ -168,7 +168,7 @@ export const metadata: Metadata = {
  *
  * Revised on 28 October 2026 as LEGAL_VERSION 2026-10-28.1 (see the terms;
  * lane LEGAL-1b): section 6 and section 9 say the support mailbox, which keeps
- * the clinic's email as ordinary correspondence until the matter is closed,
+ * the clinic's email as ordinary correspondence,
  * is not covered by a business associate agreement; section 6 adds the
  * clinic's responsibility for keeping patient information out of support
  * email and the portal support chat, and that the internal chat tool
@@ -516,8 +516,8 @@ export default function PrivacyPage() {
           <li>
             Your emails to our support at support@healdesk.io or hello@healdesk.io: they reach our
             support mailbox as ordinary email correspondence, and that mailbox is not covered by a
-            business associate agreement. An email in the mailbox is kept there until the matter it
-            is about is closed. Our support system keeps only facts
+            business associate agreement. An email in the mailbox stays there as ordinary
+            correspondence, handled by our team. Our support system keeps only facts
             about each one, such as its topic, its urgency and counts, never its words. When an
             email is matched to a customer clinic&apos;s account, its text may be sent to our AI
             model provider, under our business associate agreement with it, to draft our reply,

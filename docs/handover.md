@@ -70,23 +70,21 @@ whether each piece is reworked, fenced or removed.
   addendum). v1 is inbound only and writes only to Google Calendar.
   `HEALDESK_OUTBOUND_CALLBACKS_ENABLED` and `HEALDESK_WHATSAPP_TEMPLATES_ENABLED` stay
   unset in every environment. `HEALDESK_DIRECT_BOOKING_ENABLED` (with
-  `HEALDESK_DIRECT_BOOKING_ADDENDUM`) is unset until the owner turns booking on, and only
-  Terraform sets it (`direct_booking_enabled`, refused until
+  `HEALDESK_DIRECT_BOOKING_ADDENDUM`) is set only by Terraform, from the owner's release of
+  28 October 2026 once applied and deployed, (`direct_booking_enabled`, refused until
   `direct_booking_addendum_released`), on the web and worker tasks and, with
   `direct_booking_on_voice`, the voice task; the app opens booking only when the env var,
-  counsel's release in the build and the matching version are all true
+  the owner's release in the build and the matching version are all true
   (`docs/design/launch-readiness-2026-10-27/db-1-direct-booking-switch.md`). Order:
-  1. Counsel approves the addendum; one commit flips `approvedByCounsel` and
-     `direct_booking_addendum_released` (a test keeps them equal).
-  2. Land it on the owner's yes; `deploy-app.yml` deploys the code. Booking is still off.
-  3. Confirm a clinic with a live calendar and Stripe Connect (synthetic data until the BAA
-     chain is complete).
-  4. A second commit sets `direct_booking_enabled = true` (and `direct_booking_on_voice`,
-     which the owner chose on 28 October 2026: the phone books directly at launch).
-     `infra.yml` plans a task-definition change only; the owner approves the apply.
-  5. `deploy-app.yml` rolls web and worker. Rolling the voice service (calls hold for up to
-     an hour) needs the owner's word that no call is running or planned.
-  6. Read the three ticks on a clinic's Setup booking card, then place one synthetic
+  1. One commit (28 October 2026, the owner releasing the addendum himself, without external
+     counsel) flipped `approvedByCounsel` and `direct_booking_addendum_released` (a test keeps
+     them equal) and set `direct_booking_enabled = true` and `direct_booking_on_voice = true`
+     (the phone books directly at launch). Landing it needs the owner's yes.
+  2. `infra.yml` apply; it plans a task-definition change only, and the owner approves it.
+  3. `deploy-app.yml`, run AFTER the apply (it builds from the latest task-definition
+     revision, so booking opens only then). It rolls web, worker and voice; rolling voice
+     (calls hold for up to an hour) needs the owner's word that no call is running or planned.
+  4. Read the three ticks on a clinic's Setup booking card, then place one synthetic
      booking in web chat on the demo clinic.
   Rollback: set `direct_booking_enabled = false`, apply, deploy; or `deploy-app.yml`
   `rollback` to the previous task definition. A booking made while it was on stays.

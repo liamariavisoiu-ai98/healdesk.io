@@ -16,20 +16,18 @@ import { wrap } from "./wrap";
  * never by hashing a clause out of the unapproved draft (design of
  * 23 September 2026, decision (g) and §E.6).
  *
- * How it is used:
+ * How it is used today:
  *
- *   - The setup page renders the Direct booking section only while
- *     `currentDirectBookingAddendum().approvedByCounsel` is true. Until then
- *     the section is absent. The console's switch that read this flag,
- *     `setBookingMode`, was removed in C17: the booking mode is derived
- *     (apps/app/src/lib/booking/mode.ts) from the location's calendar terms,
- *     its Google Calendar, Auto-confirm and the owner's kill switch, and
- *     reads neither this flag nor the election.
- *   - On acceptance the server renders the text again with the name and
- *     title the person typed, and stores `direct_booking_clause_version =
- *     addendum.version` and `direct_booking_clause_hash = sha256(text)`.
- *     `direct_booking_elected_at` is the timestamp; the row's CHECK makes
- *     `booking_mode = 'direct'` unrepresentable without those columns.
+ *   - Releasing it adds nothing for a clinic to sign. No page renders a
+ *     Direct booking section and nothing writes `direct_booking_clause_version`
+ *     or `direct_booking_clause_hash` (the columns exist in the schema, unused).
+ *     The booking mode is derived (apps/app/src/lib/booking/mode.ts) from the
+ *     location's calendar terms, its Google Calendar, Auto-confirm and the
+ *     owner's kill switch, plus the DB-1 three-part check.
+ *   - `approvedByCounsel` records the owner's release of this text (28 October
+ *     2026, without external counsel) and gates booking in
+ *     `directBookingOpen()` (apps/app/src/lib/booking/direct-switch.ts), with
+ *     the owner's env var and the deployed addendum version.
  *   - The golden test in apps/app/tests/baa-golden.test.ts freezes the
  *     rendered bytes, so an edit to the text is a failing test rather than a
  *     silent change to a document a practice may have accepted.
@@ -52,9 +50,9 @@ export type DirectBookingAddendum = {
   /** When this text was published. Not when anyone accepted it. */
   publishedOn: string;
   /**
-   * True once counsel has approved this text. The setup page hides the
-   * section, and refuses an acceptance, while it is false. The booking mode
-   * never reads it (apps/app/src/lib/booking/mode.ts).
+   * True once the owner has released this text (28 October 2026). It gates
+   * booking in directBookingOpen() (apps/app/src/lib/booking/direct-switch.ts);
+   * the booking mode itself never reads it.
    */
   approvedByCounsel: boolean;
   heading: string;

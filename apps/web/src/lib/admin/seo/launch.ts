@@ -45,7 +45,7 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     promise: "AYA books into the clinic's Google Calendar during the conversation",
     where: "Homepage, pricing, terms section 2, How AYA is built to behave",
     status: "building",
-    left: "The booking engine is wired into calls and website chat and is designed to be offered only when three things are true: the switch is on in the task environment, counsel's direct-booking addendum is released in the running build, and the addendum version matches. Left: counsel's release of the addendum, then the switch. It is set in Terraform (direct_booking_enabled, refused until direct_booking_addendum_released; direct_booking_on_voice adds the phone, which books directly at launch), by two reviewed commits and a deploy, and a voice roll needs the owner's word that no call is running or planned. The booking card in a clinic's Setup shows the three ticks live. Until then every channel takes booking requests for staff.",
+    left: "The booking engine is wired into calls and website chat and is designed to be offered only when three things are true: the switch is on in the task environment, the owner's release of the direct-booking addendum (28 October 2026) is in the running build, and the addendum version matches. Left: the infra.yml apply, then deploy-app.yml after it (which rolls voice and needs the owner's word that no call is running or planned), and one live-verified booking. The switch and the release are set in Terraform (direct_booking_enabled, direct_booking_on_voice, direct_booking_addendum_released) and the catalog. The booking card in a clinic's Setup shows the three ticks live. Until the deploy has rolled, every channel takes booking requests for staff.",
     evidence:
       "apps/app/src/lib/booking/engine.ts, apps/app/src/lib/assistant/booking-tools.ts, apps/app/src/lib/assistant/prompt.ts, infra/aws/variables.tf (direct_booking_enabled), infra/aws/locals.tf (direct_booking_environment), docs/design/launch-readiness-2026-10-27/db-1-direct-booking-switch.md",
     blocksGoLive: true,
@@ -234,7 +234,7 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     promise: "A clinic can elect direct booking under its agreement",
     where: "Setup, agreement",
     status: "owner",
-    left: "The direct-booking addendum is drafted and marked not approved by counsel; approve it, or decide to release it without counsel as with the legal pages.",
+    left: "The owner released the direct-booking addendum on 28 October 2026, without external counsel as with the legal pages. Releasing it adds nothing for a clinic to sign today: no page renders an election and booking depends on the location's calendar terms plus the three-part check.",
     evidence: "packages/catalog/src/direct-booking-addendum.ts",
     blocksGoLive: true,
   },

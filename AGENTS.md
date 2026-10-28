@@ -134,6 +134,7 @@ Launch-readiness H0 to H8 on local branches (none pushed to `main`): `pkg/voice-
 From `docs/design/launch-readiness-2026-10-27/status.md` sections 1 and 8 and the owner's decisions of 27 Oct 2026. Owner-only and Claude Code actions are kept apart.
 
 **Claude Code**
+0. DB-1 fix pass (28 Oct 2026, local, pushed to check/db1-release only): tests and owner-facing text now say the owner released the Direct booking addendum himself; privacy no longer promises the mailbox copy is kept only until a matter closes (LEGAL_VERSION 2026-10-28.1 unpublished, /privacy hash re-pinned). Still owner-only: infra.yml apply, then deploy-app.yml (rolls voice), one live-verified booking.
 1. Review and merge the lane branches (lead), then one full `bash scripts/verify-local.sh` on the merged tree; CI on the exact tree before any landing; a landing and a deploy need the owner's explicit yes.
 2. DB-1: design and build a safe way to set `HEALDESK_DIRECT_BOOKING_ENABLED` (Terraform refuses it on every task today). Never set it. The switch also waits on the direct-booking addendum.
 3. DEP-META: deposit link on Meta (`deposit-link-meta`, not built; Terms section 2 says it sends no payment link there and must change when it ships).

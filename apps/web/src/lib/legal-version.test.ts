@@ -55,7 +55,7 @@ const PINNED_BEFORE_1_6_0 = {
   replaces: "2026-10-27.1",
   sha256: {
     "/terms": "13c577eb7889b04fbf9b75926b382cc5b246b9df1bd877f1cb5ea581e6355451",
-    "/privacy": "f815572103bb42ff425a254425477113021e7931a9ac30df693289dd79e158e5",
+    "/privacy": "4e3bdac523d61ce914d3a47506b9ccc25cfc1c701d0c74326d0b6a09bcb7d309",
     "/data-deletion": "d77557279849e427006387afa3c427ee976e10be5afd29cbba04a7356afd1042",
   },
 } as const;

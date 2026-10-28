@@ -62,6 +62,7 @@ import { snippetOpen, widgetSnippet } from "@/lib/setup/snippet";
 import { loadSetupState, type SetupState } from "@/lib/setup/state";
 import { urgentHelpField } from "@/lib/setup/urgent";
 import { readMetaConnectView } from "@/lib/meta/reconnect";
+import { readPaymentFacts } from "@/lib/portal/switch-resets";
 import { switchRules } from "@/lib/portal/switch-rules";
 import { withTenant } from "@/lib/tenant";
 
@@ -497,6 +498,7 @@ async function DepositsStep({
 }) {
   const channels = state.channels.map((c) => c.channel);
   const deposits = await withTenant({ clinicId: state.clinic.id, actor }, getDepositSettings);
+  const facts = await withTenant({ clinicId: state.clinic.id, actor }, readPaymentFacts);
   return (
     <DepositsScreen
       {...common}
@@ -513,16 +515,7 @@ async function DepositsStep({
           connectConfigured: connectConfigured(),
           outcome,
         });
-        // Placeholder facts until lane A supplies the calendar and Auto-confirm
-        // readings here: the calendar is connected on the next step, so full
-        // payment is still locked in the wizard and the rule says why.
-        const rules = switchRules({
-          gatewayConnected: deposits.isConnected,
-          hasDepositAmount: state.knowledge.services.some((s) => (s.depositUsd ?? 0) > 0),
-          calendarConnected: false,
-          autoConfirm: true,
-          hasVoice: channels.includes("voice"),
-        });
+        const rules = switchRules(facts);
         return {
           voice: channels.includes("voice"),
           text: rules.text_payment_link,

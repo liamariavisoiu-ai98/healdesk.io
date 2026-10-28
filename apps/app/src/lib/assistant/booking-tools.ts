@@ -1,4 +1,3 @@
-import { currentDirectBookingAddendum } from "@healdesk/catalog";
 import { toE164 } from "@healdesk/connectors";
 
 import type { ActorContext } from "@/lib/audit";
@@ -15,8 +14,8 @@ import {
   type PlacedHold,
 } from "@/lib/booking/engine";
 import { BOOKING_LINES_EN, BOOKING_LINES_ES, bookingLinesFor, depositLine, forChat, type BookingLines } from "@/lib/booking/lines";
+import { directBookingOpen } from "@/lib/booking/direct-switch";
 import { bookingModeFor } from "@/lib/booking/mode";
-import { env } from "@/lib/env";
 import { describeError, log } from "@/lib/log";
 import { withTenant } from "@/lib/tenant";
 import { spokenSlotEs } from "@/lib/voice/spoken";
@@ -163,11 +162,13 @@ export type BookingTools = {
 
 /**
  * Every switch that must be on before the tools are offered: the owner's
- * kill switch and counsel's release of the Direct booking addendum. Read on
- * every turn; neither is ever set by code.
+ * kill switch, counsel's release of the Direct booking addendum and the
+ * deployed addendum version matching it, all through the one shared check
+ * (lib/booking/direct-switch.ts, DB-1). Read on every turn; none is ever set
+ * by code.
  */
 export function directBookingToolsAllowed(): boolean {
-  return env.directBookingEnabled() && currentDirectBookingAddendum().approvedByCounsel === true;
+  return directBookingOpen();
 }
 
 /** The engine, as the tool layer calls it; tests may pass their own. */

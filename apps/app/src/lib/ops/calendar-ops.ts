@@ -8,6 +8,7 @@ import {
   type CalendarElectionSource,
 } from "@/db/schema";
 import { getClinicSettings } from "@/lib/billing/settings";
+import { directBookingOpen } from "@/lib/booking/direct-switch";
 import { bookingModeFor, setAutoConfirm, type BookingModeReason } from "@/lib/booking/mode";
 import type { CalendarTerms } from "@/lib/booking/terms";
 import { issueCalendarLink } from "@/lib/connections/calendar-links";
@@ -15,7 +16,6 @@ import {
   disconnectGoogleCalendar,
   type GoogleCalendarConnection,
 } from "@/lib/connections/google-calendar";
-import { env } from "@/lib/env";
 import type { TenantTx } from "@/lib/tenant";
 
 import {
@@ -302,7 +302,7 @@ export async function readBookingProjection(
     reasons: booking.reasons,
     autoConfirm: settings.autoConfirmBookings,
     autoConfirmChangedAt: settings.autoConfirmChangedAt?.toISOString() ?? null,
-    killSwitchOn: env.directBookingEnabled(),
+    killSwitchOn: directBookingOpen(),
     demo: booking.demo,
     terms:
       terms.kind === "none" || terms.kind === "needs_election"

@@ -12,6 +12,7 @@ import {
 import { env } from "@/lib/env";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
+import { directBookingOpen } from "./direct-switch";
 import { calendarTermsFor, type CalendarTerms } from "./terms";
 
 /**
@@ -133,7 +134,11 @@ export type BookingModeConnection = Pick<
 
 /** Everything the mode weighs, read by bookingModeFor. */
 export type BookingModeFacts = {
-  /** HEALDESK_DIRECT_BOOKING_ENABLED, which only the owner sets. */
+  /**
+   * directBookingOpen(): the owner's HEALDESK_DIRECT_BOOKING_ENABLED AND counsel's
+   * released addendum AND a matching HEALDESK_DIRECT_BOOKING_ADDENDUM (DB-1). The
+   * env var alone never makes a location live.
+   */
   killSwitchOn: boolean;
   /** clinic_settings.auto_confirm_bookings; on for a location with no settings row. */
   autoConfirm: boolean;
@@ -259,7 +264,7 @@ export async function bookingModeFor(tx: TenantTx): Promise<BookingMode> {
 
   const disclosureVersion = connection?.metadata.disclosureVersion;
   const decision = decideBookingMode({
-    killSwitchOn: env.directBookingEnabled(),
+    killSwitchOn: directBookingOpen(),
     autoConfirm: settings.autoConfirmBookings,
     terms,
     googleConfigured: env.googleCalendarConfigured(),

@@ -1,3 +1,4 @@
+import { CHANGE_ACTOR_WORDS, SETTING_CHANGE_LABELS, SETTING_VALUE_WORDS } from "@/lib/clinic/setting-words";
 import type { EmailKind } from "@/lib/email/kind-rules";
 import type { OpsEvent } from "@/lib/ops/notify";
 
@@ -163,6 +164,8 @@ export const CHANGE_SECTION_WORDS: Readonly<Record<string, string>> = {
   location_hours: "opening hours at its locations",
   providers: "list of named providers",
   provider_services: "services each provider offers",
+  // A Settings switch or choice (lib/clinic/setting-changes.ts).
+  setting: "settings",
 };
 
 /**
@@ -189,6 +192,13 @@ export const CLOSED_WORDS: Readonly<Record<string, Readonly<Record<string, strin
   kind: { ...EMAIL_KIND_WORDS, ...REQUEST_KIND_WORDS },
   channel: CHANNEL_WORDS,
   provider: PROVIDER_WORDS,
+  // A clinic's settings change (lib/clinic/change-events.ts
+  // settingAlertFields; owner, 28 October 2026): which switch, its value
+  // before and after, and who changed it, each from lib/clinic/setting-words.ts.
+  setting: SETTING_CHANGE_LABELS,
+  before: SETTING_VALUE_WORDS,
+  after: SETTING_VALUE_WORDS,
+  actor: CHANGE_ACTOR_WORDS,
 };
 
 /**

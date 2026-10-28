@@ -4,6 +4,8 @@ import { eq } from "drizzle-orm";
 import { agentConfigs, clinics } from "@/db/schema";
 import type { ActorContext, RequestContext } from "@/lib/audit";
 import { getClinicSettings, lockAutoConfirm, updateClinicSettings } from "@/lib/billing/settings";
+import { changeOriginOf } from "@/lib/clinic/change-events";
+import { recordSettingChange } from "@/lib/clinic/setting-changes";
 import { OpeningHoursError, parseOpeningHours } from "@/lib/clinic/opening-hours";
 import {
   googleCalendarConnection,
@@ -378,6 +380,14 @@ export async function setAutoConfirm(
     const before = await getClinicSettings(tx);
     const label = options.label ?? labelOf(actor);
     const after = await updateClinicSettings(tx, { autoConfirmBookings: on }, label, options.now);
+    // Ops hears of the switch, whoever made it (lib/clinic/setting-changes.ts).
+    await recordSettingChange(tx, {
+      key: "auto_confirm",
+      before: before.autoConfirmBookings,
+      after: after.autoConfirmBookings,
+      origin: changeOriginOf(actor),
+      now: options.now,
+    });
     // Full payment needs Auto-confirm on (switch-rules.ts): turning it off
     // returns the ask to deposit only in this same transaction, and says so.
     if (before.autoConfirmBookings && !after.autoConfirmBookings) {

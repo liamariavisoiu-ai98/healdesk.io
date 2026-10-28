@@ -139,6 +139,14 @@ const CATEGORY_KEYS: ReadonlySet<string> = new Set([
   "section",
   // L15: the Meta app switched Off ("instagram"), an id, never a name.
   "platform",
+  // A clinic's settings change, in an ops alert (lib/clinic/change-events.ts
+  // settingAlertFields): the switch's key, its value before and after as
+  // closed tokens ("on", "deposit_only") and who changed it ("ops"). Bare
+  // tokens; the alert's wording prints each only from its closed list.
+  "setting",
+  "before",
+  "after",
+  "actor",
   // L25 and I3: a support-chat escalation's topic and what is wrong, each an
   // id from lib/support/escalation-fields.ts's fixed lists, never words.
   "topic",

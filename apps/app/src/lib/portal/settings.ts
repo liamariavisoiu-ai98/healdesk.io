@@ -11,6 +11,8 @@ import { eq } from "drizzle-orm";
 
 import { clinics, type DepositUncollectable } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
+import { changeOriginOf } from "@/lib/clinic/change-events";
+import { readSettingSnapshotSafely, recordSettingChange } from "@/lib/clinic/setting-changes";
 import { requestPracticeQuestions } from "@/lib/engine/practice/store";
 import type { PracticeSection } from "@/lib/engine/practice/types";
 import { DepositSettingsError, setDepositSettings } from "@/lib/billing/deposits";
@@ -181,11 +183,19 @@ const PRACTICE_SETTINGS: Partial<Record<SettingKey, PracticeSection>> = {
 
 export type SettingContext = {
   clinicId: string;
-  userId: string;
+  /** The signed-in person; null when someone at healdesk acts (`actor`). */
+  userId: string | null;
   /** The device whose passkey is live on this session, or the sign-in's own label. */
   actorLabel: string;
   /** Whether a passkey step-up is live on this session. */
   steppedUp: boolean;
+  /**
+   * Who acts when it is not the clinic: an operator through the signed ops
+   * envelope (lib/ops/switch-ops.ts, the operator's address as a service) or
+   * a support action (SUPPORT_ACTION_SERVICE). Absent: the signed-in person.
+   * Never a step-up, so never a change of where calls go.
+   */
+  actor?: Extract<ActorContext, { type: "service" }>;
 };
 
 export type SettingResult =
@@ -197,6 +207,10 @@ const STEP_UP_MESSAGE: Partial<Record<SettingKey, string>> = {
   transfer_number:
     "The transfer number is where AYA puts live calls through, so changing it needs Face ID or your screen lock on a device you've added.",
 };
+
+/** Why someone at healdesk cannot change where calls go for the clinic. */
+export const CLINIC_ONLY_MESSAGE =
+  "Only the clinic can change where calls go, in its own Settings with Face ID or its screen lock.";
 
 /** setup's own wording for a number it can't read (lib/setup/settings.ts). */
 const UNREADABLE_NUMBER =
@@ -222,10 +236,17 @@ export async function saveSetting(
   if (!isSettingKey(key)) {
     return { ok: false, field: "key", message: "That isn't one of your settings." };
   }
-  const actor: ActorContext = { type: "user", userId: ctx.userId, label: ctx.actorLabel };
+  if (ctx.actor ? false : ctx.userId === null) {
+    return { ok: false, field: "key", message: "Sign in to change your settings." };
+  }
+  // Where calls go is the clinic's alone to change: it needs its passkey.
+  if (ctx.actor && SENSITIVE_SETTINGS.has(key)) {
+    return { ok: false, field: key, message: CLINIC_ONLY_MESSAGE };
+  }
+  const actor: ActorContext = ctx.actor ?? { type: "user", userId: ctx.userId!, label: ctx.actorLabel };
   try {
     const toast = await withTenant({ clinicId: ctx.clinicId, actor }, async (tx) => {
-      const state = await readSetupState(tx, { userId: ctx.userId, now });
+      const state = await readSetupState(tx, { userId: ctx.actor ? null : ctx.userId, now });
       if (!state) throw new Refusal("key", "This clinic could not be found.");
       if (state.clinic.offboardingStartedAt) {
         throw new Refusal("key", "This account has closed, so its settings can't change.");
@@ -234,7 +255,20 @@ export async function saveSetting(
       if (!SETTING_CHANNELS[key].some((c) => bought.includes(c))) {
         throw new Refusal("key", "That setting isn't part of your plan.");
       }
+      const before = await readSettingSnapshotSafely(tx, now);
       const consequence = await write(tx, state, ctx, key, value, now);
+      // Ops hears of every change, whoever made it (lib/clinic/setting-changes.ts):
+      // recorded here, told by the minute sweep after commit. Never throws.
+      const after = before ? await readSettingSnapshotSafely(tx, now) : null;
+      if (before && after) {
+        await recordSettingChange(tx, {
+          key,
+          before: before[key],
+          after: after[key],
+          origin: changeOriginOf(actor),
+          now,
+        });
+      }
       const section = PRACTICE_SETTINGS[key];
       if (section) await requestPracticeQuestions(tx, { reason: "settings", section, now });
       const applies = appliesWhen(state.channels, SETTING_CHANNELS[key]);

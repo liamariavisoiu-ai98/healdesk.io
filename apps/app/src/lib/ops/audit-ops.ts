@@ -294,6 +294,9 @@ function at(value: Date | string | null): Date | null {
  * and each availability pack's newest pass. `auditsOn` is the clinic-audits
  * switch (clinicAuditsOn), read once by the caller.
  */
+// Settings changes (kind `setting`, lib/clinic/setting-changes.ts) share the
+// feed but are no availability change: no audit reads them, so they are left
+// out here and never count as unaudited.
 export async function readClinicAuditFacts(tx: TenantTx, auditsOn: boolean): Promise<ClinicAuditFacts> {
   const latest = await tx.db
     .selectDistinctOn([clinicAudits.pack])
@@ -303,12 +306,12 @@ export async function readClinicAuditFacts(tx: TenantTx, auditsOn: boolean): Pro
   const c = tx.clinicId;
   const result = await tx.db.execute<FactsRow>(sql`
     select
-      (select e.kind from clinic_change_events e where e.clinic_id = ${c}
+      (select e.kind from clinic_change_events e where e.clinic_id = ${c} and e.kind <> 'setting'
         order by e.changed_at desc limit 1) as kind,
-      (select max(e.changed_at) from clinic_change_events e where e.clinic_id = ${c}) as changed_at,
-      exists (select 1 from clinic_change_events e where e.clinic_id = ${c}
+      (select max(e.changed_at) from clinic_change_events e where e.clinic_id = ${c} and e.kind <> 'setting') as changed_at,
+      exists (select 1 from clinic_change_events e where e.clinic_id = ${c} and e.kind <> 'setting'
         and (e.audit_status = 'running' or (e.audit_status = 'queued' and ${auditsOn}::boolean))) as checking,
-      exists (select 1 from clinic_change_events e where e.clinic_id = ${c}
+      exists (select 1 from clinic_change_events e where e.clinic_id = ${c} and e.kind <> 'setting'
         and (e.audit_status is null or (e.audit_status = 'queued' and not ${auditsOn}::boolean))
         and e.changed_at > coalesce(
           (select max(a.started_at) from clinic_audits a where a.clinic_id = ${c} and a.pack = 'availability'),

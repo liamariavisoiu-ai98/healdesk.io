@@ -11,11 +11,12 @@ import {
 } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { describeError, log } from "@/lib/log";
-import { notifyOpsOrThrow } from "@/lib/ops/notify";
+import { notifyOpsOrThrow, raiseOpsAlertKeyed } from "@/lib/ops/notify";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import { clinicLocalDate } from "./closures";
 import { DAY_KEYS, parseOpeningHours, type OpeningHours } from "./opening-hours";
+import { SETTING_ENTRIES, SETTING_VALUE_WORDS } from "./setting-words";
 
 /**
  * A clinic's changes to when and with whom AYA books, for ops (ops
@@ -35,6 +36,11 @@ import { DAY_KEYS, parseOpeningHours, type OpeningHours } from "./opening-hours"
  * id and name, the kind and counts; never a date, a label, a name or a
  * calendar. The audit of a change (lib/audits) runs two minutes after the
  * clinic's last one, and only while the `clinic-audits` job is switched on.
+ *
+ * A clinic's Settings changes are recorded here too, as kind `setting`
+ * (./setting-changes.ts; owner, 28 October 2026), and each is told to ops on
+ * its own, by email and in Slack, keyed on its row: the clinic, the switch,
+ * before and after as closed words, and who.
  *
  * Business data about the practice, never a patient.
  */
@@ -61,6 +67,13 @@ export type ChangeOrigin = { source: ClinicChangeSource; actor: ClinicChangeActo
 /** lib/portal/actor.ts SIGN_IN_ACTOR_LABEL: the label a session with no passkey device acts under. */
 const SIGN_IN_LABEL = "the clinic's sign-in";
 
+/**
+ * The service a support action acts as (lane D's support drafter, carrying
+ * out a clinic's emailed request): recorded as source support_action, actor
+ * support.
+ */
+export const SUPPORT_ACTION_SERVICE = "support-action";
+
 /** A signed-in person's change: from one of the clinic's devices, or from its sign-in alone. */
 export function clinicActorOf(label: string | null | undefined): ClinicChangeActor {
   return !label || label === SIGN_IN_LABEL ? "clinic_signin" : "clinic_device";
@@ -74,6 +87,9 @@ export function clinicActorOf(label: string | null | undefined): ClinicChangeAct
  */
 export function changeOriginOf(actor: ActorContext | undefined): ChangeOrigin {
   if (actor?.type === "user") return { source: "portal", actor: clinicActorOf(actor.label) };
+  if (actor?.type === "service" && actor.serviceName === SUPPORT_ACTION_SERVICE) {
+    return { source: "support_action", actor: "support" };
+  }
   if (actor?.type === "service" && actor.serviceName.includes("@")) {
     return { source: "ops_console", actor: "ops" };
   }
@@ -118,6 +134,21 @@ export function cleanSummary(summary: ClinicChangeSummary): ClinicChangeSummary 
     const n = count(summary[key]);
     if (n !== undefined) out[key] = n;
   }
+  // A setting change: its key on the closed list, and its value tokens only
+  // as a pair, each on the closed list too (./setting-words.ts).
+  if (typeof summary.setting === "string" && Object.hasOwn(SETTING_ENTRIES, summary.setting)) {
+    out.setting = summary.setting;
+    const { before, after } = summary;
+    if (
+      typeof before === "string" &&
+      typeof after === "string" &&
+      Object.hasOwn(SETTING_VALUE_WORDS, before) &&
+      Object.hasOwn(SETTING_VALUE_WORDS, after)
+    ) {
+      out.before = before;
+      out.after = after;
+    }
+  }
   return out;
 }
 
@@ -145,7 +176,7 @@ export async function recordClinicChange(
       actorKind: input.actor,
       summary: cleanSummary(input.summary),
       changedAt: now,
-      auditStatus: job?.enabled ? "queued" : null,
+      auditStatus: job?.enabled && input.kind !== "setting" ? "queued" : null,
     })
     .returning({ id: clinicChangeEvents.id });
   return row!.id;
@@ -268,29 +299,42 @@ export async function runClinicChangeAlerts(now: Date = new Date()): Promise<{ a
     try {
       const waiting = await withTenant({ clinicId, actor: ALERT_ACTOR }, (tx) =>
         tx.db
-          .select({ id: clinicChangeEvents.id, kind: clinicChangeEvents.kind, summary: clinicChangeEvents.summary })
+          .select({
+            id: clinicChangeEvents.id,
+            kind: clinicChangeEvents.kind,
+            actorKind: clinicChangeEvents.actorKind,
+            summary: clinicChangeEvents.summary,
+          })
           .from(clinicChangeEvents)
           .where(and(eq(clinicChangeEvents.clinicId, tx.clinicId), isNull(clinicChangeEvents.alertedAt))),
       );
       const byKind = new Map<ClinicChangeKind, { id: string; summary: ClinicChangeSummary }[]>();
-      for (const row of waiting) byKind.set(row.kind, [...(byKind.get(row.kind) ?? []), row]);
+      for (const row of waiting) {
+        if (row.kind === "setting") {
+          // One alert per settings change, never folded: keyed on the row, so
+          // a sweep that stops before marking it raises nothing twice.
+          const alertId = await raiseOpsAlertKeyed(
+            "clinic_availability_changed",
+            settingAlertFields(clinicId, row.actorKind, row.summary),
+            { key: `setting_change:${row.id}`, email: true },
+          );
+          if (!alertId) {
+            failures += 1;
+            continue;
+          }
+          alerts += 1;
+          await markAlerted(clinicId, [row.id], now);
+          continue;
+        }
+        byKind.set(row.kind, [...(byKind.get(row.kind) ?? []), row]);
+      }
       for (const [kind, rows] of byKind) {
         await notifyOpsOrThrow("clinic_availability_changed", changeAlertFields(clinicId, kind, rows));
         alerts += 1;
-        await withTenant({ clinicId, actor: ALERT_ACTOR }, (tx) =>
-          tx.db
-            .update(clinicChangeEvents)
-            .set({ alertedAt: now })
-            .where(
-              and(
-                eq(clinicChangeEvents.clinicId, tx.clinicId),
-                inArray(
-                  clinicChangeEvents.id,
-                  rows.map((r) => r.id),
-                ),
-                isNull(clinicChangeEvents.alertedAt),
-              ),
-            ),
+        await markAlerted(
+          clinicId,
+          rows.map((r) => r.id),
+          now,
         );
       }
     } catch (error) {
@@ -299,6 +343,43 @@ export async function runClinicChangeAlerts(now: Date = new Date()): Promise<{ a
     }
   }
   return { alerts, failures };
+}
+
+/** Mark these changes told. */
+async function markAlerted(clinicId: string, ids: readonly string[], now: Date): Promise<void> {
+  await withTenant({ clinicId, actor: ALERT_ACTOR }, (tx) =>
+    tx.db
+      .update(clinicChangeEvents)
+      .set({ alertedAt: now })
+      .where(
+        and(
+          eq(clinicChangeEvents.clinicId, tx.clinicId),
+          inArray(clinicChangeEvents.id, [...ids]),
+          isNull(clinicChangeEvents.alertedAt),
+        ),
+      ),
+  );
+}
+
+/**
+ * A settings change's alert fields: the clinic's id, `section` setting, the
+ * switch's key, its closed tokens before and after when it has them, and who
+ * made it, coarsely. Every value is a closed word (lib/ops/alert-wording/
+ * words.ts), so the email and the Slack copy print it and nothing else.
+ */
+export function settingAlertFields(
+  clinicId: string,
+  actorKind: ClinicChangeActor,
+  summary: ClinicChangeSummary,
+): Record<string, string> {
+  const clean = cleanSummary(summary);
+  return {
+    clinicId,
+    section: "setting",
+    ...(clean.setting ? { setting: clean.setting } : {}),
+    ...(clean.before && clean.after ? { before: clean.before, after: clean.after } : {}),
+    actor: actorKind,
+  };
 }
 
 /**

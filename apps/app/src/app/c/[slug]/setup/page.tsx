@@ -508,20 +508,16 @@ async function DepositsStep({
       }))}
       collectionLine={depositCollectionLine({ channels, isConnected: deposits.isConnected })}
       paymentSwitches={(() => {
-        const stripeView = setupStripeView({
-          slug: common.slug,
-          channels,
-          isConnected: deposits.isConnected,
-          connectConfigured: connectConfigured(),
-          outcome,
-        });
         const rules = switchRules(facts);
         return {
           voice: channels.includes("voice"),
           text: rules.text_payment_link,
           full: rules.full_payment,
           targets: {
-            connect_stripe: stripeView.available ? stripeView.href : null,
+            // The screen's own Connect Stripe button sits outside its form,
+            // so leaving for Stripe loses nothing typed; a second link here
+            // would sit inside the form (and appear on a voice-only plan).
+            connect_stripe: null,
             set_deposit: null,
             connect_calendar: null,
             turn_on_auto_confirm: null,

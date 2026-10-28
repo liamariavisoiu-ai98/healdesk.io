@@ -147,7 +147,17 @@ export async function applySwitchResets(
  */
 export async function emailResets(
   tx: TenantTx,
-  input: { cause: ResetCause; resets: readonly SwitchReset[]; key: string; at: Date },
+  input: {
+    cause: ResetCause;
+    resets: readonly SwitchReset[];
+    key: string;
+    at: Date;
+    /**
+     * A Stripe disconnect that Stripe refused: the switches went off but the
+     * account stays connected, so the email says that, not "disconnected".
+     */
+    stripeKept?: boolean;
+  },
 ): Promise<void> {
   if (input.resets.length === 0) return;
   await notifySwitchesReset(tx, {
@@ -155,6 +165,7 @@ export async function emailResets(
     code: CAUSES[input.cause].unlock,
     key: input.key,
     at: input.at,
+    ...(input.stripeKept ? { stripeKept: true } : {}),
   });
 }
 

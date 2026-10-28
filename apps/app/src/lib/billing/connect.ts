@@ -915,8 +915,9 @@ export async function disconnectStripeConnect(input: {
         resourceId: tx.clinicId,
         metadata: { connected: true, outcome: "deauthorize_failed", source },
       });
-      // No disconnect email goes, so the resets get their own.
-      await emailResets(tx, resetEmail(prepared.resets, now));
+      // No disconnect email goes, so the resets get their own, worded for
+      // an account that is still connected: never "was disconnected".
+      await emailResets(tx, { ...resetEmail(prepared.resets, now), stripeKept: true });
       return { kind: "kept" as const, counts };
     }
     const stamped = await clearAccount(tx, {

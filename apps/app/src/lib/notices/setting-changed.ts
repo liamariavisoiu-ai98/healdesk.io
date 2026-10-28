@@ -202,6 +202,8 @@ export async function notifySwitchesReset(
     /** The dedupe key's own part: the first clinic_settings_history row the reset wrote. */
     key: string;
     at: Date;
+    /** A Stripe disconnect Stripe did not confirm: the account is still connected. */
+    stripeKept?: boolean;
   },
 ): Promise<void> {
   try {
@@ -227,6 +229,7 @@ export async function notifySwitchesReset(
           afterMasked: null,
           switchIds: reset.switchIds,
           code: reset.code,
+          ...(reset.stripeKept ? { isStripeStillConnected: true } : {}),
           changedAt: reset.at.toISOString(),
           settingsUrl: publicUrl(`/c/${clinic.slug}/settings#payments`),
         },

@@ -87,6 +87,12 @@ export type SettingChangedPayload = {
   switchIds?: RuledSwitch[];
   /** For payment_switches_reset: what would unlock them again (switch-rules.ts SwitchUnlock). */
   code?: SwitchUnlock;
+  /**
+   * For payment_switches_reset after a Stripe disconnect that Stripe did not
+   * confirm: the switches went off first, but the account is still
+   * connected, so the email must not say it was disconnected.
+   */
+  isStripeStillConnected?: boolean;
 };
 
 const WORDS: Record<
@@ -172,6 +178,27 @@ const renderSwitchesReset: EmailTemplate<SettingChangedPayload> = (payload, ctx)
   const clinic = ctx.clinicName ?? "your practice";
   const when = momentLong(payload.changedAt, ctx);
   const one = switches.length === 1;
+  if (payload.isStripeStillConnected) {
+    return compose(
+      {
+        subject: one ? "A payment setting was switched off" : "Some payment settings were switched off",
+        preheader: `Stripe didn't confirm the disconnection, so your account is still connected.`,
+        blocks: [
+          {
+            type: "paragraph",
+            text: `We started disconnecting the Stripe account for ${clinic} at ${when} and switched ${one ? "this setting" : "these settings"} off first:`,
+          },
+          { type: "list", items: switches.map((s) => resetNotice(s, null)) },
+          {
+            type: "paragraph",
+            text: `Stripe didn't confirm the disconnection, so your Stripe account is still connected. Try disconnecting again in Settings to finish, or switch ${one ? "it" : "them"} back on there to keep using Stripe.`,
+          },
+          { type: "action", label: "See your settings", url: payload.settingsUrl },
+        ],
+      },
+      ctx,
+    );
+  }
   return compose(
     {
       subject: one ? "A payment setting was switched off" : "Some payment settings were switched off",

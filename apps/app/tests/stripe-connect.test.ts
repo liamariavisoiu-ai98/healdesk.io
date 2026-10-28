@@ -922,6 +922,44 @@ describeDb("Connect against the database", DB_TEST_OPTIONS, () => {
       });
     });
 
+    test("Stripe refusing to revoke emails the reset as still connected, never as disconnected", async () => {
+      const c = await connectedClinic("refuse-revoke-email");
+      // A deposit amount, so "Take deposits" was on by the rules and the
+      // disconnect's reset is what turns it off.
+      await inTenant(c.clinicId, (client) =>
+        client.query(
+          `insert into agent_configs (clinic_id, greeting, services)
+             values ($1, 'Thanks for calling.', '[{"name":"Consultation","priceKind":"exact","priceFromUsd":150,"priceToUsd":150,"durationMinutes":30,"depositUsd":50}]'::jsonb)`,
+          [c.clinicId],
+        ),
+      );
+      fake.on("oauth.deauthorize", () => {
+        throw stripeError("api");
+      });
+      expect(
+        await disconnectStripeConnect({ clinicId: c.clinicId, actorLabel: "ops@healdesk.test", now: NOW }),
+      ).toEqual({ status: "deauthorize_failed" });
+      expect(await account(c.clinicId)).toBe(ACCOUNT);
+      const sent = await notices(c.clinicId);
+      // No disconnect email, and one reset email, worded for a kept account.
+      expect(sent.map((n) => n.kind)).toEqual(["setting_changed"]);
+      expect(sent[0]!.payload).toMatchObject({
+        field: "payment_switches_reset",
+        switchIds: ["deposits"],
+        code: "connect_stripe",
+        isStripeStillConnected: true,
+      });
+      // The reset itself was real, so its change row stays, as healdesk's.
+      const feed = await inTenant(c.clinicId, (client) =>
+        client.query<{ source: string; summary: Record<string, unknown> }>(
+          `select source, summary from clinic_change_events where kind = 'setting'`,
+        ),
+      );
+      expect(feed.rows).toEqual([
+        { source: "system", summary: { setting: "deposits_enabled", before: "on", after: "off" } },
+      ]);
+    });
+
     test("Stripe refusing to revoke keeps the account recorded with deposits off; one that already revoked us counts as revoked", async () => {
       const c = await connectedClinic("refuse-revoke");
       fake.on("oauth.deauthorize", () => {

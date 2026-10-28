@@ -117,6 +117,20 @@ describe("the reset email (O4, payment_switches_reset)", () => {
     expect(r.text).not.toContain("Deposits are off");
   });
 
+  test("a disconnect Stripe did not confirm says the account is still connected, never disconnected", () => {
+    const kept = { ...payload, switchIds: ["deposits" as const], isStripeStillConnected: true };
+    expect(() => assertPayloadAllowed(kept, "setting_changed")).not.toThrow();
+    const r = renderSettingChanged(kept, CTX);
+    expect(r.subject).toBe("A payment setting was switched off");
+    expect(r.text).toContain("We started disconnecting the Stripe account for Radiance Med Spa");
+    expect(r.text).toContain("Deposits are off.");
+    expect(r.text).toContain("your Stripe account is still connected");
+    expect(r.text).not.toContain("was disconnected");
+    expect(r.text).not.toContain(UNLOCK_REASONS.connect_stripe);
+    expect(copyProblems([r.subject, r.preheader, r.text, visibleText(r.html)].join("\n"))).toEqual([]);
+    expect(linkProblems(r, "setting_changed")).toEqual([]);
+  });
+
   test("a reset with no switch or no reason is refused rather than sent half-worded", () => {
     expect(() => renderSettingChanged({ ...payload, switchIds: [] }, CTX)).toThrow();
     expect(() => renderSettingChanged({ ...payload, code: undefined }, CTX)).toThrow();

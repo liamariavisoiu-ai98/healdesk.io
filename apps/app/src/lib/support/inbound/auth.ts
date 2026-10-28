@@ -129,6 +129,22 @@ export function authenticate(mail: ParsedMail, notice: Pick<InboundNotice, "verd
   };
 }
 
+/**
+ * Whether SES's NOTICE itself (not the headers in the stored message) says
+ * the mail passed: its DKIM verdict PASS, and its SPF and DMARC verdicts
+ * PASS wherever the notice has them (UNKNOWN: not in the notice, not
+ * counted). A support change runs on its own (DIRECT, lib/support/actions)
+ * only for mail whose notice says so: the headers are safe to read only
+ * because SES prepends its own, and a change healdesk makes unasked rests on
+ * SES's own word as well. A message the hourly sweep reads has no notice,
+ * so it never passes here.
+ */
+export function noticeVerdictsPass(notice: Pick<InboundNotice, "verdicts">): boolean {
+  const { dkim, spf, dmarc } = notice.verdicts;
+  if (dkim !== "PASS") return false;
+  return [spf, dmarc].every((v) => v === "UNKNOWN" || v === "PASS");
+}
+
 /** Whether a DKIM signature that passed is aligned with this domain: the same, or a parent or subdomain. */
 export function alignedDkimPass(auth: Authentication, domain: string): boolean {
   const from = domain.toLowerCase();

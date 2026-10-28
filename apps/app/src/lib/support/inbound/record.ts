@@ -10,7 +10,7 @@ import { withTenant } from "@/lib/tenant";
 
 import { insertCase } from "../cases";
 import { moreUrgent, printRef } from "../case-vocab";
-import type { Verdicts } from "./auth";
+import { noticeVerdictsPass, type Verdicts } from "./auth";
 import type { Classification } from "./classify";
 import { attachmentSummary, messageFields, phiSuspected, type MatchedBy, type ScreenCounts } from "./facts";
 import type { InboundNotice } from "./notice";
@@ -326,6 +326,7 @@ async function recordIn(
       senderMatchesCase: target.caseMatch ? target.caseMatch.senderMatchesCase : null,
       authenticated: facts.authenticated,
       fromClinic: caseClinic !== null && senderIsClinic && facts.authenticated,
+      noticeVerified: noticeVerdictsPass(facts.notice),
     }),
     attachmentsJson: summary,
     receivedAt,

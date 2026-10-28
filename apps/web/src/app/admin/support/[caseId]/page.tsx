@@ -72,13 +72,13 @@ function refresh(caseId: string): void {
   revalidatePath(LIST);
 }
 
-async function save(id: string, text: string) {
+async function save(id: string, text: string, dropChange?: unknown) {
   "use server";
   if (!(await requireOperator())) return UNAUTHENTICATED;
   if (!isUuid(id)) return refused(NO_CASE);
   const body = normaliseReply(text);
   if (!body) return refused(TEXT_RULE);
-  const result = await saveSupportDraft(id.toLowerCase(), body);
+  const result = dropChange === true ? await saveSupportDraft(id.toLowerCase(), body, true) : await saveSupportDraft(id.toLowerCase(), body);
   refresh(id.toLowerCase());
   return result;
 }

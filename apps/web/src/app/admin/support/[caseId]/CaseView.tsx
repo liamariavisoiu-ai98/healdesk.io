@@ -18,6 +18,7 @@ import {
   CLOSED_REASON_WORDS,
   CLOSED_WORDS,
   draftHeadWords,
+  DROP_CHANGE_LABEL,
   DRAFT_FACTS_HEADING,
   FACTS_NOT_READ,
   hiddenWords,
@@ -98,7 +99,7 @@ import { dayBounds, SNOOZE_CHOICE_WORDS, type SnoozeChoice } from "../snooze";
 export type ClinicChoice = { id: string; name: string; synthetic: boolean };
 
 export type CaseActions = {
-  onSave: (caseId: string, text: string) => Promise<OpsResult<SupportDraftSaved>>;
+  onSave: (caseId: string, text: string, dropChange?: boolean) => Promise<OpsResult<SupportDraftSaved>>;
   onCheck: (caseId: string, text: string) => Promise<OpsResult<SupportReplyPreview>>;
   onRegenerate: (caseId: string) => Promise<OpsResult<SupportCaseMoveOutcome>>;
   onSend: (caseId: string, code: string, text: string) => Promise<OpsResult<SendAnswer>>;
@@ -141,6 +142,7 @@ export function CaseView({ view, item, waitingRead, clinics, now, actions }: Cas
   const caseId = c.id;
   const draft = view.draft;
   const [text, setText] = useState(draft?.text ?? "");
+  const [dropChange, setDropChange] = useState(false);
   const [checks, setChecks] = useState<{ from: "draft" | "check" | "save"; list: SupportReplyCheckView[] }>({ from: "draft", list: draft?.checks ?? [] });
   const [code, setCode] = useState("");
   const [snooze, setSnooze] = useState<SnoozeChoice["kind"]>("tomorrow");
@@ -276,6 +278,12 @@ export function CaseView({ view, item, waitingRead, clinics, now, actions }: Cas
             {item?.packet?.facts.action ? (
               <p className="mt-1 text-sm font-semibold">{proposedChangeWords(item.packet.facts.action)}</p>
             ) : null}
+            {editable && item?.packet?.facts.action?.status === "pending" ? (
+              <label className="mt-1 flex items-start gap-2 text-sm">
+                <input type="checkbox" name="dropChange" checked={dropChange} onChange={(event) => setDropChange(event.target.checked)} className="mt-1" />
+                <span>{DROP_CHANGE_LABEL}</span>
+              </label>
+            ) : null}
             <label className="mt-2 block text-sm">
               <span className={LABEL}>Reply</span>
               <textarea
@@ -325,7 +333,7 @@ export function CaseView({ view, item, waitingRead, clinics, now, actions }: Cas
                     variant="primary"
                     disabled={length === 0 || length > MAX_REPLY_CHARS}
                     run={async () =>
-                      said(await actions.onSave(caseId, text), (saved) => {
+                      said(await (dropChange && item?.packet?.facts.action?.status === "pending" ? actions.onSave(caseId, text, true) : actions.onSave(caseId, text)), (saved) => {
                         setChecks({ from: "save", list: saved.checks });
                         return { status: "done", message: saveWords(saved), auditRecorded: saved.auditRecorded };
                       })

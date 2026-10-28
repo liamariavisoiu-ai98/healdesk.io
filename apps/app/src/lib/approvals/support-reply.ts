@@ -4,6 +4,7 @@ import { unsafeDb } from "@/db";
 import { opsApprovals, supportCases, type OpsApproval, type SupportCase } from "@/db/schema";
 import type { ActorContext, RequestContext } from "@/lib/audit";
 import { describeError, log } from "@/lib/log";
+import { notifyOpsOnce } from "@/lib/ops/notify";
 import { opsPeople } from "@/lib/support/people";
 import { canMove, printRef, type SupportCaseState } from "@/lib/support/case-vocab";
 import {
@@ -17,9 +18,9 @@ import {
   readCaseForReply,
   subjectForCase,
 } from "@/lib/support/send";
-import type { FactsUsed } from "@/lib/support/draft/checks";
-import { runSupportAction } from "@/lib/support/actions/execute";
-import { actionOfFacts, actionView, type ActionView, type SupportAction } from "@/lib/support/actions/tiers";
+import { runSupportActionForApproval, settleStaleRunning } from "@/lib/support/actions/execute";
+import { ACTION_CHECK_ID, CHECK_RULES, checkActionClaim, type FactsUsed } from "@/lib/support/draft/checks";
+import { actionOfFacts, actionView, settleStale, type ActionView, type SupportAction } from "@/lib/support/actions/tiers";
 import { failedRules, type ReplyCheck } from "@/lib/support/send-checks";
 import type { SendEmailOptions } from "@/lib/email/send";
 
@@ -57,10 +58,15 @@ import { moveStatus, propose, SERVICE_ACTOR, subjectAfterRejections, type EventA
  *     rules' names, never the words; then, when the draft proposed a
  *     Settings change still pending (lane D: an APPROVAL-tier change, or a
  *     DIRECT one held for approval), that change is made through the
- *     clinic's own Settings door (lib/support/actions/execute.ts), and if it
- *     is refused nothing is sent (`action_refused`), so the reply never says
- *     a change was made that was not; then the text is frozen on the reply
- *     row and sent (lib/support/send.ts). A case closed since, or a newer
+ *     clinic's own Settings door (lib/support/actions/execute.ts), only
+ *     while, under the case's lock, this item is still the case's current
+ *     unapproved draft; if the reply then cannot go (replaced or closed in
+ *     the same moment, the sending stopped) ops is told once per case
+ *     (`support_action_reply_unsent`) to write to the clinic; and if it
+ *     is refused there nothing is sent (`action_refused`), so the reply never
+ *     says a change was made that was not; a change settled before (refused,
+ *     not run) does not block a reply whose text passes the claim check;
+ *     then the text is frozen on the reply row and sent (lib/support/send.ts). A case closed since, or a newer
  *     draft, sends nothing (`no_longer_needed`).
  */
 
@@ -236,7 +242,7 @@ type Standing = {
   action: SupportAction | null;
 };
 
-async function standing(payload: SupportReplyApprovalPayload, actor?: ActorContext): Promise<Standing> {
+async function standing(payload: SupportReplyApprovalPayload, actor?: ActorContext, now: Date = new Date()): Promise<Standing> {
   const read = await readCaseForReply(payload.caseId, actor);
   if (!read) return { stillNeeded: false, supportCase: null, currentVersion: null, clinicName: null, facts: [], action: null };
   // The case's current draft: only it can be approved, and only while unapproved.
@@ -252,7 +258,8 @@ async function standing(payload: SupportReplyApprovalPayload, actor?: ActorConte
     currentVersion: current?.draftVersion ?? null,
     clinicName: read.clinicName,
     facts: current ? factsOfDraft(current) : [],
-    action: current ? actionOfFacts(current.factsJson) : null,
+    // A claim whose task died reads as refused, outcome unknown (actions/tiers.ts settleStale).
+    action: current ? settleStale(actionOfFacts(current.factsJson), now) : null,
   };
 }
 
@@ -367,6 +374,19 @@ const NO_LONGER_NEEDED = fail(
   "The case has moved on since this was proposed (it was closed, a newer draft replaced this one, or the reply was already approved), so nothing was sent.",
 );
 
+/** Approving made the draft's Settings change, and then the reply could not go. */
+const CHANGED_NOT_SENT = fail(
+  "action_made_reply_unsent",
+  "The Settings change was made, but the reply could not be sent (the case was closed or replaced in the same moment, or the clinic's sign-in is gone). Ops has been told: write to the clinic from hello@ to say what changed.",
+);
+
+const CHANGE_MADE_NOTE = " The Settings change it describes was made: write to the clinic from hello@ to say what changed.";
+
+/** Tell ops, once per case, that a change was made from it and the clinic was not told (closed words: ids and the ref). */
+async function tellChangeUnsent(c: SupportCase): Promise<void> {
+  await notifyOpsOnce("support_action_reply_unsent", { clinicId: c.subjectClinicId ?? null, requestId: c.id }, { supportRef: printRef(c.ref) });
+}
+
 /** The label an approval is recorded under on the reply row: the case's assignee, or the team. */
 function approvalLabel(c: SupportCase): string {
   return c.assigneeLabel ?? opsPeople()[0]!;
@@ -385,7 +405,9 @@ export async function sendSupportReply(
 ): Promise<ExecutionResult> {
   const payload = parseSupportReplyPayload(approval.payload);
   if (!payload || !draft) return fail("malformed_item", "This item's details could not be read, so nothing was sent.");
-  const s = await standing(payload);
+  // A change whose task died mid-run is settled first, so it neither counts as made nor blocks the reply for good.
+  await settleStaleRunning(unsafeDb, payload.caseId, now);
+  const s = await standing(payload, undefined, now);
   if (!s.stillNeeded || !s.supportCase) return NO_LONGER_NEEDED;
   const c = s.supportCase;
   if (!c.subjectClinicId || !(await clinicWroteFirst(c.id))) {
@@ -402,15 +424,34 @@ export async function sendSupportReply(
   if (!checks.ok) {
     return fail("checks_failed", `Nothing was sent: the reply fails ${failedRules(checks).join("; ")}. Edit it and propose it again.`);
   }
-  // Lane D: the draft's pending Settings change is made first; refused, nothing is sent.
-  const action = s.action?.status === "pending" ? await runSupportAction({ caseId: c.id, messageId: payload.messageId, now }) : s.action;
-  if (action && (action.status === "refused" || action.status === "not_run" || action.status === "running")) {
-    return fail(
-      "action_refused",
-      action.status === "running"
-        ? "The Settings change this reply describes was already being made and its outcome is not known yet, so nothing was sent. Check the clinic's switches, then edit the reply and propose it again."
-        : `The Settings change this reply describes was not made, so nothing was sent: ${action.reason ?? "it was refused"} Edit the reply and propose it again.`,
-    );
+  // Lane D: only a change still PENDING is made here, before the send, and
+  // when this approval runs it and it does not happen (refused, or not run
+  // because the case already made another), nothing is sent. A change that
+  // was settled before (refused, not run, already so, an unknown outcome)
+  // never blocks on its own: the claim check holds the text to what
+  // happened, so a reply that says a person will look at it still goes,
+  // and one that says it was made does not.
+  // The change runs only while this item is still the case's current,
+  // unapproved draft, checked under the case's lock, so a setting never
+  // changes for a reply that can no longer be sent.
+  let action = s.action;
+  let changedNow = false;
+  if (action?.status === "pending") {
+    const ran = await runSupportActionForApproval({ caseId: c.id, messageId: payload.messageId, draftVersion: payload.draftVersion, now });
+    if (ran.stale) return NO_LONGER_NEEDED;
+    if (ran.action && ran.action.status !== "done" && ran.action.status !== "already") {
+      return fail(
+        "action_refused",
+        ran.action.status === "running"
+          ? "The Settings change this reply describes was already being made and its outcome is not known yet, so nothing was sent. Check the clinic's switches, then edit the reply and propose it again."
+          : `The Settings change this reply describes was not made, so nothing was sent: ${ran.action.reason ?? "it was refused"} Edit the reply and propose it again.`,
+      );
+    }
+    action = ran.action;
+    changedNow = ran.action?.status === "done";
+  }
+  if (action && !checkActionClaim(draft.body, action).ok) {
+    return fail("checks_failed", `Nothing was sent: the reply fails ${CHECK_RULES[ACTION_CHECK_ID]} Edit it and propose it again.`);
   }
   const frozen = await freezeApproval({
     caseId: c.id,
@@ -422,7 +463,10 @@ export async function sendSupportReply(
     now,
   });
   if (frozen === "already_approved") return fail("already_sent", "This reply was already approved, so it was not sent again.");
-  if (frozen !== "frozen") return NO_LONGER_NEEDED;
+  if (frozen !== "frozen") {
+    if (changedNow) await tellChangeUnsent(c);
+    return changedNow ? CHANGED_NOT_SENT : NO_LONGER_NEEDED;
+  }
   const outcome = await deliverReply(payload.messageId, now, options);
   switch (outcome.status) {
     case "sent":
@@ -437,14 +481,16 @@ export async function sendSupportReply(
         draftHashSent: null,
       };
     case "stopped":
-      if (outcome.reason === "case_closed") return NO_LONGER_NEEDED;
+      // A change this approval made, with no reply to tell the clinic: ops writes to it.
+      if (changedNow) await tellChangeUnsent(c);
+      if (outcome.reason === "case_closed") return changedNow ? CHANGED_NOT_SENT : NO_LONGER_NEEDED;
       if (outcome.reason === "clinic_left") {
         return fail(
           "clinic_left",
-          "The practice has no sign-in address any more (its account closed or its sign-in is gone), so nothing was sent.",
+          `The practice has no sign-in address any more (its account closed or its sign-in is gone), so nothing was sent.${changedNow ? CHANGE_MADE_NOTE : ""}`,
         );
       }
-      return fail("send_failed", "The reply was approved but could not be sent as approved, so it was not sent. Ops has been told.");
+      return fail("send_failed", `The reply was approved but could not be sent as approved, so it was not sent. Ops has been told.${changedNow ? CHANGE_MADE_NOTE : ""}`);
     case "not_due":
       // Taken by another try in flight: it is sending this same frozen text.
       return {

@@ -57,9 +57,9 @@ export async function decideProposedAction(input: {
   const value = input.value as string;
   const words = actionWords(key, value)!;
   const effective = tier === "direct" && input.senderVerified ? "direct" : "approval";
-  const base = { key, value, tier: effective } as const;
+  const base = { key, value, tier: effective, senderVerified: input.senderVerified } as const;
 
-  const earlier = await caseChange(input.caseId);
+  const earlier = await caseChange(input.caseId, undefined, undefined, input.now);
   if (earlier) {
     if (earlier.status === "done" && earlier.key === key && earlier.value === value) {
       return {

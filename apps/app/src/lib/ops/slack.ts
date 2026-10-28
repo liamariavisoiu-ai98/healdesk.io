@@ -150,20 +150,25 @@ export const SUPPORT_ACTION_SLACK_LEADS: Readonly<Record<ActionStatus, string>> 
   not_run: ":x: Change not made:",
 };
 
+/** Added to the line when the email was not from the clinic's one sign-in (tiers.ts ActionView.senderVerified). Fixed words. */
+export const SUPPORT_ACTION_SENDER_NOT_VERIFIED = "(sender not verified)";
+
 /**
  * That line, on the allow-list: the lead for its status, the switch's label
  * (lib/clinic/setting-words.ts SETTING_CHANGE_LABELS) and the value as on,
- * off or the choice's own label. Anything else (a label or a value not on
- * those lists, a reason, the clinic's email) is refused: null, no line.
+ * off or the choice's own label, then SUPPORT_ACTION_SENDER_NOT_VERIFIED
+ * when `senderVerified` is exactly false. Anything else (a label or a value
+ * not on those lists, a reason, the clinic's email) is refused: null, no line.
  */
-export function supportActionSlackLine(action: { label: string; value: string; status: string } | null): string | null {
+export function supportActionSlackLine(action: { label: string; value: string; status: string; senderVerified?: boolean } | null): string | null {
   if (!action) return null;
   const lead = (SUPPORT_ACTION_SLACK_LEADS as Readonly<Record<string, string>>)[action.status];
   if (!lead) return null;
   if (!Object.values(SETTING_CHANGE_LABELS).includes(action.label)) return null;
   const values = new Set(["on", "off", ...Object.values(SETTING_ENTRIES).flatMap((e) => (e.options ?? []).map((o) => o.label))]);
   if (!values.has(action.value)) return null;
-  return `${lead} *${escapeSlack(slackName(action.label))}* → *${escapeSlack(slackName(action.value))}*`;
+  const unverified = action.senderVerified === false ? ` ${SUPPORT_ACTION_SENDER_NOT_VERIFIED}` : "";
+  return `${lead} *${escapeSlack(slackName(action.label))}* → *${escapeSlack(slackName(action.value))}*${unverified}`;
 }
 
 /** The whole message as one mrkdwn text: the post's `text`, and its notification. */

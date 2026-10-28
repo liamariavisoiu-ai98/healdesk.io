@@ -122,6 +122,13 @@ export type SupportAction = {
   reason?: string | null;
   /** When it was made or refused (ISO). */
   at?: string | null;
+  /**
+   * Whether every email the drafter read came from the clinic's one sign-in
+   * address, authenticated (execute.ts senderIsClinic). False on a
+   * DIRECT-listed change held for approval for that reason, so the console
+   * and Slack say so. Absent on a row kept before it was recorded.
+   */
+  senderVerified?: boolean;
 };
 
 const MAX_REASON = 300;
@@ -137,12 +144,37 @@ export function readStoredAction(raw: unknown): SupportAction | null {
   if (!(ACTION_STATUSES as readonly unknown[]).includes(a.status)) return null;
   const reason = typeof a.reason === "string" ? a.reason.slice(0, MAX_REASON) : null;
   const at = typeof a.at === "string" && /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(a.at) ? a.at : null;
-  return { key: a.key as string, value: a.value as string, tier: a.tier, status: a.status as ActionStatus, reason, at };
+  const out: SupportAction = { key: a.key as string, value: a.value as string, tier: a.tier, status: a.status as ActionStatus, reason, at };
+  if (typeof a.senderVerified === "boolean") out.senderVerified = a.senderVerified;
+  return out;
 }
 
 /** The action a draft row carries in its facts_json, or null. */
 export function actionOfFacts(factsJson: unknown): SupportAction | null {
   return readStoredAction((factsJson as { action?: unknown } | null)?.action);
+}
+
+/**
+ * A `running` claim older than this is taken to have died between its claim
+ * and its settle write (the task stopped mid-change): no change through the
+ * Settings door takes anywhere near this long.
+ */
+export const RUNNING_STALE_MS = 5 * 60 * 1000;
+
+/** Kept on a claim that never settled: whether the change happened is not known. */
+export const OUTCOME_UNKNOWN = "The change was started but its outcome is not known: check the clinic's switches before saying it was made.";
+
+/**
+ * The action as it stands at `now`: a `running` claim older than
+ * RUNNING_STALE_MS (or with no time) is read as refused with OUTCOME_UNKNOWN,
+ * so a claim whose task died never counts as a change made and never blocks
+ * the case for good. Anything else comes back as it is. Pure.
+ */
+export function settleStale<A extends SupportAction | null>(action: A, now: Date): A {
+  if (!action || action.status !== "running") return action;
+  const at = action.at ? Date.parse(action.at) : Number.NaN;
+  if (Number.isFinite(at) && now.getTime() - at < RUNNING_STALE_MS) return action;
+  return { ...action, status: "refused", reason: OUTCOME_UNKNOWN, at: now.toISOString() };
 }
 
 /** Cap our own sentence before it is kept. */
@@ -188,11 +220,22 @@ export function actionWords(key: string, value: string): ActionWords | null {
   return option ? { label: entry.label, value: option.label } : null;
 }
 
-/** What the console and Slack carry about a draft's action: closed words and codes, never a reason or the email. */
-export type ActionView = ActionWords & { tier: RunnableTier; status: ActionStatus };
+/**
+ * What the console and Slack carry about a draft's action: closed words and
+ * codes, never a reason or the email. `senderVerified` false says the email
+ * was not from the clinic's one sign-in (a DIRECT-listed change shown as an
+ * approval for that reason); a row kept before it was recorded reads false
+ * only when it is such a downgraded DIRECT change.
+ */
+export type ActionView = ActionWords & { tier: RunnableTier; status: ActionStatus; senderVerified: boolean };
 
 export function actionView(action: SupportAction | null): ActionView | null {
   if (!action) return null;
   const words = actionWords(action.key, action.value);
-  return words ? { ...words, tier: action.tier, status: action.status } : null;
+  if (!words) return null;
+  const senderVerified = action.senderVerified ?? !(action.tier === "approval" && tierOf(action.key, action.value) === "direct");
+  return { ...words, tier: action.tier, status: action.status, senderVerified };
 }
+
+/** Kept on a pending change an operator dropped from the reply (send.ts saveReplyDraft): our own words. */
+export const DROPPED_BY_OPERATOR = "A person at healdesk dropped this change from the reply.";

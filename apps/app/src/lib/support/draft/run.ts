@@ -492,7 +492,7 @@ async function draftWithEmails(claimed: ClaimedCase, deps: DraftDeps, emails: Ca
   if (written.messageId && proposed?.status === "pending" && proposed.tier === "direct") {
     const stillClinic = await senderIsClinic({ caseId: claimed.id, clinicId: claimed.clinicId, messageIds: emailIds });
     if (!stillClinic) {
-      await setRowAction(unsafeDb, written.messageId, { ...proposed, tier: "approval" });
+      await setRowAction(unsafeDb, written.messageId, { ...proposed, tier: "approval", senderVerified: false });
     } else {
       const ran = await runSupportAction({ caseId: claimed.id, messageId: written.messageId, now });
       // Refused or not run: a reply that says it was made no longer passes.

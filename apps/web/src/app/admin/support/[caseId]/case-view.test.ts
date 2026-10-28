@@ -20,6 +20,8 @@ import {
   SAVE_NOTE,
   SEND_CONFIRM,
   SEND_NOTE,
+  DROP_CHANGE_LABEL,
+  SENDER_NOT_VERIFIED_WORDS,
   SIGN_OFF_NOTE,
   SNOOZE_NOTE,
   STATE_NOTES,
@@ -168,10 +170,17 @@ describe("a drafted case", () => {
   });
 
   test("a waiting reply that proposes a Settings change says it, in closed words, next to the draft; none says nothing", () => {
-    const withAction = { ...item, packet: { ...item.packet!, facts: { ...item.packet!.facts, action: { label: "Website chat", value: "on", tier: "approval" as const, status: "pending" as const } } } };
+    const withAction = { ...item, packet: { ...item.packet!, facts: { ...item.packet!.facts, action: { label: "Website chat", value: "on", tier: "approval" as const, status: "pending" as const, senderVerified: true } } } };
     expect(text(render(view, { item: withAction }))).toContain("Proposed change: Website chat → on (made when you approve the reply).");
+    expect(text(render(view, { item: withAction }))).not.toContain(SENDER_NOT_VERIFIED_WORDS);
+    // A pending change offers the edit option that drops it; a settled one does not.
+    expect(text(render(view, { item: withAction }))).toContain(DROP_CHANGE_LABEL);
+    expect(render(view, { item: withAction })).toMatch(/<input[^>]*type="checkbox"[^>]*name="dropChange"/);
+    const unverified = { ...withAction, packet: { ...withAction.packet, facts: { ...withAction.packet.facts, action: { ...withAction.packet.facts.action, senderVerified: false } } } };
+    expect(text(render(view, { item: unverified }))).toContain(`Proposed change: Website chat → on (made when you approve the reply). ${SENDER_NOT_VERIFIED_WORDS}`);
     const done = { ...withAction, packet: { ...withAction.packet, facts: { ...withAction.packet.facts, action: { ...withAction.packet.facts.action, tier: "direct" as const, status: "done" as const } } } };
     expect(text(render(view, { item: done }))).toContain("Proposed change: Website chat → on (made).");
+    expect(text(render(view, { item: done }))).not.toContain(DROP_CHANGE_LABEL);
     expect(text(render(view, { item }))).not.toContain("Proposed change");
   });
 
@@ -347,6 +356,21 @@ describe("the controls", () => {
     expect(container.textContent).toContain("Checks from the save just now");
     expect(container.textContent).toContain("Names: The reply names no person.");
     expect(container.textContent).not.toContain("Facts: passed");
+  });
+
+  test("Save draft with the drop option ticked asks apps/app to drop the pending change", async () => {
+    const onSave = vi.fn<CaseActions["onSave"]>(async () => ({
+      ok: true,
+      data: { ref: "HD-7F3KQ", draftVersion: 3, state: "drafted", approvalId: null, ok: true, checks: [], failed: [], auditRecorded: true },
+    }));
+    const pending = { ...item, packet: { ...item.packet!, facts: { ...item.packet!.facts, action: { label: "Website chat", value: "on", tier: "approval" as const, status: "pending" as const, senderVerified: true } } } };
+    await mount({ onSave }, view, { item: pending });
+    await setValue("textarea", "Hi, a person at healdesk will look at website chat.");
+    await act(async () => {
+      container.querySelector<HTMLInputElement>('input[name="dropChange"]')!.click();
+    });
+    await click("Save draft");
+    expect(onSave).toHaveBeenCalledWith(CASE, "Hi, a person at healdesk will look at website chat.", true);
   });
 
   test("Check sends the case id and the text, shows the rules from the check, and saves nothing; an empty editor disables both", async () => {

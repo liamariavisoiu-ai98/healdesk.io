@@ -22,6 +22,23 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Use Close the case (the button reads Close) once you have written, and pick Replied by hand from the mailbox. You are done when the clinic has its answer and the case is closed.",
     ],
   },
+  // lib/approvals/support-reply.ts (lane D), once per case: approving a
+  // support reply made the Settings change its draft proposed, and then the
+  // reply did not go. The clinic, the case's id and ref; never the words.
+  support_action_reply_unsent: {
+    title: "A support change was made but its reply did not go",
+    headline: "{clinicName}'s setting changed on support case[ {supportRef}]; the reply did not go",
+    whatHappened:
+      "{clinicName}'s setting was changed from a support case[ {supportRef}], and the reply saying so was not sent. Approving the reply made the Settings change its draft proposed, through the clinic's own Settings, and then the reply could not go: the case was closed or a newer draft replaced it in the same moment, or the sending stopped because the clinic's sign-in address is gone or the case closed.",
+    whyItMatters:
+      "The clinic's setting is different from yesterday and nobody has told it. The change stays made; nothing undoes it or sends the reply again by itself.",
+    steps: [
+      "Open Support and find the case[ {supportRef}]: the proposed change shows its setting, its value and that it was made.",
+      "Open the clinic's Setup tab and find Clinic switches: check the setting there, so you tell the clinic what it is now.",
+      "Write to the clinic from hello@ today saying which setting changed and that it can switch it back in its own Settings, and leave patient details out. Nothing in Support sends the reply again.",
+      "Use Close the case (the button reads Close) once you have written, and pick Replied by hand from the mailbox. You are done when the clinic knows and the case is closed.",
+    ],
+  },
   // lib/support/slack-passcode.ts (lane P7i), on the try that locks: five
   // wrong approval passcodes in the support reply's Slack dialog within
   // fifteen minutes. The count only; the Slack member id is in the log.

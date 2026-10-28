@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 
 import { unsafeDb, type Transaction } from "@/db";
 import { supportCases, supportMessages } from "@/db/schema";
@@ -17,7 +17,7 @@ import { clinicSignIn } from "@/lib/sign-in/address-change";
 import { withTenant } from "@/lib/tenant";
 
 import { senderRef } from "../inbound/facts";
-import { actionOfFacts, keptReason, tierOf, typedValue, valueToken, type SupportAction } from "./tiers";
+import { actionOfFacts, keptReason, settleStale, tierOf, typedValue, valueToken, type SupportAction } from "./tiers";
 
 /**
  * Support email to action, run in code, never by the model (lane D; the list
@@ -35,8 +35,10 @@ import { actionOfFacts, keptReason, tierOf, typedValue, valueToken, type Support
  *     drafter's reply can say what is missing in the rule's own words;
  *   - senderIsClinic: whether every email the drafter read came from the
  *     case clinic's ONE sign-in address, authenticated: recorded so when it
- *     arrived (fromClinic), and its sender reference still that of the
- *     clinic's sign-in now. Otherwise a DIRECT change is proposed as APPROVAL;
+ *     arrived (fromClinic), SES's notice itself passing it (noticeVerified:
+ *     DKIM, and SPF and DMARC where the notice has them), and its sender
+ *     reference still that of the clinic's sign-in now. Otherwise a DIRECT
+ *     change is proposed as APPROVAL;
  *   - runSupportAction: run a draft's pending change once per case. Claimed
  *     under the case's row lock (status `running`), so a retried job, a
  *     redraft or a second approval never repeats it; a case that already
@@ -115,7 +117,14 @@ export async function senderIsClinic(input: { caseId: string; clinicId: string; 
       ),
     );
   if (rows.length !== new Set(input.messageIds).size) return false;
-  if (!rows.every((r) => r.fields?.fromClinic === "yes" && r.fields?.authenticated === "yes" && typeof r.sender === "string")) return false;
+  // SES's notice itself must have passed each one too (inbound/auth.ts noticeVerdictsPass): the headers alone are not enough to act unasked.
+  if (
+    !rows.every(
+      (r) => r.fields?.fromClinic === "yes" && r.fields?.authenticated === "yes" && r.fields?.noticeVerified === "yes" && typeof r.sender === "string",
+    )
+  ) {
+    return false;
+  }
   try {
     const signIn = await withTenant({ clinicId: input.clinicId, actor: SUPPORT_ACTION_ACTOR }, (tx) => clinicSignIn(tx));
     if (!signIn) return false;
@@ -137,18 +146,58 @@ export async function emailRowsForKeys(caseId: string, keys: readonly string[]):
   return rows.map((r) => r.id);
 }
 
-/** The change any reply row of the case already made or is making, other than `except`'s. */
-export async function caseChange(caseId: string, except?: string, db: Transaction | typeof unsafeDb = unsafeDb): Promise<SupportAction | null> {
+/**
+ * The change any reply row of the case already made or is making, other than
+ * `except`'s. With `now`, a `running` claim gone stale (tiers.ts settleStale)
+ * is read as refused, so it does not count.
+ */
+export async function caseChange(
+  caseId: string,
+  except?: string,
+  db: Transaction | typeof unsafeDb = unsafeDb,
+  now?: Date,
+): Promise<SupportAction | null> {
   const rows = await db
     .select({ id: supportMessages.id, facts: supportMessages.factsJson })
     .from(supportMessages)
     .where(and(eq(supportMessages.caseId, caseId), eq(supportMessages.kind, "reply"), eq(supportMessages.direction, "out")));
   for (const row of rows) {
     if (row.id === except) continue;
-    const action = actionOfFacts(row.facts);
+    const kept = actionOfFacts(row.facts);
+    const action = now ? settleStale(kept, now) : kept;
     if (action && (action.status === "done" || action.status === "running")) return action;
   }
   return null;
+}
+
+/**
+ * Settle, in place, every `running` claim on the case's reply rows that went
+ * stale (tiers.ts settleStale): refused, OUTCOME_UNKNOWN. A task that died
+ * between its claim and its settle write otherwise leaves the case counting
+ * a change as made for good. Returns how many it settled.
+ */
+export async function settleStaleRunning(db: Transaction | typeof unsafeDb, caseId: string, now: Date): Promise<number> {
+  const rows = await db
+    .select({ id: supportMessages.id, facts: supportMessages.factsJson })
+    .from(supportMessages)
+    .where(
+      and(
+        eq(supportMessages.caseId, caseId),
+        eq(supportMessages.kind, "reply"),
+        eq(supportMessages.direction, "out"),
+        sql`${supportMessages.factsJson}->'action'->>'status' = 'running'`,
+      ),
+    );
+  let settled = 0;
+  for (const row of rows) {
+    const kept = actionOfFacts(row.facts);
+    const next = settleStale(kept, now);
+    if (!kept || next === kept) continue;
+    await setRowAction(db, row.id, next!);
+    log.warn("support action outcome unknown; settled as refused", { field: kept.key, code: "outcome_unknown" });
+    settled += 1;
+  }
+  return settled;
 }
 
 /** Write a row's action in place; nothing else of the row changes. */
@@ -183,6 +232,24 @@ async function makeChange(clinicId: string, action: SupportAction, now: Date): P
  * both are kept as `refused`, with the door's words or COULD_NOT_RUN.
  */
 export async function runSupportAction(input: { caseId: string; messageId: string; now: Date }): Promise<SupportAction | null> {
+  const ran = await runGuarded(input, null);
+  return ran.stale ? null : ran.action;
+}
+
+export type ApprovalRun = { stale: true } | { stale: false; action: SupportAction | null };
+
+/**
+ * runSupportAction for a reply's approval: the claim is taken only while,
+ * under the case's row lock, the case is open and `messageId` is still its
+ * current draft, unapproved, at `draftVersion`. Otherwise nothing runs and
+ * the answer is `stale`, so no setting changes for a reply that can no
+ * longer be sent (approvals/support-reply.ts).
+ */
+export async function runSupportActionForApproval(input: { caseId: string; messageId: string; draftVersion: number; now: Date }): Promise<ApprovalRun> {
+  return runGuarded(input, input.draftVersion);
+}
+
+async function runGuarded(input: { caseId: string; messageId: string; now: Date }, draftVersion: number | null): Promise<ApprovalRun> {
   const at = input.now.toISOString();
   const claim = await unsafeDb.transaction(async (tx) => {
     const [c] = await tx
@@ -191,27 +258,42 @@ export async function runSupportAction(input: { caseId: string; messageId: strin
       .where(eq(supportCases.id, input.caseId))
       .limit(1)
       .for("update");
+    // Under the case's lock: a claim whose task died is settled before anything reads it.
+    await settleStaleRunning(tx, input.caseId, input.now);
     const [row] = await tx
-      .select({ facts: supportMessages.factsJson })
+      .select({ facts: supportMessages.factsJson, version: supportMessages.draftVersion, approvedAt: supportMessages.approvedAt })
       .from(supportMessages)
       .where(and(eq(supportMessages.id, input.messageId), eq(supportMessages.caseId, input.caseId), eq(supportMessages.kind, "reply")))
       .limit(1);
+    if (draftVersion !== null) {
+      // The approval's own standing, read under the same lock that a newer draft (send.ts saveReplyDraft) takes.
+      const [current] = await tx
+        .select({ id: supportMessages.id })
+        .from(supportMessages)
+        .where(and(eq(supportMessages.caseId, input.caseId), eq(supportMessages.kind, "reply"), isNotNull(supportMessages.draftVersion)))
+        .orderBy(desc(supportMessages.draftVersion), desc(supportMessages.createdAt))
+        .limit(1);
+      if (!c || c.state === "closed" || !row || row.approvedAt !== null || row.version !== draftVersion || current?.id !== input.messageId) {
+        return { stale: true as const };
+      }
+    }
     const action = row ? actionOfFacts(row.facts) : null;
-    if (!c || !c.clinicId || c.state === "closed" || !action || action.status !== "pending") return { run: false as const, action };
-    const earlier = await caseChange(input.caseId, input.messageId, tx);
+    if (!c || !c.clinicId || c.state === "closed" || !action || action.status !== "pending") return { stale: false as const, run: false as const, action };
+    const earlier = await caseChange(input.caseId, input.messageId, tx, input.now);
     if (earlier) {
       const same = earlier.status === "done" && earlier.key === action.key && earlier.value === action.value;
       const next: SupportAction = same
         ? { ...action, status: "already", reason: null, at }
         : { ...action, status: "not_run", reason: ONE_PER_CASE, at };
       await setRowAction(tx, input.messageId, next);
-      return { run: false as const, action: next };
+      return { stale: false as const, run: false as const, action: next };
     }
     const running: SupportAction = { ...action, status: "running", reason: null, at };
     await setRowAction(tx, input.messageId, running);
-    return { run: true as const, action: running, clinicId: c.clinicId };
+    return { stale: false as const, run: true as const, action: running, clinicId: c.clinicId };
   });
-  if (!claim.run) return claim.action;
+  if (claim.stale) return { stale: true };
+  if (!claim.run) return { stale: false, action: claim.action };
 
   let outcome: { ok: true } | { ok: false; reason: string };
   try {
@@ -225,5 +307,5 @@ export async function runSupportAction(input: { caseId: string; messageId: strin
     : { ...claim.action, status: "refused", reason: keptReason(outcome.reason) ?? COULD_NOT_RUN, at };
   await setRowAction(unsafeDb, input.messageId, settled);
   log.info("support action run", { clinicId: claim.clinicId, field: settled.key, code: settled.status });
-  return settled;
+  return { stale: false, action: settled };
 }

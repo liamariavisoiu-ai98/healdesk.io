@@ -168,6 +168,8 @@ export const URGENCY: Readonly<Record<OpsEvent, Urgency>> = {
   support_reply_dead: "today",
   // Wrong approval passcodes in Slack (lane P7i): someone may be guessing.
   slack_approvals_locked: "urgent",
+  // A Settings change made for a clinic that was never told (lane D): a person writes to it today.
+  support_action_reply_unsent: "today",
   // A support case past its promised day (lane P7e): a person answers today.
   support_case_past_due: "today",
   // A support case the chat triaged `now` (lane P7e): calls not reaching AYA,

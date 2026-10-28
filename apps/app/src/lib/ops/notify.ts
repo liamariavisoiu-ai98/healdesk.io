@@ -379,6 +379,12 @@ export const OPS_EVENTS = [
   // that web task for fifteen minutes. The count only: the Slack member id
   // stays in the log line.
   "slack_approvals_locked",
+  // A Settings change a support reply's approval made (lane D,
+  // lib/approvals/support-reply.ts) whose reply then did not go: the case
+  // closed or a newer draft replaced it before the text was frozen, or the
+  // send stopped (the clinic's sign-in gone, the case closed, not sent as
+  // approved). Once per case; the clinic, the case's id and its ref, no words.
+  "support_action_reply_unsent",
   // The support cases' watch (lib/support/watch.ts; ops automation lane
   // P7e): a case that still needs us past its reply-by day, once per case
   // (it replaces support_reply_past_due for every chat escalation that is a

@@ -5,12 +5,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vit
 
 import { parseDraft } from "@/lib/approvals/drafts";
 import { getApproval } from "@/lib/approvals/store";
-import { sendSupportReply, supportReplyPacket } from "@/lib/approvals/support-reply";
+import { proposeSupportReplyFor, sendSupportReply, supportReplyPacket } from "@/lib/approvals/support-reply";
 import type { Operator } from "@/lib/ops/api";
-import { opSaveSupportDraft } from "@/lib/ops/support-reply-ops";
+import { NO_CHANGE_TO_DROP, opSaveSupportDraft } from "@/lib/ops/support-reply-ops";
 import type { ClinicSwitchView } from "@/lib/ops/switch-ops";
 import { NEVER_TEXT, TWICE_TEXT } from "@/lib/support/actions/propose";
-import { ONE_PER_CASE, runSupportAction } from "@/lib/support/actions/execute";
+import { ONE_PER_CASE, runSupportAction, runSupportActionForApproval } from "@/lib/support/actions/execute";
+import { DROPPED_BY_OPERATOR, OUTCOME_UNKNOWN, RUNNING_STALE_MS } from "@/lib/support/actions/tiers";
 import { handleInboundNotice } from "@/lib/support/inbound/handle";
 import type { InboundNotice } from "@/lib/support/inbound/notice";
 import { ACTION_CHECK_ID } from "@/lib/support/draft/checks";
@@ -65,9 +66,20 @@ const SENT = { data: { id: "re_msg_lane_d" }, error: null, headers: {} };
 const OPERATOR: Operator = { email: "ops@healdesk.test", request: { requestId: randomUUID(), ipAddress: "203.0.113.9", userAgent: "vitest" } };
 const DONE_REPLY = "Hi, I've turned the daily summary email off for you.";
 const CONFIRM_REPLY = "Hi, we'll confirm once the change is made.";
+const FOLLOW_UP_REPLY = "Hi, a person at healdesk will look at the tone and write back.";
 
-function email(from: string, id: string, body: string): string {
+function email(from: string, id: string, body: string, sesHeaders = false): string {
+  const domain = from.slice(from.lastIndexOf("@") + 1);
+  // As SES writes them, at the top of the stored message: an aligned DKIM pass.
+  const ses = sesHeaders
+    ? [
+        "X-SES-Spam-Verdict: PASS",
+        "X-SES-Virus-Verdict: PASS",
+        `Authentication-Results: amazonses.com; spf=pass smtp.mailfrom=${domain}; dkim=pass header.i=@${domain}; dmarc=pass header.from=${domain};`,
+      ]
+    : [];
   return [
+    ...ses,
     `From: "Front Desk" <${from}>`,
     "To: support@healdesk.io",
     "Subject: A change to our settings",
@@ -189,11 +201,16 @@ describeDb("support email to action (lane D)", () => {
   });
 
   /** One email from `from` (the clinic's sign-in by default), through the handler. */
-  async function deliver(store: ReturnType<typeof memoryMailStore>, body: string, from = clinic.email) {
+  async function deliver(
+    store: ReturnType<typeof memoryMailStore>,
+    body: string,
+    from = clinic.email,
+    opts: { verdicts?: InboundNotice["verdicts"]; sesHeaders?: boolean } = {},
+  ) {
     seq += 1;
     const id = `laned${String(seq).padStart(4, "0")}x`;
-    store.put(`mail/${id}`, email(from, id, body), NOW);
-    const notice: InboundNotice = { sesMessageId: id, bucket: BUCKET, key: `mail/${id}`, receivedAt: NOW, verdicts: PASS };
+    store.put(`mail/${id}`, email(from, id, body, opts.sesHeaders), NOW);
+    const notice: InboundNotice = { sesMessageId: id, bucket: BUCKET, key: `mail/${id}`, receivedAt: NOW, verdicts: opts.verdicts ?? PASS };
     const outcome = await handleInboundNotice(notice, { store, now: NOW, allowFor: async () => ({ numbers: [], emails: [] }), drafterOn: async () => true });
     if (outcome.outcome !== "recorded") throw new Error(`not recorded: ${outcome.outcome}`);
     return { id, caseId: outcome.caseId };
@@ -275,7 +292,7 @@ describeDb("support email to action (lane D)", () => {
     const row = await lastReply(caseId);
     expect(row.facts_json.action).toMatchObject({ key: "daily_summary", value: "off", tier: "direct", status: "done" });
     // Closed words only: nothing of the email is in the action.
-    expect(Object.keys(row.facts_json.action!).sort()).toEqual(["at", "key", "reason", "status", "tier", "value"]);
+    expect(Object.keys(row.facts_json.action!).sort()).toEqual(["at", "key", "reason", "senderVerified", "status", "tier", "value"]);
     expect(row.checks_json!.results.find((r) => r.id === ACTION_CHECK_ID)).toMatchObject({ ok: true });
     expect(await changes(clinic.clinicId)).toEqual([expect.objectContaining({ source: "support_action", actor_kind: "support" })]);
 
@@ -284,7 +301,7 @@ describeDb("support email to action (lane D)", () => {
     expect(item).not.toBeNull();
     expect(replySends()).toHaveLength(0);
     const packet = await supportReplyPacket(item!, { actor: { type: "system" } });
-    expect(packet!.facts.action).toEqual({ label: "Daily summary email", value: "off", tier: "direct", status: "done" });
+    expect(packet!.facts.action).toEqual({ label: "Daily summary email", value: "off", tier: "direct", status: "done", senderVerified: true });
 
     // A redraft proposing the same change is told it was made, and nothing runs again.
     await setDailySummary(clinic.clinicId, true);
@@ -323,7 +340,7 @@ describeDb("support email to action (lane D)", () => {
 
       const item = await waitingItem(caseId);
       const packet = await supportReplyPacket(item!, { actor: { type: "system" } });
-      expect(packet!.facts.action).toEqual({ label: "Tone", value: "Clinical and professional", tier: "approval", status: "pending" });
+      expect(packet!.facts.action).toEqual({ label: "Tone", value: "Clinical and professional", tier: "approval", status: "pending", senderVerified: false });
       expect(packet!.facts.checks.find((c) => c.id === ACTION_CHECK_ID)).toMatchObject({ ok: true });
 
       const result = await sendSupportReply(item!, parseDraft(item!.draft), new Date(NOW.getTime() + 10 * MINUTE));
@@ -430,6 +447,224 @@ describeDb("support email to action (lane D)", () => {
     expect(await waitingItem(caseId)).toBeNull();
     expect((await settings(clinic.clinicId)).daily_summary).toBe(true);
     expect(await runSupportAction({ caseId, messageId: row.id, now: NOW })).toMatchObject({ status: "refused" });
+  });
+
+  test("a case that made one change, then a follow-up asking another: the not-run change does not block an honest reply, drafted or edited", async () => {
+    const store = memoryMailStore();
+    const { caseId } = await deliver(store, "Hello, please stop the morning summary emails.");
+    await draftNextCase({ client: new ActingDrafter([{ key: "daily_summary", value: "off" }], DONE_REPLY), now: NOW, mailStore: store }, caseId);
+    expect((await lastReply(caseId)).facts_json.action).toMatchObject({ status: "done" });
+    // The follow-up's draft: a different change, not run (one per case), and a reply that says a person will look at it.
+    const pool = getMigratorPool();
+    const { rows: top } = await pool.query<{ v: number }>(
+      `select coalesce(max(coalesce(draft_version, (facts_json->>'attempt')::int)), 0)::int as v from support_messages where case_id = $1 and kind = 'reply'`,
+      [caseId],
+    );
+    const version = top[0]!.v + 1;
+    await pool.query(
+      `insert into support_messages (case_id, direction, kind, draft_text, draft_version, checks_json, facts_json, created_at)
+       values ($1, 'out', 'reply', $2, $3, $4::jsonb, $5::jsonb, $6)`,
+      [
+        caseId,
+        FOLLOW_UP_REPLY,
+        version,
+        JSON.stringify({ ok: true, results: [] }),
+        JSON.stringify({ by: "drafter", attempt: version, action: { key: "tone", value: "clinical", tier: "direct", status: "not_run", reason: ONE_PER_CASE, at: NOW.toISOString() } }),
+        new Date(NOW.getTime() + MINUTE),
+      ],
+    );
+    expect(await proposeSupportReplyFor({ caseId, now: new Date(NOW.getTime() + 2 * MINUTE) })).toMatchObject({ status: "proposed" });
+
+    // An operator edit keeps the not-run change: an honest edit is proposed and sends; nothing runs.
+    const saved = await opSaveSupportDraft({ caseId, text: `${FOLLOW_UP_REPLY} Thank you for your patience.` }, OPERATOR, new Date(NOW.getTime() + 3 * MINUTE));
+    expect(saved.status).toBe(200);
+    expect((await lastReply(caseId)).facts_json.action).toMatchObject({ key: "tone", status: "not_run" });
+    const item = await waitingItem(caseId);
+    expect(item).not.toBeNull();
+    const result = await sendSupportReply(item!, parseDraft(item!.draft), new Date(NOW.getTime() + 10 * MINUTE));
+    expect(result).toMatchObject({ ok: true, outcomeCode: "sent" });
+    expect((await settings(clinic.clinicId)).tone).toBe("warm");
+    expect(await changes(clinic.clinicId)).toHaveLength(1);
+    expect(replySends()).toHaveLength(1);
+  });
+
+  test("a DIRECT change refused when it ran, then an operator edit: an honest reply is proposed and sends; one claiming the change is not proposed", async () => {
+    const store = memoryMailStore();
+    const { caseId } = await deliver(store, "Hello, please stop the morning summary emails.");
+    const pool = getMigratorPool();
+    await pool.query(`update clinics set offboarding_started_at = $1 where id = $2`, [NOW, clinic.clinicId]);
+    expect(await draftNextCase({ client: new ActingDrafter([{ key: "daily_summary", value: "off" }], DONE_REPLY), now: NOW, mailStore: store }, caseId)).toMatchObject({
+      outcome: "needs_edit",
+    });
+    await pool.query(`update clinics set offboarding_started_at = null where id = $1`, [clinic.clinicId]);
+
+    const claiming = await opSaveSupportDraft({ caseId, text: DONE_REPLY }, OPERATOR, new Date(NOW.getTime() + MINUTE));
+    expect(claiming.status).toBe(200);
+    expect(await waitingItem(caseId)).toBeNull();
+
+    const honest = await opSaveSupportDraft({ caseId, text: "Hi, a person at healdesk will look at the daily summary email and write back." }, OPERATOR, new Date(NOW.getTime() + 2 * MINUTE));
+    expect(honest.status).toBe(200);
+    expect((await lastReply(caseId)).facts_json.action).toMatchObject({ status: "refused" });
+    const item = await waitingItem(caseId);
+    expect(item).not.toBeNull();
+    const result = await sendSupportReply(item!, parseDraft(item!.draft), new Date(NOW.getTime() + 10 * MINUTE));
+    expect(result).toMatchObject({ ok: true, outcomeCode: "sent" });
+    expect((await settings(clinic.clinicId)).daily_summary).toBe(true);
+    expect(await changes(clinic.clinicId)).toHaveLength(0);
+    expect(replySends()).toHaveLength(1);
+  });
+
+  test("a claim whose task died: a fresh one still counts as running; once stale it is settled as refused, outcome unknown, and blocks nothing", async () => {
+    const store = memoryMailStore();
+    const { caseId } = await deliver(store, "Hello, please make the assistant sound more clinical.");
+    const pool = getMigratorPool();
+    async function replyRow(version: number, action: Record<string, unknown>, text: string | null = null) {
+      const { rows } = await pool.query<{ id: string }>(
+        `insert into support_messages (case_id, direction, kind, draft_text, draft_version, checks_json, facts_json, created_at)
+         values ($1, 'out', 'reply', $2, $3, $4::jsonb, $5::jsonb, $6) returning id`,
+        [caseId, text, text === null ? null : version, JSON.stringify({ ok: true, results: [] }), JSON.stringify({ by: "drafter", attempt: version, action }), NOW],
+      );
+      return rows[0]!.id;
+    }
+    // A claim taken at NOW whose settle write never came (the task died after the claim).
+    const stuck = await replyRow(1, { key: "daily_summary", value: "off", tier: "direct", status: "running", reason: null, at: NOW.toISOString() });
+    const pending = await replyRow(2, { key: "tone", value: "clinical", tier: "direct", status: "pending", reason: null });
+
+    // Inside the window it may still be making its change: nothing else runs, as before.
+    const soon = new Date(NOW.getTime() + RUNNING_STALE_MS - MINUTE);
+    expect(await runSupportAction({ caseId, messageId: pending, now: soon })).toMatchObject({ status: "not_run", reason: ONE_PER_CASE });
+    expect((await settings(clinic.clinicId)).tone).toBe("warm");
+
+    // Past it: settled in place as refused with the plain reason, and it no longer counts as the case's change.
+    await pool.query(`update support_messages set facts_json = jsonb_set(facts_json, '{action,status}', '"pending"') where id = $1`, [pending]);
+    const later = new Date(NOW.getTime() + RUNNING_STALE_MS + MINUTE);
+    expect(await runSupportAction({ caseId, messageId: pending, now: later })).toMatchObject({ status: "done" });
+    expect((await settings(clinic.clinicId)).tone).toBe("clinical");
+    const { rows } = await pool.query<{ a: Record<string, unknown> }>(`select facts_json->'action' as a from support_messages where id = $1`, [stuck]);
+    expect(rows[0]!.a).toMatchObject({ status: "refused", reason: OUTCOME_UNKNOWN, at: later.toISOString() });
+  });
+
+  test("a reply whose own change was left running: once stale, an honest reply is approved and sent; nothing runs", async () => {
+    const store = memoryMailStore();
+    const { caseId } = await deliver(store, "Hello, please stop the morning summary emails.");
+    await draftNextCase({ client: new ActingDrafter([], "Hi, a person at healdesk will look at the daily summary email and write back."), now: NOW, mailStore: store }, caseId);
+    const row = await lastReply(caseId);
+    expect(row.facts_json.action).toBeUndefined();
+    await getMigratorPool().query(
+      `update support_messages set facts_json = jsonb_set(facts_json, '{action}', $2::jsonb) where id = $1`,
+      [row.id, JSON.stringify({ key: "daily_summary", value: "off", tier: "approval", status: "running", reason: null, at: NOW.toISOString() })],
+    );
+    const item = await waitingItem(caseId);
+    const result = await sendSupportReply(item!, parseDraft(item!.draft), new Date(NOW.getTime() + RUNNING_STALE_MS + MINUTE));
+    expect(result).toMatchObject({ ok: true, outcomeCode: "sent" });
+    expect((await lastReply(caseId)).facts_json.action).toMatchObject({ status: "refused", reason: OUTCOME_UNKNOWN });
+    expect((await settings(clinic.clinicId)).daily_summary).toBe(true);
+    expect(await changes(clinic.clinicId)).toHaveLength(0);
+  });
+
+  test("an approval whose draft is no longer the case's current one makes no change; a change made whose reply then cannot go tells ops once", async () => {
+    const store = memoryMailStore();
+    const { caseId } = await deliver(store, "Hi team, we want to approve every booking ourselves from now on.");
+    const model = new ActingDrafter([{ key: "auto_confirm", value: "off" }], "Hi, I've switched auto-confirm off, so every booking comes to you as a request.");
+    expect(await draftNextCase({ client: model, now: NOW, mailStore: store }, caseId)).toMatchObject({ outcome: "drafted" });
+    const item = await waitingItem(caseId);
+    const row = await lastReply(caseId);
+    const pool = getMigratorPool();
+    await pool.query(`delete from ops_alerts where event = 'support_action_reply_unsent'`);
+
+    // The guard itself: a draft version that is not the row's, or a row no longer current, runs nothing.
+    const version = (item!.payload as { draftVersion: number }).draftVersion;
+    expect(await runSupportActionForApproval({ caseId, messageId: row.id, draftVersion: version + 1, now: NOW })).toEqual({ stale: true });
+    expect((await lastReply(caseId)).facts_json.action).toMatchObject({ status: "pending" });
+    expect((await settings(clinic.clinicId)).auto_confirm_bookings).toBe(true);
+
+    // The clinic's sign-in is gone when the reply goes: the change is made, the reply stops, ops is told once.
+    await inTenant(clinic.clinicId, (c) => c.query(`update clinic_memberships set revoked_at = $2 where clinic_id = $1`, [clinic.clinicId, NOW]));
+    try {
+      const result = await sendSupportReply(item!, parseDraft(item!.draft), new Date(NOW.getTime() + 10 * MINUTE));
+      expect(result).toMatchObject({ ok: false, outcomeCode: "clinic_left" });
+      expect(result.message).toContain("The Settings change it describes was made");
+    } finally {
+      await inTenant(clinic.clinicId, (c) => c.query(`update clinic_memberships set revoked_at = null where clinic_id = $1`, [clinic.clinicId]));
+    }
+    expect((await settings(clinic.clinicId)).auto_confirm_bookings).toBe(false);
+    expect(replySends()).toHaveLength(0);
+    const { rows } = await pool.query<{ fields: Record<string, unknown> }>(`select fields from ops_alerts where event = 'support_action_reply_unsent'`);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.fields).toMatchObject({ clinicId: clinic.clinicId, requestId: caseId });
+    // Ids and the ref only: nothing of the email or the reply.
+    expect(JSON.stringify(rows[0]!.fields)).not.toMatch(/booking|auto-confirm/i);
+  });
+
+  test("a newer draft saved before the approval runs: nothing changes and nothing is sent", async () => {
+    const store = memoryMailStore();
+    const { caseId } = await deliver(store, "Hi team, we want to approve every booking ourselves from now on.");
+    const model = new ActingDrafter([{ key: "auto_confirm", value: "off" }], "Hi, I've switched auto-confirm off, so every booking comes to you as a request.");
+    expect(await draftNextCase({ client: model, now: NOW, mailStore: store }, caseId)).toMatchObject({ outcome: "drafted" });
+    const item = await waitingItem(caseId);
+    const row = await lastReply(caseId);
+    // An operator's edit lands first: the item's draft is no longer current.
+    await opSaveSupportDraft({ caseId, text: "Hi, auto-confirm is now off, so every booking comes to you as a request first." }, OPERATOR, NOW);
+    const version = (item!.payload as { draftVersion: number }).draftVersion;
+    expect(await runSupportActionForApproval({ caseId, messageId: row.id, draftVersion: version, now: NOW })).toEqual({ stale: true });
+    const result = await sendSupportReply(item!, parseDraft(item!.draft), new Date(NOW.getTime() + 10 * MINUTE));
+    expect(result).toMatchObject({ ok: false, outcomeCode: "no_longer_needed" });
+    expect((await settings(clinic.clinicId)).auto_confirm_bookings).toBe(true);
+    expect(replySends()).toHaveLength(0);
+  });
+
+  test("an operator drops the pending change while editing the reply: approving the edit sends it and makes no change; a claim of the change no longer passes", async () => {
+    const store = memoryMailStore();
+    const { caseId } = await deliver(store, "Hi team, we want to approve every booking ourselves from now on.");
+    const model = new ActingDrafter([{ key: "auto_confirm", value: "off" }], "Hi, I've switched auto-confirm off, so every booking comes to you as a request.");
+    expect(await draftNextCase({ client: model, now: NOW, mailStore: store }, caseId)).toMatchObject({ outcome: "drafted" });
+
+    // Kept claiming the change while dropping it: saved, but it fails the claim check and is not proposed.
+    const claiming = await opSaveSupportDraft({ caseId, text: "Hi, auto-confirm is now off.", dropChange: true }, OPERATOR, NOW);
+    expect(claiming.status).toBe(200);
+    expect((await lastReply(caseId)).facts_json.action).toMatchObject({ key: "auto_confirm", status: "not_run", reason: DROPPED_BY_OPERATOR });
+    expect(await waitingItem(caseId)).toBeNull();
+
+    // Nothing pending is left to drop now.
+    const twice = await opSaveSupportDraft({ caseId, text: "Hi, a person at healdesk will call you about bookings.", dropChange: true }, OPERATOR, NOW);
+    expect(twice.status).toBe(409);
+    expect(JSON.stringify(twice)).toContain(NO_CHANGE_TO_DROP);
+    expect(await opSaveSupportDraft({ caseId, text: "Hi.", dropChange: "yes" }, OPERATOR, NOW)).toMatchObject({ status: 400 });
+
+    // An honest edit (the dropped change carried as not run) is proposed and sends; the setting stays.
+    const honest = await opSaveSupportDraft({ caseId, text: "Hi, a person at healdesk will call you about how bookings are confirmed." }, OPERATOR, new Date(NOW.getTime() + MINUTE));
+    expect(honest.status).toBe(200);
+    const item = await waitingItem(caseId);
+    const packet = await supportReplyPacket(item!, { actor: { type: "system" } });
+    expect(packet!.facts.action).toMatchObject({ label: "Auto-confirm bookings", status: "not_run" });
+    const result = await sendSupportReply(item!, parseDraft(item!.draft), new Date(NOW.getTime() + 10 * MINUTE));
+    expect(result).toMatchObject({ ok: true, outcomeCode: "sent" });
+    expect((await settings(clinic.clinicId)).auto_confirm_bookings).toBe(true);
+    expect(await changes(clinic.clinicId)).toHaveLength(0);
+    expect(replySends()).toHaveLength(1);
+  });
+
+  test("DIRECT needs SES's notice itself to pass: with the notice silent (headers only) or its SPF failing, the change waits for approval, marked sender not verified", async () => {
+    const UNKNOWN = { spam: "UNKNOWN", virus: "UNKNOWN", spf: "UNKNOWN", dkim: "UNKNOWN", dmarc: "UNKNOWN" } as const;
+    for (const verdicts of [UNKNOWN, { ...PASS, spf: "FAIL" } as const]) {
+      const store = memoryMailStore();
+      const { caseId } = await deliver(store, "Hello, please stop the morning summary emails.", clinic.email, { verdicts, sesHeaders: true });
+      const { rows: fields } = await getMigratorPool().query<{ f: Record<string, string> }>(
+        `select fields_json as f from support_messages where case_id = $1 and kind = 'email'`,
+        [caseId],
+      );
+      // Authenticated from SES's own headers and the clinic's sign-in, but not by the notice.
+      expect(fields[0]!.f).toMatchObject({ fromClinic: "yes", authenticated: "yes", noticeVerified: "no" });
+      const model = new ActingDrafter([{ key: "daily_summary", value: "off" }], DONE_REPLY);
+      expect(await draftNextCase({ client: model, now: NOW, mailStore: store }, caseId)).toMatchObject({ outcome: "drafted" });
+      expect(model.answers[0]!.content).toContain("A person at healdesk approves this change");
+      expect((await lastReply(caseId)).facts_json.action).toMatchObject({ tier: "approval", status: "pending", senderVerified: false });
+      expect((await settings(clinic.clinicId)).daily_summary).toBe(true);
+      const packet = await supportReplyPacket((await waitingItem(caseId))!, { actor: { type: "system" } });
+      expect(packet!.facts.action).toMatchObject({ tier: "approval", senderVerified: false });
+      await closeCase(caseId);
+    }
+    expect(await changes(clinic.clinicId)).toHaveLength(0);
   });
 
   test("prompt injection: a NEVER switch, another clinic and two changes at once run nothing beyond one listed change for the matched clinic", async () => {

@@ -10,7 +10,7 @@ import { stringToSign, type SnsMessage } from "@/lib/email/ses-events";
 import { classifyEmail, ownLines } from "@/lib/support/inbound/classify";
 import { isInboundKey } from "@/lib/support/inbound/config";
 import { attachmentSummary, cappedCount, matchingAddress, messageFields, screenCounts, senderRef } from "@/lib/support/inbound/facts";
-import { alignedDkimPass, authenticate, isAuthenticated, sesAuthenticationResults } from "@/lib/support/inbound/auth";
+import { alignedDkimPass, authenticate, isAuthenticated, noticeVerdictsPass, sesAuthenticationResults } from "@/lib/support/inbound/auth";
 import { bareAddress, dropReason, isProviderConfirmation } from "@/lib/support/inbound/guards";
 import { idForms, refsInSubject } from "@/lib/support/inbound/match";
 import { inboundNoticeFrom } from "@/lib/support/inbound/notice";
@@ -221,6 +221,30 @@ describe("authentication: whether the From domain is the sender's (SES's own hea
     expect((await judged("ses-unsigned.eml", { ...PASS, dkim: "GRAY", dmarc: "FAIL" })).ok).toBe(false);
   });
 
+  test("a DIRECT change needs SES's notice itself: DKIM PASS, and SPF and DMARC PASS where the notice has them; headers never stand in", async () => {
+    expect(noticeVerdictsPass({ verdicts: PASS })).toBe(true);
+    expect(noticeVerdictsPass({ verdicts: { ...UNKNOWN, dkim: "PASS" } })).toBe(true);
+    expect(noticeVerdictsPass({ verdicts: UNKNOWN })).toBe(false);
+    for (const dkim of ["FAIL", "GRAY", "PROCESSING_FAILED", "DISABLED"] as const) expect(noticeVerdictsPass({ verdicts: { ...PASS, dkim } })).toBe(false);
+    expect(noticeVerdictsPass({ verdicts: { ...PASS, spf: "FAIL" } })).toBe(false);
+    expect(noticeVerdictsPass({ verdicts: { ...PASS, dmarc: "GRAY" } })).toBe(false);
+    // The stored message's own SES header says pass, the notice says nothing: authenticated, but not by the notice.
+    const mail = await parseMail(eml("ses-aligned-pass.eml"));
+    expect(isAuthenticated(authenticate(mail, { verdicts: UNKNOWN }), mail.from)).toBe(true);
+    expect(noticeVerdictsPass({ verdicts: UNKNOWN })).toBe(false);
+  });
+
+  test("a sender-written amazonses.com Authentication-Results lower in the list, with an aligned DKIM pass, is ignored: SES's topmost decides", async () => {
+    const mail = await parseMail(eml("ses-forged-results.eml"));
+    // The forged header is in the message, below SES's own.
+    expect(mail.headers.get("authentication-results")).toHaveLength(2);
+    expect(mail.headers.get("authentication-results")![1]).toMatch(/dkim=pass header\.i=@/);
+    const auth = authenticate(mail, { verdicts: UNKNOWN });
+    expect(auth.dkimPassDomains).toEqual([]);
+    expect(auth.verdicts).toMatchObject({ dkim: "GRAY", dmarc: "GRAY", spf: "GRAY" });
+    expect(isAuthenticated(auth, mail.from)).toBe(false);
+  });
+
   test("no SES header at all: nothing is authenticated but by the notice's DMARC", async () => {
     expect((await judged("clinic-normal.eml")).ok).toBe(false);
     expect((await judged("clinic-normal.eml", PASS)).ok).toBe(true);
@@ -278,7 +302,9 @@ describe("the facts an email becomes", () => {
       senderMatchesCase: null,
       authenticated: true,
       fromClinic: true,
+      noticeVerified: false,
     });
+    expect(fields.noticeVerified).toBe("no");
     const text = JSON.stringify(fields);
     expect(text).not.toContain("@");
     expect(text).not.toMatch(/[0-9]{3,}/);

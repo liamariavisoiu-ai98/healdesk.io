@@ -73,6 +73,27 @@ export async function readSettingSnapshot(tx: TenantTx, now: Date = new Date()):
   };
 }
 
+/**
+ * The snapshot, read in a savepoint, or null when it could not be read: a
+ * failed read inside the writer's transaction would abort it, and recording
+ * a change must never cost the change itself.
+ */
+export async function readSettingSnapshotSafely(
+  tx: TenantTx,
+  now: Date = new Date(),
+): Promise<Record<string, unknown> | null> {
+  try {
+    return await tx.db.transaction((savepoint) => readSettingSnapshot({ ...tx, db: savepoint }, now));
+  } catch (error) {
+    try {
+      log.error("setting snapshot not read", { clinicId: tx.clinicId, error: describeError(error) });
+    } catch {
+      // Nothing reaches the writer.
+    }
+    return null;
+  }
+}
+
 /** The summary a `setting` row carries: the key, and the closed tokens when the setting has them. */
 export function settingChangeSummary(
   key: string,

@@ -218,10 +218,12 @@ describe("section 8 describes the one optional payment-link text", () => {
 
   test("it is optional, once, fixed, and carries STOP and HELP", () => {
     expect(text).toContain(
-      "If a clinic that uses healdesk turns it on, its assistant may text a caller one message after a booking call, only if the caller says yes: a fixed line and the clinic's own payment link, with no treatment, time or amount in it.",
+      "If a clinic that uses healdesk turns it on, its assistant is designed to text a caller one message after a booking call, only if the caller says yes and reads their number back: a fixed line and the clinic's own payment link, and nothing else, with no treatment, time or amount in it.",
     );
-    expect(text).toContain("Reply STOP to opt out and HELP for help; message and data rates may apply.");
-    expect(text).toContain("We send no marketing texts");
+    expect(text).toContain("When the text is sent, reply STOP to opt out and HELP for help; message and data rates may apply.");
+    expect(text).toContain("Marketing texts would need a separate, explicit opt-in, and we send none.");
+    // Design, not fact: nothing sends a text yet (paymentLinkTextOffered() is false).
+    expect(text).not.toContain("its assistant may text a caller");
     expect(text).not.toContain("If we ever add texts");
   });
 });

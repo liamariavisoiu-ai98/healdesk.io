@@ -54,8 +54,8 @@ const PINNED_BEFORE_1_6_0 = {
    */
   replaces: "2026-10-28.1",
   sha256: {
-    "/terms": "849689a4830e7bdd390c337327b5d66c3668516fdedf161f42ada1e5921f5842",
-    "/privacy": "76f618d840d209eb930551c66a28b78c53cace1691c1cbcc8b2a4e39c6c2c424",
+    "/terms": "26032c81b8f53fe6e6dc914d26af0f05642c4dd78ecbc671569f64d25d8ff1ef",
+    "/privacy": "a0304e28a3f1aa19037677dd4e4631ff359b25deb2b175b45a2fc8a56f83259c",
     "/data-deletion": "d77557279849e427006387afa3c427ee976e10be5afd29cbba04a7356afd1042",
   },
 } as const;
@@ -85,7 +85,7 @@ const PINNED_WITH_1_6_0 = {
   lastUpdated: "28 October 2026",
   /** 2026-10-28.3 is the live text this release replaces, once it has gone out. */
   replaces: "2026-10-28.3",
-  sha256: { ...PINNED_BEFORE_1_6_0.sha256, "/terms": "d739b9a7980a25981b8b3fb649ffb1ee997b9639793e3b3435b3eaa0f3b58292" },
+  sha256: { ...PINNED_BEFORE_1_6_0.sha256, "/terms": "9e30a23b776a3aed8e0b91f68c9742b168640429f148341ca67f242f1c0973c5" },
 } as const;
 
 const PINNED = BAA_1_6_0_RELEASED ? PINNED_WITH_1_6_0 : PINNED_BEFORE_1_6_0;

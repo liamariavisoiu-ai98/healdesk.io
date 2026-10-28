@@ -599,12 +599,13 @@ export default function PrivacyPage() {
         <p>
           This website does not send text messages, and nothing on it asks you to agree to any.
           The demo call in section 2 is a voice call. If a clinic that uses {site.name} turns it
-          on, its assistant may text a caller one message after a booking call, only if the caller
-          says yes: a fixed line and the clinic&apos;s own payment link, with no treatment, time or
-          amount in it. It is sent once, to the number the caller read back, and is not a reminder
-          or a follow-up. Reply <strong>STOP</strong> to opt out and <strong>HELP</strong> for
-          help; message and data rates may apply. We send no marketing texts, and would need a
-          separate, explicit opt-in to.
+          on, its assistant is designed to text a caller one message after a booking call, only if
+          the caller says yes and reads their number back: a fixed line and the clinic&apos;s own
+          payment link, and nothing else, with no treatment, time or amount in it. It is sent once,
+          to the number the caller read back, and is not a reminder or a follow-up. When the text
+          is sent, reply <strong>STOP</strong> to opt out and <strong>HELP</strong> for help;
+          message and data rates may apply. Marketing texts would need a separate, explicit opt-in,
+          and we send none.
         </p>
       </Section>
 

@@ -323,7 +323,11 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * a number healdesk provides, spec "Phone numbers"; the register item
  * `payment-link-text` stays open). The Meta sentences ("sends no payment
  * link") stay true, since the text is voice only. No agreement template
- * changes.
+ * changes in this version, so the Terms carry the exception and the BAA
+ * does not yet: its safeguards clause (packages/catalog/src/baa.ts,
+ * CLAUSES_1_3) still says healdesk "sends no SMS", and must carry this one
+ * exception, in a new BAA version clinics accept, before the first text is
+ * sent. That is the owner's call and a separate version.
  */
 export default function TermsPage() {
   const products = productsForTerms();
@@ -368,8 +372,8 @@ export default function TermsPage() {
           booking to be a request your staff approve, and a Practice whose booking system does
           not read Google Calendar for conflicts runs that way (section 8). By phone it cannot
           take a payment in the call: it books and flags the deposit for your staff to collect,
-          or, if you have turned on the payment-link text, offers to text the caller your
-          Practice&apos;s payment link. On Instagram,
+          or, if you have turned on the payment-link text, is designed to offer to text the
+          caller your Practice&apos;s payment link. On Instagram,
           Messenger and WhatsApp it books nothing: it takes booking requests for your staff to
           confirm, and sends no payment link. Card numbers are never taken on any channel.
         </p>

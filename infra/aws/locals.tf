@@ -279,9 +279,42 @@ locals {
     "WRITER_DATABASE_URL",
     "HEALDESK_LOCAL_KEK",
     "HEALDESK_DIRECT_BOOKING_ENABLED",
+    "HEALDESK_DIRECT_BOOKING_ADDENDUM",
     "HEALDESK_PHASE_TWO_ATTRIBUTION",
     "BETTER_AUTH_SECRETS",
   ]
+
+  # The one carve-out from never_on_app_tasks (DB-1; owner, 28 October 2026):
+  # the direct-booking switch and the addendum version it is bound to, by
+  # exact name, on exactly three container sets: the web task's app
+  # container, the worker (the shared "worker" container or the worker task),
+  # and the voice task only with direct_booking_on_voice. Merged at those
+  # container definitions alone (ecs.tf), never into app_environment_common
+  # (the operator scripts use it) or worker_environment (destroy-due reuses
+  # it), so every other task and app_environment keep refusing both names.
+  # Empty unless direct_booking_enabled, which variables.tf refuses until
+  # counsel's addendum is released.
+  direct_booking_names = ["HEALDESK_DIRECT_BOOKING_ENABLED", "HEALDESK_DIRECT_BOOKING_ADDENDUM"]
+  direct_booking_environment = var.direct_booking_enabled ? {
+    HEALDESK_DIRECT_BOOKING_ENABLED  = "true"
+    HEALDESK_DIRECT_BOOKING_ADDENDUM = var.direct_booking_addendum_version
+  } : {}
+  voice_direct_booking_environment = var.direct_booking_on_voice ? local.direct_booking_environment : {}
+
+  # What each of the three actually runs with, and what the others refuse.
+  web_task_environment    = merge(local.web_environment, local.direct_booking_environment)
+  worker_task_environment = merge(local.worker_environment, local.direct_booking_environment)
+  voice_task_environment  = merge(local.voice_environment, local.voice_direct_booking_environment)
+  never_on_booking_tasks  = setsubtract(local.never_on_app_tasks, local.direct_booking_names)
+
+  # What the three must carry of the two names, written again from the
+  # variables, for the task definitions' preconditions (ecs.tf): both with
+  # these exact values while the switch is on, neither while it is off.
+  direct_booking_expected_json = jsonencode(var.direct_booking_enabled ? {
+    HEALDESK_DIRECT_BOOKING_ADDENDUM = var.direct_booking_addendum_version
+    HEALDESK_DIRECT_BOOKING_ENABLED  = "true"
+  } : {})
+  voice_direct_booking_expected_json = var.direct_booking_on_voice ? local.direct_booking_expected_json : jsonencode({})
 
   # Shared by every container: the awslogs driver in non-blocking mode with a
   # 25 MB buffer. Blocking mode would stall the app's stdout, and with it

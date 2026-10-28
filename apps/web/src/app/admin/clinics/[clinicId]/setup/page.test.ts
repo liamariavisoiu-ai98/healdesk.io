@@ -70,6 +70,7 @@ vi.mock("@/lib/admin/ops-client", () => {
   };
   const idle = async () => null;
   return {
+    fetchBookingSwitch: async () => ({ ok: true, data: { directBooking: false, env: false, released: false, versionMatches: false } }),
     fetchOnboarding: async (clinicId: string) => {
       state.reads.push(["fetchOnboarding", clinicId]);
       if (state.demo) return { ok: true, data: { booking: { demo: true } } };

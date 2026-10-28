@@ -2412,9 +2412,48 @@ const WELCOME_HANDOFF_TIMEOUT_MS = 4_000;
 // -----------------------------------------------------------------------------
 
 /**
- * Whether the owner's direct-booking switch is on: HEALDESK_DIRECT_BOOKING_ENABLED,
- * which only the owner sets, on apps/app, and which only apps/app's
- * `env.directBookingEnabled()` reads. The funnel's step 2 says whether AYA
+ * apps/app's `bookingSwitch` reply: four booleans and no clinic data.
+ * `directBooking` is the one the funnel acts on and means the other three
+ * are all true. It must be a boolean or the whole reply is unreadable (fails
+ * closed). The three ticks are for the console: an older apps/app sends
+ * `directBooking` alone, and a tick it did not send reads as `null`
+ * (not reported), never as a guess and never as a crash.
+ */
+export type BookingSwitch = {
+  directBooking: boolean;
+  /** HEALDESK_DIRECT_BOOKING_ENABLED is on in the task environment. */
+  env: boolean | null;
+  /** Counsel's Direct booking addendum is released in the running build. */
+  released: boolean | null;
+  /** The task's addendum version equals the build's. */
+  versionMatches: boolean | null;
+};
+
+export function readBookingSwitch(value: unknown): BookingSwitch {
+  const r = object(value, "bookingSwitch");
+  const tick = (v: unknown): boolean | null => (typeof v === "boolean" ? v : null);
+  return {
+    directBooking: bool(r.directBooking, "bookingSwitch.directBooking"),
+    env: tick(r.env),
+    released: tick(r.released),
+    versionMatches: tick(r.versionMatches),
+  };
+}
+
+/**
+ * The three live ticks on the booking card. Read fresh, not remembered, and
+ * read-only: the switch is set in Terraform (`direct_booking_enabled`), never
+ * from here.
+ */
+export async function fetchBookingSwitch(): Promise<OpsResult<BookingSwitch>> {
+  return send("bookingSwitch", "read", readBookingSwitch, {});
+}
+
+/**
+ * Whether direct booking is open: all three of HEALDESK_DIRECT_BOOKING_ENABLED
+ * in the task environment, counsel's release of the addendum in the running
+ * build and a matching addendum version (apps/app `directBookingOpen()`; the
+ * owner sets the first in Terraform, `direct_booking_enabled`). The funnel's step 2 says whether AYA
  * books straight into the calendar or the team confirms each booking
  * (lib/checkout/funnel.ts `bookingConsequence`), and asks here rather than
  * reading a variable of its own, so there is one switch and the funnel can
@@ -2435,7 +2474,7 @@ export async function directBookingOpen(now: number = Date.now()): Promise<boole
   bookingSwitchAsking ??= send(
     "bookingSwitch",
     "read",
-    (value) => bool(object(value, "bookingSwitch").directBooking, "bookingSwitch.directBooking"),
+    (value) => readBookingSwitch(value).directBooking,
     {},
     { context: false, timeoutMs: BOOKING_SWITCH_TIMEOUT_MS },
   )
@@ -2497,7 +2536,7 @@ export async function appAnswers(now: number = Date.now()): Promise<boolean> {
   appAnswersAsking ??= send(
     "bookingSwitch",
     "read",
-    (value) => bool(object(value, "bookingSwitch").directBooking, "bookingSwitch.directBooking"),
+    (value) => readBookingSwitch(value).directBooking,
     {},
     { context: false, timeoutMs: APP_ANSWERS_TIMEOUT_MS },
   )

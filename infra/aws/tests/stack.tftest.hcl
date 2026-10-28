@@ -461,12 +461,27 @@ run "production_defaults" {
   # --- names never given to a task ---
   assert {
     condition = alltrue(flatten([
-      for name in ["HEALDESK_LOCAL_KEK", "HEALDESK_DIRECT_BOOKING_ENABLED", "HEALDESK_PHASE_TWO_ATTRIBUTION", "BETTER_AUTH_SECRETS", "APP_PASSWORD", "MIGRATOR_PASSWORD"] : [
+      for name in ["HEALDESK_LOCAL_KEK", "HEALDESK_DIRECT_BOOKING_ENABLED", "HEALDESK_DIRECT_BOOKING_ADDENDUM", "HEALDESK_PHASE_TWO_ATTRIBUTION", "BETTER_AUTH_SECRETS", "APP_PASSWORD", "MIGRATOR_PASSWORD"] : [
         for definition in [aws_ecs_task_definition.web.container_definitions, aws_ecs_task_definition.worker.container_definitions, aws_ecs_task_definition.destroy_due.container_definitions, aws_ecs_task_definition.patient_export.container_definitions, aws_ecs_task_definition.ops_script["erase-person"].container_definitions, aws_ecs_task_definition.ops_script["amend-contact"].container_definitions, aws_ecs_task_definition.ops_script["patient-request"].container_definitions, aws_ecs_task_definition.ops_script["incident-affected"].container_definitions, aws_ecs_task_definition.migrate.container_definitions, aws_ecs_task_definition.db_bootstrap[0].container_definitions] :
         !strcontains(definition, "\"${name}\"")
       ]
     ])) && !strcontains(aws_ecs_task_definition.web.container_definitions, "MIGRATION_DATABASE_URL") && !strcontains(aws_ecs_task_definition.worker.container_definitions, "MIGRATION_DATABASE_URL") && !strcontains(aws_ecs_task_definition.destroy_due.container_definitions, "MIGRATION_DATABASE_URL")
     error_message = "A never-set variable appears in a task definition."
+  }
+
+  # The direct-booking switch is off by default (DB-1): no task definition,
+  # every operator script included, carries either of its names.
+  assert {
+    condition = alltrue(flatten([
+      for name in ["HEALDESK_DIRECT_BOOKING_ENABLED", "HEALDESK_DIRECT_BOOKING_ADDENDUM"] : [
+        for definition in concat(
+          [aws_ecs_task_definition.web.container_definitions, aws_ecs_task_definition.worker.container_definitions, aws_ecs_task_definition.destroy_due.container_definitions, aws_ecs_task_definition.patient_export.container_definitions, aws_ecs_task_definition.migrate.container_definitions],
+          values(aws_ecs_task_definition.ops_script)[*].container_definitions,
+          aws_ecs_task_definition.db_bootstrap[*].container_definitions,
+        ) : !strcontains(definition, "\"${name}\"")
+      ]
+    ])) && length(aws_ecs_task_definition.voice) == 0
+    error_message = "With direct_booking_enabled off (the default), no task definition may carry HEALDESK_DIRECT_BOOKING_ENABLED or HEALDESK_DIRECT_BOOKING_ADDENDUM."
   }
 
   assert {
@@ -1456,7 +1471,7 @@ run "voice_on" {
 
   assert {
     condition = alltrue([
-      for name in ["MIGRATION_DATABASE_URL", "HEALDESK_LOCAL_KEK", "HEALDESK_DIRECT_BOOKING_ENABLED", "HEALDESK_PHASE_TWO_ATTRIBUTION", "BETTER_AUTH_SECRETS", "APP_PASSWORD", "MIGRATOR_PASSWORD"] :
+      for name in ["MIGRATION_DATABASE_URL", "HEALDESK_LOCAL_KEK", "HEALDESK_DIRECT_BOOKING_ENABLED", "HEALDESK_DIRECT_BOOKING_ADDENDUM", "HEALDESK_PHASE_TWO_ATTRIBUTION", "BETTER_AUTH_SECRETS", "APP_PASSWORD", "MIGRATOR_PASSWORD"] :
       !strcontains(aws_ecs_task_definition.voice[0].container_definitions, "\"${name}\"")
     ])
     error_message = "A never-set variable appears in the voice task definition."
@@ -1962,6 +1977,179 @@ run "refuses_the_booking_switch" {
     app_environment = { HEALDESK_DIRECT_BOOKING_ENABLED = "true" }
   }
   expect_failures = [var.app_environment]
+}
+
+# --- Direct booking (DB-1, docs/design/launch-readiness-2026-10-27/
+# db-1-direct-booking-switch.md). The switch is refused until counsel's
+# addendum is released; on, it reaches the web task's app container and the
+# worker (either placement), the voice task only with direct_booking_on_voice,
+# and no other task.
+
+run "refuses_booking_switch_unreleased" {
+  command = plan
+  variables {
+    direct_booking_enabled = true
+  }
+  expect_failures = [var.direct_booking_enabled]
+}
+
+run "refuses_booking_on_voice_without_switch" {
+  command = plan
+  variables {
+    enable_voice            = true
+    direct_booking_on_voice = true
+  }
+  expect_failures = [var.direct_booking_on_voice]
+}
+
+run "refuses_booking_on_voice_without_voice" {
+  command = plan
+  variables {
+    direct_booking_addendum_released = true
+    direct_booking_enabled           = true
+    direct_booking_on_voice          = true
+    enable_voice                     = false
+  }
+  expect_failures = [var.direct_booking_on_voice]
+}
+
+run "refuses_addendum_version_shape" {
+  command = plan
+  variables {
+    direct_booking_addendum_version = "1.0.0"
+  }
+  expect_failures = [var.direct_booking_addendum_version]
+}
+
+run "refuses_addendum_name_in_app_environment" {
+  command = plan
+  variables {
+    app_environment = { HEALDESK_DIRECT_BOOKING_ADDENDUM = "x" }
+  }
+  expect_failures = [var.app_environment]
+}
+
+# Released alone switches nothing on.
+run "booking_released_alone_sets_nothing" {
+  command = plan
+  variables {
+    direct_booking_addendum_released = true
+  }
+
+  assert {
+    condition = alltrue([
+      for definition in [aws_ecs_task_definition.web.container_definitions, aws_ecs_task_definition.worker.container_definitions] :
+      !strcontains(definition, "\"HEALDESK_DIRECT_BOOKING_ENABLED\"") && !strcontains(definition, "\"HEALDESK_DIRECT_BOOKING_ADDENDUM\"")
+    ])
+    error_message = "direct_booking_addendum_released by itself must not put the switch on any task."
+  }
+}
+
+run "booking_on_web_and_worker" {
+  command = plan
+  variables {
+    direct_booking_addendum_released = true
+    direct_booking_enabled           = true
+    enable_voice                     = true
+  }
+
+  # The web task's app container and its shared worker carry both, exactly.
+  assert {
+    condition = alltrue([
+      for name in ["app", "worker"] : (
+        contains([for e in one([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == name]).environment : "${e.name}=${e.value}"], "HEALDESK_DIRECT_BOOKING_ENABLED=true") &&
+        contains([for e in one([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == name]).environment : "${e.name}=${e.value}"], "HEALDESK_DIRECT_BOOKING_ADDENDUM=direct-booking-addendum/1.0.0")
+      )
+    ])
+    error_message = "With direct_booking_enabled on, the web task's app and worker containers carry HEALDESK_DIRECT_BOOKING_ENABLED=true and HEALDESK_DIRECT_BOOKING_ADDENDUM=direct-booking-addendum/1.0.0."
+  }
+
+  assert {
+    condition = (
+      contains([for e in jsondecode(aws_ecs_task_definition.worker.container_definitions)[0].environment : "${e.name}=${e.value}"], "HEALDESK_DIRECT_BOOKING_ENABLED=true") &&
+      contains([for e in jsondecode(aws_ecs_task_definition.worker.container_definitions)[0].environment : "${e.name}=${e.value}"], "HEALDESK_DIRECT_BOOKING_ADDENDUM=direct-booking-addendum/1.0.0")
+    )
+    error_message = "The worker task definition (registered in either placement) carries both names with their values."
+  }
+
+  # The sidecar, voice (without direct_booking_on_voice) and every one-off
+  # task carry neither, and neither name is ever a secret.
+  assert {
+    condition = alltrue(flatten([
+      for name in ["HEALDESK_DIRECT_BOOKING_ENABLED", "HEALDESK_DIRECT_BOOKING_ADDENDUM"] : [
+        for definition in concat(
+          [aws_ecs_task_definition.voice[0].container_definitions, aws_ecs_task_definition.destroy_due.container_definitions, aws_ecs_task_definition.patient_export.container_definitions, aws_ecs_task_definition.migrate.container_definitions],
+          values(aws_ecs_task_definition.ops_script)[*].container_definitions,
+          aws_ecs_task_definition.db_bootstrap[*].container_definitions,
+        ) : !strcontains(definition, "\"${name}\"")
+      ]
+    ]))
+    error_message = "Only the web task and the worker may carry the direct-booking switch: voice (without direct_booking_on_voice), destroy-due, patient-export, every operator script, migrate and db-bootstrap carry neither name."
+  }
+
+  assert {
+    condition = (
+      !strcontains(jsonencode(one([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "tls-proxy"])), "HEALDESK_DIRECT_BOOKING") &&
+      alltrue([
+        for c in concat(jsondecode(aws_ecs_task_definition.web.container_definitions), jsondecode(aws_ecs_task_definition.worker.container_definitions)) :
+        !strcontains(jsonencode(try(c.secrets, [])), "HEALDESK_DIRECT_BOOKING")
+      ])
+    )
+    error_message = "The TLS sidecar carries no direct-booking name, and neither name is ever a secret."
+  }
+}
+
+run "booking_on_voice" {
+  command = plan
+  variables {
+    direct_booking_addendum_released = true
+    direct_booking_enabled           = true
+    direct_booking_on_voice          = true
+    enable_voice                     = true
+  }
+
+  assert {
+    condition = (
+      contains([for e in one([for c in jsondecode(aws_ecs_task_definition.voice[0].container_definitions) : c if c.name == "app"]).environment : "${e.name}=${e.value}"], "HEALDESK_DIRECT_BOOKING_ENABLED=true") &&
+      contains([for e in one([for c in jsondecode(aws_ecs_task_definition.voice[0].container_definitions) : c if c.name == "app"]).environment : "${e.name}=${e.value}"], "HEALDESK_DIRECT_BOOKING_ADDENDUM=direct-booking-addendum/1.0.0") &&
+      contains([for e in one([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "app"]).environment : "${e.name}=${e.value}"], "HEALDESK_DIRECT_BOOKING_ENABLED=true")
+    )
+    error_message = "With direct_booking_on_voice on, the voice task's app container carries both names, and web keeps them."
+  }
+
+  assert {
+    condition = alltrue([
+      for definition in concat([aws_ecs_task_definition.destroy_due.container_definitions, aws_ecs_task_definition.patient_export.container_definitions, aws_ecs_task_definition.migrate.container_definitions], values(aws_ecs_task_definition.ops_script)[*].container_definitions) :
+      !strcontains(definition, "HEALDESK_DIRECT_BOOKING")
+    ])
+    error_message = "Voice on adds the switch to the voice task alone; the one-off tasks still carry neither name."
+  }
+}
+
+# A revised addendum's version reaches the tasks exactly as set.
+run "booking_on_separate_worker" {
+  command = plan
+  variables {
+    direct_booking_addendum_released = true
+    direct_booking_enabled           = true
+    direct_booking_addendum_version  = "direct-booking-addendum/1.1.0"
+    worker_placement                 = "separate"
+  }
+
+  assert {
+    condition = (
+      contains([for e in jsondecode(aws_ecs_task_definition.worker.container_definitions)[0].environment : "${e.name}=${e.value}"], "HEALDESK_DIRECT_BOOKING_ENABLED=true") &&
+      contains([for e in jsondecode(aws_ecs_task_definition.worker.container_definitions)[0].environment : "${e.name}=${e.value}"], "HEALDESK_DIRECT_BOOKING_ADDENDUM=direct-booking-addendum/1.1.0") &&
+      contains([for e in one([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "app"]).environment : "${e.name}=${e.value}"], "HEALDESK_DIRECT_BOOKING_ADDENDUM=direct-booking-addendum/1.1.0") &&
+      length([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "worker"]) == 0
+    )
+    error_message = "With worker_placement separate, the worker service's task and the web task's app container carry both names, the version exactly as set."
+  }
+
+  assert {
+    condition     = !strcontains(aws_ecs_task_definition.destroy_due.container_definitions, "HEALDESK_DIRECT_BOOKING")
+    error_message = "destroy-due reuses the worker's container but never its direct-booking switch."
+  }
 }
 
 run "refuses_the_phase_two_switch" {

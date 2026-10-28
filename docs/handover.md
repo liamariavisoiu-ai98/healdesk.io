@@ -68,8 +68,26 @@ whether each piece is reworked, fenced or removed.
 - **Call-backs, direct booking into Cal.com, WhatsApp templates and the `/setup` link**
   (migration 0040, `lib/callbacks/`, `lib/booking/calendar.ts`, the direct-booking
   addendum). v1 is inbound only and writes only to Google Calendar.
-  `HEALDESK_OUTBOUND_CALLBACKS_ENABLED`, `HEALDESK_DIRECT_BOOKING_ENABLED` and
-  `HEALDESK_WHATSAPP_TEMPLATES_ENABLED` stay unset in every environment.
+  `HEALDESK_OUTBOUND_CALLBACKS_ENABLED` and `HEALDESK_WHATSAPP_TEMPLATES_ENABLED` stay
+  unset in every environment. `HEALDESK_DIRECT_BOOKING_ENABLED` (with
+  `HEALDESK_DIRECT_BOOKING_ADDENDUM`) is set only by Terraform, from the owner's release of
+  28 October 2026 once applied and deployed, (`direct_booking_enabled`, refused until
+  `direct_booking_addendum_released`), on the web and worker tasks and, with
+  `direct_booking_on_voice`, the voice task; the app opens booking only when the env var,
+  the owner's release in the build and the matching version are all true
+  (`docs/design/launch-readiness-2026-10-27/db-1-direct-booking-switch.md`). Order:
+  1. One commit (28 October 2026, the owner releasing the addendum himself, without external
+     counsel) flipped `approvedByCounsel` and `direct_booking_addendum_released` (a test keeps
+     them equal) and set `direct_booking_enabled = true` and `direct_booking_on_voice = true`
+     (the phone books directly at launch). Landing it needs the owner's yes.
+  2. `infra.yml` apply; it plans a task-definition change only, and the owner approves it.
+  3. `deploy-app.yml`, run AFTER the apply (it builds from the latest task-definition
+     revision, so booking opens only then). It rolls web, worker and voice; rolling voice
+     (calls hold for up to an hour) needs the owner's word that no call is running or planned.
+  4. Read the three ticks on a clinic's Setup booking card, then place one synthetic
+     booking in web chat on the demo clinic.
+  Rollback: set `direct_booking_enabled = false`, apply, deploy; or `deploy-app.yml`
+  `rollback` to the previous task definition. A booking made while it was on stays.
   `OUTBOUND_CONTACT_ENABLED = false` in `lib/compliance/contact-policy.ts` stays false.
 - **The Meta front door** (`lib/meta/front-door.ts`) answers public facts and takes
   booking requests; it books nothing. The staff-approval booking-request path

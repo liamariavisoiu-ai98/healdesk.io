@@ -268,9 +268,52 @@ same conversation code.
   it from the web tier. An empty variable is left out, not set to `""`.
 - **Never set on web, worker or voice**, enforced by preconditions that fail the plan and by the
   deploy workflow's shape check: `MIGRATION_DATABASE_URL`, `HEALDESK_LOCAL_KEK`,
-  `HEALDESK_DIRECT_BOOKING_ENABLED`, `HEALDESK_PHASE_TWO_ATTRIBUTION`, `BETTER_AUTH_SECRETS`. The
-  two switches wait for counsel and the owner, never for this stack; `app_environment` refuses
-  them too, along with any secret name and any name the stack sets itself.
+  `HEALDESK_PHASE_TWO_ATTRIBUTION`, `BETTER_AUTH_SECRETS`, and the direct-booking pair
+  `HEALDESK_DIRECT_BOOKING_ENABLED` and `HEALDESK_DIRECT_BOOKING_ADDENDUM` except as below.
+  `app_environment` refuses all of them, along with any secret name and any name the stack sets
+  itself.
+- **Direct booking, the one carve-out** (DB-1; owner, 27 and 28 October 2026). With
+  `direct_booking_enabled`, the web task's `app` container and the worker (the shared `worker`
+  container or the worker task) get `HEALDESK_DIRECT_BOOKING_ENABLED=true` and
+  `HEALDESK_DIRECT_BOOKING_ADDENDUM=<direct_booking_addendum_version>`; the voice task gets them
+  only with `direct_booking_on_voice`. Nothing else ever does: destroy-due, patient-export, every
+  operator script, migrate and db-bootstrap refuse both names, and so does the deploy workflow's
+  shape check, which also refuses either name on those three unless it is plain environment,
+  both names together, the switch exactly `true` and the version shaped
+  `direct-booking-addendum/x.y.z`. Terraform refuses `direct_booking_enabled` until
+  `direct_booking_addendum_released` is true, and `direct_booking_on_voice` without both
+  `direct_booking_enabled` and `enable_voice`. `production.tfvars` holds all three at `true` since 28 October 2026.
+  The values are public settings, not secrets: Parameter Store is not involved. The app checks
+  again by itself: it books only while the switch is `true`, the running build's addendum is
+  released (`approvedByCounsel`) and its version equals `HEALDESK_DIRECT_BOOKING_ADDENDUM`, so a
+  revised addendum turns booking off until this variable is raised and a deploy rolls. Off,
+  every channel takes a booking request for staff, so a patient is never stranded.
+
+  Turning it on (done in the repository on 28 October 2026; the owner released the addendum
+  himself, without external counsel), in this order, each step on the owner's yes:
+
+  1. One commit released the addendum (`approvedByCounsel: true` in
+     `packages/catalog/src/direct-booking-addendum.ts` and
+     `direct_booking_addendum_released = true` here) and set `direct_booking_enabled = true`
+     and `direct_booking_on_voice = true`; CI
+     (`apps/app/tests/direct-booking-switch-infra.test.ts`) proves the release and the tfvars
+     agree. Landing it on `main` needs the owner's yes.
+  2. `infra.yml` apply. It plans task-definition changes only; the owner approves the apply.
+  3. `deploy-app.yml`, run AFTER the apply: it builds from the latest task-definition
+     revision, so a deploy that ran before the apply would roll the old revisions and booking
+     would stay shut. It rolls web and worker, and voice too, which needs the owner's word that
+     no call is running or planned.
+  4. Read the three ticks in `/admin` (switch in the task environment, addendum released in the
+     running build, version matches), then place one synthetic web chat booking on the demo
+     clinic. Until a booking has been verified live the launch item stays `building`.
+
+  Rollback: `direct_booking_enabled = false` (and `direct_booking_on_voice = false`), apply,
+  deploy; or, faster and without Terraform, `deploy-app.yml` with `rollback_to=<commit>` naming a
+  commit deployed before the switch went on, whose revisions carry no switch (until the next full
+  deploy; see "Rollback"). A booking already made stays a booking. `host.yml` needs nothing: it
+  plans with `-var-file=production.tfvars` and adds only its standby `-var`s, so `active` restores
+  exactly what this file says, and a variable it does not pass keeps the file's (or the default)
+  `false`.
 
 ---
 

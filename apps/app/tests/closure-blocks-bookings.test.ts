@@ -1,7 +1,20 @@
 import { randomUUID } from "node:crypto";
 
 import type { FakeGoogleCalendar } from "@healdesk/connectors";
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+
+// The direct-booking switch is three facts (lib/booking/direct-switch.ts, DB-1):
+// the owner's env var, the owner's release of the addendum (28 October 2026)
+// and the deployed addendum version. The committed catalog now has the addendum
+// released, so this mock is redundant but harmless: it pins the release in this
+// test process, so these suites book as production does once all three are set.
+vi.mock("@healdesk/catalog", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@healdesk/catalog")>();
+  return {
+    ...actual,
+    currentDirectBookingAddendum: () => ({ ...actual.currentDirectBookingAddendum(), approvedByCounsel: true }),
+  };
+});
 
 import { availableSlotsFor, checkSpan } from "@/lib/booking/availability";
 import { bookConversation } from "@/lib/booking/book";
@@ -61,10 +74,12 @@ describeDb("a closed day saved in the portal blocks booking on that day", () => 
   beforeEach(() => {
     google = freshGoogle();
     process.env.HEALDESK_DIRECT_BOOKING_ENABLED = "true";
+    process.env.HEALDESK_DIRECT_BOOKING_ADDENDUM = "direct-booking-addendum/1.0.0";
   });
 
   afterAll(async () => {
     delete process.env.HEALDESK_DIRECT_BOOKING_ENABLED;
+    delete process.env.HEALDESK_DIRECT_BOOKING_ADDENDUM;
     restoreGoogleEnv();
     await closePools();
   });

@@ -205,6 +205,7 @@ import {
   TRANSCRIPT_DELIVERIES_MAX_DAYS,
   type TranscriptDeliveries,
 } from "@/lib/conversations/transcript-outbox";
+import { directBookingSwitchParts } from "@/lib/booking/direct-switch";
 import { isDemoClinic } from "@/lib/booking/terms";
 import { setBookingRequirementsWithin } from "@/lib/onboarding/requirements";
 import {
@@ -542,8 +543,8 @@ const OPERATIONS = [
   // composed here from BETTER_AUTH_URL when ready, never a name or an address.
   // It writes nothing, so it is not in MUTATING_OPERATIONS.
   "welcomeHandoff",
-  // The owner's direct-booking switch (HEALDESK_DIRECT_BOOKING_ENABLED, read
-  // by env.directBookingEnabled() and nowhere else), for the purchase funnel
+  // The owner's direct-booking switch (directBookingOpen(): the env var AND
+  // counsel's released addendum AND a matching addendum version, DB-1), for the purchase funnel
   // on apps/web, whose step 2 says whether AYA books straight into the
   // calendar or the team confirms each booking. Machine to machine, like
   // welcomeHandoff: a visitor's browser is behind the request on that side,
@@ -1506,7 +1507,7 @@ export async function runOperation(
     case "welcomeHandoff":
       return opWelcomeHandoff(args);
     case "bookingSwitch":
-      return ok({ directBooking: env.directBookingEnabled() });
+      return ok(opBookingSwitch());
     case "emailQuota":
       return opEmailQuota(args);
     case "listIncidentRegister":
@@ -4679,6 +4680,17 @@ async function opEmailQuota(args: Record<string, unknown>): Promise<OpsOutcome> 
   }
   await recordDailyQuota(used, at);
   return ok({ recorded: true });
+}
+
+/**
+ * bookingSwitch (DB-1 §5): four booleans and nothing else, the same for
+ * every caller, no clinic data. `directBooking` keeps its old meaning, the
+ * one answer AYA books on (directBookingOpen()); `env`, `released` and
+ * `versionMatches` are its three parts, for the console's ticks.
+ */
+function opBookingSwitch(): { directBooking: boolean; env: boolean; released: boolean; versionMatches: boolean } {
+  const parts = directBookingSwitchParts();
+  return { directBooking: parts.open, env: parts.env, released: parts.released, versionMatches: parts.versionMatches };
 }
 
 // -----------------------------------------------------------------------------

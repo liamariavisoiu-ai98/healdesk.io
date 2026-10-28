@@ -115,6 +115,7 @@ export const PROCESSOR_CATEGORIES = {
   analytics: "Analytics",
   "web-research": "Web research",
   "team-chat": "Internal chat tool",
+  "support-mailbox": "Mailbox provider",
 } as const;
 
 export type ProcessorCategory = keyof typeof PROCESSOR_CATEGORIES;
@@ -273,6 +274,20 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
     scope: "product",
   },
   {
+    name: "Mailbox provider (the owner's support mailbox)",
+    category: "support-mailbox",
+    purpose: "The owner's own mailbox, which the support@ and hello@ aliases deliver to before it forwards each message to in.healdesk.io for the support system; internal only, the legal pages describe no such vendor",
+    data: "A clinic's raw support email, as ordinary correspondence, and nothing else of ours. Clinics are told not to put patient information in it, but nothing stops one doing so, and the mailbox keeps its copy under its own rules, which healdesk does not control",
+    region: "",
+    handlesPhi: false,
+    baa: {
+      state: "none-by-design",
+      because:
+        "No BAA, and none is possible for an ordinary mailbox. The support system keeps facts only and deletes its own copy of the email; the mailbox's copy is outside it. Clinics are told not to send patient information.",
+    },
+    scope: "product",
+  },
+  {
     name: "Vercel",
     category: "website-hosting",
     purpose: "Hosting this marketing website",
@@ -348,8 +363,10 @@ export type WebsiteProcessing = {
 export const WEBSITE_PROCESSING: readonly WebsiteProcessing[] = [
   {
     category: "website-hosting",
-    purpose: "Hosts this website and runs its server code",
-    receives: "Page requests, the email you unlock the demo with, and contact-form submissions",
+    purpose:
+      "Hosts this website and runs its server code, including our internal administration tool, which shows our team our drafted replies to support emails",
+    receives:
+      "Page requests, the email you unlock the demo with, contact-form submissions, and our drafted replies to support emails, which automated checks are designed to keep free of patient details, never the support email itself",
   },
   {
     category: "ai-model",
@@ -374,7 +391,8 @@ export const WEBSITE_PROCESSING: readonly WebsiteProcessing[] = [
   {
     category: "email",
     purpose: "Sends our email: replies, setup links, agreement copies, account and billing notices",
-    receives: "The recipient's address, and content that carries no patient information",
+    receives:
+      "The recipient's address, and content designed to carry no patient information, including our approved replies to support emails",
   },
   {
     category: "payments",

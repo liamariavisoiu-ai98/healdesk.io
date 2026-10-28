@@ -2243,10 +2243,10 @@ describe("direct-booking addendum freeze", () => {
     expect(unwrap(addendum)).toContain("who confirms authority to bind Practice");
   });
 
-  test("it is not approved, so nothing offers it yet", () => {
-    // Flipping this ships with counsel's sign-off; the setup page's Direct
-    // booking section and the console's booking-mode switch both key on it.
-    expect(currentDirectBookingAddendum().approvedByCounsel).toBe(false);
+  test("it is released by the owner (28 October 2026), which gates booking in directBookingOpen()", () => {
+    // Releasing it adds nothing for a clinic to sign: no page renders an
+    // election. The flag is read by lib/booking/direct-switch.ts only.
+    expect(currentDirectBookingAddendum().approvedByCounsel).toBe(true);
   });
 });
 

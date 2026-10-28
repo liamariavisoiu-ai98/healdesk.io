@@ -165,6 +165,18 @@ export const metadata: Metadata = {
  * (apps/web/src/app/admin/support/[caseId]) and in Slack
  * (apps/app/src/lib/support/slack-reply.ts), neither under a BAA, each
  * described by what it does, as every vendor on these pages is.
+ *
+ * Revised on 28 October 2026 as LEGAL_VERSION 2026-10-28.1 (see the terms;
+ * lane LEGAL-1b): section 6 and section 9 say the support mailbox, which keeps
+ * the clinic's email as ordinary correspondence,
+ * is not covered by a business associate agreement; section 6 adds the
+ * clinic's responsibility for keeping patient information out of support
+ * email and the portal support chat, and that the internal chat tool
+ * (Slack, the drafted reply, slack-reply.ts) and the email delivery provider
+ * (Resend, the sent reply, lib/support/send.ts) keep their copies under their
+ * own retention, outside runSupportRetention's 12 months; section 5's
+ * website-hosting and email rows (src/lib/subprocessors.ts) name the drafted
+ * and approved replies.
  */
 export default function PrivacyPage() {
   return (
@@ -503,7 +515,9 @@ export default function PrivacyPage() {
           <li>Contact-form messages: as ordinary email correspondence, until the enquiry is closed.</li>
           <li>
             Your emails to our support at support@healdesk.io or hello@healdesk.io: they reach our
-            support inbox as ordinary email correspondence. Our support system keeps only facts
+            support mailbox as ordinary email correspondence, and that mailbox is not covered by a
+            business associate agreement. An email in the mailbox stays there as ordinary
+            correspondence, handled by our team. Our support system keeps only facts
             about each one, such as its topic, its urgency and counts, never its words. When an
             email is matched to a customer clinic&apos;s account, its text may be sent to our AI
             model provider, under our business associate agreement with it, to draft our reply,
@@ -517,9 +531,14 @@ export default function PrivacyPage() {
             internal chat tool, and the approved reply is sent through our email delivery
             provider; none of the three works under a business associate agreement, and automated
             checks are designed to keep patient details out of the reply. No check catches every
-            wording, so do not send patient information to our support. A reply we sent is kept
+            wording, so do not send patient information to our support. A clinic is responsible for
+            not including patient information in anything it sends to our support, by email or
+            through the support chat in its portal: we do not ask for it, and our support channels
+            are not set up to receive it. A reply we sent is kept
             for up to 12 months as the record of what we told you, then its words are deleted; a draft
-            that was never sent stays with its support case until the case is deleted.
+            that was never sent stays with its support case until the case is deleted. Our
+            team&apos;s internal chat tool and our email delivery provider keep their own copies of
+            a reply under their own retention.
           </li>
           <li>Customer billing records: for as long as tax and accounting law require.</li>
           <li>The record of a signed Business Associate Agreement: for six years after the relationship ends, as HIPAA requires.</li>
@@ -590,9 +609,12 @@ export default function PrivacyPage() {
           Business Associate Agreement. Every vendor that will handle patient information for us
           signs an agreement with us before any patient information reaches it; Meta and payment
           processors sign none, so the product keeps clinical content away from them. Nor do our
-          website host and our team&apos;s internal chat tool, which show our drafted replies to
-          support emails, or our email delivery provider, which sends the approved ones: there we
-          rely on automated checks designed to keep patient details out (section 6). Patient
+          support mailbox, which receives a clinic&apos;s emails to our support as ordinary
+          correspondence, our website host and our team&apos;s internal chat tool, which show our
+          drafted replies to support emails, or our email delivery provider, which sends the
+          approved ones: there we ask clinics not to send patient information to our support, and
+          rely on automated checks designed to keep patient details out of our replies (section
+          6). Patient
           information is encrypted at rest, and in transit wherever we control both ends. Two
           routes are outside
           that: a phone call is not end-to-end encrypted, and a patient who telephones has chosen

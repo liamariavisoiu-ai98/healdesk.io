@@ -104,7 +104,7 @@ locals {
     image     = local.app_image
     essential = true
 
-    environment = [for k in sort(keys(local.web_environment)) : { name = k, value = local.web_environment[k] }]
+    environment = [for k in sort(keys(local.web_task_environment)) : { name = k, value = local.web_task_environment[k] }]
     secrets     = [for k in local.web_secret_names : { name = k, valueFrom = local.app_secret_arns[k] }]
 
     # Behind the sidecar, Next is reached on 127.0.0.1:3001 inside the task
@@ -180,7 +180,7 @@ locals {
     workingDirectory = "/repo/apps/app"
     stopTimeout      = 60
 
-    environment = [for k in sort(keys(local.worker_environment)) : { name = k, value = local.worker_environment[k] }]
+    environment = [for k in sort(keys(local.worker_task_environment)) : { name = k, value = local.worker_task_environment[k] }]
     secrets     = [for k in local.worker_secret_names : { name = k, valueFrom = local.app_secret_arns[k] }]
 
     linuxParameters = { initProcessEnabled = true }
@@ -226,7 +226,7 @@ locals {
     workingDirectory = "/repo/apps/app"
     stopTimeout      = 120
 
-    environment = [for k in sort(keys(local.voice_environment)) : { name = k, value = local.voice_environment[k] }]
+    environment = [for k in sort(keys(local.voice_task_environment)) : { name = k, value = local.voice_task_environment[k] }]
     secrets     = [for k in local.voice_secret_names : { name = k, valueFrom = local.app_secret_arns[k] }]
 
     # As in the web task: behind the sidecar, 3001 is reached on loopback
@@ -275,9 +275,14 @@ locals {
   # and the Google client. Registered by every deploy, run only from a
   # terminal (infra/aws/scripts/run-task.sh destroy-due), never by the deploy
   # role, which may register it but not run it.
+  # Its environment is the worker's without the direct-booking carve-out
+  # (locals.tf, direct_booking_environment): a destruction run books nothing,
+  # and this task keeps refusing both names.
   destroy_due_container = merge(local.worker_container, {
     command     = ["node", "--import", "tsx", "scripts/destroy-due.ts"]
     stopTimeout = 30
+
+    environment = [for k in sort(keys(local.worker_environment)) : { name = k, value = local.worker_environment[k] }]
 
     logConfiguration = {
       logDriver = "awslogs"
@@ -557,15 +562,34 @@ resource "aws_ecs_task_definition" "web" {
 
   lifecycle {
     precondition {
-      condition     = length(setintersection(concat(keys(local.web_environment), local.web_secret_names), local.never_on_app_tasks)) == 0
-      error_message = "The web task must never be given any of: ${join(", ", local.never_on_app_tasks)} (contract section 3)."
+      condition     = length(setintersection(concat(keys(local.web_task_environment), local.web_secret_names), local.never_on_booking_tasks)) == 0
+      error_message = "The web task must never be given any of: ${join(", ", local.never_on_booking_tasks)} (contract section 3)."
+    }
+
+    # The one carve-out (locals.tf, direct_booking_names): the two names as
+    # plain environment exactly while direct_booking_enabled says so, with
+    # exactly its values, and never as a secret.
+    precondition {
+      condition = (
+        jsonencode({ for k, v in local.web_task_environment : k => v if contains(local.direct_booking_names, k) }) == local.direct_booking_expected_json &&
+        length(setintersection(local.web_secret_names, local.direct_booking_names)) == 0
+      )
+      error_message = "The web task must carry HEALDESK_DIRECT_BOOKING_ENABLED=true and HEALDESK_DIRECT_BOOKING_ADDENDUM=<direct_booking_addendum_version> exactly when direct_booking_enabled is on, as plain environment, and neither while it is off."
     }
 
     # The shared worker brings its own environment and secrets into this
     # task, so they get the worker task's refusals here too.
     precondition {
-      condition     = !local.worker_shared || length(setintersection(concat(keys(local.worker_environment), local.worker_secret_names), local.never_on_app_tasks)) == 0
-      error_message = "The worker inside the web task must never be given any of: ${join(", ", local.never_on_app_tasks)} (contract section 3)."
+      condition     = !local.worker_shared || length(setintersection(concat(keys(local.worker_task_environment), local.worker_secret_names), local.never_on_booking_tasks)) == 0
+      error_message = "The worker inside the web task must never be given any of: ${join(", ", local.never_on_booking_tasks)} (contract section 3)."
+    }
+
+    precondition {
+      condition = !local.worker_shared || (
+        jsonencode({ for k, v in local.worker_task_environment : k => v if contains(local.direct_booking_names, k) }) == local.direct_booking_expected_json &&
+        length(setintersection(local.worker_secret_names, local.direct_booking_names)) == 0
+      )
+      error_message = "The worker inside the web task must carry HEALDESK_DIRECT_BOOKING_ENABLED=true and HEALDESK_DIRECT_BOOKING_ADDENDUM=<direct_booking_addendum_version> exactly when direct_booking_enabled is on, as plain environment, and neither while it is off."
     }
 
     precondition {
@@ -600,8 +624,16 @@ resource "aws_ecs_task_definition" "worker" {
 
   lifecycle {
     precondition {
-      condition     = length(setintersection(concat(keys(local.worker_environment), local.worker_secret_names), local.never_on_app_tasks)) == 0
-      error_message = "The worker task must never be given any of: ${join(", ", local.never_on_app_tasks)} (contract section 3)."
+      condition     = length(setintersection(concat(keys(local.worker_task_environment), local.worker_secret_names), local.never_on_booking_tasks)) == 0
+      error_message = "The worker task must never be given any of: ${join(", ", local.never_on_booking_tasks)} (contract section 3)."
+    }
+
+    precondition {
+      condition = (
+        jsonencode({ for k, v in local.worker_task_environment : k => v if contains(local.direct_booking_names, k) }) == local.direct_booking_expected_json &&
+        length(setintersection(local.worker_secret_names, local.direct_booking_names)) == 0
+      )
+      error_message = "The worker task must carry HEALDESK_DIRECT_BOOKING_ENABLED=true and HEALDESK_DIRECT_BOOKING_ADDENDUM=<direct_booking_addendum_version> exactly when direct_booking_enabled is on, as plain environment, and neither while it is off."
     }
 
     precondition {
@@ -640,8 +672,16 @@ resource "aws_ecs_task_definition" "voice" {
 
   lifecycle {
     precondition {
-      condition     = length(setintersection(concat(keys(local.voice_environment), local.voice_secret_names), local.never_on_app_tasks)) == 0
-      error_message = "The voice task must never be given any of: ${join(", ", local.never_on_app_tasks)} (contract section 3)."
+      condition     = length(setintersection(concat(keys(local.voice_task_environment), local.voice_secret_names), local.never_on_booking_tasks)) == 0
+      error_message = "The voice task must never be given any of: ${join(", ", local.never_on_booking_tasks)} (contract section 3)."
+    }
+
+    precondition {
+      condition = (
+        jsonencode({ for k, v in local.voice_task_environment : k => v if contains(local.direct_booking_names, k) }) == local.voice_direct_booking_expected_json &&
+        length(setintersection(local.voice_secret_names, local.direct_booking_names)) == 0
+      )
+      error_message = "The voice task must carry HEALDESK_DIRECT_BOOKING_ENABLED=true and HEALDESK_DIRECT_BOOKING_ADDENDUM=<direct_booking_addendum_version> exactly when direct_booking_on_voice is on, as plain environment, and neither while it is off."
     }
 
     precondition {
@@ -737,6 +777,13 @@ resource "aws_ecs_task_definition" "destroy_due" {
     precondition {
       condition     = length(setintersection(concat(keys(local.worker_environment), local.worker_secret_names), local.never_on_app_tasks)) == 0
       error_message = "The destroy-due task must never be given any of: ${join(", ", local.never_on_app_tasks)} (contract section 3)."
+    }
+
+    # Read off the container itself: it is the worker's container with its
+    # own environment, so the direct-booking carve-out must not ride along.
+    precondition {
+      condition     = length(setintersection([for e in local.destroy_due_container.environment : e.name], local.never_on_app_tasks)) == 0
+      error_message = "The destroy-due container must never carry any of: ${join(", ", local.never_on_app_tasks)}, the direct-booking switch included (contract section 3)."
     }
   }
 

@@ -13,6 +13,7 @@ import {
   type AgreementKind,
 } from "@healdesk/catalog";
 
+import { mayClaimChange, type SupportAction } from "../actions/tiers";
 import { screenText } from "../screen";
 
 /**
@@ -77,12 +78,21 @@ export type CheckId = (typeof CHECK_IDS)[number];
  * sentence's first word too when the email used it as a name.
  */
 export const EMAIL_CHECK_ID = "email_words" as const;
-export type AnyCheckId = CheckId | typeof EMAIL_CHECK_ID;
+/**
+ * The tenth check (lane D, support email to action): the reply says a
+ * setting was changed only when the change was made, or is pending and will
+ * have run before the reply can go (lib/support/actions/tiers.ts
+ * mayClaimChange). Run on every drafter draft (an action or none) and, on
+ * Send, whenever the case's current draft carries an action.
+ */
+export const ACTION_CHECK_ID = "action_claim" as const;
+export type AnyCheckId = CheckId | typeof EMAIL_CHECK_ID | typeof ACTION_CHECK_ID;
 /** The longest run of words a reply may share with the email it answers. */
 export const EMAIL_RUN_WORDS = 5;
 
 /** What each check holds, in one fixed sentence: shown to the operator, logged, never the reply's words. */
 export const CHECK_RULES: Readonly<Record<AnyCheckId, string>> = {
+  action_claim: "The reply says a setting was changed only when the change was made.",
   email_words: `The reply quotes no run of ${EMAIL_RUN_WORDS} or more words from the practice's email.`,
   facts:
     "Every date, day, time, amount, percent, count, package name, phone number and link in the reply comes from a fact the tools returned.",
@@ -142,6 +152,11 @@ export type ReplyCheckInput = {
    * `email_words` check runs after the eight. Never stored, never returned.
    */
   emailText?: string | null;
+  /**
+   * The draft's proposed change, or null for a draft with none (lane D):
+   * present (either), the `action_claim` check runs. Absent, it does not.
+   */
+  action?: Pick<SupportAction, "status"> | null;
 };
 
 // -----------------------------------------------------------------------------
@@ -662,6 +677,7 @@ export function runReplyChecks(input: ReplyCheckInput): ReplyChecks {
   add("shape", checkShape(input, text, sentences));
   add("other_clinics", checkOtherClinics(input, text, sentences));
   if (input.mode === "draft" && input.emailText) add(EMAIL_CHECK_ID, { ok: !quotesEmail(text, input.emailText) });
+  if (input.action !== undefined) add(ACTION_CHECK_ID, checkActionClaim(text, input.action, sentences));
 
   // An empty reply is never a reply.
   const empty = text.trim().length === 0;
@@ -670,6 +686,40 @@ export function runReplyChecks(input: ReplyCheckInput): ReplyChecks {
     shape.ok = false;
   }
   return { ok: results.every((r) => r.ok), results };
+}
+
+// -----------------------------------------------------------------------------
+// The action check: no claim of a change that did not happen
+// -----------------------------------------------------------------------------
+
+/**
+ * The ways a reply says a setting was changed. Deliberately broad: a false
+ * match fails closed (a person edits the draft), a missed one would tell a
+ * practice something untrue. "We'll confirm when it is done" is no claim.
+ */
+/** "once it has been turned on", "when the change is made": a condition, not a claim. */
+const NOT_AFTER_CONDITION = String.raw`(?<!\b(?:once|when|after|until|if|before|soon\s+as)\s+(?:[\p{L}'’]+\s+){0,4})`;
+const CHANGE_CLAIMS: readonly RegExp[] = [
+  /\b(?:i|we)(?:['’]ve|\s+have)?\s+(?:now\s+|just\s+|already\s+)?(?:turned|switched|changed|set|updated|enabled|disabled|activated|deactivated|made\s+(?:the|that|this)\s+change)\b/iu,
+  new RegExp(`${NOT_AFTER_CONDITION}\\b(?:has|have)\\s+(?:now\\s+|just\\s+|already\\s+)?been\\s+(?:turned|switched|changed|set|updated|enabled|disabled|activated|deactivated|made)\\b`, "iu"),
+  /\b(?:is|are|it['’]s|that['’]s)\s+now\s+(?:on|off|set|turned|switched|enabled|disabled|active|live|clinical|warm)\b/iu,
+  new RegExp(`${NOT_AFTER_CONDITION}\\bthe\\s+change\\s+(?:is|has\\s+been)\\s+(?:made|done|live|in\\s+place)\\b`, "iu"),
+  new RegExp(`${NOT_AFTER_CONDITION}\\b(?:that['’]s|it['’]s|this\\s+is)\\s+(?:all\\s+)?done\\b`, "iu"),
+];
+
+/** Whether the text says a setting was changed (exported for the tests). */
+export function claimsChange(text: string): boolean {
+  return CHANGE_CLAIMS.some((p) => p.test(text));
+}
+
+/** The claim check alone: the send path runs it beside the installed checks (send-checks.ts). */
+export function checkActionClaim(text: string, action: Pick<SupportAction, "status"> | null, sentences: readonly Span[] = sentenceSpans(text)): { ok: boolean; spans: Span[] } {
+  if (mayClaimChange(action)) return { ok: true, spans: [] };
+  const spans: Span[] = [];
+  for (const pattern of CHANGE_CLAIMS) {
+    for (const m of matchesOf(pattern, text)) spans.push(sentenceOf(sentences, m.index!));
+  }
+  return { ok: spans.length === 0, spans: uniqueSpans(spans) };
 }
 
 /** Lower-case words of letters and digits, accents off: what a quote is compared on. */

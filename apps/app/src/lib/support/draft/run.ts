@@ -16,12 +16,16 @@ import { readForwardingSteps } from "../forwarding";
 import { screenText, type ScreenAllow } from "../screen";
 import { SUPPORT_CASE_URGENCIES } from "../case-vocab";
 import type { MailStore } from "../inbound/store";
-import { failedCheckIds, runReplyChecks, type FactsUsed, type ReplyChecks, type ToolResult } from "./checks";
-import { deleteEmails, emailBlock, emailCheckText, pendingEmails, readEmails, type CaseEmails, type EmailText } from "./email";
+import { decideProposedAction } from "../actions/propose";
+import { emailRowsForKeys, runSupportAction, senderIsClinic, setRowAction } from "../actions/execute";
+import type { SupportAction } from "../actions/tiers";
+import { checkActionClaim, failedCheckIds, runReplyChecks, type FactsUsed, type ReplyChecks, type ToolResult } from "./checks";
+import { deleteEmails, emailBlock, emailCheckText, EMAILS_PER_DRAFT, pendingEmails, readEmails, type CaseEmails, type EmailText } from "./email";
 import { buildDraftPrompt, draftRequestText } from "./prompt";
 import {
   claimCaseToDraft,
   DRAFTS_PER_CASE,
+  failActionClaim,
   recordDraft,
   type ClaimedCase,
   type DraftFailure,
@@ -30,9 +34,11 @@ import {
   CONFIDENCE_LEVELS,
   DRAFT_TOOLS,
   draftToolbox,
+  FACT_TOOL_NAMES,
   forwardingText,
   HANDOFF_REASONS,
   PROPOSAL_LIMITS,
+  PROPOSE_ACTION,
   PROPOSE_REPLY,
   READ_TOOL_NAMES,
   type Confidence,
@@ -62,6 +68,17 @@ import {
  * request names it. The model's own category, symptom and urgency are kept
  * on the draft as its reading; the case's are never changed by it, so
  * nothing the model was shown can move a case's triage or its address.
+ *
+ * Lane D, support email to action: the model may call propose_action once
+ * with a setting and a value from the closed list (lib/support/actions/
+ * tiers.ts). Code answers it (actions/propose.ts) and keeps the decision on
+ * the draft as closed words; the model never makes a change. A DIRECT change
+ * runs here, after the draft is stored, only when every email the model read
+ * came from the clinic's one sign-in address (checked again just before it
+ * runs; else it waits for approval like an APPROVAL one), once per case
+ * (actions/execute.ts). If the Settings door refuses it, the reply's claim
+ * check fails and a person gets the case; nothing is retried. The reply is
+ * still proposed for a person's approval, never sent from here.
  *
  * A case with no clinic is never drafted: it gets no tools, no model call
  * and keeps `new` (NO_CLINIC_NOTE). Every other failure ends the run with
@@ -199,7 +216,7 @@ export function readProposal(input: unknown): Proposal | null {
   const facts: FactsUsed[] = [];
   for (const f of p.facts_used) {
     const { tool, field, value } = (f ?? {}) as Record<string, unknown>;
-    if (!oneOf(READ_TOOL_NAMES, tool) || typeof field !== "string" || typeof value !== "string") return null;
+    if (!oneOf(FACT_TOOL_NAMES, tool) || typeof field !== "string" || typeof value !== "string") return null;
     facts.push({ tool, field: field.slice(0, 120), value: value.slice(0, PROPOSAL_LIMITS.factChars) });
   }
   if (!Array.isArray(p.questions_for_ops) || !p.questions_for_ops.every((q) => typeof q === "string")) return null;
@@ -237,6 +254,8 @@ export type DraftDeps = {
   context?: (clinicId: string, now: Date) => Promise<ReplyCheckContext | null>;
   /** The inbound bucket, for the tests; S3 otherwise (lane P7h). */
   mailStore?: MailStore;
+  /** The clinic's switches, for the tests; actions/execute.ts readSwitchViews otherwise (lane D). */
+  switchViews?: (clinicId: string, now: Date) => Promise<import("@/lib/ops/switch-ops").ClinicSwitchView[]>;
 };
 
 async function runReadTool(name: ReadToolName, toolbox: DraftToolbox): Promise<{ text: string; isError: boolean }> {
@@ -259,12 +278,16 @@ async function runReadTool(name: ReadToolName, toolbox: DraftToolbox): Promise<{
   return { text: "That could not be read just now.", isError: true };
 }
 
+/** What code answers a propose_action call with (actions/propose.ts), for the run to keep. */
+export type ActionHandler = (input: unknown) => Promise<{ text: string; isError: boolean }>;
+
 /** Ask the model, with its tools, for one proposal. */
 async function askForProposal(
   client: DraftModelClient,
   system: { stable: string; turn: string },
   firstMessage: string,
   toolbox: DraftToolbox,
+  onAction: ActionHandler,
 ): Promise<{ proposal: Proposal; toolResults: ToolResult[]; toolsRun: string[] } | { failure: DraftFailure }> {
   const messages: Anthropic.MessageParam[] = [{ role: "user", content: firstMessage }];
   const toolResults: ToolResult[] = [];
@@ -280,6 +303,9 @@ async function askForProposal(
     if (message.stop_reason === "refusal") return { failure: "model_refused" };
     const uses = message.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
     const propose = uses.find((u) => u.name === PROPOSE_REPLY);
+    // A change proposed beside the reply is still decided by code, so its
+    // outcome is kept and the reply's claim is checked against it.
+    if (propose) for (const use of uses) if (use.name === PROPOSE_ACTION) await onAction(use.input);
     if (propose) {
       // A proposal cut off at max_tokens is never taken.
       if (message.stop_reason === "max_tokens") return { failure: "no_proposal" };
@@ -290,6 +316,13 @@ async function askForProposal(
     messages.push({ role: "assistant", content: message.content });
     const results: Anthropic.ToolResultBlockParam[] = [];
     for (const use of uses) {
+      if (use.name === PROPOSE_ACTION) {
+        const answer = await onAction(use.input);
+        toolsRun.push(PROPOSE_ACTION);
+        if (!answer.isError) toolResults.push({ tool: PROPOSE_ACTION, text: answer.text });
+        results.push({ type: "tool_result", tool_use_id: use.id, content: answer.text, ...(answer.isError ? { is_error: true } : {}) });
+        continue;
+      }
       if (!oneOf(READ_TOOL_NAMES, use.name)) {
         results.push({ type: "tool_result", tool_use_id: use.id, content: `There is no tool called ${use.name}.`, is_error: true });
         continue;
@@ -353,6 +386,30 @@ async function draftWithEmails(claimed: ClaimedCase, deps: DraftDeps, emails: Ca
   if (!context) return fail(claimed, "account_unreadable", now);
 
   const toolbox = (deps.toolbox ?? ((c, at) => draftToolbox({ clinicId: c.clinicId, actor: ACTOR, current: c, now: at })))(claimed, now);
+
+  // Lane D: the one change the email may ask for, decided by code. DIRECT
+  // only when every email read came from the clinic's one sign-in address.
+  const emailIds = read.length > 0 ? await emailRowsForKeys(claimed.id, emails.pending.slice(0, EMAILS_PER_DRAFT)) : [];
+  const senderVerified = emailIds.length > 0 && (await senderIsClinic({ caseId: claimed.id, clinicId: claimed.clinicId, messageIds: emailIds }));
+  let action: SupportAction | null = null;
+  let actionAsked = false;
+  const onAction: ActionHandler = async (input) => {
+    const { key, value } = (input ?? {}) as { key?: unknown; value?: unknown };
+    const decided = await decideProposedAction({
+      key,
+      value,
+      caseId: claimed.id,
+      clinicId: claimed.clinicId,
+      emailShown: read.length > 0,
+      senderVerified,
+      alreadyProposed: actionAsked,
+      now,
+      ...(deps.switchViews ? { views: deps.switchViews } : {}),
+    });
+    if (!actionAsked) action = decided.action;
+    actionAsked = true;
+    return { text: decided.text, isError: decided.isError };
+  };
   const system = buildDraftPrompt({
     clinicName: context.clinicName,
     audience: context.audience,
@@ -373,8 +430,10 @@ async function draftWithEmails(claimed: ClaimedCase, deps: DraftDeps, emails: Ca
       email: read.length > 0 ? emailBlock(read) : emails.any ? "gone" : null,
     }),
     toolbox,
+    onAction,
   );
   if ("failure" in asked) return fail(claimed, asked.failure, now);
+  const proposed = action as SupportAction | null;
 
   const { proposal, toolResults, toolsRun } = asked;
   const checks = runReplyChecks({
@@ -391,6 +450,7 @@ async function draftWithEmails(claimed: ClaimedCase, deps: DraftDeps, emails: Ca
     agreementKind: context.agreementKind,
     portalOrigin: context.portalOrigin,
     emailText: read.length > 0 ? emailCheckText(read) : null,
+    action: proposed,
   });
   // A draft written from an email is kept only when every check passed:
   // otherwise only the checks' names (lane P7h).
@@ -420,16 +480,33 @@ async function draftWithEmails(claimed: ClaimedCase, deps: DraftDeps, emails: Ca
           handoffReasons: proposal.handoffReasons,
         },
         toolsRun,
+        ...(proposed ? { action: proposed } : {}),
       },
     },
     now,
   );
   if (!written.written) return { outcome: "superseded", caseId: claimed.id };
-  const failed = failedCheckIds(checks);
+  let passed = checks.ok;
+  // Lane D: a DIRECT change runs now, once the draft is kept, and only for
+  // the clinic's own sign-in (checked again: it may have changed since).
+  if (written.messageId && proposed?.status === "pending" && proposed.tier === "direct") {
+    const stillClinic = await senderIsClinic({ caseId: claimed.id, clinicId: claimed.clinicId, messageIds: emailIds });
+    if (!stillClinic) {
+      await setRowAction(unsafeDb, written.messageId, { ...proposed, tier: "approval" });
+    } else {
+      const ran = await runSupportAction({ caseId: claimed.id, messageId: written.messageId, now });
+      // Refused or not run: a reply that says it was made no longer passes.
+      if (ran && !checkActionClaim(proposal.reply, ran).ok) {
+        await failActionClaim(claimed.id, written.messageId, now);
+        passed = false;
+      }
+    }
+  }
+  const failed = passed ? failedCheckIds(checks) : [...new Set([...failedCheckIds(checks), "action_claim" as const])];
   log.info("support draft written", { clinicId: claimed.clinicId, attempt: claimed.version, code: failed.join(",") || "ok" });
   // Lane P7e: a draft that passed all eight goes to the owner's approval inbox (never sent from here; it never fails the draft).
-  if (checks.ok) await (await import("../wire")).proposeAfterDraft(claimed.id, now);
-  return { outcome: checks.ok ? "drafted" : "needs_edit", caseId: claimed.id, version: claimed.version, failed };
+  if (passed) await (await import("../wire")).proposeAfterDraft(claimed.id, now);
+  return { outcome: passed ? "drafted" : "needs_edit", caseId: claimed.id, version: claimed.version, failed };
 }
 
 /**

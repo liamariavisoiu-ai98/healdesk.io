@@ -12,6 +12,7 @@ import { withTenant } from "@/lib/tenant";
 import { describeAccountState } from "../account-state";
 import { readAccountState } from "../account-reader";
 import { FACTS_DAYS, readCaseFacts } from "../case-facts";
+import { ACTION_KEYS, ACTION_VALUES } from "../actions/tiers";
 import { printRef, SUPPORT_CASE_URGENCIES } from "../case-vocab";
 import { ESCALATION_TOPICS, SYMPTOM_IDS, TOPIC_IDS, topicLabel } from "../escalation-fields";
 import { readForwardingSteps, type ForwardingAnswer } from "../forwarding";
@@ -32,6 +33,12 @@ import { readForwardingSteps, type ForwardingAnswer } from "../forwarding";
  *                         console's facts panel.
  *   get_case_history      this case and the clinic's other cases: refs,
  *                         dates, topics, states and how they closed.
+ *   propose_action        lane D: ONE change to the practice's Settings that
+ *                         its email asks for, from the closed list only
+ *                         (lib/support/actions/tiers.ts). The model never
+ *                         makes it: code answers what will happen
+ *                         (lib/support/actions/propose.ts) and runs it, or
+ *                         not, outside the model.
  *   propose_reply         the draft, its triage and the facts it rests on.
  *
  * Every reader takes the case's clinic id and nothing else: the tenant
@@ -54,6 +61,11 @@ export const READ_TOOL_NAMES = [
 ] as const;
 export type ReadToolName = (typeof READ_TOOL_NAMES)[number];
 export const PROPOSE_REPLY = "propose_reply";
+/** Lane D: the one Settings change the email asks for, from the closed list (lib/support/actions/tiers.ts). */
+export const PROPOSE_ACTION = "propose_action";
+/** The tools a fact may cite: the readers, and propose_action's answer (its "- Setting:" and "- Value:" lines). */
+export const FACT_TOOL_NAMES = [...READ_TOOL_NAMES, PROPOSE_ACTION] as const;
+export type FactToolName = (typeof FACT_TOOL_NAMES)[number];
 
 /** Why a person must handle it beyond the reply (E5 §3, "Hands to a person"). */
 export const HANDOFF_REASONS = [
@@ -112,6 +124,25 @@ export const DRAFT_TOOLS: Anthropic.Tool[] = [
     strict: true,
   },
   {
+    name: PROPOSE_ACTION,
+    description:
+      "Proposes ONE change to the practice's Settings that its email clearly asks for, from this closed list only. You never make the change: healdesk's system decides whether and when it runs and answers with what will happen and what your reply may say. Call it at most once, before propose_reply, and only when the email asks for exactly this change.",
+    input_schema: {
+      type: "object",
+      properties: {
+        key: { type: "string", enum: [...ACTION_KEYS], description: "The setting the email asks to change." },
+        value: {
+          type: "string",
+          enum: [...ACTION_VALUES],
+          description: "on or off for a switch; for a choice, the option's id (tone: warm, clinical; payment_ask: deposit_only, full_payment; deposit_hold_minutes: 30, 60, 120, 240, 1440; deposit_uncollectable: book_and_flag, hold_and_alert, decline_and_alert).",
+        },
+      },
+      required: ["key", "value"],
+      additionalProperties: false,
+    },
+    strict: true,
+  },
+  {
     name: PROPOSE_REPLY,
     description:
       "Proposes the email reply for a person at healdesk to read, edit and send, with your reading of the case and every fact the reply relies on. Call it once, last.",
@@ -145,7 +176,7 @@ export const DRAFT_TOOLS: Anthropic.Tool[] = [
           items: {
             type: "object",
             properties: {
-              tool: { type: "string", enum: [...READ_TOOL_NAMES] },
+              tool: { type: "string", enum: [...FACT_TOOL_NAMES] },
               field: { type: "string", description: "The line's label in that tool's result, copied exactly as the tool printed it before its colon." },
               value: { type: "string", description: "The value exactly as that tool wrote it." },
             },

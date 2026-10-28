@@ -4,7 +4,8 @@ import { unsafeDb, type Transaction } from "@/db";
 import { supportCases, supportMessages, type SupportCase } from "@/db/schema";
 
 import { printRef, type SupportCaseState } from "../case-vocab";
-import { CHECK_IDS, CHECK_RULES, EMAIL_CHECK_ID, type AnyCheckId, type FactsUsed, type ReplyChecks } from "./checks";
+import type { SupportAction } from "../actions/tiers";
+import { ACTION_CHECK_ID, CHECK_IDS, CHECK_RULES, EMAIL_CHECK_ID, type AnyCheckId, type FactsUsed, type ReplyChecks } from "./checks";
 import { CONFIDENCE_LEVELS, type Confidence, type HandoffReason } from "./tools";
 
 /**
@@ -66,6 +67,12 @@ export type DraftFactsJson = {
   proposal?: { category: string; symptom: string; urgency: string; handoffReasons: HandoffReason[] };
   /** The read tools the run called, in order. */
   toolsRun?: string[];
+  /**
+   * The one Settings change the run proposed (lane D), as closed words only
+   * (lib/support/actions/tiers.ts): never the email's text. Where it stands
+   * is updated in place as it runs (lib/support/actions/execute.ts).
+   */
+  action?: SupportAction;
 };
 
 export type ClaimedCase = {
@@ -212,6 +219,29 @@ export async function recordDraft(claimed: Pick<ClaimedCase, "id" | "version">, 
   });
 }
 
+/**
+ * A drafter's DIRECT change was refused or not run after its draft was kept
+ * (lane D): the draft's `action_claim` check now fails (its reply says the
+ * change was made), and a case still `drafted` moves to `needs_edit`, so it
+ * is never proposed as it stands. The text is kept: it passed every check on
+ * its words; only the outcome it describes did not happen.
+ */
+export async function failActionClaim(caseId: string, messageId: string, now: Date): Promise<void> {
+  await unsafeDb.transaction(async (tx) => {
+    const [row] = await tx.select({ checks: supportMessages.checksJson }).from(supportMessages).where(eq(supportMessages.id, messageId)).limit(1).for("update");
+    const results = ((row?.checks as ReplyChecks | null)?.results ?? []).filter((r) => r.id !== ACTION_CHECK_ID);
+    results.push({ id: ACTION_CHECK_ID, ok: false, rule: CHECK_RULES[ACTION_CHECK_ID] });
+    await tx
+      .update(supportMessages)
+      .set({ checksJson: { ok: false, results: results.map((r) => ({ id: r.id, ok: r.ok, rule: r.rule, ...(r.spans ? { spans: r.spans } : {}) })) } })
+      .where(eq(supportMessages.id, messageId));
+    await tx
+      .update(supportCases)
+      .set({ state: "needs_edit", updatedAt: now })
+      .where(and(eq(supportCases.id, caseId), eq(supportCases.state, "drafted")));
+  });
+}
+
 /** Put a claimed case back to `new` without writing anything (the run never reached the model). */
 export async function releaseClaim(caseId: string, now: Date): Promise<void> {
   await unsafeDb
@@ -243,7 +273,7 @@ function checksOf(value: unknown): SupportDraftView["checks"] {
   if (!Array.isArray(results)) return [];
   return results.flatMap((r) => {
     const id = (r as { id?: unknown }).id;
-    if (!(CHECK_IDS as readonly unknown[]).includes(id) && id !== EMAIL_CHECK_ID) return [];
+    if (!(CHECK_IDS as readonly unknown[]).includes(id) && id !== EMAIL_CHECK_ID && id !== ACTION_CHECK_ID) return [];
     return [{ id: id as AnyCheckId, ok: (r as { ok?: unknown }).ok === true, rule: CHECK_RULES[id as AnyCheckId] }];
   });
 }

@@ -19,7 +19,7 @@ import {
 export const TEXT_LINK_LINE =
   "After a booking on a call, AYA is designed to offer to text a payment link, once, only if the caller agrees.";
 export const DEPOSITS_LINE = "Let AYA ask for a deposit when a treatment needs one.";
-export const PAYMENT_ASK_LINE = "How much AYA asks the patient to pay when a booking is made.";
+export const PAYMENT_ASK_LINE = "What AYA is designed to ask the patient to pay when a booking is made.";
 
 /** The first box of the picture: what has to be in place. */
 const NEEDS_LABEL: Record<NonNullable<SwitchRule["unlock"]>, string> = {
@@ -59,7 +59,7 @@ export function TextLinkExplainer(props: {
       id={props.id}
       reason={props.rule.reason}
       unlock={<UnlockLink unlock={props.rule.unlock} targets={props.targets} />}
-      on="AYA offers to text the link once the booking is made."
+      on="AYA is designed to offer to text the link once the booking is made."
       off="Your team collects the deposit."
       picture={needsPicture(props.rule, "Text link")}
     />
@@ -70,18 +70,26 @@ export function FullPaymentExplainer(props: {
   id: string;
   rule: SwitchRule;
   targets: UnlockTargets;
+  /**
+   * The wizard only: the calendar step comes after this one. Printed beside the
+   * rule's own reason when that reason is the calendar; availability is still
+   * the rule's, never decided here.
+   */
+  calendarLater?: boolean;
 }) {
   return (
     <SwitchExplainer
       id={props.id}
       reason={props.rule.reason}
       unlock={<UnlockLink unlock={props.rule.unlock} targets={props.targets} />}
-      on="AYA asks for the whole price, not only the deposit."
+      on="AYA is designed to ask for the whole price, not only the deposit."
       off="AYA asks for the deposit only."
       note={
         props.rule.enabled
           ? "If you turn off Auto-confirm or disconnect Stripe or your calendar, this goes back to Deposit only, and we tell you."
-          : undefined
+          : props.calendarLater && props.rule.unlock === "connect_calendar"
+            ? "You connect your calendar in a later step."
+            : undefined
       }
       picture={
         props.rule.enabled

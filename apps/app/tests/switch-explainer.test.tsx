@@ -184,3 +184,10 @@ describe("copy", () => {
     expect(source).toContain("is designed to offer to text a payment link");
   });
 });
+
+describe("motion honesty", () => {
+  test("a needs picture sits dark when still, and the loop runs a few cycles only", () => {
+    expect(css).not.toMatch(/\.sx-needs \.sx-glow,\s*\.sx-needs \.sx-wire-lit \{\s*opacity: 1/);
+    expect(css).not.toMatch(/animation:[^;]*infinite/);
+  });
+});

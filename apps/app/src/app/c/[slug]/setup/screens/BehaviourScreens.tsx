@@ -224,12 +224,17 @@ export function DepositsScreen(
       text: SwitchRule;
       full: SwitchRule;
       targets: UnlockTargets;
+      /** What the clinic has saved now, so reopening shows it and saving keeps it. */
+      textPaymentLink: boolean;
+      paymentAsk: "deposit_only" | "full_payment";
     };
   },
 ) {
-  const [textLink, setTextLink] = useState(false);
-  const [paymentAsk, setPaymentAsk] = useState<"deposit_only" | "full_payment">("deposit_only");
   const switches = props.paymentSwitches;
+  const [textLink, setTextLink] = useState(switches?.textPaymentLink ?? false);
+  const [paymentAsk, setPaymentAsk] = useState<"deposit_only" | "full_payment">(
+    switches?.paymentAsk ?? "deposit_only",
+  );
   const anyDeposit = props.services.some((s) => (s.depositUsd ?? 0) > 0);
   const [needs, setNeeds] = useState<"no" | "yes">(anyDeposit ? "yes" : "no");
   const [amounts, setAmounts] = useState<Record<string, string>>(
@@ -254,13 +259,10 @@ export function DepositsScreen(
             value.trim() === "" ? null : Number(value.replace(/[$,\s]/g, "")),
           ]),
         ),
-        // Both default off; a switch the rules lock can only be at its default.
-        ...(switches
-          ? {
-              textPaymentLink: switches.text.enabled && textLink,
-              paymentAsk: switches.full.enabled ? paymentAsk : "deposit_only",
-            }
-          : {}),
+        // Only what the clinic changed is sent: absent means unchanged, so a
+        // re-save never resets a stored choice (the server holds the rules).
+        ...(switches && textLink !== switches.textPaymentLink ? { textPaymentLink: textLink } : {}),
+        ...(switches && paymentAsk !== switches.paymentAsk ? { paymentAsk } : {}),
       })}
     >
       <Choice
@@ -328,6 +330,7 @@ export function DepositsScreen(
         <>
           <Choice
             legend="What AYA asks the patient to pay"
+            describedBy="explain-payment-ask"
             value={paymentAsk}
             onChange={setPaymentAsk}
             options={[
@@ -343,6 +346,7 @@ export function DepositsScreen(
             id="explain-payment-ask"
             rule={switches.full}
             targets={switches.targets}
+            calendarLater
           />
         </>
       ) : null}

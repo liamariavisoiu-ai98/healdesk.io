@@ -104,28 +104,22 @@
   stroke: var(--color-green);
   opacity: 0;
 }
-/* Still state: "needs" ends with both lit, "resets" ends with both dark. */
-.sx-needs .sx-glow,
-.sx-needs .sx-wire-lit {
-  opacity: 1;
-}
-.sx-needs .sx-text {
-  fill: var(--color-green);
-}
+/* Still state: both pictures sit dark. A "needs" picture is about something
+   missing, so with motion off it must not look satisfied. */
 
 @media (prefers-reduced-motion: no-preference) {
   .sx-needs .sx-from .sx-glow {
-    animation: sx-on 4s ease-in-out infinite;
+    animation: sx-on 4s ease-in-out 3;
   }
   .sx-needs .sx-wire-lit {
-    animation: sx-on 4s ease-in-out 0.5s infinite;
+    animation: sx-on 4s ease-in-out 0.5s 3;
   }
   .sx-needs .sx-to .sx-glow {
-    animation: sx-on 4s ease-in-out 1s infinite;
+    animation: sx-on 4s ease-in-out 1s 3;
   }
   .sx-resets .sx-glow,
   .sx-resets .sx-wire-lit {
-    animation: sx-off 4s ease-in-out infinite;
+    animation: sx-off 4s ease-in-out 3;
   }
   .sx-resets .sx-wire-lit {
     animation-delay: 0.5s;

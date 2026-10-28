@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { DIRECT_BOOKING_ADDENDUM_VERSION } from "@healdesk/catalog";
 import { setGoogleTimeouts, type FakeGoogleCalendar } from "@healdesk/connectors";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -9,9 +10,10 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi 
  * (sendWebChatMessage) and the call (RetellCallSession). The model is a
  * script; Google is the in-memory fake; everything is synthetic.
  *
- * The owner's switch is stubbed per test (process.env) and counsel's
- * addendum through a mock of the catalog's currentDirectBookingAddendum:
- * neither is ever set anywhere but here.
+ * The owner's switch and the deployed addendum version are stubbed per test
+ * (process.env) and counsel's addendum through a mock of the catalog's
+ * currentDirectBookingAddendum: none is ever set anywhere but here. The
+ * three meet in lib/booking/direct-switch.ts (DB-1).
  */
 
 const state = vi.hoisted(() => ({ addendum: true }));
@@ -34,6 +36,7 @@ import { handleConnectEvent } from "@/lib/billing/connect-events";
 import { clampDepositExpiry, depositLinkText } from "@/lib/billing/deposit-link";
 import { __setStripeForTests } from "@/lib/billing/stripe-client";
 import { slotLabel } from "@/lib/booking/calendar";
+import { HOLD_SECONDS } from "@/lib/booking/holds";
 import {
   BOOKING_LINES_EN,
   BOOKING_LINES_ES,
@@ -110,11 +113,13 @@ describeDb("the booking tool layer in the web chat and the call", () => {
     google = freshGoogle();
     state.addendum = true;
     process.env.HEALDESK_DIRECT_BOOKING_ENABLED = "true";
+    process.env.HEALDESK_DIRECT_BOOKING_ADDENDUM = DIRECT_BOOKING_ADDENDUM_VERSION;
   });
 
   afterEach(() => {
     setGoogleTimeouts(undefined);
     delete process.env.HEALDESK_DIRECT_BOOKING_ENABLED;
+    delete process.env.HEALDESK_DIRECT_BOOKING_ADDENDUM;
   });
 
   afterAll(async () => {
@@ -162,8 +167,8 @@ describeDb("the booking tool layer in the web chat and the call", () => {
         )
       ).rows,
       holds: (
-        await client.query<{ id: string; status: string; channel: string; starts_at: Date }>(
-          `select id, status, channel, starts_at from slot_holds order by created_at`,
+        await client.query<{ id: string; status: string; channel: string; starts_at: Date; created_at: Date; expires_at: Date }>(
+          `select id, status, channel, starts_at, created_at, expires_at from slot_holds order by created_at`,
         )
       ).rows,
     }));
@@ -210,6 +215,8 @@ describeDb("the booking tool layer in the web chat and the call", () => {
       const { appointments, requests, holds } = await rows(f.clinicId);
       expect(appointments).toEqual([expect.objectContaining({ scheduled_for: at, treatment: "Facial", booking_origin: "assistant" })]);
       expect(holds).toEqual([expect.objectContaining({ status: "converted", channel: "web_chat" })]);
+      // DB-1 §4.4: the slot was held for the minute (HOLD_SECONDS, by the database clock) before the booked line was said.
+      expect(holds[0]!.expires_at.getTime() - holds[0]!.created_at.getTime()).toBe(HOLD_SECONDS * 1000);
       // One request, the engine's, on the chat's conversation; the chat files no second one.
       expect(requests).toHaveLength(1);
       expect(requests[0]).toMatchObject({ status: "confirmed", channel: "web_chat", appointment_id: appointments[0]!.id });
@@ -462,6 +469,10 @@ describeDb("the booking tool layer in the web chat and the call", () => {
   test.each([
     ["the owner's switch off", () => delete process.env.HEALDESK_DIRECT_BOOKING_ENABLED],
     ["counsel's addendum not released", () => (state.addendum = false)],
+    // DB-1: the switch and the release, with the deployed addendum version missing or naming another.
+    ["the addendum version not deployed", () => delete process.env.HEALDESK_DIRECT_BOOKING_ADDENDUM],
+    ["the deployed addendum version is another", () => (process.env.HEALDESK_DIRECT_BOOKING_ADDENDUM = "direct-booking-addendum/0.9.0")],
+    ["the owner's switch set to TRUE, not true", () => (process.env.HEALDESK_DIRECT_BOOKING_ENABLED = "TRUE")],
   ])(
     "%s: no tools offered, an action the model asks for is ignored, and the request is taken in words as before",
     async (_label, off) => {

@@ -13,6 +13,18 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi 
 const state = vi.hoisted(() => ({
   alerts: [] as Array<{ clinicId: string; kind: string; ref: Record<string, unknown> }>,
 }));
+// The direct-booking switch is three facts (lib/booking/direct-switch.ts, DB-1):
+// the owner's env var, counsel's released addendum and the deployed addendum
+// version. The committed catalog keeps the addendum unreleased; it is released
+// here, in this test process only, so these suites book as production would
+// once all three are set.
+vi.mock("@healdesk/catalog", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@healdesk/catalog")>();
+  return {
+    ...actual,
+    currentDirectBookingAddendum: () => ({ ...actual.currentDirectBookingAddendum(), approvedByCounsel: true }),
+  };
+});
 vi.mock("@/lib/notices/booking-alerts", () => ({
   notifyBookingAlert: async (tx: { clinicId: string }, kind: string, ref: Record<string, unknown>) => {
     state.alerts.push({ clinicId: tx.clinicId, kind, ref });
@@ -53,6 +65,7 @@ describeDb("a chat deposit whose link is never made", () => {
     sessions = 0;
     vi.stubEnv("BETTER_AUTH_URL", "https://app.healdesk.test");
     vi.stubEnv("HEALDESK_DIRECT_BOOKING_ENABLED", "true");
+    vi.stubEnv("HEALDESK_DIRECT_BOOKING_ADDENDUM", "direct-booking-addendum/1.0.0");
     __setStripeForTests(
       createStripeFake({
         "checkout.sessions.create": (params: unknown) => {

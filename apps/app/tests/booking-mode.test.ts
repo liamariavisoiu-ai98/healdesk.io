@@ -1,6 +1,18 @@
-import { GOOGLE_CALENDAR_DISCLOSURE, manualBookingNotice } from "@healdesk/catalog";
+import { DIRECT_BOOKING_ADDENDUM_VERSION, GOOGLE_CALENDAR_DISCLOSURE, manualBookingNotice } from "@healdesk/catalog";
 import { FAKE_GOOGLE_CLIENT } from "@healdesk/connectors";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+
+// Counsel's release of the Direct booking addendum, as the running build would
+// carry it: false like the committed catalog unless a test releases it here.
+// Never flipped anywhere but in this process (DB-1, lib/booking/direct-switch.ts).
+const released = vi.hoisted(() => ({ addendum: false }));
+vi.mock("@healdesk/catalog", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@healdesk/catalog")>();
+  return {
+    ...actual,
+    currentDirectBookingAddendum: () => ({ ...actual.currentDirectBookingAddendum(), approvedByCounsel: released.addendum }),
+  };
+});
 
 import { getClinicSettings, updateClinicSettings } from "@/lib/billing/settings";
 import {
@@ -321,6 +333,7 @@ describeDb("the booking mode, read from the database", () => {
     "GOOGLE_OAUTH_CLIENT_ID",
     "GOOGLE_OAUTH_CLIENT_SECRET",
     "HEALDESK_DIRECT_BOOKING_ENABLED",
+    "HEALDESK_DIRECT_BOOKING_ADDENDUM",
   ] as const;
   let saved: Record<string, string | undefined> = {};
 
@@ -332,6 +345,8 @@ describeDb("the booking mode, read from the database", () => {
   beforeEach(() => {
     saved = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
     delete process.env.HEALDESK_DIRECT_BOOKING_ENABLED;
+    delete process.env.HEALDESK_DIRECT_BOOKING_ADDENDUM;
+    released.addendum = false;
     process.env.GOOGLE_OAUTH_CLIENT_ID = FAKE_GOOGLE_CLIENT.clientId;
     process.env.GOOGLE_OAUTH_CLIENT_SECRET = FAKE_GOOGLE_CLIENT.clientSecret;
   });
@@ -436,7 +451,24 @@ describeDb("the booking mode, read from the database", () => {
       });
       expect((await modeOf(clinicId)).canOfferTimes).toBe(true);
 
+      // DB-1: the owner's env var alone never makes it live, nor with the
+      // version set while counsel's addendum is unreleased in this build.
+      const killed = {
+        mode: "requests",
+        reason: { code: "kill_switch_off", sentence: expect.any(String) },
+        reasons: [{ code: "kill_switch_off", sentence: expect.any(String) }],
+      };
       process.env.HEALDESK_DIRECT_BOOKING_ENABLED = "true";
+      expect(await effectiveBookingMode(clinicId)).toEqual(killed);
+      expect((await modeOf(clinicId)).reasons.map((r) => r.code)).toEqual(["kill_switch_off"]);
+      process.env.HEALDESK_DIRECT_BOOKING_ADDENDUM = DIRECT_BOOKING_ADDENDUM_VERSION;
+      expect(await effectiveBookingMode(clinicId)).toEqual(killed);
+      // Released, but the deployed version names another addendum: still requests.
+      released.addendum = true;
+      process.env.HEALDESK_DIRECT_BOOKING_ADDENDUM = "direct-booking-addendum/0.9.0";
+      expect(await effectiveBookingMode(clinicId)).toEqual(killed);
+      // All three: live.
+      process.env.HEALDESK_DIRECT_BOOKING_ADDENDUM = DIRECT_BOOKING_ADDENDUM_VERSION;
       expect(await effectiveBookingMode(clinicId)).toEqual({
         mode: "direct",
         reason: null,

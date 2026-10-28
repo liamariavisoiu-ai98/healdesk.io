@@ -30,6 +30,18 @@ const state = vi.hoisted(() => ({
   /** The locations this test made, whose unsettled writes are let go after it. */
   made: [] as string[],
 }));
+// The direct-booking switch is three facts (lib/booking/direct-switch.ts, DB-1):
+// the owner's env var, counsel's released addendum and the deployed addendum
+// version. The committed catalog keeps the addendum unreleased; it is released
+// here, in this test process only, so these suites book as production would
+// once all three are set.
+vi.mock("@healdesk/catalog", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@healdesk/catalog")>();
+  return {
+    ...actual,
+    currentDirectBookingAddendum: () => ({ ...actual.currentDirectBookingAddendum(), approvedByCounsel: true }),
+  };
+});
 vi.mock("@/lib/notices/booking-alerts", () => ({
   notifyBookingAlert: async (
     tx: { clinicId: string },
@@ -140,11 +152,13 @@ describeDb("the booking engine (C13)", () => {
     state.failRecord.clear();
     state.made.length = 0;
     process.env.HEALDESK_DIRECT_BOOKING_ENABLED = "true";
+    process.env.HEALDESK_DIRECT_BOOKING_ADDENDUM = "direct-booking-addendum/1.0.0";
   });
 
   afterEach(async () => {
     setGoogleTimeouts(undefined);
     delete process.env.HEALDESK_DIRECT_BOOKING_ENABLED;
+    delete process.env.HEALDESK_DIRECT_BOOKING_ADDENDUM;
     // A write a test left unsettled would be read back by a later test's
     // sweep, against that test's Google: let it go here.
     for (const clinicId of state.made) {

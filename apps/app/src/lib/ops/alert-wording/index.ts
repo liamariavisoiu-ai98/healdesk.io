@@ -89,6 +89,10 @@ export function alertWording(event: OpsEvent, fields: Readonly<Record<string, un
   if (event === "critical_notice_undelivered" && fields.status === "dead") {
     return { ...emailDelivery.DEAD_LETTER, event };
   }
+  // A settings change shares the change feed's event, in its own words.
+  if (event === "clinic_availability_changed" && fields.section === "setting") {
+    return { ...availability.SETTING_CHANGED, event };
+  }
   const wording = ALERT_WORDING[event] ?? { title: event, whatHappened: "Look it up in the console.", whyItMatters: "", steps: [] };
   return { ...wording, event };
 }

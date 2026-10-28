@@ -59,6 +59,11 @@ const LABELS: Record<string, string> = {
   section: "What changed",
   written: "Closed days added",
   deleted: "Closed days taken off",
+  // A settings change on the same event (lib/clinic/change-events.ts settingAlertFields).
+  setting: "Setting",
+  before: "Before",
+  after: "After",
+  actor: "Changed by",
   // The lifecycle watch (lib/lifecycle/waves.ts) and the digest's Slack line.
   setupDays: "Day of setup",
   remainingDays: "Days left",

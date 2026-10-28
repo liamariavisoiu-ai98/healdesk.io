@@ -61,6 +61,7 @@ export const availabilitySource: InboxSource = {
                      exists (select 1 from clinics c where c.id = ${tx.clinicId} and c.account_closed_at is not null) as closed,
                      (select count(*)::int from clinic_change_events e
                        where e.clinic_id = ${tx.clinicId} and e.ops_acknowledged_at is null
+                         and e.kind <> 'setting'
                          and e.changed_at < ${cutoff}) as unseen
             `);
             const flags = own.rows[0];

@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNull } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, ne } from "drizzle-orm";
 
 import {
   clinicChangeEvents,
@@ -23,6 +23,10 @@ import { audit, ok, opsProblem, stringArg, UUID_SHAPED, type Operator, type OpsO
  *     first, at most LIST_LIMIT, from `since` (an ISO instant; 30 days back
  *     by default). Kind, source, a coarse kind of actor, counts and the
  *     closed days' dates, the audit's state and the acknowledgement.
+ *     Settings changes (kind `setting`, lib/clinic/setting-changes.ts) are
+ *     left out unless `includeSettings` is true: the Availability changes
+ *     card reads availability alone, and each settings change is already
+ *     told to ops by email and Slack on its own.
  *   - `acknowledgeClinicChange {id, clinicId?}`, a write: the operator has
  *     looked at it. Once; a second time says `already`. A security event
  *     names the operator.
@@ -76,6 +80,7 @@ export async function opListClinicChanges(args: Record<string, unknown>): Promis
   const sinceArg = stringArg(args, "since", 40);
   const since = sinceArg ? new Date(sinceArg) : new Date(Date.now() - DEFAULT_DAYS * 86_400_000);
   if (Number.isNaN(since.getTime())) return opsProblem("`since` is an ISO instant.", 400, "invalid_args");
+  const includeSettings = args.includeSettings === true;
   try {
     const clinics = (await listClinics()).filter((c) => (clinicId ? c.id === clinicId : c.destroyedAt === null));
     const changes: ClinicChangeView[] = [];
@@ -84,7 +89,13 @@ export async function opListClinicChanges(args: Record<string, unknown>): Promis
         tx.db
           .select()
           .from(clinicChangeEvents)
-          .where(and(eq(clinicChangeEvents.clinicId, tx.clinicId), gte(clinicChangeEvents.changedAt, since)))
+          .where(
+            and(
+              eq(clinicChangeEvents.clinicId, tx.clinicId),
+              gte(clinicChangeEvents.changedAt, since),
+              includeSettings ? undefined : ne(clinicChangeEvents.kind, "setting"),
+            ),
+          )
           .orderBy(desc(clinicChangeEvents.changedAt))
           .limit(LIST_LIMIT),
       );

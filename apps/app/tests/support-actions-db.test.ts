@@ -229,7 +229,7 @@ describeDb("support email to action (lane D)", () => {
       draft_text: string | null;
       facts_json: { action?: Record<string, unknown> } & Record<string, unknown>;
       checks_json: { ok: boolean; results: { id: string; ok: boolean }[] } | null;
-    }>(`select id, draft_text, facts_json, checks_json from support_messages where case_id = $1 and kind = 'reply' order by created_at desc, id desc limit 1`, [caseId]);
+    }>(`select id, draft_text, facts_json, checks_json from support_messages where case_id = $1 and kind = 'reply' order by coalesce(draft_version, (facts_json->>'attempt')::int) desc, created_at desc limit 1`, [caseId]);
     return rows[0]!;
   }
 

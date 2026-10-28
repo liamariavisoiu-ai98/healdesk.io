@@ -275,6 +275,54 @@ variable "voice_provision_enabled" {
   }
 }
 
+# --- Direct booking (DB-1, docs/design/launch-readiness-2026-10-27/
+# db-1-direct-booking-switch.md; owner, 28 October 2026). AYA books into the
+# clinic's Google Calendar only when the owner's switch is on AND counsel's
+# Direct booking addendum is released, in code and here. The app checks again
+# by itself (apps/app/src/lib/booking/direct-switch.ts): the switch, the
+# catalog's approvedByCounsel and the version below must all agree, so an
+# environment variable alone never turns booking on. Off, every channel takes
+# a booking request for staff (manual mode), so a patient is never stranded.
+
+variable "direct_booking_addendum_released" {
+  description = "Mirrors packages/catalog/src/direct-booking-addendum.ts approvedByCounsel: true only in the commit that releases counsel's Direct booking addendum (apps/app/tests/direct-booking-switch-infra.test.ts keeps the two equal). Does nothing by itself; direct_booking_enabled is refused without it."
+  type        = bool
+  default     = false
+}
+
+variable "direct_booking_enabled" {
+  description = "The owner's switch for AYA booking straight into the clinic's calendar: sets HEALDESK_DIRECT_BOOKING_ENABLED=true and HEALDESK_DIRECT_BOOKING_ADDENDUM=<direct_booking_addendum_version> on the web task and the worker (in either worker_placement), and on the voice task only with direct_booking_on_voice. Never on destroy-due, patient-export, an operator script, migrate or db-*. Refused unless direct_booking_addendum_released is true. Turning it on is a reviewed commit, an approved infra.yml apply and a deploy (README, \"Direct booking\"); rollback is false, apply, deploy."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.direct_booking_enabled || var.direct_booking_addendum_released
+    error_message = "direct_booking_enabled needs direct_booking_addendum_released: counsel's Direct booking addendum must be released first (README, \"Direct booking\")."
+  }
+}
+
+variable "direct_booking_on_voice" {
+  description = "Carry the direct-booking switch onto the voice task too, so calls book directly as web chat does (owner, 28 October 2026: voice books directly at launch). Needs direct_booking_enabled and enable_voice. Turning it on or off rolls healdesk-production-voice: deploy only with the owner's word that no call is running or planned."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.direct_booking_on_voice || (var.direct_booking_enabled && var.enable_voice)
+    error_message = "direct_booking_on_voice needs direct_booking_enabled and enable_voice."
+  }
+}
+
+variable "direct_booking_addendum_version" {
+  description = "The released addendum's version, set as HEALDESK_DIRECT_BOOKING_ADDENDUM beside the switch. The app books only while it equals the running build's current addendum (currentDirectBookingAddendum().version), so a revised addendum turns booking off until this is raised and a deploy rolls. Its default equals the catalog's (apps/app/tests/direct-booking-switch-infra.test.ts)."
+  type        = string
+  default     = "direct-booking-addendum/1.0.0"
+
+  validation {
+    condition     = can(regex("^direct-booking-addendum/[0-9]+\\.[0-9]+\\.[0-9]+$", var.direct_booking_addendum_version))
+    error_message = "direct_booking_addendum_version must look like direct-booking-addendum/1.0.0."
+  }
+}
+
 variable "voice_desired" {
   description = "Intended number of voice tasks while enable_voice is on. Terraform creates the service at 0 and the deploy workflow sets this count after the first good migration; it is also the alarm's floor for healthy voice tasks. A deploy drops no call either way (the old tasks drain first, alb.tf). One, the lean default, is a single point of failure: losing that task mid-call drops every call on it and leaves Retell nothing to reach until ECS replaces it. Two survive the loss of one task mid-call (only its own calls drop, and the other answers the next), at the cost of a second task."
   type        = number
@@ -533,16 +581,17 @@ variable "stripe_connect_client_id" {
 }
 
 variable "app_environment" {
-  description = "Other plain, public settings for the web and worker tasks, such as HEALDESK_SUPPORT_PHONE and HEALDESK_CALL_BOOKING_URL (lib/setup/help.ts). Never a secret (task definitions are readable, and CloudTrail records every registration), never a name this stack sets from its own variables, and never HEALDESK_DIRECT_BOOKING_ENABLED or HEALDESK_PHASE_TWO_ATTRIBUTION: those wait for counsel and the owner, not for this stack."
+  description = "Other plain, public settings for the web and worker tasks, such as HEALDESK_SUPPORT_PHONE and HEALDESK_CALL_BOOKING_URL (lib/setup/help.ts). Never a secret (task definitions are readable, and CloudTrail records every registration), never a name this stack sets from its own variables, and never HEALDESK_DIRECT_BOOKING_ENABLED, HEALDESK_DIRECT_BOOKING_ADDENDUM or HEALDESK_PHASE_TWO_ATTRIBUTION: the first two come only from direct_booking_enabled, once counsel's addendum is released, and the third waits for phase two."
   type        = map(string)
   default     = {}
 
   validation {
     condition = length(setintersection(keys(var.app_environment), [
       "HEALDESK_DIRECT_BOOKING_ENABLED",
+      "HEALDESK_DIRECT_BOOKING_ADDENDUM",
       "HEALDESK_PHASE_TWO_ATTRIBUTION",
     ])) == 0
-    error_message = "HEALDESK_DIRECT_BOOKING_ENABLED and HEALDESK_PHASE_TWO_ATTRIBUTION are never set from infrastructure: they wait for counsel and the owner."
+    error_message = "HEALDESK_DIRECT_BOOKING_ENABLED, HEALDESK_DIRECT_BOOKING_ADDENDUM and HEALDESK_PHASE_TWO_ATTRIBUTION are never set through app_environment: direct booking is direct_booking_enabled (refused until counsel's addendum is released), and phase two waits for the owner."
   }
 
   # The transcript archive copy went on 14 October 2026 (the owner's decision):

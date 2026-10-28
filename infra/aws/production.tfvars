@@ -84,6 +84,23 @@ voice_real_calls = false
 # enable_voice. Never switched on by an agent.
 voice_provision_enabled = false
 
+# Direct booking (DB-1; owner, 27 and 28 October 2026: launch with it, voice
+# included): OFF. AYA takes a booking request for staff on every channel
+# until counsel releases the Direct booking addendum. Turning it on is two
+# reviewed commits, in this order (README, "Direct booking"):
+#   1. direct_booking_addendum_released = true, in the same commit that sets
+#      approvedByCounsel in packages/catalog/src/direct-booking-addendum.ts
+#      (apps/app/tests/direct-booking-switch-infra.test.ts keeps them equal);
+#   2. direct_booking_enabled = true, and direct_booking_on_voice = true for
+#      calls, applied by infra.yml on the owner's approval, then deployed.
+# Terraform refuses direct_booking_enabled while the addendum is unreleased.
+# direct_booking_addendum_version keeps its default, the catalog's current
+# version, until a revised addendum is released. Never switched on by an
+# agent.
+direct_booking_addendum_released = false
+direct_booking_enabled           = false
+direct_booking_on_voice          = false
+
 # Database.
 postgres_version     = "17.11"
 db_instance_class    = "db.t4g.micro"

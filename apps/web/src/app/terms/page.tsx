@@ -311,6 +311,19 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * support/screen.ts, SupportChat.tsx), scoped to support correspondence and
  * changing nothing in the Data Agreement (BAA or DPA), whose own clauses (minimum necessary,
  * subcontractors) stand. No agreement template changes.
+ *
+ * Revised on 28 October 2026 as LEGAL_VERSION 2026-10-28.3 (owner-approved
+ * the same day, docs/design/launch-readiness-2026-10-27/
+ * legal-wording-proposal-payment-text.md): the clinic may turn on one
+ * optional text after a booking call carrying its own payment link
+ * (docs/v1-product-spec.md, "Payment by text after a call, and full
+ * payment"). Section 2's phone sentence and section 8's "Inbound only" name
+ * it as designed, and section 8 gains "Payment-link texts". Copy first, then
+ * the switch: nothing sends a text yet (no sender is chosen, and it cannot be
+ * a number healdesk provides, spec "Phone numbers"; the register item
+ * `payment-link-text` stays open). The Meta sentences ("sends no payment
+ * link") stay true, since the text is voice only. No agreement template
+ * changes.
  */
 export default function TermsPage() {
   const products = productsForTerms();
@@ -354,7 +367,9 @@ export default function TermsPage() {
           it cannot see it. "Auto-confirm bookings" is on by default; you may instead set every
           booking to be a request your staff approve, and a Practice whose booking system does
           not read Google Calendar for conflicts runs that way (section 8). By phone it cannot
-          take a payment: it books and flags the deposit for your staff to collect. On Instagram,
+          take a payment in the call: it books and flags the deposit for your staff to collect,
+          or, if you have turned on the payment-link text, offers to text the caller your
+          Practice&apos;s payment link. On Instagram,
           Messenger and WhatsApp it books nothing: it takes booking requests for your staff to
           confirm, and sends no payment link. Card numbers are never taken on any channel.
         </p>
@@ -631,9 +646,13 @@ export default function TermsPage() {
         <ul className="list-disc space-y-2 pl-6">
           <li>
             <strong>Inbound only.</strong> The agent speaks to a person only in reply, inside a
-            conversation that person started with your Practice: it places no calls, sends no
-            text messages, and sends no reminders, follow-ups or marketing to patients by any
-            channel, and if you ask for any of those we will decline.
+            conversation that person started with your Practice: it places no calls, and sends no
+            reminders, follow-ups or marketing to patients by any channel, and if you ask for any
+            of those we will decline. There is one optional exception, which is off unless you
+            turn it on: after a booking by phone, if the caller says yes and reads their number
+            back, the agent is designed to send that caller one text with your Practice&apos;s own
+            payment link, in fixed words that name no treatment, time or amount. It is sent once,
+            for that call, and never again.
           </li>
           <li>
             <strong>Bookings.</strong> Appointments the agent writes into the Google Calendar you
@@ -683,6 +702,12 @@ export default function TermsPage() {
           <li>
             <strong>Lawful use.</strong> You will not use the service for emergencies, for
             anything unlawful, to harass anyone, or to circumvent the agent's clinical boundaries.
+          </li>
+          <li>
+            <strong>Payment-link texts.</strong> If you turn on the payment-link text, you agree
+            that the text goes out under your Practice&apos;s name, and that we may register your
+            Practice with the phone carriers for it, which can take one to four weeks. You can turn
+            it off at any time, and it stops on the next call.
           </li>
         </ul>
       </Section>

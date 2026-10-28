@@ -55,7 +55,13 @@ describe("the terms describe v1 as the spec defines it", () => {
     expect(text).not.toContain("recovered contacts became revenue");
     expect(text).not.toContain("direct booking addendum");
     expect(text).not.toContain("Calls we place");
-    expect(text).toContain("it places no calls, sends no text messages, and sends no reminders");
+    expect(text).toContain("it places no calls, and sends no reminders");
+    // The one optional text after a booking call (owner, 28 October 2026),
+    // phrased as design while nothing sends it.
+    expect(text).toContain(
+      "There is one optional exception, which is off unless you turn it on: after a booking by phone, if the caller says yes and reads their number back, the agent is designed to send that caller one text with your Practice's own payment link, in fixed words that name no treatment, time or amount. It is sent once, for that call, and never again.",
+    );
+    expect(text).toContain("Payment-link texts. If you turn on the payment-link text");
   });
 
   test("no degradation path produces a dead phone line", () => {

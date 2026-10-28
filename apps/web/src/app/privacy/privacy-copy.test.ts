@@ -206,3 +206,22 @@ describe("the Meta assistant takes booking requests and sends no payment link", 
     expect(text).not.toMatch(/to book an appointment or send the clinic's own payment link/);
   });
 });
+
+/**
+ * Section 8 used to promise that any text programme would be described before
+ * it existed. The owner allowed one optional text after a booking call
+ * (28 October 2026), so the section describes it, with the carrier wording,
+ * and still says no marketing texts are sent.
+ */
+describe("section 8 describes the one optional payment-link text", () => {
+  const text = pageText();
+
+  test("it is optional, once, fixed, and carries STOP and HELP", () => {
+    expect(text).toContain(
+      "If a clinic that uses healdesk turns it on, its assistant may text a caller one message after a booking call, only if the caller says yes: a fixed line and the clinic's own payment link, with no treatment, time or amount in it.",
+    );
+    expect(text).toContain("Reply STOP to opt out and HELP for help; message and data rates may apply.");
+    expect(text).toContain("We send no marketing texts");
+    expect(text).not.toContain("If we ever add texts");
+  });
+});

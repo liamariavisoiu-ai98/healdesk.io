@@ -177,6 +177,13 @@ export const metadata: Metadata = {
  * own retention, outside runSupportRetention's 12 months; section 5's
  * website-hosting and email rows (src/lib/subprocessors.ts) name the drafted
  * and approved replies.
+ *
+ * Revised on 28 October 2026 as LEGAL_VERSION 2026-10-28.3 (see the terms;
+ * owner-approved the same day): section 8 describes the one optional text a
+ * clinic's assistant may send a caller after a booking call, with its STOP
+ * and HELP wording, in place of "if we ever add texts". No vendor category is
+ * added to section 5: the proposal adds one only once a sender is chosen, and
+ * none is.
  */
 export default function PrivacyPage() {
   return (
@@ -591,10 +598,13 @@ export default function PrivacyPage() {
       <Section id="sms" title="8. Text messages">
         <p>
           This website does not send text messages, and nothing on it asks you to agree to any.
-          The demo call in section 2 is a voice call. If we ever add texts, the programme will be
-          described here first, with the carrier-standard terms: message frequency, "message and
-          data rates may apply", and <strong>STOP</strong> to opt out and <strong>HELP</strong>{" "}
-          for help. Marketing texts would need a separate, explicit opt-in.
+          The demo call in section 2 is a voice call. If a clinic that uses {site.name} turns it
+          on, its assistant may text a caller one message after a booking call, only if the caller
+          says yes: a fixed line and the clinic&apos;s own payment link, with no treatment, time or
+          amount in it. It is sent once, to the number the caller read back, and is not a reminder
+          or a follow-up. Reply <strong>STOP</strong> to opt out and <strong>HELP</strong> for
+          help; message and data rates may apply. We send no marketing texts, and would need a
+          separate, explicit opt-in to.
         </p>
       </Section>
 

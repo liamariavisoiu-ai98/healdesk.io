@@ -3,14 +3,13 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { unsafeDb, type Transaction } from "@/db";
 import { supportCases, supportMessages } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
-import { getDepositSettings } from "@/lib/billing/deposits";
 import { setAutoConfirm } from "@/lib/booking/mode";
 import { connectedMetaPlatforms } from "@/lib/channels/meta-platforms";
 import { readChannelStates } from "@/lib/channels/state";
 import { SUPPORT_ACTION_SERVICE } from "@/lib/clinic/change-events";
 import { readSettingSnapshot } from "@/lib/clinic/setting-changes";
+import { readPaymentFacts } from "@/lib/portal/switch-resets";
 import { SETTING_ENTRIES } from "@/lib/clinic/setting-words";
-import { googleCalendarConnection } from "@/lib/connections/google-calendar";
 import { describeError, log } from "@/lib/log";
 import type { ClinicSwitchView } from "@/lib/ops/switch-ops";
 import { saveSetting, type SettingKey } from "@/lib/portal/settings";
@@ -61,16 +60,13 @@ export async function readSwitchViews(clinicId: string, now: Date, actor: ActorC
   const read = await withTenant({ clinicId, actor }, async (tx) => {
     const snapshot = await readSettingSnapshot(tx, now);
     const bought = (await readChannelStates(tx.db, tx.clinicId, now)).map((c) => c.channel);
-    const deposits = await getDepositSettings(tx);
-    const calendar = await googleCalendarConnection(tx);
     const connectedMeta = bought.includes("meta") ? await connectedMetaPlatforms(tx.db, tx.clinicId) : [];
     return {
       snapshot,
       bought,
       connectedMeta,
-      gatewayConnected: deposits.isConnected,
-      hasDepositAmount: deposits.hasDepositAmount,
-      calendarConnected: calendar?.status === "active",
+      // The one reading the Settings page, the wizard and the console use.
+      facts: await readPaymentFacts(tx),
     };
   });
   // Loaded here, not at the top: lib/ops/switch-ops.ts reaches lib/ops/api.ts,

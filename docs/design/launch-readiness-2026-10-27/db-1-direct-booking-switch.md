@@ -1,5 +1,7 @@
 # DB-1 — a safe route for the direct-booking switch
 
+**Owner decisions (28 Oct 2026, in chat, answered "recommended"):** (1) voice stays request-only at launch and web chat books directly, so no voice roll is needed for this; (2) two release flags, the catalog's and Terraform's, kept equal by a CI test; (3) the version binding, so a revised addendum switches booking off until it is re-released. Both booking modes (direct and staff-confirmed) stay available on every channel as one clinic-wide choice; direct booking on Meta still waits for this switch and a ruling on stating a time there.
+
 Design only, 28 October 2026. No code and no Terraform edited. Owner decision of 27 October: launch
 WITH direct booking. The switch stays off in `infra/aws/production.tfvars` and cannot be turned on
 before counsel's Direct booking addendum is released.

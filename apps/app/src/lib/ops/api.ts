@@ -147,6 +147,7 @@ import { opListClinicStrip } from "@/lib/ops/strip";
 import { opOpsInbox } from "@/lib/ops/inbox/run";
 import { opClinicAudits, opRunClinicAudit } from "@/lib/ops/audit-ops";
 import { opAcknowledgeClinicChange, opListClinicChanges } from "@/lib/ops/change-ops";
+import { opGetClinicSwitches, opSetClinicSwitch } from "@/lib/ops/switch-ops";
 import {
   opDecideLifecycle,
   opListLifecycle,
@@ -774,6 +775,12 @@ const OPERATIONS = [
   // The support drafter (lane P7b, lib/ops/support-draft-ops.ts): ask for a
   // new draft of a case. It only queues; the support-draft job drafts.
   "regenerateSupportDraft",
+  // A clinic's Settings switches from our side (lib/ops/switch-ops.ts; owner,
+  // 28 October 2026): every switch and choice with its value and why it is
+  // greyed out, and one set through the clinic's own saveSetting. Labels,
+  // closed values and plain reasons; never a number, a greeting or a patient.
+  "getClinicSwitches",
+  "setClinicSwitch",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -946,6 +953,9 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "proposeSupportReply",
   // Mutating: a new draft of a support case asked for. It only queues; nothing is sent.
   "regenerateSupportDraft",
+  // Mutating: a clinic's switch set through its own saveSetting, recorded
+  // for ops' email and Slack post like the clinic's own change.
+  "setClinicSwitch",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -1591,6 +1601,10 @@ export async function runOperation(
       return opClinicAudits(args);
     case "listClinicChanges":
       return opListClinicChanges(args);
+    case "getClinicSwitches":
+      return opGetClinicSwitches(args, operator);
+    case "setClinicSwitch":
+      return opSetClinicSwitch(args, operator);
     case "acknowledgeClinicChange":
       return opAcknowledgeClinicChange(args, operator);
     case "listLifecycle":

@@ -46,21 +46,44 @@ export type SwitchRule = {
 
 const OPEN: SwitchRule = { enabled: true, reason: null, unlock: null };
 
+export type SwitchUnlock = NonNullable<SwitchRule["unlock"]>;
+
+/**
+ * The one sentence for each thing that unlocks a switch. Exported so the
+ * email after an automatic reset (lib/email/templates/setting_changed.ts)
+ * says exactly what the page says, from this one list.
+ */
+export const UNLOCK_REASONS: Readonly<Record<SwitchUnlock, string>> = {
+  connect_stripe: "Connect your Stripe account first.",
+  set_deposit: "Set a deposit on a treatment in Knowledge → Prices first.",
+  connect_calendar: "Connect your calendar first.",
+  turn_on_auto_confirm:
+    "Turn on Auto-confirm bookings first, so nobody pays for a time your team might decline.",
+};
+
+function locked(unlock: SwitchUnlock): SwitchRule {
+  return { enabled: false, reason: UNLOCK_REASONS[unlock], unlock };
+}
+
+/** What a reset did, before its reason: the first words of its notice. */
+export const RESET_OPENERS: Readonly<Record<RuledSwitch, string>> = {
+  full_payment: "Back to deposit only.",
+  text_payment_link: "Texting the payment link is off.",
+  deposits: "Deposits are off.",
+};
+
+/** The sentence a clinic is shown for one reset. */
+export function resetNotice(which: RuledSwitch, reason: string | null): string {
+  return reason ? `${RESET_OPENERS[which]} ${reason}` : RESET_OPENERS[which];
+}
+
 export function switchRules(
   facts: SwitchFacts,
 ): Record<RuledSwitch, SwitchRule> {
   const deposits: SwitchRule = !facts.gatewayConnected
-    ? {
-        enabled: false,
-        reason: "Connect your Stripe account first.",
-        unlock: "connect_stripe",
-      }
+    ? locked("connect_stripe")
     : !facts.hasDepositAmount
-      ? {
-          enabled: false,
-          reason: "Set a deposit on a treatment in Knowledge → Prices first.",
-          unlock: "set_deposit",
-        }
+      ? locked("set_deposit")
       : OPEN;
 
   const text: SwitchRule = !facts.hasVoice
@@ -70,32 +93,15 @@ export function switchRules(
         unlock: null,
       }
     : !facts.gatewayConnected
-      ? {
-          enabled: false,
-          reason: "Connect your Stripe account first.",
-          unlock: "connect_stripe",
-        }
+      ? locked("connect_stripe")
       : OPEN;
 
   const full: SwitchRule = !facts.gatewayConnected
-    ? {
-        enabled: false,
-        reason: "Connect your Stripe account first.",
-        unlock: "connect_stripe",
-      }
+    ? locked("connect_stripe")
     : !facts.calendarConnected
-      ? {
-          enabled: false,
-          reason: "Connect your calendar first.",
-          unlock: "connect_calendar",
-        }
+      ? locked("connect_calendar")
       : !facts.autoConfirm
-        ? {
-            enabled: false,
-            reason:
-              "Turn on Auto-confirm bookings first, so nobody pays for a time your team might decline.",
-            unlock: "turn_on_auto_confirm",
-          }
+        ? locked("turn_on_auto_confirm")
         : OPEN;
 
   return { deposits, text_payment_link: text, full_payment: full };
@@ -126,19 +132,19 @@ export function resetsAfter(
   if (values.fullPayment && !rules.full_payment.enabled) {
     out.push({
       switch: "full_payment",
-      notice: `Back to deposit only. ${rules.full_payment.reason}`,
+      notice: resetNotice("full_payment", rules.full_payment.reason),
     });
   }
   if (values.textPaymentLink && !rules.text_payment_link.enabled) {
     out.push({
       switch: "text_payment_link",
-      notice: `Texting the payment link is off. ${rules.text_payment_link.reason}`,
+      notice: resetNotice("text_payment_link", rules.text_payment_link.reason),
     });
   }
   if (values.depositsEnabled && !rules.deposits.enabled) {
     out.push({
       switch: "deposits",
-      notice: `Deposits are off. ${rules.deposits.reason}`,
+      notice: resetNotice("deposits", rules.deposits.reason),
     });
   }
   return out;

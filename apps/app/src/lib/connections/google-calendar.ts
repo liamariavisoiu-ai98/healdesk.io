@@ -29,6 +29,7 @@ import { env } from "@/lib/env";
 import { describeError, log } from "@/lib/log";
 import { notifyCalendarState } from "@/lib/notices/calendar-state";
 import { notifyOps } from "@/lib/ops/notify";
+import { applySwitchResets } from "@/lib/portal/switch-resets";
 import { publicOriginProblem } from "@/lib/public-url";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
@@ -428,6 +429,13 @@ export async function markCalendarBrokenWithin(
       .where(where);
   }
   const releasedHolds = await releaseLiveHolds(tx, "calendar_broken");
+  // A broken calendar turns bookings into requests, so full payment goes
+  // back to deposit only in this same transaction (switch-rules.ts): nobody
+  // pays in full for a time staff might decline. A no-op when already reset.
+  await applySwitchResets(tx, {
+    cause: "calendar_disconnected",
+    actorLabel: input.actorLabel ?? "google-calendar",
+  });
 
   const firstBreak = await claimBreakageAlertWithin(tx, {
     connectionId: row.id,
@@ -725,6 +733,12 @@ export async function disconnectGoogleCalendar(
     });
     if (!erased) return null;
     await recordDisconnect(tx, actor, input.request, erased, input.reason);
+    // Full payment needs a connected calendar (switch-rules.ts): set back in
+    // this transaction, with history, audit and one email.
+    await applySwitchResets(tx, {
+      cause: "calendar_disconnected",
+      actorLabel: actorLabelOf(actor),
+    });
     return erased;
   });
   if (!taken) return { status: "not_connected" };

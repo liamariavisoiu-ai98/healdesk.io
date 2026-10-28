@@ -1,6 +1,12 @@
 import { and, eq, sql } from "drizzle-orm";
 
-import { clinicChannels, clinicSettings, clinics, type DepositUncollectable } from "@/db/schema";
+import {
+  clinicChannels,
+  clinicSettings,
+  clinics,
+  type DepositUncollectable,
+  type PaymentAsk,
+} from "@/db/schema";
 import { isPaused } from "@/lib/channels/state";
 import type { TenantTx } from "@/lib/tenant";
 
@@ -49,6 +55,13 @@ export type ClinicSettings = {
   autoConfirmChangedByLabel: string | null;
   directLineE164: string | null;
   directLineSetAt: Date | null;
+  /**
+   * The payment switches (drizzle/0133), written only by setDepositSettings
+   * (lib/billing/deposits.ts) and set back by lib/portal/switch-resets.ts:
+   * "Text the payment link" and what the assistant asks the patient to pay.
+   */
+  textPaymentLink: boolean;
+  paymentAsk: PaymentAsk;
   /** Null when the clinic has never saved a setting (no row). */
   updatedAt: Date | null;
 };
@@ -71,6 +84,8 @@ export const DEFAULT_CLINIC_SETTINGS: ClinicSettings = Object.freeze({
   autoConfirmChangedByLabel: null,
   directLineE164: null,
   directLineSetAt: null,
+  textPaymentLink: false,
+  paymentAsk: "deposit_only",
   updatedAt: null,
 }) as ClinicSettings;
 
@@ -163,6 +178,8 @@ function fromRow(row: Row | undefined): ClinicSettings {
     autoConfirmChangedByLabel: row.autoConfirmChangedByLabel,
     directLineE164: row.directLineE164,
     directLineSetAt: row.directLineSetAt,
+    textPaymentLink: row.textPaymentLink,
+    paymentAsk: row.paymentAsk,
     updatedAt: row.updatedAt,
   };
 }

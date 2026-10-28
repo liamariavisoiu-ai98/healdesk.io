@@ -22,6 +22,7 @@ import { enqueueNotice, type ConnectSource } from "@/lib/billing/notices";
 import { getStripe } from "@/lib/billing/stripe-client";
 import { env } from "@/lib/env";
 import { log } from "@/lib/log";
+import { applySwitchResets } from "@/lib/portal/switch-resets";
 import { PublicUrlError, publicOriginProblem, publicUrl } from "@/lib/public-url";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
@@ -836,6 +837,11 @@ export async function disconnectStripeConnect(input: {
       .where(eq(clinics.id, tx.clinicId))
       .limit(1);
     if (!clinic?.accountId) return null;
+    // Everything that needs the account goes off first, in this transaction,
+    // with history, audit and one email (switch-resets.ts): deposits, full
+    // payment, the payment-link text. switchDepositsOff then finds deposits
+    // off, and still guards a clinic the rules did not reach.
+    await applySwitchResets(tx, { cause: "stripe_disconnected", actorLabel, now });
     await switchDepositsOff(tx, now);
     // A link still being created has handed nobody a URL yet: cancelling the
     // row is enough, and createDepositLink expires the session it gets back.
@@ -1149,6 +1155,7 @@ export async function applyDeauthorization(input: {
       if (clinic.connectedAt && clinic.connectedAt.getTime() > input.eventCreatedAt.getTime()) {
         return { kind: "stale" as const };
       }
+      await applySwitchResets(tx, { cause: "stripe_disconnected", actorLabel: "stripe", now });
       await switchDepositsOff(tx, now);
       await tx.db
         .update(depositPayments)

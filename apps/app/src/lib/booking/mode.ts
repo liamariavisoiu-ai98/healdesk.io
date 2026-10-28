@@ -10,6 +10,7 @@ import {
   type GoogleCalendarConnection,
 } from "@/lib/connections/google-calendar";
 import { env } from "@/lib/env";
+import { applySwitchResets } from "@/lib/portal/switch-resets";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import { calendarTermsFor, type CalendarTerms } from "./terms";
@@ -362,6 +363,9 @@ export type AutoConfirmOutcome = EffectiveBookingMode & {
  * under lockAutoConfirm, the lock updateClinicSettings takes for the same
  * switch, so another session's switch is either committed before the read
  * or waits until this one commits; neither can be reported as this one's.
+ *
+ * Switching it off sets back what needs it (full payment; switch-resets.ts)
+ * in the same transaction, with history, audit and one email.
  */
 export async function setAutoConfirm(
   clinicId: string,
@@ -372,12 +376,13 @@ export async function setAutoConfirm(
   return withTenant({ clinicId, actor, request: options.request }, async (tx) => {
     await lockAutoConfirm(tx);
     const before = await getClinicSettings(tx);
-    const after = await updateClinicSettings(
-      tx,
-      { autoConfirmBookings: on },
-      options.label ?? labelOf(actor),
-      options.now,
-    );
+    const label = options.label ?? labelOf(actor);
+    const after = await updateClinicSettings(tx, { autoConfirmBookings: on }, label, options.now);
+    // Full payment needs Auto-confirm on (switch-rules.ts): turning it off
+    // returns the ask to deposit only in this same transaction, and says so.
+    if (before.autoConfirmBookings && !after.autoConfirmBookings) {
+      await applySwitchResets(tx, { cause: "auto_confirm_off", actorLabel: label, now: options.now });
+    }
     const mode = await bookingModeFor(tx);
     return {
       changed: after.autoConfirmBookings !== before.autoConfirmBookings,

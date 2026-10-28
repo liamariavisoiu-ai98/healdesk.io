@@ -5,11 +5,14 @@ import {
   appointments,
   clinics,
   clinicSettings,
+  clinicSettingsHistory,
   depositPayments,
+  PAYMENT_ASKS,
   type AgentService,
   type DepositPaymentStatus,
   type DepositPolicy,
   type DepositUncollectable,
+  type PaymentAsk,
 } from "@/db/schema";
 import { recordSecurityEvent } from "@/lib/audit";
 import {
@@ -19,6 +22,9 @@ import {
   getClinicSettings,
 } from "@/lib/billing/settings";
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
+import { readCalendarConnected, readHasVoice } from "@/lib/portal/switch-facts";
+import { switchRules, type RuledSwitch, type SwitchFacts } from "@/lib/portal/switch-rules";
+import type { SettingsHistoryField } from "@/lib/setup/screen-ids";
 import type { TenantTx } from "@/lib/tenant";
 
 /**
@@ -337,6 +343,16 @@ export type DepositSettings = {
   bookChatWithoutDeposit: boolean;
   depositUncollectable: DepositUncollectable;
   depositHoldMinutes: number;
+  /** "Text the payment link" after a call: the clinic's choice, off by default. */
+  textPaymentLink: boolean;
+  /** What the assistant asks the patient to pay. */
+  paymentAsk: PaymentAsk;
+  /** Auto-confirm bookings, a fact the full-payment rule weighs (switch-rules.ts). */
+  autoConfirm: boolean;
+  /** The calendar is connected and working (switch-facts.ts). */
+  calendarConnected: boolean;
+  /** The clinic bought phone. */
+  hasVoice: boolean;
   isConnected: boolean;
   connectedAt: Date | null;
   disconnectedAt: Date | null;
@@ -373,6 +389,11 @@ export async function getDepositSettings(tx: TenantTx): Promise<DepositSettings>
     bookChatWithoutDeposit: settings.bookChatWithoutDeposit,
     depositUncollectable: settings.depositUncollectable,
     depositHoldMinutes: settings.depositHoldMinutes,
+    textPaymentLink: settings.textPaymentLink,
+    paymentAsk: settings.paymentAsk,
+    autoConfirm: settings.autoConfirmBookings,
+    calendarConnected: await readCalendarConnected(tx),
+    hasVoice: await readHasVoice(tx),
     isConnected,
     connectedAt: isConnected ? (clinic?.connectedAt ?? null) : null,
     disconnectedAt: clinic?.disconnectedAt ?? null,
@@ -388,10 +409,27 @@ export type DepositSettingsPatch = Partial<{
   bookChatWithoutDeposit: boolean;
   depositUncollectable: DepositUncollectable;
   depositHoldMinutes: number;
+  textPaymentLink: boolean;
+  paymentAsk: PaymentAsk;
 }>;
 
-/** Why an edit was refused: a closed code for the caller, and words for the person. */
-export type DepositSettingsRefusal = "invalid" | "not_connected" | "no_amount";
+/** The facts the payment switches' rules weigh, from what getDepositSettings read. */
+export function switchFactsOf(settings: DepositSettings): SwitchFacts {
+  return {
+    gatewayConnected: settings.isConnected,
+    hasDepositAmount: settings.hasDepositAmount,
+    calendarConnected: settings.calendarConnected,
+    autoConfirm: settings.autoConfirm,
+    hasVoice: settings.hasVoice,
+  };
+}
+
+/**
+ * Why an edit was refused: a closed code for the caller, and words for the
+ * person. `unavailable` is a payment switch the rules say cannot be turned
+ * on now (lib/portal/switch-rules.ts), refused with the rule's own reason.
+ */
+export type DepositSettingsRefusal = "invalid" | "not_connected" | "no_amount" | "unavailable";
 
 export class DepositSettingsError extends Error {
   constructor(
@@ -431,13 +469,33 @@ function requireBoolean(field: keyof DepositSettingsPatch, value: unknown): bool
  * operator) goes on the security event recorded when "Take deposits" is
  * switched on or off, the one change that decides whether the assistant can
  * send patients a payment link at all.
+ *
+ * It is also the one writer of the two payment switches (owner, 28 October
+ * 2026): "Text the payment link" and what the assistant asks the patient to
+ * pay. Turning either on is refused, with the rule's own sentence, while
+ * lib/portal/switch-rules.ts says it is unavailable; turning it off, or back
+ * to deposit only, never is. A change to any of the three payment switches
+ * keeps its before and after in clinic_settings_history. `options.reason`
+ * goes on the audit row when the change is a reset rather than a person's.
  */
 export async function setDepositSettings(
   tx: TenantTx,
   patch: DepositSettingsPatch,
   actorLabel: string,
   now: Date = new Date(),
+  options: { reason?: string } = {},
 ): Promise<DepositSettings> {
+  return (await writeDepositSettings(tx, patch, actorLabel, now, options)).settings;
+}
+
+/** setDepositSettings, also answering with the clinic_settings_history rows it wrote. */
+export async function writeDepositSettings(
+  tx: TenantTx,
+  patch: DepositSettingsPatch,
+  actorLabel: string,
+  now: Date = new Date(),
+  options: { reason?: string } = {},
+): Promise<{ settings: DepositSettings; historyIds: string[] }> {
   const wanted: DepositSettingsPatch = {};
   if (patch.depositsEnabled !== undefined) {
     wanted.depositsEnabled = requireBoolean("depositsEnabled", patch.depositsEnabled);
@@ -480,6 +538,19 @@ export async function setDepositSettings(
     }
     wanted.depositHoldMinutes = minutes;
   }
+  if (patch.textPaymentLink !== undefined) {
+    wanted.textPaymentLink = requireBoolean("textPaymentLink", patch.textPaymentLink);
+  }
+  if (patch.paymentAsk !== undefined) {
+    if (!(PAYMENT_ASKS as readonly unknown[]).includes(patch.paymentAsk)) {
+      throw new DepositSettingsError(
+        "paymentAsk",
+        "invalid",
+        "Choose deposit only or full payment.",
+      );
+    }
+    wanted.paymentAsk = patch.paymentAsk;
+  }
 
   const current = await getDepositSettings(tx);
   if (wanted.depositsEnabled === true && !current.depositsEnabled) {
@@ -499,12 +570,25 @@ export async function setDepositSettings(
     }
   }
 
+  // The text and full payment are switched on only where the rules allow
+  // it, in their own words (the page greys them out with the same answer);
+  // off, and back to deposit only, are always allowed.
+  const rules = switchRules(switchFactsOf(current));
+  if (wanted.textPaymentLink === true && !current.textPaymentLink) {
+    refuseUnless(rules, "text_payment_link", "textPaymentLink");
+  }
+  if (wanted.paymentAsk === "full_payment" && current.paymentAsk !== "full_payment") {
+    refuseUnless(rules, "full_payment", "paymentAsk");
+  }
+
   const keys = [
     "depositsEnabled",
     "bookVoiceWithoutDeposit",
     "bookChatWithoutDeposit",
     "depositUncollectable",
     "depositHoldMinutes",
+    "textPaymentLink",
+    "paymentAsk",
   ] as const;
   const values: Partial<typeof clinicSettings.$inferInsert> = {};
   const audit: Record<string, boolean | number | string> = {};
@@ -514,18 +598,45 @@ export async function setDepositSettings(
     (values as Record<string, unknown>)[key] = next;
     audit[key] = next;
   }
-  if (Object.keys(values).length === 0) return current;
+  if (Object.keys(values).length === 0) return { settings: current, historyIds: [] };
 
   await tx.db
     .insert(clinicSettings)
     .values({ clinicId: tx.clinicId, ...values, updatedAt: now })
     .onConflictDoUpdate({ target: clinicSettings.clinicId, set: { ...values, updatedAt: now } });
 
+  // The three payment switches keep their before and after, whoever changed
+  // them: the clinic, an operator, or a reset after a lost fact
+  // (lib/portal/switch-resets.ts, which passes its reason here).
+  const history = (Object.keys(PAYMENT_HISTORY) as (keyof typeof PAYMENT_HISTORY)[])
+    .filter((key) => values[key] !== undefined)
+    .map((key) => ({
+      clinicId: tx.clinicId,
+      field: PAYMENT_HISTORY[key],
+      beforeValue: String(current[key]),
+      afterValue: String(values[key]),
+      actorLabel: (actorLabel || "system").slice(0, 200),
+      changedAt: now,
+    }));
+  const historyIds =
+    history.length > 0
+      ? (
+          await tx.db
+            .insert(clinicSettingsHistory)
+            .values(history)
+            .returning({ id: clinicSettingsHistory.id })
+        ).map((row) => row.id)
+      : [];
+
   tx.audit.record({
     action: "update",
     resourceType: "clinic_settings",
     resourceId: tx.clinicId,
-    metadata: { fields: Object.keys(audit).sort(), ...audit },
+    metadata: {
+      fields: Object.keys(audit).sort(),
+      ...audit,
+      ...(options.reason ? { reason: options.reason } : {}),
+    },
   });
   if (values.depositsEnabled !== undefined) {
     await recordSecurityEvent(tx.db, {
@@ -534,7 +645,26 @@ export async function setDepositSettings(
       metadata: { clinicId: tx.clinicId },
     });
   }
-  return getDepositSettings(tx);
+  return { settings: await getDepositSettings(tx), historyIds };
+}
+
+/** The payment switches clinic_settings_history keeps, by their column. */
+const PAYMENT_HISTORY = {
+  depositsEnabled: "deposits_enabled",
+  textPaymentLink: "text_payment_link",
+  paymentAsk: "payment_ask",
+} as const satisfies Record<string, SettingsHistoryField>;
+
+/** Refuse turning a payment switch on while its rule says it is unavailable, with the rule's reason. */
+function refuseUnless(
+  rules: ReturnType<typeof switchRules>,
+  which: RuledSwitch,
+  field: keyof DepositSettingsPatch,
+): void {
+  const rule = rules[which];
+  if (!rule.enabled) {
+    throw new DepositSettingsError(field, "unavailable", rule.reason ?? "That can't be turned on yet.");
+  }
 }
 
 /**

@@ -1,3 +1,10 @@
+import {
+  RESET_OPENERS,
+  resetNotice,
+  UNLOCK_REASONS,
+  type RuledSwitch,
+  type SwitchUnlock,
+} from "@/lib/portal/switch-rules";
 import { publicUrl } from "@/lib/public-url";
 
 import { momentLong } from "./billing-copy";
@@ -30,6 +37,13 @@ import type { EmailTemplate } from "./types";
  * records, and links to the devices in Settings, where a device the clinic
  * doesn't know can be removed.
  *
+ * And it is sent when payment switches were set back on their own
+ * (`payment_switches_reset`; owner, 28 October 2026): turning Auto-confirm
+ * off, or losing the calendar or the Stripe account, returns full payment to
+ * deposit only and switches off what can no longer work, in the same
+ * transaction (lib/portal/switch-resets.ts). The email names each switch and
+ * the one reason, in the words the Settings page uses (switch-rules.ts).
+ *
  * An outbox kind: no token, and the action opens Settings behind sign-in.
  */
 
@@ -38,7 +52,8 @@ export type SettingChangedField =
   | "transfer_e164"
   | "transcript_retention_days"
   | "clinic_export"
-  | "person_export";
+  | "person_export"
+  | "payment_switches_reset";
 
 /** The fields that are an export rather than a setting. */
 export const EXPORT_FIELDS = ["clinic_export", "person_export"] as const;
@@ -68,10 +83,14 @@ export type SettingChangedPayload = {
   deviceName?: string;
   /** publicUrl("/c/<slug>/settings#…"), the card the setting is on (Sign-in, for an export). */
   settingsUrl: string;
+  /** For payment_switches_reset: the switches set back (switch-rules.ts RuledSwitch ids). */
+  switchIds?: RuledSwitch[];
+  /** For payment_switches_reset: what would unlock them again (switch-rules.ts SwitchUnlock). */
+  code?: SwitchUnlock;
 };
 
 const WORDS: Record<
-  Exclude<SettingChangedField, ExportField>,
+  Exclude<SettingChangedField, ExportField | "payment_switches_reset">,
   { name: string; subject: string; does: string; empty: string }
 > = {
   direct_line_e164: {
@@ -135,7 +154,47 @@ const renderExported: EmailTemplate<SettingChangedPayload & { field: ExportField
   );
 };
 
+/** What happened, by what would put it right again: closed words, never the clinic's own. */
+const RESET_CAUSES: Readonly<Record<SwitchUnlock, string>> = {
+  connect_stripe: "Your Stripe account was disconnected",
+  connect_calendar: "Your calendar was disconnected",
+  turn_on_auto_confirm: "Auto-confirm bookings was turned off",
+  set_deposit: "No treatment asks for a deposit any more",
+};
+
+/** O4 for payment switches set back on their own. */
+const renderSwitchesReset: EmailTemplate<SettingChangedPayload> = (payload, ctx) => {
+  const code = payload.code;
+  const switches = (payload.switchIds ?? []).filter((s): s is RuledSwitch => s in RESET_OPENERS);
+  if (!code || !(code in UNLOCK_REASONS) || switches.length === 0) {
+    throw new EmailCompositionError("A payment reset names its switches and its reason.");
+  }
+  const clinic = ctx.clinicName ?? "your practice";
+  const when = momentLong(payload.changedAt, ctx);
+  const one = switches.length === 1;
+  return compose(
+    {
+      subject: one ? "A payment setting was switched off" : "Some payment settings were switched off",
+      preheader: `${RESET_CAUSES[code]}, so we changed ${one ? "it" : "them"} at ${when}.`,
+      blocks: [
+        {
+          type: "paragraph",
+          text: `${RESET_CAUSES[code]} for ${clinic} at ${when}, so we changed ${one ? "this setting" : "these settings"} straight away:`,
+        },
+        { type: "list", items: switches.map((s) => resetNotice(s, UNLOCK_REASONS[code])) },
+        {
+          type: "paragraph",
+          text: `Once that's put right, you can switch ${one ? "it" : "them"} back on in Settings.`,
+        },
+        { type: "action", label: "See your settings", url: payload.settingsUrl },
+      ],
+    },
+    ctx,
+  );
+};
+
 export const renderSettingChanged: EmailTemplate<SettingChangedPayload> = (payload, ctx) => {
+  if (payload.field === "payment_switches_reset") return renderSwitchesReset(payload, ctx);
   if (isExportField(payload.field)) {
     return renderExported(payload as SettingChangedPayload & { field: ExportField }, ctx);
   }

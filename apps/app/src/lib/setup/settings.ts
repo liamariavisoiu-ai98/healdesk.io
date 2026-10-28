@@ -28,6 +28,7 @@ import { guardGreeting, neverSayIn, type GreetingRefusal } from "@/lib/assistant
 import { normaliseE164, updateClinicSettings } from "@/lib/billing/settings";
 import { notifySettingChanged } from "@/lib/notices/setting-changed";
 import { completeStep } from "@/lib/onboarding/steps";
+import { applySwitchResets } from "@/lib/portal/switch-resets";
 import { neverSayWithDefaults, readKnowledge } from "@/lib/setup/knowledge";
 import type { SettingsHistoryField } from "@/lib/setup/screen-ids";
 import type { TenantTx } from "@/lib/tenant";
@@ -267,6 +268,13 @@ export async function saveSetupSettings(
           at: now,
         });
       }
+    }
+
+    // A booking system that does not read Google turns Auto-confirm off,
+    // and full payment needs it (switch-rules.ts): set back in this
+    // transaction, with history, audit and one email (switch-resets.ts).
+    if (changed.autoConfirmBookings === false && current.autoConfirmBookings) {
+      await applySwitchResets(tx, { cause: "auto_confirm_off", actorLabel, now });
     }
 
     tx.audit.record({

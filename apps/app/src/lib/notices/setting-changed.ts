@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { clinics } from "@/db/schema";
 import { isAllowedDeviceName } from "@/lib/email/lint";
 import type { ExportField, SettingChangedField } from "@/lib/email/templates/setting_changed";
+import type { RuledSwitch, SwitchUnlock } from "@/lib/portal/switch-rules";
 import { describeError, log } from "@/lib/log";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 import type { TenantTx } from "@/lib/tenant";
@@ -182,4 +183,63 @@ export function maskPhone(e164: string | null): string | null {
   const digits = e164.replace(/\D/g, "");
   const last = digits.slice(-4);
   return /^\+1\d{10}$/.test(e164) ? `(•••) •••-${last}` : `•••• ${last}`;
+}
+
+/**
+ * O4 for payment switches set back on their own (lib/portal/switch-resets.ts):
+ * one email naming every switch reset by one lost fact, queued in the
+ * transaction that reset them, keyed on the first history row it wrote.
+ * Switch ids and the unlock code only, closed words the template turns into
+ * the Settings page's sentences. Like notifySettingChanged it never throws:
+ * the insert runs in a savepoint and a failure is logged, so the reset itself
+ * always stands.
+ */
+export async function notifySwitchesReset(
+  tx: TenantTx,
+  reset: {
+    switchIds: RuledSwitch[];
+    code: SwitchUnlock;
+    /** The dedupe key's own part: the first clinic_settings_history row the reset wrote. */
+    key: string;
+    at: Date;
+  },
+): Promise<void> {
+  try {
+    if (publicOriginProblem()) {
+      log.error("payment reset email not queued: no public origin", { clinicId: tx.clinicId });
+      return;
+    }
+    await tx.db.transaction(async (savepoint) => {
+      const [clinic] = await savepoint
+        .select({ slug: clinics.slug })
+        .from(clinics)
+        .where(eq(clinics.id, tx.clinicId))
+        .limit(1);
+      if (!clinic) return;
+      await enqueuePlanNotice(
+        savepoint,
+        tx.clinicId,
+        "setting_changed",
+        `setting_changed:reset:${reset.key}`,
+        {
+          field: "payment_switches_reset",
+          beforeMasked: null,
+          afterMasked: null,
+          switchIds: reset.switchIds,
+          code: reset.code,
+          changedAt: reset.at.toISOString(),
+          settingsUrl: publicUrl(`/c/${clinic.slug}/settings#payments`),
+        },
+      );
+    });
+  } catch (error) {
+    try {
+      log.error("payment reset email not queued", {
+        clinicId: tx.clinicId,
+        error: describeError(error),
+      });
+    } catch {
+      // Nothing reaches the caller; see above.
+    }
+  }
 }

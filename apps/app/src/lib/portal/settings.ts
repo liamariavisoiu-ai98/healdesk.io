@@ -404,7 +404,7 @@ async function write(
       if (on && !(await readDepositsOn(tx))) await requireAvailable(tx, key, "deposits");
       await setDepositSettings(tx, { depositsEnabled: on }, label, now);
       return on
-        ? "Deposits on. In chat, AYA sends a secure payment link when a treatment needs a deposit; on a call she books it and flags the deposit for your team."
+        ? "Deposits on. In chat, AYA is designed to send a secure payment link when a treatment needs a deposit; on a call she books it and flags the deposit for your team."
         : "Deposits off. AYA books without asking for a deposit.";
     }
 
@@ -457,7 +457,7 @@ async function write(
       if (value === "full_payment") await requireAvailable(tx, key, "full_payment");
       await setDepositSettings(tx, { paymentAsk: value }, label, now);
       return value === "full_payment"
-        ? "Full payment. AYA asks patients to pay the full price through a secure payment link."
+        ? "Full payment. AYA is designed to ask patients to pay the full price through a secure payment link in chat; on a call she books it and flags it for your team."
         : "Deposit only. AYA asks for the deposit and nothing more.";
     }
 

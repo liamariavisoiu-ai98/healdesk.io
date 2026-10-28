@@ -169,7 +169,13 @@ describeDb("payment switches", () => {
 
     await insertGoogleConnection(clinic.clinicId, { managed: true });
     const saved = await saveSetting(ctx, "payment_ask", "full_payment", tick());
-    expect(saved).toMatchObject({ ok: true, toast: expect.stringMatching(/^Full payment\./) });
+    // Said as design, and true for a call, which never collects (R4).
+    expect(saved).toMatchObject({
+      ok: true,
+      toast: expect.stringMatching(
+        /^Full payment\. AYA is designed to ask patients to pay the full price through a secure payment link in chat; on a call she books it and flags it for your team\./,
+      ),
+    });
     expect(await switches(clinic.clinicId)).toMatchObject({
       text_payment_link: true,
       payment_ask: "full_payment",
@@ -196,8 +202,14 @@ describeDb("payment switches", () => {
   test("Auto-confirm off returns full payment to deposit only in the same transaction, audited, with one email", async () => {
     await ready(clinic);
     const ctx = ctxFor(clinic);
-    await saveSetting(ctx, "deposits_enabled", true, tick());
-    await saveSetting(ctx, "text_payment_link", true, tick());
+    expect(await saveSetting(ctx, "deposits_enabled", true, tick())).toMatchObject({
+      ok: true,
+      toast: expect.stringMatching(/^Deposits on\. In chat, AYA is designed to send a secure payment link/),
+    });
+    expect(await saveSetting(ctx, "text_payment_link", true, tick())).toMatchObject({
+      ok: true,
+      toast: expect.stringMatching(/^Payment-link texts on\. After a call, AYA is designed to text/),
+    });
     await saveSetting(ctx, "payment_ask", "full_payment", tick());
 
     const outcome = await setAutoConfirm(clinic.clinicId, false, ACTOR, { label: "Front desk Mac", now: tick() });

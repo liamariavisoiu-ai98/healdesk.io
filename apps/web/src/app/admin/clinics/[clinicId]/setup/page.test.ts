@@ -62,6 +62,7 @@ vi.mock("@/lib/admin/clinic-strip", () => ({
 vi.mock("./OnboardingPanel", () => ({ OnboardingPanel: () => null }));
 vi.mock("./SetupSummary", () => ({ SetupSummary: () => null }));
 vi.mock("./ConnectLink", () => ({ ConnectLink: () => null }));
+vi.mock("./ClinicSwitches", () => ({ ClinicSwitches: () => null }));
 vi.mock("@/lib/admin/ops-client", () => {
   const write = (name: string, data: unknown) => async (...args: unknown[]) => {
     state.writes.push([name, args]);
@@ -89,6 +90,7 @@ vi.mock("@/lib/admin/ops-client", () => {
         data: state.onIgnoreList ? [{ clinicId: CLINIC, clinicSlug: "radiance", clinicName: "Radiance Med Spa", note: "internal_test_account", setBy: "ops@healdesk.test", setAt: "2026-10-24T09:00:00.000Z" }] : [],
       };
     },
+    fetchClinicSwitches: async () => ({ ok: true, data: { switches: [] } }),
     fetchClinicChanges: async (filter: unknown) => {
       state.reads.push(["fetchClinicChanges", filter]);
       return { ok: true, data: { since: "2026-09-24T00:00:00.000Z", changes: [] } };

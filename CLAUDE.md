@@ -74,6 +74,20 @@ for different people; never conflate them.
 
 ---
 
+# Simplicity rule (owner, 28 October 2026)
+
+**Every product offering, setting, proposal and piece of copy must be reduced
+to the simplest form of the topic, and the simplest words for the client.**
+Simplify the thing itself, not only the wording: if something is not needed,
+do not build it, do not set it up and do not mention it. A clinic never reads
+about senders, registrations, agreements with vendors or how a switch works
+inside; it reads what the switch does for them and, when it is unavailable, one
+short reason in plain words. Before adding a setting, a step or a sentence ask:
+does the clinic need to know or do this at all? If not, remove it. Detail for
+engineers and the owner belongs in the repo docs, never on the client's screen.
+
+---
+
 # THE PHI BOUNDARY — read this before adding any surface
 
 Every placement decision in this repo follows from one split. Getting it wrong
@@ -442,9 +456,18 @@ a rule already holds, and treat a gap as a bug, not a precedent.
 **Channels and contact**
 
 - **Inbound only.** No code path contacts a patient first, or after a
-  conversation ends: no SMS or texting of any kind, no reminders, follow-ups,
-  win-backs or reactivation, no missed-call text-back, no call-backs, no
-  post-treatment check-ins or review requests. One thing is not contact "after
+  conversation ends: no SMS or texting of any kind except the one exception
+  below, no reminders, follow-ups, win-backs or reactivation, no missed-call
+  text-back, no call-backs, no post-treatment check-ins or review requests.
+  The one text (owner, 28 October 2026; optional, off by default, a clinic
+  setting): after a call booking, if the caller agrees and reads their number
+  back, one fixed-wording text carries the clinic's own hosted payment link,
+  sent once, never resent, naming no treatment, time or amount, only when the
+  clinic's payment gateway is connected, and sent by the fixed tool layer,
+  never the model. No sender is chosen yet, so the setting is unavailable and
+  the portal says only "Coming soon"; whether the sender must sign a business
+  associate agreement is the owner's open decision. Anything beyond that one
+  text stays forbidden. One thing is not contact "after
   a conversation ends" (owner's ruling, 21 October 2026): a window-gated reply
   to a patient's open request, such as the fixed line telling a person on Meta
   that their booking request was decided or rescheduled. It is sent by the

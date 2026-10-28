@@ -21,15 +21,16 @@ const VARS = {
 };
 
 describe("the direct-booking addendum", () => {
-  test("is versioned like a document, and is not offered until counsel approves it", () => {
+  test("is versioned like a document, and is offered because the owner released it", () => {
     const current = currentDirectBookingAddendum();
     expect(current.version).toMatch(/^direct-booking-addendum\/\d+\.\d+\.\d+$/);
     expect(getDirectBookingAddendum(current.version)).toBe(current);
     expect(getDirectBookingAddendum("direct-booking-addendum/0.0.0")).toBeUndefined();
     expect(DIRECT_BOOKING_ADDENDUMS[0]).toBe(current);
-    // Flipping this is a deliberate act that ships with counsel's sign-off,
-    // new golden hashes and the setup page's section appearing.
-    expect(current.approvedByCounsel).toBe(false);
+    // Released by the owner on 28 October 2026 without external counsel (the
+    // way dpa/1.0.0 was released on 20 October); infra/aws/variables.tf
+    // `direct_booking_addendum_released` must equal it.
+    expect(current.approvedByCounsel).toBe(true);
   });
 
   test("renders the clause, the acceptance sentence, and the person who accepted it", () => {

@@ -85,10 +85,17 @@ voice_real_calls = false
 voice_provision_enabled = false
 
 # Direct booking (DB-1; owner, 27 and 28 October 2026: launch with it, voice
-# included): OFF. AYA takes a booking request for staff on every channel
-# until counsel releases the Direct booking addendum. Turning it on is two
-# reviewed commits, in this order (README, "Direct booking"):
-#   1. direct_booking_addendum_released = true, in the same commit that sets
+# included): ON. The owner released the Direct booking addendum on 28 October
+# 2026 without external counsel, as he released the DPA on 20 October. The
+# first two values change in the same commit as `approvedByCounsel` in
+# packages/catalog/src/direct-booking-addendum.ts
+# (apps/app/tests/direct-booking-switch-infra.test.ts keeps them equal).
+# Switching it off again is one `false` here, applied by infra.yml on the
+# owner's approval and rolled by deploy-app.yml (README, "Direct booking").
+# direct_booking_addendum_version keeps its default, the catalog's current
+# version, until a revised addendum is released; a revised one switches
+# booking back to staff requests until this file and a deploy catch up.
+direct_booking_addendum_released = true, in the same commit that sets
 #      approvedByCounsel in packages/catalog/src/direct-booking-addendum.ts
 #      (apps/app/tests/direct-booking-switch-infra.test.ts keeps them equal);
 #   2. direct_booking_enabled = true, and direct_booking_on_voice = true for
@@ -97,9 +104,9 @@ voice_provision_enabled = false
 # direct_booking_addendum_version keeps its default, the catalog's current
 # version, until a revised addendum is released. Never switched on by an
 # agent.
-direct_booking_addendum_released = false
-direct_booking_enabled           = false
-direct_booking_on_voice          = false
+direct_booking_addendum_released = true
+direct_booking_enabled           = true
+direct_booking_on_voice          = true
 
 # Database.
 postgres_version     = "17.11"

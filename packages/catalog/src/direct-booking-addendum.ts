@@ -113,7 +113,10 @@ export const DIRECT_BOOKING_ADDENDUMS: readonly DirectBookingAddendum[] = [
   {
     version: DIRECT_BOOKING_ADDENDUM_VERSION,
     publishedOn: "2026-09-29",
-    approvedByCounsel: false,
+    // Released by the owner on 28 October 2026, without external counsel, as he released
+    // dpa/1.0.0 on 20 October 2026. The flag keeps the BAA's name; it records his release.
+    // infra/aws/variables.tf `direct_booking_addendum_released` must equal it (a test checks).
+    approvedByCounsel: true,
     heading: DIRECT_BOOKING_CLAUSE_HEADING,
     body: DIRECT_BOOKING_CLAUSE_BODY,
     acceptance: DIRECT_BOOKING_ACCEPTANCE,

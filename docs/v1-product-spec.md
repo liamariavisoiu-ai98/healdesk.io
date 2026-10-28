@@ -109,6 +109,12 @@ This is also the honest way to sell the product to a clinic with a full-time rec
 7. The booking is written to the calendar. A short filler line plays while the write runs so the line never goes silent.
 8. The agent confirms date, time and service, and says the booking is in the clinic's calendar.
 
+### Phone numbers (owner, 28 October 2026)
+
+- **What a clinic gets.** Callers reach AYA on a number healdesk provides, which the clinic forwards its own line to. The clinic's published number never changes.
+- **No texting numbers for clients.** healdesk does not offer clients Twilio-backed US numbers, and the numbers it does provide are not used to send texts. A toll-free number is for healdesk's own operations only, and it sends no texts either.
+- **What follows.** The optional payment-link text cannot be sent from a number healdesk provides. Its sender is still not chosen, and the setting stays harmless until one is (see "Payment by text after a call, and full payment").
+
 ### Failure behaviour
 
 | Situation | What the agent does |
@@ -194,7 +200,7 @@ Two optional clinic settings, both in the onboarding wizard's behaviour step and
 **Payment link by text after a call.** Voice cannot collect a payment in the call, and it never takes card numbers. With this on, the agent finishes the booking, offers to text a secure payment link, and sends it only if the caller says yes and confirms the number by reading it back. The text goes once, to that number, in answer to that call. It is not a reminder, a follow-up or a resend, and nothing else is ever texted. The message is fixed text with the link: no treatment, time or amount in the words, and the link is the clinic's own hosted checkout, which carries only an amount, a generic descriptor and an opaque reference. If the text cannot be sent, the booking stands, the deposit is flagged for staff as it is today, and the caller is told so on the call when it can be known there.
 
 - **Needs the clinic's payment gateway connected,** since the link is the clinic's own checkout. A clinic with no gateway sees the setting greyed out with that reason and a button to connect.
-- **The text is handled by scoping, not a BAA (owner, 28 October 2026).** The sender signs no business associate agreement, as with Meta and Stripe. What keeps it in bounds is what the text carries: fixed words and the clinic's own checkout link, and nothing else, with no treatment, time or amount in them. The sender is not chosen yet and nothing sends a text today; the setting stays unavailable in what the assistant offers until a sender exists.
+- **The text is handled by scoping, not a BAA (owner, 28 October 2026).** The sender signs no business associate agreement, as with Meta and Stripe. What keeps it in bounds is what the text carries: fixed words and the clinic's own checkout link, and nothing else, with no treatment, time or amount in them. The sender is not chosen yet, it cannot be a number healdesk provides to clients (see "Phone numbers"), and nothing sends a text today; the setting stays unavailable in what the assistant offers until a sender exists.
 - **Sender registration** is per clinic and takes one to four weeks (see "What v1 cannot do"). The switch itself is usable whenever phone is bought and a gateway is connected; the assistant offers the text only once a sender exists and the clinic's registration is complete. A clinic that never switches it on never registers anything.
 - **Default off.** The clinic turns it on in the wizard or in Settings, and can turn it off at any time; off takes effect on the next call.
 

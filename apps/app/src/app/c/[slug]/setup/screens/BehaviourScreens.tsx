@@ -5,6 +5,16 @@ import { useState } from "react";
 import { GREETING_LABELS } from "@/lib/setup/greetings";
 import type { SetupStripeView } from "@/lib/setup/payments";
 
+import type { SwitchRule } from "@/lib/portal/switch-rules";
+
+import {
+  FullPaymentExplainer,
+  PAYMENT_ASK_LINE,
+  TEXT_LINK_LINE,
+  TextLinkExplainer,
+} from "../../settings/payment-explainers";
+import type { UnlockTargets } from "../../settings/SwitchExplainer";
+import { ToggleRow } from "../../settings/ToggleRow";
 import { Choice, Field, ScreenShell } from "../ScreenShell";
 
 /**
@@ -205,8 +215,21 @@ export function DepositsScreen(
     collectionLine: string;
     /** The payment account, for a package with a chat channel. */
     stripe?: SetupStripeView;
+    /**
+     * The text and full-payment switches, from `switchRules` (the same answer
+     * Settings reads). Absent: neither is shown. `voice` is whether phone was bought.
+     */
+    paymentSwitches?: {
+      voice: boolean;
+      text: SwitchRule;
+      full: SwitchRule;
+      targets: UnlockTargets;
+    };
   },
 ) {
+  const [textLink, setTextLink] = useState(false);
+  const [paymentAsk, setPaymentAsk] = useState<"deposit_only" | "full_payment">("deposit_only");
+  const switches = props.paymentSwitches;
   const anyDeposit = props.services.some((s) => (s.depositUsd ?? 0) > 0);
   const [needs, setNeeds] = useState<"no" | "yes">(anyDeposit ? "yes" : "no");
   const [amounts, setAmounts] = useState<Record<string, string>>(
@@ -231,6 +254,13 @@ export function DepositsScreen(
             value.trim() === "" ? null : Number(value.replace(/[$,\s]/g, "")),
           ]),
         ),
+        // Both default off; a switch the rules lock can only be at its default.
+        ...(switches
+          ? {
+              textPaymentLink: switches.text.enabled && textLink,
+              paymentAsk: switches.full.enabled ? paymentAsk : "deposit_only",
+            }
+          : {}),
       })}
     >
       <Choice
@@ -276,6 +306,45 @@ export function DepositsScreen(
             ))}
           </div>
         )
+      ) : null}
+      {switches?.voice ? (
+        <ToggleRow
+          label="Text the payment link after a call"
+          line={TEXT_LINK_LINE}
+          checked={textLink}
+          onChange={setTextLink}
+          locked={!switches.text.enabled}
+          explainerId="explain-text-link"
+          explainer={
+            <TextLinkExplainer
+              id="explain-text-link"
+              rule={switches.text}
+              targets={switches.targets}
+            />
+          }
+        />
+      ) : null}
+      {switches ? (
+        <>
+          <Choice
+            legend="What AYA asks the patient to pay"
+            value={paymentAsk}
+            onChange={setPaymentAsk}
+            options={[
+              { id: "deposit_only", label: "Deposit only", line: PAYMENT_ASK_LINE },
+              {
+                id: "full_payment",
+                label: "Full payment",
+                disabled: !switches.full.enabled,
+              },
+            ]}
+          />
+          <FullPaymentExplainer
+            id="explain-payment-ask"
+            rule={switches.full}
+            targets={switches.targets}
+          />
+        </>
       ) : null}
     </ScreenShell>
   );

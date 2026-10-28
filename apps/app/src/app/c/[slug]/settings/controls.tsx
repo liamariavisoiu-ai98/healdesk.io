@@ -61,6 +61,14 @@ export function SwitchSetting(props: {
   initial: boolean;
   /** Why it cannot be switched on now, when it cannot; the switch is then disabled. */
   blockedLine?: string | null;
+  /**
+   * A `SwitchExplainer` for this switch, shown under its line. When it is
+   * given, it says why the switch is blocked, so `blockedLine` only disables
+   * the switch and is not repeated in the line. Pass its id as `explainerId`
+   * so a screen reader reads it with the switch.
+   */
+  explainer?: ReactNode;
+  explainerId?: string;
 }) {
   const save = useSave(props.slug);
   const [on, setOn] = useState(props.initial);
@@ -80,22 +88,23 @@ export function SwitchSetting(props: {
   const blocked = Boolean(props.blockedLine) && !on;
   return (
     <div className="flex items-start justify-between gap-4 py-3">
-      <div>
+      <div className="min-w-0">
         <p id={labelId} className="font-semibold">
           {props.label}
         </p>
         <p id={lineId} className="text-muted mt-1 text-sm">
           {props.line}
           {props.applies ? ` ${props.applies}` : ""}
-          {blocked ? ` ${props.blockedLine}` : ""}
+          {blocked && !props.explainer ? ` ${props.blockedLine}` : ""}
         </p>
+        {props.explainer}
       </div>
       <button
         type="button"
         role="switch"
         aria-checked={on}
         aria-labelledby={labelId}
-        aria-describedby={lineId}
+        aria-describedby={props.explainerId ? `${lineId} ${props.explainerId}` : lineId}
         disabled={busy || blocked}
         onClick={() => void toggle()}
         className="flex min-h-11 shrink-0 items-center gap-2 rounded-full px-1 disabled:opacity-50"
@@ -124,10 +133,13 @@ export function ChoiceSetting<T extends string>(props: {
   legend: string;
   line?: string;
   applies?: string | null;
-  options: readonly { id: T; label: string; line?: string }[];
+  options: readonly { id: T; label: string; line?: string; disabled?: boolean }[];
   initial: T;
   /** Told of each choice the server saved, with the one it replaced. */
   onSaved?: (next: T, before: T) => void;
+  /** A `SwitchExplainer` for the choice that is unavailable or moves a switch. */
+  explainer?: ReactNode;
+  explainerId?: string;
 }) {
   const save = useSave(props.slug);
   const [value, setValue] = useState<T>(props.initial);
@@ -149,7 +161,11 @@ export function ChoiceSetting<T extends string>(props: {
   return (
     <fieldset
       className="grid gap-2 py-3"
-      aria-describedby={props.line || props.applies ? lineId : undefined}
+      aria-describedby={
+        [props.line || props.applies ? lineId : null, props.explainerId ?? null]
+          .filter(Boolean)
+          .join(" ") || undefined
+      }
     >
       <legend className="font-semibold">{props.legend}</legend>
       {props.line || props.applies ? (
@@ -165,7 +181,9 @@ export function ChoiceSetting<T extends string>(props: {
           <label
             key={option.id}
             htmlFor={id}
-            className="border-line flex min-h-11 cursor-pointer gap-3 rounded-xl border bg-white px-4 py-3"
+            className={`border-line flex min-h-11 gap-3 rounded-xl border bg-white px-4 py-3 ${
+              option.disabled && value !== option.id ? "opacity-60" : "cursor-pointer"
+            }`}
           >
             <input
               id={id}
@@ -173,7 +191,7 @@ export function ChoiceSetting<T extends string>(props: {
               name={name}
               value={option.id}
               checked={value === option.id}
-              disabled={busy}
+              disabled={busy || (option.disabled === true && value !== option.id)}
               onChange={() => void choose(option.id)}
               className="mt-1 h-5 w-5 shrink-0"
             />
@@ -184,6 +202,7 @@ export function ChoiceSetting<T extends string>(props: {
           </label>
         );
       })}
+      {props.explainer}
     </fieldset>
   );
 }

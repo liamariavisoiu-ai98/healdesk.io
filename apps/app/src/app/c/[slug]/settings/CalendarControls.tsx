@@ -358,7 +358,14 @@ function ChooseCalendar({ slug }: { slug: string }) {
 // Auto-confirm
 // -----------------------------------------------------------------------------
 
-export function AutoConfirmSwitch(props: { slug: string; initial: boolean; rightNow: string }) {
+export function AutoConfirmSwitch(props: {
+  slug: string;
+  initial: boolean;
+  rightNow: string;
+  /** A `SwitchExplainer` for what turning it off moves (Full payment). */
+  explainer?: ReactNode;
+  explainerId?: string;
+}) {
   const report = useResult();
   const [on, setOn] = useState(props.initial);
   const [rightNow, setRightNow] = useState(props.rightNow);
@@ -383,8 +390,8 @@ export function AutoConfirmSwitch(props: { slug: string; initial: boolean; right
   }
 
   return (
-    <div className="flex items-start justify-between gap-4 py-3">
-      <div>
+    <div id="auto-confirm" className="flex scroll-mt-6 items-start justify-between gap-4 py-3">
+      <div className="min-w-0">
         <p id={labelId} className="font-semibold">
           Auto-confirm bookings
         </p>
@@ -392,13 +399,14 @@ export function AutoConfirmSwitch(props: { slug: string; initial: boolean; right
           On, a booking AYA takes goes straight into your calendar; off, every booking is a request
           your team confirms. Changing it needs Face ID or your screen lock. {rightNow}
         </p>
+        {props.explainer}
       </div>
       <button
         type="button"
         role="switch"
         aria-checked={on}
         aria-labelledby={labelId}
-        aria-describedby={lineId}
+        aria-describedby={props.explainerId ? `${lineId} ${props.explainerId}` : lineId}
         disabled={busy}
         onClick={() => void toggle()}
         className="flex min-h-11 shrink-0 items-center gap-2 rounded-full px-1 disabled:opacity-50"

@@ -292,7 +292,7 @@ describeDb("payment switches", () => {
     expect(emails.map((e) => e.payload.code)).toEqual(["connect_calendar"]);
   });
 
-  test("Stripe taking our access away switches off deposits, full payment and the text together, in one email", async () => {
+  test("Stripe taking our access away switches off deposits, full payment and the text together, in the disconnect's one email", async () => {
     await ready(clinic);
     const ctx = ctxFor(clinic);
     await saveSetting(ctx, "deposits_enabled", true, tick());
@@ -311,11 +311,31 @@ describeDb("payment switches", () => {
       text_payment_link: false,
       payment_ask: "deposit_only",
     });
-    const emails = await resetEmails(clinic.clinicId);
-    expect(emails).toHaveLength(1);
-    expect(emails[0]!.payload).toMatchObject({
-      switchIds: ["full_payment", "text_payment_link", "deposits"],
-      code: "connect_stripe",
+    // One email, the disconnect's own, naming what it set back besides
+    // deposits; no second reset email.
+    expect(await resetEmails(clinic.clinicId)).toHaveLength(0);
+    const disconnected = await tenantRows<{ payload: Record<string, unknown> }>(
+      clinic.clinicId,
+      `select payload from billing_notices where kind = 'connect_disconnected'`,
+    );
+    expect(disconnected).toHaveLength(1);
+    expect(disconnected[0]!.payload).toMatchObject({
+      source: "stripe",
+      resetSwitchIds: ["full_payment", "text_payment_link"],
+    });
+    // One audit entry for the settings, with the disconnect's reason.
+    const audits = await tenantRows<{ metadata: Record<string, unknown> }>(
+      clinic.clinicId,
+      `select metadata from audit_log where clinic_id = $1 and resource_type = 'clinic_settings'
+         and metadata->>'reason' in ('stripe_deauthorized', 'stripe_disconnected')`,
+      [clinic.clinicId],
+    );
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.metadata).toMatchObject({
+      reason: "stripe_deauthorized",
+      depositsEnabled: false,
+      textPaymentLink: false,
+      paymentAsk: "deposit_only",
     });
     const reset = (await history(clinic.clinicId)).slice(-3);
     expect(reset.map((r) => r.field).sort()).toEqual([

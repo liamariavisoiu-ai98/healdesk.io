@@ -20,6 +20,11 @@ import type { EmailTemplate } from "./types";
  * collect a deposit the patient may already have paid (R23's "may have been
  * paid; check Stripe before collecting").
  *
+ * When the disconnect also set back full payment or the payment-link text
+ * (lib/portal/switch-resets.ts), this email says so in one more paragraph,
+ * so the clinic gets one email, not this and the reset email. With neither
+ * on, the email is exactly as it was.
+ *
  * What to do depends on who did it: a disconnection from Stripe's side may
  * not have been meant, so that one offers to connect again; one from the
  * portal or by our team asks the clinic to reply only if it was not expected.
@@ -71,12 +76,29 @@ export const renderConnectDisconnected: EmailTemplate<ConnectDisconnectedPayload
             ? "Deposits are now off, so AYA no longer sends deposit links, and the bookings still waiting on a deposit are flagged in Bookings for your team. Links she had already sent may still be paid until they expire, within 24 hours, so check your Stripe account before collecting a deposit for one of those bookings."
             : "Deposits are now off, so AYA no longer sends deposit links. Links she had already sent that weren't paid have stopped working, and those deposits are flagged in Bookings for your team to collect.",
         },
+        ...resetBlocks(payload.resetSwitchIds),
         ...next,
       ],
     },
     ctx,
   );
 };
+
+const RESET_SENTENCES: Readonly<Record<"full_payment" | "text_payment_link", string>> = {
+  full_payment: "AYA asks patients for a deposit only, not the full price.",
+  text_payment_link: "Texting the payment link is off.",
+};
+
+function resetBlocks(ids: ConnectDisconnectedPayload["resetSwitchIds"]): Block[] {
+  const sentences = (ids ?? []).filter((id) => id in RESET_SENTENCES).map((id) => RESET_SENTENCES[id]);
+  if (sentences.length === 0) return [];
+  return [
+    {
+      type: "paragraph",
+      text: `${sentences.join(" ")} You can turn ${sentences.length === 1 ? "it" : "them"} on again in Settings once Stripe is connected.`,
+    },
+  ];
+}
 
 export const CONNECT_DISCONNECTED_ENTRY: TemplateEntry<ConnectDisconnectedPayload> = {
   render: renderConnectDisconnected,

@@ -86,13 +86,27 @@ export function resetsAppliedIn(tx: TenantTx): SwitchReset[] {
  * unavailable for another reason is not the cause's to touch. Returns what
  * was reset, each with the sentence the clinic is shown; empty when nothing
  * needed to change, and then nothing is written or sent.
+ *
+ * A Stripe disconnect has its own audit row and its own email to the clinic
+ * (lib/billing/connect.ts), so it passes `auditReason`, making the reset's
+ * audit row the disconnect's one entry, and `email: false`, carrying the
+ * resets in its own email instead (or sending emailResets when that email
+ * does not go): one audit entry and one email where the two overlap.
  */
 export async function applySwitchResets(
   tx: TenantTx,
-  input: { cause: ResetCause; actorLabel: string; now?: Date },
+  input: {
+    cause: ResetCause;
+    actorLabel: string;
+    now?: Date;
+    /** The audit row's reason; the cause by default. */
+    auditReason?: string;
+    /** False when the caller's own email tells the clinic; true by default. */
+    email?: boolean;
+  },
 ): Promise<SwitchReset[]> {
   const now = input.now ?? new Date();
-  const { fact, unlock } = CAUSES[input.cause];
+  const { fact } = CAUSES[input.cause];
   const current = await getDepositSettings(tx);
   const after: SwitchFacts = { ...switchFactsOf(current), [fact]: false };
   const before = switchRules({ ...after, [fact]: true });
@@ -106,18 +120,37 @@ export async function applySwitchResets(
 
   const patch: DepositSettingsPatch = Object.assign({}, ...resets.map((r) => PATCHES[r.switch]));
   const { historyIds } = await writeDepositSettings(tx, patch, input.actorLabel, now, {
-    reason: input.cause,
+    reason: input.auditReason ?? input.cause,
   });
   for (const reset of resets) {
     await recordSettingChange(tx, { ...FEED[reset.switch], origin: SYSTEM_ORIGIN, now });
   }
-  await notifySwitchesReset(tx, {
-    switchIds: resets.map((r) => r.switch),
-    code: unlock,
-    key: historyIds[0] ?? `${input.cause}:${now.toISOString()}`,
-    at: now,
-  });
+  if (input.email !== false) {
+    await emailResets(tx, {
+      cause: input.cause,
+      resets,
+      key: historyIds[0] ?? `${input.cause}:${now.toISOString()}`,
+      at: now,
+    });
+  }
   return resets;
+}
+
+/**
+ * The clinic's one email naming the resets and why (O4), for a caller that
+ * held it back with `email: false` and then found its own email would not go.
+ */
+export async function emailResets(
+  tx: TenantTx,
+  input: { cause: ResetCause; resets: readonly SwitchReset[]; key: string; at: Date },
+): Promise<void> {
+  if (input.resets.length === 0) return;
+  await notifySwitchesReset(tx, {
+    switchIds: input.resets.map((r) => r.switch),
+    code: CAUSES[input.cause].unlock,
+    key: input.key,
+    at: input.at,
+  });
 }
 
 /**

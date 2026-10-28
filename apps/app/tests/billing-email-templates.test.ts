@@ -435,6 +435,13 @@ const VARIANTS: Variant[] = [
     source: "ops",
     hasUncheckedLinks: true,
   }),
+  variant("Stripe disconnected from the portal, with full payment and the text set back", "connect_disconnected", {
+    disconnectedAt: "2026-10-06T14:20:00.000Z",
+    wasByWebhook: false,
+    source: "portal",
+    hasUncheckedLinks: false,
+    resetSwitchIds: ["full_payment", "text_payment_link"],
+  }),
   variant("plan started on website chat, billed by channels in service", "plan_started", {
     planName: "AYA Web Chat, 300 conversations",
     boughtPlanId: "voice-webchat-500-300",

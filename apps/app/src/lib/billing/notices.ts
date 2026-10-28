@@ -244,6 +244,12 @@ export type NoticePayloads = {
      * collecting, never that the link stopped working.
      */
     hasUncheckedLinks: boolean;
+    /**
+     * The payment switches the disconnect set back besides deposits
+     * (lib/portal/switch-resets.ts), named in this email rather than a
+     * second one; absent when none was on.
+     */
+    resetSwitchIds?: ("full_payment" | "text_payment_link")[];
   };
   /** Dedupe `plan_started`: once per billing clinic. Critical. */
   plan_started: {

@@ -45,9 +45,25 @@ export const Stage: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   );
 };
 
+/**
+ * Scene time. A scene inside <Speed value={0.75}> plays at three quarters
+ * speed: everything it animates, springs included, reads this instead of
+ * Remotion's frame, so one number slows the whole scene without retiming it.
+ * Outside a <Speed>, it is the frame.
+ */
+const SpeedContext = React.createContext(1);
+
+export const Speed: React.FC<{ value: number; children: React.ReactNode }> = ({ value, children }) => (
+  <SpeedContext.Provider value={value}>{children}</SpeedContext.Provider>
+);
+
+export function useFrame(): number {
+  return useCurrentFrame() * React.useContext(SpeedContext);
+}
+
 /** A snap spring (overshoot ~6%) from 0 to 1, starting at `at`. */
 export function useSnap(at: number): number {
-  const frame = useCurrentFrame();
+  const frame = useFrame();
   const { fps } = useVideoConfig();
   return spring({ frame: frame - at, fps, config: SNAP });
 }
@@ -103,7 +119,7 @@ export const Shell: React.FC<{ duration: number; children: React.ReactNode; push
   enterBlur = true,
   exitBlur = true,
 }) => {
-  const frame = useCurrentFrame();
+  const frame = useFrame();
   const inP = enterBlur ? interpolate(frame, [0, 10], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: easeEnter }) : 1;
   const outP = exitBlur ? interpolate(frame, [duration - 9, duration], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: easeExit }) : 0;
   const scale = 1 + push * (frame / duration) + (1 - inP) * -0.06 + outP * 0.12;

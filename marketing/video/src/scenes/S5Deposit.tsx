@@ -1,8 +1,8 @@
 import React from "react";
-import { interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
+import { interpolate, spring, useVideoConfig } from "remotion";
 
 import { CHECKOUT, CLINIC, money } from "../copy";
-import { lerp, Shell, Stage, tilt, useLayout } from "../motion";
+import { lerp, Shell, Stage, tilt, useLayout, useFrame } from "../motion";
 import { Backdrop, Bubble, DollarBurst, Glass, Icon, Lock, Notification, Tick } from "../parts";
 import { c, font, SNAP } from "../tokens";
 import { ClinicMark } from "./S3UrlBuild";
@@ -22,7 +22,7 @@ const SHEET_OUT = 94;
  * a generic descriptor and a reference: the treatment never reaches Stripe.
  */
 export const S5Deposit: React.FC = () => {
-  const frame = useCurrentFrame();
+  const frame = useFrame();
   const { fps } = useVideoConfig();
   const { wide } = useLayout();
 
@@ -90,7 +90,7 @@ export const S5Deposit: React.FC = () => {
 };
 
 const Appear: React.FC<{ at: number; children: React.ReactNode }> = ({ at, children }) => {
-  const frame = useCurrentFrame();
+  const frame = useFrame();
   const { fps } = useVideoConfig();
   const p = spring({ frame: frame - at, fps, config: SNAP });
   if (frame < at) return null;

@@ -1,6 +1,6 @@
 # The Aya ad, built in Remotion
 
-`SCRIPT.md` is the brief. This folder builds its hero cut (about 37 seconds) in
+`SCRIPT.md` is the brief. This folder builds its hero cut (about 45 seconds) in
 [Remotion](https://www.remotion.dev) (React rendered to video), in the
 script's three formats from one timeline:
 
@@ -53,18 +53,28 @@ one; in the cloud container it is
 
 ## The cut, scene by scene
 
-Frames come from `src/timeline.json`, which the scenes and the soundtrack
-both read; change a scene's length there.
+Frames and speeds come from `src/timeline.json`, which the scenes, the
+subtitles and the soundtrack all read; change a scene's length or speed
+there. A scene with `speed` 0.75 plays its whole animation at three quarters
+speed (`<Speed>` and `useFrame` in `src/motion.tsx`), so it is slowed without
+retiming a single cue.
 
 | # | Frames | What happens |
 | --- | --- | --- |
-| 1 | 0–240 | Slow on purpose: "Missed calls?" while the phone rings out, "Missed DMs?" while Instagram, Messenger, WhatsApp and website chat pile up, then the line, the pile leaving for "Clinic down the street", and "That booking? Gone." The coin drops. |
-| 2 | 240–320 | The coin is caught; ivory floods out; Aya arrives as a glowing glass orb. Three badges. |
-| 3 | 320–500 | The orb becomes the caret of a URL box; the clinic's brand, prices and chat assemble. |
-| 4 | 500–680 | Five glass conversations burst from the orb (phone, WhatsApp, Instagram, Messenger, website chat), each books into the week with its price, the booked value counts to $1,646, and a healdesk notification lands. |
-| 5 | 680–800 | In website chat Aya sends the deposit link; the patient pays $100.00 on Stripe's checkout; coins and sparkles; healdesk notifies the clinic. |
-| 6 | 800–950 | The night on the owner's lock screen: healdesk notifications at 11:48 PM, 2:15 AM and 7:02 AM. |
-| 7 | 950–1100 | The close, and the only time Aya's face appears: "Try me out now. Just add your website, and I'll be ready in a few minutes." A URL box, "Try Aya free", the wordmark; the last 15 frames hold still. |
+| 1 | 0–240 | "Missed calls?" while the phone rings out, "Missed DMs?" while Instagram, Messenger, WhatsApp and website chat pile up, then the line, the pile leaving for "Clinic down the street", and "That booking? Gone." |
+| — | 240–300 | The pattern interrupt: pure black, "Not on my watch." coming into focus in white and shading into healdesk's orange and red. |
+| 2 | 300–400 (¾ speed) | Ivory; Aya arrives as a glowing glass orb, "Hi, I'm Aya, your 24/7 assistant", three badges. |
+| 3 | 400–640 (¾ speed) | The orb becomes the caret of a URL box; the clinic's brand, prices and chat assemble. |
+| 4 | 640–880 (¾ speed) | Five glass conversations burst from the orb (phone, WhatsApp, Instagram, Messenger, website chat), each books into the week with its price, the booked value counts to $1,646, and a healdesk notification lands. |
+| 5 | 880–1040 (¾ speed) | In website chat Aya sends the deposit link; the patient pays $100.00 on Stripe's checkout; coins and sparkles; healdesk notifies the clinic. |
+| 6 | 1040–1190 | The night on the owner's lock screen: healdesk notifications at 11:48 PM, 2:15 AM and 7:02 AM. |
+| 7 | 1190–1340 | The close, and the only time Aya's face appears: "Try me out now. Just add your website, and I'll be ready in a few minutes." The last 15 frames hold still. |
+
+Subtitles are set like Netflix's: plain white type with a dark edge and a
+drop shadow, no box, one or two balanced lines per cue, and a soft shade
+rising from the bottom of the frame while one is up. Words already on
+screen (the opening questions, the black card, Aya's hello, the close) are
+not subtitled.
 
 ## Where this build differs from SCRIPT.md
 

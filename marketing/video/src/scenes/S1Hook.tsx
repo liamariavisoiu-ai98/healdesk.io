@@ -1,8 +1,8 @@
 import React from "react";
-import { interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
+import { interpolate, spring, useVideoConfig } from "remotion";
 
 import { HOOK_COPY, Hook } from "../copy";
-import { lerp, Shell, Stage, useLayout } from "../motion";
+import { lerp, Shell, Stage, useLayout, useFrame } from "../motion";
 import { Coin, Glass, Icon, Kinetic, Notification, Phone } from "../parts";
 import { c, font, SNAP } from "../tokens";
 
@@ -35,7 +35,7 @@ const COIN = 214;
  * clinic down the street, and the loss.
  */
 export const S1Hook: React.FC<{ hook: Hook }> = ({ hook }) => {
-  const frame = useCurrentFrame();
+  const frame = useFrame();
   const { fps } = useVideoConfig();
   const { wide } = useLayout();
   const copy = HOOK_COPY[hook];

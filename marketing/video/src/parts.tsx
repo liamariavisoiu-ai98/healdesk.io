@@ -2,7 +2,7 @@ import React from "react";
 import { AbsoluteFill, Img, interpolate, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 
 import { VO } from "./copy";
-import { useLayout } from "./motion";
+import { useLayout, useFrame } from "./motion";
 import { c, font, radius, shadow } from "./tokens";
 
 /**
@@ -36,7 +36,7 @@ export const Backdrop: React.FC<{ mood: "night" | "ivory" | "sage" | "dusk" | "d
   mix = 0,
   to,
 }) => {
-  const frame = useCurrentFrame();
+  const frame = useFrame();
   const { width, height } = useVideoConfig();
   const set = MOODS[mood];
   const next = to ? MOODS[to] : set;
@@ -146,7 +146,7 @@ export const Notification: React.FC<{
  * colours that breathes, and swells when she speaks or acts.
  */
 export const Orb: React.FC<{ size: number; energy?: number; style?: React.CSSProperties }> = ({ size, energy = 0, style }) => {
-  const frame = useCurrentFrame();
+  const frame = useFrame();
   const t = frame / 30;
   const swell = 1 + 0.03 * Math.sin(t * 2.2) + 0.06 * energy;
   const layers = [
@@ -204,7 +204,7 @@ export const Kinetic: React.FC<{
   highlight?: string[];
   highlightColour?: string;
 }> = ({ text, at, stagger = 2.2, style, highlight = [], highlightColour = c.coral }) => {
-  const frame = useCurrentFrame();
+  const frame = useFrame();
   const words = text.split(" ");
   return (
     <div style={{ fontFamily: font, ...style }}>
@@ -303,7 +303,7 @@ export const Coin: React.FC<{ size: number; label?: string; spin?: number; style
 
 /** A burst of coins and sparkles rising from a point, for money landing. */
 export const DollarBurst: React.FC<{ at: number; x: number; y: number; count?: number }> = ({ at, x, y, count = 14 }) => {
-  const frame = useCurrentFrame();
+  const frame = useFrame();
   const t = (frame - at) / 34;
   if (t < 0 || t > 1) return null;
   return (
@@ -342,75 +342,101 @@ export const Sparkle: React.FC<{ size: number; colour?: string }> = ({ size, col
   </svg>
 );
 
-/** Burned-in captions, word by word: each word fades up in 4 frames, the current one in coral. */
+/**
+ * Burned-in subtitles, set the way Netflix sets them: plain white type, no
+ * box, one or two balanced lines at a time, each phrase on screen for its
+ * share of the line's time. Over the light scenes a hairline dark edge and a
+ * soft shade rising from the bottom of the frame keep the white readable.
+ */
 export const Captions: React.FC = () => {
   const frame = useCurrentFrame();
   const { wide, W, H } = useLayout();
-  const line = VO.find((l) => l.burn !== false && frame >= l.from - 2 && frame < l.to + 10);
+  const line = VO.find((l) => l.burn !== false && frame >= l.from && frame < l.to + 6);
   if (!line) return null;
 
-  const words = line.text.split(" ");
-  const per = (line.to - line.from) / words.length;
-  const spoken = Math.floor((frame - line.from) / per);
-
-  // Chunks of up to five words, broken after punctuation, shown one at a time.
-  const chunks: number[][] = [];
-  let current: number[] = [];
-  words.forEach((w, i) => {
-    current.push(i);
-    if (current.length >= 5 || /[.?!,]$/.test(w)) {
-      chunks.push(current);
-      current = [];
-    }
+  const cues = cueLines(line.text, wide ? 46 : 30);
+  const per = (line.to - line.from) / line.text.split(" ").length;
+  let start = line.from;
+  const timed = cues.map((cue) => {
+    const n = cue.join(" ").split(" ").length;
+    const t = { cue, from: start, to: start + n * per };
+    start = t.to;
+    return t;
   });
-  if (current.length) chunks.push(current);
-  const at = Math.min(words.length - 1, Math.max(0, spoken));
-  const chunk = chunks.find((ch) => ch.includes(at)) ?? chunks[0];
-  const fadeOut = interpolate(frame, [line.to + 4, line.to + 10], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const now = timed.find((t) => frame >= t.from && frame < t.to) ?? timed[timed.length - 1];
+  const last = now === timed[timed.length - 1];
+  const fade = interpolate(frame, [now.from, now.from + 3, now.to + (last ? 2 : 0), now.to + (last ? 6 : 1)], [0, 1, 1, last ? 0 : 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
+  const shade = interpolate(frame, [line.from, line.from + 8, line.to, line.to + 6], [0, 1, 1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const top = wide ? H - 200 : 1330;
 
   return (
-    <div
-      style={{
-        position: "absolute",
-        left: 0,
-        width: W,
-        top: wide ? H - 150 : 1300,
-        display: "flex",
-        justifyContent: "center",
-        opacity: fadeOut,
-        zIndex: 100,
-      }}
-    >
-      <div
-        style={{
-          background: "rgba(42,22,48,0.78)",
-          backdropFilter: "blur(16px)",
-          WebkitBackdropFilter: "blur(16px)",
-          borderRadius: 28,
-          padding: "14px 30px",
-          fontFamily: font,
-          fontWeight: 600,
-          fontSize: wide ? 46 : 52,
-          color: c.white,
-          maxWidth: wide ? 1300 : 960,
-          textAlign: "center",
-          lineHeight: 1.25,
-          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.15)",
-        }}
-      >
-        {chunk.map((i) => {
-          const start = line.from + i * per;
-          const o = interpolate(frame, [start, start + 4], [0.25, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
-          return (
-            <span key={i} style={{ opacity: o, color: i === spoken ? c.coral : c.white }}>
-              {words[i]}{" "}
-            </span>
-          );
-        })}
+    <>
+      <div style={{ position: "absolute", left: -400, width: W + 800, top: top - 140, height: H - top + 600, background: "linear-gradient(180deg, rgba(10,6,14,0) 0%, rgba(10,6,14,0.46) 42%, rgba(10,6,14,0.62) 100%)", opacity: shade, zIndex: 99 }} />
+      <div style={{ position: "absolute", left: 0, width: W, top, display: "flex", justifyContent: "center", zIndex: 100, opacity: fade }}>
+        <div
+          style={{
+            fontFamily: font,
+            fontWeight: 600,
+            fontSize: wide ? 50 : 54,
+            lineHeight: 1.22,
+            color: "#FFFFFF",
+            textAlign: "center",
+            letterSpacing: "-0.005em",
+            textShadow:
+              "1px 0 1px rgba(0,0,0,0.9), -1px 0 1px rgba(0,0,0,0.9), 0 1px 1px rgba(0,0,0,0.9), 0 -1px 1px rgba(0,0,0,0.9), 0 3px 6px rgba(0,0,0,0.75), 0 6px 22px rgba(0,0,0,0.5)",
+          }}
+        >
+          {now.cue.map((l, i) => (
+            <div key={i}>{l}</div>
+          ))}
+        </div>
       </div>
-    </div>
+    </>
   );
 };
+
+/**
+ * Splits a voiceover line into subtitle cues of one or two lines of at most
+ * `width` characters: by sentence, then by clause when a sentence would need
+ * more than two lines, then two lines broken as evenly as the words allow.
+ */
+function cueLines(text: string, width: number): string[][] {
+  const sentences = text.match(/[^.?!]+[.?!]*/g)?.map((x) => x.trim()).filter(Boolean) ?? [text];
+  const chunks: string[] = [];
+  for (const sentence of sentences) {
+    if (sentence.length <= width * 2) {
+      chunks.push(sentence);
+      continue;
+    }
+    let current = "";
+    for (const clause of sentence.split(/(?<=,)\s+/)) {
+      if (current && (current + " " + clause).length > width * 2) {
+        chunks.push(current);
+        current = clause;
+      } else current = current ? current + " " + clause : clause;
+    }
+    if (current) chunks.push(current);
+  }
+  return chunks.map((chunk) => {
+    if (chunk.length <= width) return [chunk];
+    const words = chunk.split(" ");
+    let best = 1;
+    let bestScore = Infinity;
+    for (let i = 1; i < words.length; i++) {
+      const a = words.slice(0, i).join(" ").length;
+      const b = words.slice(i).join(" ").length;
+      const score = Math.abs(a - b) + (a > width || b > width ? 1000 : 0);
+      if (score < bestScore) {
+        bestScore = score;
+        best = i;
+      }
+    }
+    return [words.slice(0, best).join(" "), words.slice(best).join(" ")];
+  });
+}
 
 /** A chat bubble. Aya's sit left in white; the patient's sit right, tinted. */
 export const Bubble: React.FC<{

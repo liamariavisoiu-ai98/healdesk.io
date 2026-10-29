@@ -40,7 +40,8 @@ export type VoLine = { from: number; to: number; text: string; burn?: false };
 
 /**
  * The voiceover. Burned in as captions except where the same words are
- * already on screen (the opening questions, the closing line), so nothing
+ * already on screen (the opening questions, the black card, Aya's hello,
+ * the closing line), so nothing
  * is read twice. Once a voice is recorded, replace these with its word
  * timestamps.
  *
@@ -52,11 +53,13 @@ export type VoLine = { from: number; to: number; text: string; burn?: false };
  * from a URL estimates about three minutes and has not been timed yet
  * (apps/web/src/lib/demo/build-progress.ts).
  */
-const at = (scene: keyof typeof SCENES, frame: number) => SCENES[scene].from + frame;
+/** The global frame `frame` frames of scene time into `scene`, honouring its speed. */
+const at = (scene: keyof typeof SCENES, frame: number) => SCENES[scene].from + Math.round(frame / SCENES[scene].speed);
 
 export const VO: readonly VoLine[] = [
   { from: at("hook", 10), to: at("hook", 200), text: "Missed calls? Missed DMs? After six, they're not waiting.", burn: false },
-  { from: at("aya", 8), to: at("aya", 76), text: "Not on my watch. Hi, I'm Aya, your 24/7 assistant." },
+  { from: at("interrupt", 6), to: at("interrupt", 40), text: "Not on my watch.", burn: false },
+  { from: at("aya", 6), to: at("aya", 66), text: "Hi, I'm Aya, your 24/7 assistant.", burn: false },
   {
     from: at("url", 10),
     to: at("url", 172),

@@ -1,8 +1,8 @@
 import React from "react";
-import { interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
+import { interpolate, spring, useVideoConfig } from "remotion";
 
 import { BOOKED_VALUE, CHANNELS, Channel, CLINIC, money } from "../copy";
-import { lerp, Shell, Stage, useLayout } from "../motion";
+import { lerp, Shell, Stage, useLayout, useFrame } from "../motion";
 import { Backdrop, Bubble, Glass, Icon, Notification, Orb } from "../parts";
 import { c, font, SNAP } from "../tokens";
 
@@ -22,7 +22,7 @@ const landAt = (i: number) => resolveAt(i) + 20;
  * healdesk's notification lands.
  */
 export const S4Channels: React.FC = () => {
-  const frame = useCurrentFrame();
+  const frame = useFrame();
   const { wide } = useLayout();
 
   const W = wide ? 1920 : 1080;
@@ -191,7 +191,7 @@ const Week: React.FC<{ frame: number } & Box> = ({ frame, x, y, w, h }) => {
 };
 
 const Tile: React.FC<{ at: number; left: number; top: number; width: number; ch: Channel }> = ({ at, left, top, width, ch }) => {
-  const frame = useCurrentFrame();
+  const frame = useFrame();
   const { fps } = useVideoConfig();
   const p = spring({ frame: frame - at, fps, config: SNAP });
   if (frame < at) return null;

@@ -1,8 +1,8 @@
 import React from "react";
-import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, interpolate, spring, useVideoConfig } from "remotion";
 
 import { CLINIC, money } from "../copy";
-import { lerp, Shell, Stage, useLayout } from "../motion";
+import { lerp, Shell, Stage, useLayout, useFrame } from "../motion";
 import { Backdrop, Kinetic, Notification, Phone } from "../parts";
 import { c, font } from "../tokens";
 
@@ -28,7 +28,7 @@ const OVERNIGHT = [
  * one by one, and the morning brings the summary.
  */
 export const S6Night: React.FC = () => {
-  const frame = useCurrentFrame();
+  const frame = useFrame();
   const { fps } = useVideoConfig();
   const { wide } = useLayout();
 

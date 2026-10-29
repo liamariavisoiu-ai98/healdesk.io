@@ -24,8 +24,8 @@ const wet = [new Float32Array(N), new Float32Array(N)]; // the reverb send
 let seed = 7;
 const rand = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296) * 2 - 1;
 const f2s = (frame) => frame / FPS;
-/** Seconds at `frame` frames into `scene`. */
-const at = (scene, frame) => (S[scene].from + frame) / FPS;
+/** Seconds at `frame` frames of scene time into `scene`, honouring its speed. */
+const at = (scene, frame) => (S[scene].from + frame / S[scene].speed) / FPS;
 const midi = (m) => 440 * 2 ** ((m - 69) / 12);
 
 /** Add a mono voice, rendered by fn(t) for `dur` seconds, at `start` seconds. */
@@ -181,9 +181,10 @@ function band(from, to, { full }) {
   }
 }
 
-// Music enters with Aya (the catch), drops to the felt piano for the night,
-// cuts for the 10 frames before the closing line, and returns under it.
-band(at("aya", 2), at("night", 0), { full: true });
+// Silence under the black card; music enters with Aya, drops to the felt
+// piano for the night, cuts for the frames before the closing line, and
+// returns under it.
+band(at("aya", 0), at("night", 0), { full: true });
 band(at("night", 0), at("night", 140), { full: false });
 band(at("close", 6), f2s(S.close.to), { full: true });
 
@@ -219,16 +220,28 @@ add(at("hook", 46), 0.32, (t) => Math.sin(2 * Math.PI * 1000 * t) * Math.min(1, 
 swoosh(at("hook", 168), 0.9, 0.16, 0.4);
 add(at("hook", 214), 26 / FPS, (t) => (Math.sin(2 * Math.PI * (8 + 20 * t) * t) > 0.9 ? rand() * 0.6 : 0) * 0.5, { gain: 0.25, pan: 0.3 });
 
-// Scene 2: the catch, the orb blooming, three badges.
+// The interrupt: a deep hit on the cut to black, and a high shimmer as the
+// words take healdesk's colours.
+add(at("interrupt", 0), 1.6, (t) => Math.sin(2 * Math.PI * (38 + 40 * Math.exp(-6 * t)) * t) * Math.exp(-2.2 * t), { gain: 0.6, send: 0.25 });
+{
+  const lp = lowpass(12000);
+  const lp2 = lowpass(5000);
+  add(at("interrupt", 18), 1.2, (t) => {
+    const n = lp(rand());
+    return (n - lp2(n)) * Math.sin((Math.PI * t) / 1.2) * 0.6;
+  }, { gain: 0.14, send: 0.6 });
+}
+
+// Scene 2: the orb blooms with a tink, three badges.
 tink(at("aya", 2), 0, 0.42);
 {
   const lp = lowpass(900);
-  add(at("aya", 8), 1.2, (t) => lp(rand()) * Math.sin((Math.PI * t) / 1.2) * 0.8 + Math.sin(2 * Math.PI * 110 * t) * Math.exp(-3 * t) * 0.4, { gain: 0.2, send: 0.4 });
+  add(at("aya", 4), 1.2, (t) => lp(rand()) * Math.sin((Math.PI * t) / 1.2) * 0.8 + Math.sin(2 * Math.PI * 110 * t) * Math.exp(-3 * t) * 0.4, { gain: 0.2, send: 0.4 });
 }
-for (let i = 0; i < 3; i++) pop(at("aya", 44 + i * 6), 0.18, i * 2, -0.4 + i * 0.4);
+for (let i = 0; i < 3; i++) pop(at("aya", 34 + i * 6), 0.18, i * 2, -0.4 + i * 0.4);
 
 // Scene 3: keys, the button, the box shattering into the build.
-clicks(at("url", 15), 19, 1.6);
+clicks(at("url", 15), 19, 1.6 / S.url.speed);
 add(at("url", 46), 0.06, (t) => Math.sin(2 * Math.PI * 180 * t) * Math.exp(-60 * t), { gain: 0.3 });
 {
   const lpA = lowpass(9000);
@@ -256,7 +269,7 @@ pop(at("channels", 138), 0.2, 7);
 // healdesk's notification.
 pop(at("deposit", 22), 0.2, 2);
 swoosh(at("deposit", 26), 0.45, 0.16);
-clicks(at("deposit", 40), 12, 1.4, 0.12);
+clicks(at("deposit", 40), 12, 1.4 / S.deposit.speed, 0.12);
 add(at("deposit", 64), 0.06, (t) => Math.sin(2 * Math.PI * 200 * t) * Math.exp(-60 * t), { gain: 0.3 });
 tink(at("deposit", 76), 4, 0.44);
 tink(at("deposit", 76) + 0.016, 11, 0.2);

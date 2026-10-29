@@ -1,8 +1,8 @@
 import React from "react";
-import { interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
+import { interpolate, spring, useVideoConfig } from "remotion";
 
 import { CLINIC, money } from "../copy";
-import { exit, lerp, Shell, Stage, tilt, useLayout, useSnap } from "../motion";
+import { exit, lerp, Shell, Stage, tilt, useLayout, useSnap, useFrame } from "../motion";
 import { Backdrop, Bubble, Glass, Kinetic, Orb } from "../parts";
 import { c, font, SNAP } from "../tokens";
 
@@ -14,7 +14,7 @@ const OPENER = `Hi! I'm Aya, ${CLINIC.name}'s AI assistant. Looking for Botox pr
  * the clinic's logo, colours, treatments and a chat in its colours assemble.
  */
 export const S3UrlBuild: React.FC = () => {
-  const frame = useCurrentFrame();
+  const frame = useFrame();
   const { wide } = useLayout();
 
   const typed = Math.max(0, Math.min(CLINIC.url.length, Math.floor((frame - 15) / 1.6)));
@@ -30,7 +30,7 @@ export const S3UrlBuild: React.FC = () => {
 
   // The orb shrinks into the box's left edge and turns into the caret.
   const orbT = lerp(frame, [0, 14], [0, 1]);
-  const orbFrom = wide ? { x: 1380, y: 520, s: 420 } : { x: 540, y: 700, s: 440 };
+  const orbFrom = wide ? { x: 1380, y: 520, s: 420 } : { x: 540, y: 640, s: 460 };
   const orbTo = { x: (W - boxW) / 2 + 60, y: boxTop + 150, s: 40 };
 
   return (

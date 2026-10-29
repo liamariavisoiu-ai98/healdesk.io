@@ -482,7 +482,7 @@ export function OwnBranding() {
           : "";
 
   return (
-    <div ref={stage} data-reveal className="own-stage relative mt-16 overflow-hidden rounded-lg border border-black/[0.06] px-5 pt-12 sm:mt-24 sm:px-10 sm:pt-16">
+    <div ref={stage} id="own-branding" data-reveal className="own-stage relative mt-16 scroll-mt-24overflow-hidden rounded-lg border border-black/[0.06] px-5 pt-12 sm:mt-24 sm:px-10 sm:pt-16">
       <div className="mx-auto max-w-[760px] text-center">
         <h3 className="heading-sub text-ink mx-auto">
           See it in your own branding

@@ -445,7 +445,7 @@ delivered, 30 days after it was queued or 72 hours after a send nothing answered
 whatever its switch, which decides only whether transcripts are sent, and leaves each row
 as a receipt (the ops operation `transcriptDeliveries` reads them). `retention-purge` and `offboarding-destroy` run for every clinic whose agreement
 states what they do, whatever their switch, which only adds the other clinics: BAA
-1.3.0, 1.4.0, 1.5.0 and 1.5.1 and the DPA today, read from each version's own text (`purgeIsPromised`,
+1.3.0, 1.4.0, 1.5.0, 1.5.1 and 1.6.0 and the DPA today, read from each version's own text (`purgeIsPromised`,
 `exportRuleIsPromised`; switched off, each run's note says so). And four sweeps have no
 switch at all: `erasure-expiry`, `booking-request-expiry`, `welcome-email` and
 `booking-requirements-defaults`. The `heartbeat` row is the liveness signal and
@@ -483,7 +483,7 @@ does, or once older than the record clock when its appointment is already gone
 
 Which clinics: a clinic whose agreement states the purge's periods is purged every night
 whether the job's switch is on or not (`purgeIsPromised`, which reads each version's own
-retention clause: BAA 1.3.0, 1.4.0, 1.5.0 and 1.5.1 and the DPA today, and any later version only if
+retention clause: BAA 1.3.0, 1.4.0, 1.5.0, 1.5.1 and 1.6.0 and the DPA today, and any later version only if
 its text says so); the switch adds every other clinic, those on 1.2.2 or earlier and any with no
 agreement. **At the release of 1.3.0, switch `retention-purge` on** in the
 ops console (Jobs), so the clinics still on 1.2.2 or 1.2.1, whose agreement promises ninety days
@@ -779,7 +779,7 @@ shows or exports.
 
 ### A request a patient makes to us
 
-BAA 1.5.1 clause 14: when a patient asks healdesk itself, not the practice, to see,
+BAA 1.6.0 clause 14 (1.5.1's, as 1.6.0 carries it): when a patient asks healdesk itself, not the practice, to see,
 correct, account for or delete their information, or anything else about it, we do not
 act on it. We pass it to the practice within five business days, and our reply to the
 person says we cannot act on it and have passed it on. That reply is written by a

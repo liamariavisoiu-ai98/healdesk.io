@@ -53,7 +53,10 @@ recommends that counsel review it. The same day BAA 1.6.0 was drafted, not
 released: 1.5.1 with Anthropic's retention said as Anthropic's
 documentation says it for the models the product calls, correcting finding
 A3's misquote (`agreement-changes.md` § 17, `docs/baa-v1.6.0.txt`); its
-`approvedByCounsel` is false until the owner releases it. On 20 October
+`approvedByCounsel` was false until the owner released it on 29 October
+2026, without external counsel (`agreement-changes.md` § 17): since then
+1.6.0 is the only version offered and the go-live floor, and 1.5.1 is
+frozen below it. On 20 October
 2026 the owner released the Data Protection Agreement (`dpa/1.0.0`), which
 a veterinary practice and a practice that answers "No" to billing health
 insurance electronically sign in place of the BAA, with its own calendar

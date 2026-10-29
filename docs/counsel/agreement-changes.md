@@ -58,6 +58,16 @@
 > Anthropic gives flagged content alone; § 17 corrects it. 1.5.1 stays the
 > version offered until the owner releases 1.6.0, which the launch tracker
 > (/admin/seo, `baa-1-6-0-retention`) holds as an item that blocks go-live.
+>
+> **Released by the owner on 29 October 2026, without external counsel.** He
+> said "Release." in chat; `BAA_1_6_0_RELEASED` is true in
+> `packages/catalog/src/baa.ts`, 1.6.0 is the version checkout offers and the
+> go-live floor with no overlap, 1.5.1 stays registered below the floor, and
+> migration `0136_baa_release_1_6_0` moves `app_baa_version_acceptable()` to
+> 1.6.0 alone. `approvedByCounsel` keeps the BAA's flag name for his release.
+> The owner stated there are no clients yet, so no unprovisioned 1.5.1 signer
+> is held by the move. Counsel review is still recommended. The text below is
+> kept as it was written before the release.
 > The terms, /data-deletion, the homepage FAQ, the register and the
 > unreleased DPA were corrected the same day.
 
@@ -79,7 +89,7 @@
 14. [BAA 1.4.0: the transcript emailed, not kept](#14-baa-140-the-transcript-emailed-not-kept) (released 13 October 2026)
 15. [BAA 1.5.0: the transcript's copy deleted once delivery is confirmed](#15-baa-150-the-transcripts-copy-deleted-once-delivery-is-confirmed) (released 14 October 2026)
 16. [BAA 1.5.1: the optional booking details asked in a website chat too](#16-baa-151-the-optional-booking-details-asked-in-a-website-chat-too) (released 19 October 2026)
-17. [BAA 1.6.0: the model provider's retention, as Anthropic documents it](#17-baa-160-the-model-providers-retention-as-anthropic-documents-it) (drafted 19 October 2026, not released)
+17. [BAA 1.6.0: the model provider's retention, as Anthropic documents it](#17-baa-160-the-model-providers-retention-as-anthropic-documents-it) (drafted 19 October 2026, released by the owner 29 October 2026)
 18. [Review log](#review-log-2026-10-01)
 
 ---
@@ -2903,6 +2913,16 @@ release touches.
 
 ## 17. BAA 1.6.0: the model provider's retention, as Anthropic documents it
 
+> **Released by the owner on 29 October 2026, without external counsel.** He
+> said "Release." in chat; `BAA_1_6_0_RELEASED` is true in
+> `packages/catalog/src/baa.ts`, 1.6.0 is the version checkout offers and the
+> go-live floor with no overlap, 1.5.1 stays registered below the floor, and
+> migration `0136_baa_release_1_6_0` moves `app_baa_version_acceptable()` to
+> 1.6.0 alone. `approvedByCounsel` keeps the BAA's flag name for his release.
+> The owner stated there are no clients yet, so no unprovisioned 1.5.1 signer
+> is held by the move. Counsel review is still recommended. The text below is
+> kept as it was written before the release.
+
 > **Not legal advice. Drafted 19 October 2026 and NOT released.** BAA 1.6.0
 > is 1.5.1 with three clauses changed: the Subcontractors clause's paragraph
 > on Anthropic, and the state-law and Term clauses' sentences that point at
@@ -3340,6 +3360,16 @@ the calendar elections reproduce as before.
 | dpa/1.0.0 vet_notused_mindbody | `e625e788…d5f3` | `66096105d262139e06c11d35a4c0869e079fcd0ec860f80ac697a14d28dbb26e` |
 
 ## 20. The one optional payment-link text: the 1.6.0 draft only (29 October 2026)
+
+> **Released by the owner on 29 October 2026, without external counsel.** He
+> said "Release." in chat; `BAA_1_6_0_RELEASED` is true in
+> `packages/catalog/src/baa.ts`, 1.6.0 is the version checkout offers and the
+> go-live floor with no overlap, 1.5.1 stays registered below the floor, and
+> migration `0136_baa_release_1_6_0` moves `app_baa_version_acceptable()` to
+> 1.6.0 alone. `approvedByCounsel` keeps the BAA's flag name for his release.
+> The owner stated there are no clients yet, so no unprovisioned 1.5.1 signer
+> is held by the move. Counsel review is still recommended. The text below is
+> kept as it was written before the release.
 
 > **Not legal advice, and not reviewed by counsel.** The owner instructed
 > this change on 28 and 29 October 2026, in deliberately general words

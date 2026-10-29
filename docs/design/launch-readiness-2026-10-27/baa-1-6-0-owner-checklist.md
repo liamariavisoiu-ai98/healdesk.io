@@ -1,4 +1,7 @@
-# BAA 1.6.0: owner checklist (prepared, NOT released)
+# BAA 1.6.0: owner checklist (RELEASED by the owner, 29 October 2026)
+
+**Released.** The owner said "Release." on 29 October 2026, without external counsel, and stated there are no clients yet (section 1: none of either). Section 4 was executed on branch `baa-1-6-0/release`: `BAA_1_6_0_RELEASED` is true and the release migration is `apps/app/drizzle/0136_baa_release_1_6_0.sql`. Not merged or deployed by that branch: section 3's deploy order still applies, and the migration runs in production only with `deploy-app.yml` and the owner's word. The rest of this file is kept as written before the release.
+
 
 State on this branch: `BAA_1_6_0_RELEASED` is `false` in `packages/catalog/src/baa.ts`, 1.6.0's `approvedByCounsel` is false, checkout offers 1.5.1, and nothing in production changes. `approvedByCounsel` for 1.6.0 flips to true only through that switch (`baaTemplatesFor(true)`); no template literal says true.
 

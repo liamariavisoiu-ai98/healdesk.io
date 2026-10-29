@@ -98,7 +98,7 @@ export const metadata: Metadata = {
  *     no payment link there, where it said it could "book an appointment or
  *     send the clinic's own payment link": lib/meta/front-door.ts creates
  *     booking requests only, and nothing calls depositLinkMessage.
- *     (Superseded for the payment link by LEGAL_VERSION 2026-10-29.5, below.)
+ *     (Superseded for the payment link by LEGAL_VERSION 2026-10-29.4, below.)
  *
  * Revised on 13 October 2026 as LEGAL_VERSION 2026-10-13.3, for BAA 1.4.0
  * (agreement-changes.md § 14): the owner decided that day that healdesk
@@ -187,18 +187,26 @@ export const metadata: Metadata = {
  * none is.
  *
  * Revised on 29 October 2026, numbered 2026-10-29.3 and released as
- * LEGAL_VERSION 2026-10-29.5 (DEP-META slice 1;
+ * LEGAL_VERSION 2026-10-29.4 (DEP-META slice 1;
  * see the terms): section 12 says that where the clinic takes deposits and its
  * staff confirm a request while the conversation is open, the assistant sends
  * the clinic's own secure payment link there, naming no treatment, amount or
  * time (apps/app/src/lib/meta/deposit-link.ts), in place of "sends no payment
  * link there". It still books nothing itself.
  *
- * Released on 29 October 2026 as LEGAL_VERSION 2026-10-29.5 (see the terms;
+ * Released on 29 October 2026 as LEGAL_VERSION 2026-10-29.4 (see the terms;
  * 2026-10-29.2 and .3 never went out, replacing 2026-10-29.1): section 12's
  * payment-link sentence says the assistant "is designed to send" the link,
  * since no clinic can connect a gateway until Stripe Connect is configured
  * in production.
+ *
+ * Revised on 29 October 2026 as LEGAL_VERSION 2026-10-29.5, replacing the
+ * live 2026-10-29.4 (owner, 29 October 2026): section 6 lists the 30-day
+ * record of calls and chats the assistant could not answer (the time, the
+ * channel, the caller's number if given and what happened), kept so the
+ * clinic can follow up (apps/app missed_contacts, migration 0139). It is the
+ * one combined text of this batch, on 1.6.0's release sentences; the terms
+ * and the deletion page are word for word as in 2026-10-29.4.
  */
 export default function PrivacyPage() {
   return (

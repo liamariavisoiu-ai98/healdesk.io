@@ -157,7 +157,7 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  *     prompt forbids deposits and links, and nothing calls
  *     depositLinkMessage (lib/booking/deposit-gate.ts). Section 2's deposit
  *     link is "in website chat", not "in chat". (Superseded for Meta by
- *     LEGAL_VERSION 2026-10-29.5, below: the desk-confirmed deposit link.)
+ *     LEGAL_VERSION 2026-10-29.4, below: the desk-confirmed deposit link.)
  *
  * Revised on 13 October 2026 as LEGAL_VERSION 2026-10-13.3, for BAA 1.4.0
  * (docs/counsel/agreement-changes.md § 14): the owner decided that day that
@@ -331,7 +331,7 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * sent. That is the owner's call and a separate version.
  *
  * Revised on 29 October 2026, numbered 2026-10-29.3 and released as
- * LEGAL_VERSION 2026-10-29.5 (DEP-META slice 1,
+ * LEGAL_VERSION 2026-10-29.4 (DEP-META slice 1,
  * owner-approved on 28 and 29 October 2026, docs/design/launch-readiness-
  * 2026-10-27/dep-meta-deposit-links.md § 7): on Instagram, Messenger and
  * WhatsApp, where the practice takes deposits and its staff confirm a booking
@@ -345,12 +345,16 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * send a payment link in an Instagram, Messenger or WhatsApp conversation,
  * so no agreement template changes.
  *
- * Released on 29 October 2026 as LEGAL_VERSION 2026-10-29.5, the version
+ * Released on 29 October 2026 as LEGAL_VERSION 2026-10-29.4, the version
  * that goes out (2026-10-29.2 and .3 never did: BAA 1.6.0 and DEP-META slice
  * 1 land together, replacing 2026-10-29.1): the text above with BAA 1.6.0's
  * release sentences, and section 2's Meta payment-link sentence phrased as
  * design ("is designed to send"), since no clinic can connect a gateway until
  * Stripe Connect is configured in production (copy first, then the switch).
+ *
+ * LEGAL_VERSION 2026-10-29.5 (29 October 2026) changes the privacy policy
+ * only (the 30-day missed-contact record, its section 6); this page's text
+ * is word for word as released in 2026-10-29.4.
  */
 export default function TermsPage() {
   const products = productsForTerms();

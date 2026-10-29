@@ -21,6 +21,7 @@ import {
 import { probeLiveness } from "@/lib/host/state";
 
 import AgreementChecksSection from "./AgreementChecksSection";
+import AnswerCasesSection from "./AnswerCasesSection";
 import DemoCallbacksSection from "./DemoCallbacksSection";
 import { checkApprovalEdit } from "./approval-edit";
 import { ApprovalsSection, type ApprovalEdit } from "./ApprovalsSection";
@@ -70,13 +71,14 @@ const SECTIONS = [
   { id: "reviews", label: "Reviews" },
   { id: "agreement-checks", label: "Agreement checks" },
   { id: "support", label: "Support" },
+  { id: "answer-cases", label: "Misses and outages" },
   { id: "retell-deletions", label: "Retell deletions" },
   { id: "site-reads", label: "Site reads" },
   { id: "setup-requests", label: "Setup requests" },
   { id: "demo-callbacks", label: "Demo call backs" },
 ] as const;
 
-type Query = { support?: string; retell?: string; setup?: string; callback?: string };
+type Query = { support?: string; miss?: string; retell?: string; setup?: string; callback?: string };
 
 export default async function QueuesPage({ searchParams }: { searchParams: Promise<Query> }) {
   if (!(await requireOperator())) redirect("/admin/sign-in");
@@ -158,6 +160,7 @@ export default async function QueuesPage({ searchParams }: { searchParams: Promi
           <ReviewsSection />
           <AgreementChecksSection />
           <SupportSection searchParams={Promise.resolve({ result: query.support })} />
+          <AnswerCasesSection searchParams={Promise.resolve({ result: query.miss })} />
           <RecordingsSection searchParams={Promise.resolve({ result: query.retell })} />
           <SiteReadsSection />
         </>

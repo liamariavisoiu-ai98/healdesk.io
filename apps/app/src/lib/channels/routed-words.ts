@@ -1,5 +1,5 @@
 /**
- * The routed/answered counter's closed words (drizzle/0137), kept apart from
+ * The routed/answered counter's closed words (drizzle/0139), kept apart from
  * lib/channels/routed-answered.ts so the schema can import them without the
  * database client.
  *
@@ -91,6 +91,32 @@ export type RoutedReason = ExcludedReason | MissedReason;
  * where AYA did answer.
  */
 export const OUTAGE_MISSED_REASONS: readonly MissedReason[] = MISSED_REASONS.filter((r) => r !== "late");
+
+/** An outage incident (answer_outages): open from L17 until L18. */
+export const OUTAGE_STATUSES = ["open", "closed"] as const;
+export type OutageStatus = (typeof OUTAGE_STATUSES)[number];
+
+/**
+ * A miss investigation (miss_cases), opened with L21: `open` until someone
+ * looks, `looking` while they do, `explained` once we know why (and have told
+ * the clinic if it asked), `closed` when nothing more is owed.
+ */
+export const MISS_CASE_STATUSES = ["open", "looking", "explained", "closed"] as const;
+export type MissCaseStatus = (typeof MISS_CASE_STATUSES)[number];
+
+/**
+ * Where an unanswered call or conversation went (missed_contacts.outcome):
+ * the clinic's direct line (a call put through); the website's contact form
+ * (shown instead of chat); nowhere (the caller heard a closing line or hung
+ * up, a chat saw only the failure line, a Meta message got no reply and
+ * waits in the clinic's own inbox); unknown (the process that took it
+ * stopped before it said, and the sweep counted it missed).
+ */
+export const MISSED_OUTCOMES = ["direct_line", "contact_form", "nowhere", "unknown"] as const;
+export type MissedOutcome = (typeof MISSED_OUTCOMES)[number];
+
+/** The missed-contact record is deleted this long after the miss (owner, 29 October 2026). */
+export const MISSED_CONTACT_RETENTION_DAYS = 30;
 
 /** Terms §5: a call is answered when its opening line starts within 10 seconds of reaching us. */
 export const CALL_ANSWER_WITHIN_MS = 10_000;

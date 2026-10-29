@@ -347,7 +347,7 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
   const usage = { source: "web_chat" as const, sourceRef: identifierRef("chat_conversation", clinic.clinicId, conversationId) };
   const decision = await assistantMayAnswer({ clinicId: clinic.clinicId, channel: "web", usage, continuing, now, actor: ACTOR });
   if (decision.decision === "pass_through") {
-    if (counted) await noteResolved(clinic.clinicId, routed, passThroughResolution(decision.reason));
+    if (counted) await noteResolved(clinic.clinicId, routed, passThroughResolution(decision.reason, "contact_form"));
     return { mode: "contact_form", reason: decision.reason, form: await contactFormOffer(clinic, decision) };
   }
 

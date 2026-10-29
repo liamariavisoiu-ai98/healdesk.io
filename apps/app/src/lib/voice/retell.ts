@@ -732,6 +732,8 @@ export class RetellCallSession {
   private answerStartedAt: Date | null = null;
   /** A turn failed after she had answered and the call went to the direct line: cut off by our side. */
   private cutOff = false;
+  /** The call was put through to a line (the direct line, or the urgent-help number). */
+  private transferred = false;
   /** The call's pending row has been asked for (once). */
   private routedNoted: Promise<void> | null = null;
 
@@ -798,6 +800,7 @@ export class RetellCallSession {
       return;
     }
     if (options.endCall || options.transferTo) this.final = { content, endCall: Boolean(options.endCall), transferTo: options.transferTo ?? null };
+    if (options.transferTo) this.transferred = true;
     this.send({
       response_type: "response",
       response_id: responseId,
@@ -894,6 +897,18 @@ export class RetellCallSession {
    * within 5 seconds does not count and one who waited longer was missed.
    */
   private routedResolution(endedAt: Date): RoutedResolution {
+    const resolved = this.routedOutcome(endedAt);
+    if (resolved.outcome !== "missed") return resolved;
+    // Where it went, and the number for the missed-contact record: never for
+    // a call of which nothing may be kept (patientDataRefused).
+    return {
+      ...resolved,
+      wentTo: this.transferred ? "direct_line" : "nowhere",
+      callerPhone: this.keepsNothing ? null : this.callerPhone,
+    };
+  }
+
+  private routedOutcome(endedAt: Date): RoutedResolution {
     if (this.outbound) return { outcome: "excluded", reason: "outbound" };
     if (this.routedVerdict) return this.routedVerdict;
     if (this.answerStartedAt) {

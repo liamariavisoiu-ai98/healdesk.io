@@ -274,4 +274,11 @@ export const PLACES: Readonly<Record<string, Place>> = {
   Assign: ["app/admin/support/[caseId]/CaseView.tsx", 'label="Assign"', "button"],
   Match: ["app/admin/support/[caseId]/CaseView.tsx", 'label="Match"', "button"],
   "Close the case": ["app/admin/support/[caseId]/CaseView.tsx", 'label="Close"', "button"],
+  // Gate B's notice workflows (lib/channels/answer-notices.ts): Queues ›
+  // Misses and outages, its outage incidents and miss cases, and the three
+  // moves of a miss case.
+  "Misses and outages": ["app/admin/queues/AnswerCasesSection.tsx", 'title="Misses and outages"', "page"],
+  "Mark looking": ["app/admin/queues/AnswerCasesSection.tsx", '"Mark looking"', "button"],
+  "Mark explained": ["app/admin/queues/AnswerCasesSection.tsx", '"Mark explained"', "button"],
+  "Close miss case": ["app/admin/queues/AnswerCasesSection.tsx", '"Close miss case"', "button"],
 };

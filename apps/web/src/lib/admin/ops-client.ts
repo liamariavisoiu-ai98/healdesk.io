@@ -350,6 +350,11 @@ type OperatorOp =
   // or a number.
   | "listRecordingAlerts"
   | "deleteRecordedCall"
+  // Queues › Misses and outages (apps/app lib/ops/answer-cases-ops.ts): the
+  // outage incidents and miss cases the routed/answered counter opened, as ids,
+  // channels, counts and times; and the owner's move of a miss case.
+  | "listAnswerCases"
+  | "setMissCaseStatus"
   // Each clinic's Retell agent and AYA number, set up by code (apps/app
   // lib/voice/provision.ts): ids, status and times only, never a caller, a
   // number or a secret. A read here; the retry and the drift clear below go
@@ -1310,6 +1315,111 @@ export function deleteRecordedCall(
     if (status === "too_soon") return { status, notBefore: isoInstant(data.notBefore, "deleteRecordedCall.notBefore") };
     if (status === "failed") return { status, reason: text(data.reason, "deleteRecordedCall.reason") };
     return { status };
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Misses and outages (apps/app lib/channels/answer-notices.ts, miss-cases.ts)
+// -----------------------------------------------------------------------------
+
+const ANSWER_CHANNELS = ["voice", "web", "meta"] as const;
+export const MISS_CASE_STATUSES = ["open", "looking", "explained", "closed"] as const;
+export type MissCaseStatus = (typeof MISS_CASE_STATUSES)[number];
+
+/** An outage incident: opened with "AYA can't answer right now", closed with "AYA is answering again". */
+export type OutageView = {
+  outageId: string;
+  clinicId: string;
+  clinicSlug: string;
+  status: "open" | "closed";
+  channels: (typeof ANSWER_CHANNELS)[number][];
+  startedAt: string;
+  lastFailureAt: string;
+  openedAt: string;
+  replyByAt: string;
+  escalations: number;
+  endedAt: string | null;
+  callCount: number | null;
+  chatCount: number | null;
+};
+
+/** A miss case: opened with "Looking into a call", one per channel and day. */
+export type MissCaseView = {
+  caseId: string;
+  clinicId: string;
+  clinicSlug: string;
+  ref: string;
+  channel: (typeof ANSWER_CHANNELS)[number];
+  missedOn: string;
+  firstMissedAt: string;
+  missCount: number;
+  status: MissCaseStatus;
+  openedAt: string;
+  replyByOn: string;
+  statusAt: string;
+  replied: boolean;
+};
+
+export type AnswerCases = { outages: OutageView[]; missCases: MissCaseView[]; unreadClinics: number };
+
+/** Every outage incident and miss case, open first: ids, channels, counts and times only. */
+export function fetchAnswerCases(): Promise<OpsResult<AnswerCases>> {
+  return callOps("listAnswerCases", "read", {}, (value) => {
+    const data = object(value, "listAnswerCases");
+    return {
+      outages: list(data.outages, "listAnswerCases.outages").map((row, i) => {
+        const r = object(row, `listAnswerCases.outages[${i}]`);
+        return {
+          outageId: id(r.outageId, "outage.outageId"),
+          clinicId: id(r.clinicId, "outage.clinicId"),
+          clinicSlug: text(r.clinicSlug, "outage.clinicSlug"),
+          status: literal(r.status, ["open", "closed"] as const, "outage.status"),
+          channels: list(r.channels, "outage.channels").map((c, k) => literal(c, ANSWER_CHANNELS, `outage.channels[${k}]`)),
+          startedAt: isoInstant(r.startedAt, "outage.startedAt"),
+          lastFailureAt: isoInstant(r.lastFailureAt, "outage.lastFailureAt"),
+          openedAt: isoInstant(r.openedAt, "outage.openedAt"),
+          replyByAt: isoInstant(r.replyByAt, "outage.replyByAt"),
+          escalations: count(r.escalations, "outage.escalations"),
+          endedAt: optionalIsoInstant(r.endedAt, "outage.endedAt"),
+          callCount: optionalCount(r.callCount, "outage.callCount"),
+          chatCount: optionalCount(r.chatCount, "outage.chatCount"),
+        };
+      }),
+      missCases: list(data.missCases, "listAnswerCases.missCases").map((row, i) => {
+        const r = object(row, `listAnswerCases.missCases[${i}]`);
+        return {
+          caseId: id(r.caseId, "missCase.caseId"),
+          clinicId: id(r.clinicId, "missCase.clinicId"),
+          clinicSlug: text(r.clinicSlug, "missCase.clinicSlug"),
+          ref: supportRef(r.ref, "missCase.ref"),
+          channel: literal(r.channel, ANSWER_CHANNELS, "missCase.channel"),
+          missedOn: date(r.missedOn, "missCase.missedOn"),
+          firstMissedAt: isoInstant(r.firstMissedAt, "missCase.firstMissedAt"),
+          missCount: count(r.missCount, "missCase.missCount"),
+          status: literal(r.status, MISS_CASE_STATUSES, "missCase.status"),
+          openedAt: isoInstant(r.openedAt, "missCase.openedAt"),
+          replyByOn: date(r.replyByOn, "missCase.replyByOn"),
+          statusAt: isoInstant(r.statusAt, "missCase.statusAt"),
+          replied: bool(r.replied, "missCase.replied"),
+        };
+      }),
+      unreadClinics: count(data.unreadClinics, "listAnswerCases.unreadClinics"),
+    };
+  });
+}
+
+export type MissCaseMoveOutcome = { status: "moved" | "already" | "closed" | "not_found" | "bad_note" };
+
+/** The owner's move of a miss case. A closed case stays closed. One security event per move. */
+export function setMissCaseStatus(
+  clinicId: string,
+  caseId: string,
+  status: MissCaseStatus,
+  note?: string,
+): Promise<OpsResult<MissCaseMoveOutcome>> {
+  return callOps("setMissCaseStatus", "write", { clinicId, caseId, status, ...(note ? { note } : {}) }, (value) => {
+    const data = object(value, "setMissCaseStatus");
+    return { status: literal(data.status, ["moved", "already", "closed", "not_found", "bad_note"] as const, "setMissCaseStatus.status") };
   });
 }
 

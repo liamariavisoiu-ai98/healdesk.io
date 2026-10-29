@@ -134,6 +134,8 @@ export const PATIENT_RECORD_TYPES = [
   "patient_request",
   /** Who an incident affected, as the incident's page shows them (L29), named by their contact ids. */
   "incident_affected",
+  /** An unanswered call or chat, kept 30 days (missed_contacts): its list and its page off Home. */
+  "missed_contact",
 ] as const;
 export type PatientRecordType = (typeof PATIENT_RECORD_TYPES)[number];
 

@@ -34,7 +34,7 @@ import { PENDING_TEMPLATES } from "@/lib/email/templates/registry";
  *     tests/go-live.test.ts reads each file for the call. A channel missing
  *     from ANSWER_GATE_CHANNELS could never meet Gate B.
  *   - **The routed/answered counter and its miss notice**: the counter is
- *     built (lib/channels/routed-answered.ts, drizzle/0137): each runtime
+ *     built (lib/channels/routed-answered.ts, drizzle/0139): each runtime
  *     records every call or conversation routed to AYA and what became of
  *     it, and the minute sweep (lib/channels/answer-notices.ts) queues the
  *     outage notices and the guarantee's miss notice (L17, L18, L21) with

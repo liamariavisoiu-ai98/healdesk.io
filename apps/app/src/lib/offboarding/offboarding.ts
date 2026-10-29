@@ -24,6 +24,7 @@ import {
   patientRequests,
   providerConnections,
   reconciliationExceptions,
+  missedContacts,
   retellRecordingAlerts,
   rightsIntakes,
   securityEvents,
@@ -691,6 +692,9 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
       callId: stillAtRetell.join(","),
     });
   }
+  // The 30-day missed-contact record (drizzle/0139): a caller's number next
+  // to the clinic, so it goes with the clinic's data, and the stamp's check names it.
+  await del("missed_contacts", () => tx.db.delete(missedContacts).where(eq(missedContacts.clinicId, c)).returning({ id: missedContacts.id }));
   await del("contacts", () => tx.db.delete(contacts).where(eq(contacts.clinicId, c)).returning({ id: contacts.id }));
   await del("webhook_events", () => tx.db.delete(webhookEvents).where(eq(webhookEvents.clinicId, c)).returning({ id: webhookEvents.id }));
   // The records of the clinic's deletion requests (drizzle/0063): dates,

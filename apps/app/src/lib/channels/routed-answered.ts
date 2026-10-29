@@ -4,7 +4,7 @@ import type { Channel } from "@healdesk/catalog";
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 
 import type { Transaction } from "@/db";
-import { routedInteractions } from "@/db/schema";
+import { missedContacts, routedInteractions } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import type { PassThroughReason } from "@/lib/billing/answering";
 import { describeError, log } from "@/lib/log";
@@ -14,13 +14,14 @@ import {
   EXCLUDED_REASONS,
   ROUTED_OUTCOMES,
   type ExcludedReason,
+  type MissedOutcome,
   type MissedReason,
   type RoutedOutcome,
   type RoutedReason,
 } from "./routed-words";
 
 /**
- * The routed/answered counter (Gate B; drizzle/0137, routed_interactions).
+ * The routed/answered counter (Gate B; drizzle/0139, routed_interactions).
  *
  * Every runtime that answers a patient (the Retell process, lib/voice/
  * retell.ts; website chat, lib/chat/web-chat.ts; the Meta webhook,
@@ -58,7 +59,55 @@ export function routedRefHash(channel: Channel, ref: string): string {
 export type RoutedResolution =
   | { outcome: "answered"; answeredAt: Date }
   | { outcome: "excluded"; reason: ExcludedReason }
-  | { outcome: "missed"; reason: MissedReason; answeredAt?: Date | null };
+  | {
+      outcome: "missed";
+      reason: MissedReason;
+      answeredAt?: Date | null;
+      /** Where it went, for the missed-contact record; "nowhere" unset. */
+      wentTo?: MissedOutcome;
+      /** ⚠️ PHI. The caller's number, E.164, when known: kept only in missed_contacts. */
+      callerPhone?: string | null;
+    };
+
+export type MissedContactInput = {
+  channel: Channel;
+  refHash: string;
+  missedAt: Date;
+  wentTo: MissedOutcome;
+  callerPhone: string | null;
+};
+
+const E164 = /^\+[1-9]\d{6,14}$/;
+
+/**
+ * The 30-day missed-contact record for one unanswered call or conversation
+ * (missed_contacts), once: a retry is the same row. In a savepoint of its
+ * own; a refusal is logged by clinic and never by number. Returns whether it
+ * inserted.
+ */
+export async function recordMissedContact(db: Transaction, clinicId: string, input: MissedContactInput): Promise<boolean> {
+  try {
+    return await db.transaction(async (savepoint) => {
+      const rows = await savepoint
+        .insert(missedContacts)
+        .values({
+          clinicId,
+          channel: input.channel,
+          refHash: input.refHash,
+          missedAt: input.missedAt,
+          callerPhone: input.callerPhone && E164.test(input.callerPhone) ? input.callerPhone : null,
+          outcome: input.wentTo,
+          reachedDirectLine: input.wentTo === "direct_line",
+        })
+        .onConflictDoNothing({ target: [missedContacts.clinicId, missedContacts.channel, missedContacts.refHash] })
+        .returning({ id: missedContacts.id });
+      return rows.length > 0;
+    });
+  } catch (error) {
+    log.error("missed contact not recorded", { clinicId, channel: input.channel, error: describeError(error) });
+    return false;
+  }
+}
 
 export type RoutedKey = { channel: Channel; ref: string; routedAt: Date };
 
@@ -81,15 +130,15 @@ export function movesTowardsWorse(current: RoutedOutcome, next: RoutedOutcome): 
  * the clinic's own state or choice does not count; a lapsed vendor's or
  * host's agreement is ours to keep in force, so it is a miss.
  */
-export function passThroughResolution(reason: PassThroughReason): RoutedResolution {
+export function passThroughResolution(reason: PassThroughReason, wentTo?: MissedOutcome): RoutedResolution {
   if (reason === "host_agreement_lapsed" || reason === "vendor_agreement_lapsed") {
-    return { outcome: "missed", reason };
+    return { outcome: "missed", reason, ...(wentTo ? { wentTo } : {}) };
   }
   if ((EXCLUDED_REASONS as readonly string[]).includes(reason)) {
     return { outcome: "excluded", reason: reason as ExcludedReason };
   }
   // A reason added to the gate and not here: fail towards the clinic, as Terms §5 reads against us.
-  return { outcome: "missed", reason: "error" };
+  return { outcome: "missed", reason: "error", ...(wentTo ? { wentTo } : {}) };
 }
 
 /** Insert the row `pending`, once: a retry is the same row. Inside the caller's transaction. */
@@ -147,8 +196,21 @@ export async function resolveRouted(
           },
           setWhere: sql`${rankSql(sql`excluded.outcome`)} > ${rankSql(routedInteractions.outcome)}`,
         })
-        .returning({ id: routedInteractions.id });
-      return rows.length > 0;
+        .returning({ id: routedInteractions.id, routedAt: routedInteractions.routedAt });
+      const moved = rows[0];
+      // Not answered at all (a late answer was one): the 30-day missed-contact
+      // record, once per call or conversation, in a savepoint of its own so a
+      // refusal (the BAA gate, a number of the wrong shape) never undoes the count.
+      if (moved && resolution.outcome === "missed" && resolution.reason !== "late") {
+        await recordMissedContact(savepoint, clinicId, {
+          channel: key.channel,
+          refHash: routedRefHash(key.channel, key.ref),
+          missedAt: moved.routedAt,
+          wentTo: resolution.wentTo ?? "nowhere",
+          callerPhone: resolution.callerPhone ?? null,
+        });
+      }
+      return moved !== undefined;
     });
   } catch (error) {
     log.error("routed interaction not resolved", {

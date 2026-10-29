@@ -139,6 +139,7 @@ import {
 } from "@/lib/ops/promise-ops";
 import { keyPresence } from "@/lib/ops/key-presence";
 import { opDeleteRecordedCall, opListRecordingAlerts } from "@/lib/ops/recording-alerts-ops";
+import { opListAnswerCases, opSetMissCaseStatus } from "@/lib/ops/answer-cases-ops";
 import { opRetryVoiceAgent, opSyncDemoVoiceAgent, opVoiceAgentStatus } from "@/lib/ops/voice-agent-ops";
 import { opClearVoiceDriftFlag } from "@/lib/ops/voice-agent-ops";
 import { opListStuckCalendarWrites } from "@/lib/ops/stuck-writes-ops";
@@ -645,6 +646,11 @@ const OPERATIONS = [
   // with HEALDESK_RETELL_API_KEY and resolve the alert. Never a recording
   // URL, a transcript or a number, either way.
   "listRecordingAlerts",
+  // Queues › Misses and outages (lib/ops/answer-cases-ops.ts): each outage
+  // incident and miss case the routed/answered counter opened, as ids,
+  // channel ids, counts and times; and the owner's move of a miss case.
+  "listAnswerCases",
+  "setMissCaseStatus",
   "deleteRecordedCall",
   // Each clinic's Retell agent and AYA number, set up by code
   // (lib/ops/voice-agent-ops.ts, lib/voice/provision.ts): the set-up as ids,
@@ -911,6 +917,8 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "issueDeviceRecovery",
   "endDeviceRecovery",
   "removeClinicDevices",
+  // Mutating: a miss case moved to looking, explained or closed.
+  "setMissCaseStatus",
   // Mutating: a call deleted at Retell and its alert resolved.
   "deleteRecordedCall",
   // Mutating: a Retell agent created and a number bought or adopted.
@@ -1582,6 +1590,10 @@ export async function runOperation(
       return opEndDeviceRecovery(args, operator);
     case "removeClinicDevices":
       return opRemoveClinicDevices(args, operator);
+    case "listAnswerCases":
+      return opListAnswerCases(operator);
+    case "setMissCaseStatus":
+      return opSetMissCaseStatus(args, operator);
     case "listRecordingAlerts":
       return opListRecordingAlerts(operator);
     case "deleteRecordedCall":

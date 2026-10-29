@@ -117,7 +117,11 @@ export const KEPT_FOR_GOOD: Readonly<Record<string, string>> = {
     "a billing record: the channels bought, from which the price was set; no DELETE for the runtime role",
   overage_invoices: "a billing record: each overage invoice",
   usage_events: "a billing record: the usage ledger the clinic was charged from",
-  // The routed/answered counter (drizzle/0137).
+  // The routed/answered counter and its notices' records (drizzle/0139).
+  answer_outages:
+    "the outage incidents the practice was told of (L17, L18): when AYA stopped and started answering again and the calls and chats unanswered meanwhile, the record of the notices given; channel ids, counts and times, no patient",
+  miss_cases:
+    "the misses the practice was told of (L21) and how each was looked into: part of the first-month guarantee's record, which a claim after closure is checked against; a channel, counts, days and closed words, no patient",
   routed_interactions:
     "the record the first-month guarantee is checked against (Terms §5, which survives termination): each call or conversation routed to AYA and whether she answered it; a claim may come up to 30 days after the first month, so after the account has closed; the channel, a hashed reference, closed words and times, no patient",
 

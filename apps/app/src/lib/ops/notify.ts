@@ -94,6 +94,13 @@ export const OPS_EVENTS = [
   // or that the test-mode check could not be read; once an hour per clinic.
   "voice_direct_line_loops",
   "voice_test_mode_refused",
+  // The routed/answered counter's workflows (lib/channels/answer-notices.ts):
+  // an outage incident opened with L17, one still open past its reply-by, a
+  // miss case opened with L21, and a notice of theirs that could not be queued.
+  "aya_outage_started",
+  "aya_outage_unresolved",
+  "aya_miss_case_opened",
+  "answer_notice_not_queued",
   "plan_start_after_cancel",
   // The DMARC review reminder (open item 14; the owner, 6 October 2026):
   // raised once, ever, by the dmarc-review job on the 14th day after Resend

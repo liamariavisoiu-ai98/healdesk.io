@@ -23,6 +23,10 @@ import type { EmailTemplate } from "./types";
 export type OutageStartedPayload = {
   /** When AYA stopped answering (ISO instant). */
   startedAt: string;
+  /** Calls are ringing through to a usable direct line. */
+  canReachDirectLine: boolean;
+  /** Website chat is among what stopped: visitors see the contact form. */
+  isChatAffected: boolean;
   /** publicUrl("/c/<slug>"): Home. */
   homeUrl: string;
 };
@@ -34,24 +38,44 @@ export type OutageEndedPayload = {
   callCount: number;
   /** People who tried to chat (website, Instagram, Messenger, WhatsApp) meanwhile. */
   chatCount: number;
+  /** publicUrl("/c/<slug>"): Home, the button when nothing came in. */
   homeUrl: string;
+  /** The portal's list of what came in meanwhile, the button when something did. */
+  missedUrl: string;
 };
 
-export const renderOutageStarted: EmailTemplate<OutageStartedPayload> = (payload, ctx) =>
-  compose(
+export const renderOutageStarted: EmailTemplate<OutageStartedPayload> = (payload, ctx) => {
+  const blocks: Block[] = [
+    {
+      type: "paragraph",
+      text: `AYA hasn't been able to answer since ${momentLong(payload.startedAt, ctx)}. The cause is on our side and we're working on it now.`,
+    },
+  ];
+  if (payload.canReachDirectLine) {
+    blocks.push({
+      type: "paragraph",
+      text: "Calls are ringing through to your direct line, so please keep it staffed.",
+    });
+  }
+  if (payload.isChatAffected) {
+    blocks.push({
+      type: "paragraph",
+      text: "Website chat visitors are being shown your contact form.",
+    });
+  }
+  blocks.push(
+    { type: "paragraph", text: "We'll email you the moment it's fixed." },
+    { type: "action", label: "Open Home", url: payload.homeUrl },
+  );
+  return compose(
     {
       subject: "AYA can't answer right now",
-      preheader: "A fault on our side. We're working on it.",
-      blocks: [
-        {
-          type: "paragraph",
-          text: `AYA has not been able to answer since ${momentLong(payload.startedAt, ctx)}, because of a fault at healdesk or one of our suppliers. We are working on it and will keep you updated as soon as it is resolved.`,
-        },
-        { type: "action", label: "Open Home", url: payload.homeUrl },
-      ],
+      preheader: "The cause is on our side and we're working on it now.",
+      blocks,
     },
     ctx,
   );
+};
 
 export const renderOutageEnded: EmailTemplate<OutageEndedPayload> = (payload, ctx) => {
   const parts: string[] = [];
@@ -68,17 +92,26 @@ export const renderOutageEnded: EmailTemplate<OutageEndedPayload> = (payload, ct
   const blocks: Block[] = [
     {
       type: "paragraph",
-      text: `AYA is answering again as of ${momentLong(payload.endedAt, ctx)}. Everything is working normally.`,
+      text: `AYA has been answering again since ${momentLong(payload.endedAt, ctx)}.`,
     },
+    {
+      type: "paragraph",
+      text:
+        parts.length > 0
+          ? `While she was away, ${parts.join(" and ")}.`
+          : "Everything is working normally.",
+    },
+    parts.length > 0
+      ? { type: "action", label: "See what came in", url: payload.missedUrl }
+      : { type: "action", label: "Open Home", url: payload.homeUrl },
   ];
-  if (parts.length > 0) {
-    blocks.push({ type: "paragraph", text: `While she was away, ${parts.join(" and ")}.` });
-  }
-  blocks.push({ type: "action", label: "Open Home", url: payload.homeUrl });
   return compose(
     {
       subject: "AYA is answering again",
-      preheader: "Everything is working normally.",
+      preheader:
+        parts.length > 0
+          ? "Here's what came in while she was away."
+          : "Everything is working normally.",
       blocks,
     },
     ctx,
@@ -88,7 +121,12 @@ export const renderOutageEnded: EmailTemplate<OutageEndedPayload> = (payload, ct
 export const OUTAGE_STARTED_ENTRY: TemplateEntry<OutageStartedPayload> = {
   render: renderOutageStarted,
   get fixture(): OutageStartedPayload {
-    return { startedAt: "2026-10-06T13:04:00Z", homeUrl: publicUrl("/c/radiance-med-spa") };
+    return {
+      startedAt: "2026-10-06T13:04:00Z",
+      canReachDirectLine: true,
+      isChatAffected: false,
+      homeUrl: publicUrl("/c/radiance-med-spa"),
+    };
   },
 };
 
@@ -100,6 +138,7 @@ export const OUTAGE_ENDED_ENTRY: TemplateEntry<OutageEndedPayload> = {
       callCount: 4,
       chatCount: 2,
       homeUrl: publicUrl("/c/radiance-med-spa"),
+      missedUrl: publicUrl("/c/radiance-med-spa/conversations"),
     };
   },
 };

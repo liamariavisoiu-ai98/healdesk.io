@@ -26,7 +26,7 @@ import {
   requestedScreen,
   type CalendarNotice,
 } from "@/lib/setup/calendar";
-import { channelNextStep, channelStatusLabel, setupSentence } from "@/lib/setup/channels";
+import { channelPresentation, metaNeedsReconnect } from "@/lib/setup/channel-status";
 import {
   defaultChatGreeting,
   defaultPhoneGreeting,
@@ -603,12 +603,21 @@ async function ChannelsStep({
       callBookingUrl={helpContacts().callBookingUrl ? "/help/call" : null}
       metaProblem={metaProblem}
       rows={state.channels.map((c) => {
-        const step = channelNextStep(c, finished);
+        // The one reading of a channel's status (lib/setup/channel-status.ts),
+        // shared with Settings. A step shown below the row is the one the row
+        // names, whatever else is left in setup, so the label never says
+        // "finish setup" beside it.
+        const present = (stepShown: boolean) =>
+          channelPresentation(c, {
+            setupFinished: finished || stepShown,
+            timeZone: state.clinic.timezone,
+            now: new Date(),
+            needsReconnect: c.channel === "meta" && metaNeedsReconnect(metaView),
+          });
         const row = {
           channel: c.channel,
           name: CHANNEL_NAMES[c.channel],
-          status: channelStatusLabel(c, state.clinic.timezone, new Date()),
-          line: setupSentence(c.channel, step),
+          presentation: present(false),
         };
         // A step shown below the row is the one the row names, whatever
         // else is left in setup: the line never says "after setup" beside it.
@@ -617,7 +626,7 @@ async function ChannelsStep({
             return snippetOpen(c)
               ? {
                   ...row,
-                  line: setupSentence("web", "snippet"),
+                  presentation: present(true),
                   snippet: widgetSnippet(state.clinic.slug),
                 }
               : row;
@@ -630,7 +639,7 @@ async function ChannelsStep({
             return voiceForwardingReady(facts)
               ? {
                   ...row,
-                  line: setupSentence("voice", "forwarding"),
+                  presentation: present(true),
                   forwarding: forwardingView({
                     assistantNumberE164: state.clinic.assistantNumberE164!,
                     carrier: state.clinic.carrier,
@@ -641,6 +650,7 @@ async function ChannelsStep({
                 }
               : {
                   ...row,
+                  presentation: present(waitsOnDirectLine(facts)),
                   directLineHref: waitsOnDirectLine(facts)
                     ? `/c/${slug}/setup?s=direct_line`
                     : null,

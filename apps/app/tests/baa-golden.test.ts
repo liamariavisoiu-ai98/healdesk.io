@@ -120,12 +120,12 @@ const GOLDEN: Record<string, Record<string, string>> = {
   // release; from then on they are the record. No covered_verified_boulevard,
   // as in 1.3.0 to 1.5.1: it refuses verified reporting.
   "1.6.0": {
-    covered_estimated: "2e75509a8d9d5bd315e7e95ada8fa7e12ba58f1a8efbde73a3d9abf103324d07",
-    notcovered_estimated: "e3021fede64593d8513ad525ac422784303f9a5fd4f4db52dce9433394ddcb2e",
-    unknown_estimated: "c716a6abc69a3e47c863dffbcd1979e9be60a4f47667253b1e256089507cdec9",
+    covered_estimated: "21fe6c06960ee5b5bd4431d822d010b9db6c6b06bb3a1e8bb0ab7c23b7c2715d",
+    notcovered_estimated: "7652900313635cbd79fd36d5c2f4711fe334bf86f46e19674f4f9d0261f54602",
+    unknown_estimated: "ad26fbbdf5ee0d62c3b5793a55b0c69bd412c529e51d383c98a87c5a6599cfa6",
     // Identical to covered_estimated by design, as in 1.2.x to 1.5.1: no
     // clause reads outboundMessaging.
-    covered_outbound: "2e75509a8d9d5bd315e7e95ada8fa7e12ba58f1a8efbde73a3d9abf103324d07",
+    covered_outbound: "21fe6c06960ee5b5bd4431d822d010b9db6c6b06bb3a1e8bb0ab7c23b7c2715d",
   },
   // Released on 2026-10-19 and offered from that day (agreement-changes.md
   // §16): 1.5.0 with the optional booking details asked in a website chat as
@@ -1995,8 +1995,9 @@ describe("1.5.1: the optional booking details asked in a website chat too", () =
  * which Anthropic says of those models. The state-law clause's two
  * exceptions to deletion and the Term clause's sentence on Anthropic's
  * copies point at that paragraph, and 1.5.1's name the purpose it no longer
- * states, so they change with it. These pin that 1.6.0 changes those three
- * clauses and nothing else, that no sentence of any 1.6.0 document gives
+ * states, so they change with it. Since 29 October 2026 the Safeguards
+ * clause also carries the one optional payment-link text (§20). These pin
+ * that 1.6.0 changes those four clauses and nothing else, that no sentence of any 1.6.0 document gives
  * Anthropic's retention a purpose, and that it cannot be signed or go live
  * until the owner releases it. The draft was first written on 1.5.0, the
  * version current that morning, and rebuilt on 1.5.1 when 1.5.1 was released
@@ -2007,16 +2008,17 @@ const V160 = "1.6.0";
 /**
  * variant → sha256, for 1.6.0, over 1.3.0's own variants. A draft's: they
  * move with it until its release. Moved on 21 October 2026 with 1.5.1's
- * clause 11, which 1.6.0 carries (§19).
+ * clause 11, which 1.6.0 carries (§19), and on 29 October 2026 with the
+ * Safeguards clause's optional payment-link text (§20).
  */
 const GOLDEN_1_6: Record<string, string> = {
-  uncovered_nobaa: "f2891b614b2d55513a3a9047899779412d9ef8030b34afa1dcfff8701c9bc81e",
-  uncovered_personal: "efd05f71f35693f1970ba59ef9a2f8e25547bba9841e0237b03568d96f7a3f48",
-  notused_mindbody: "d4a45bcfcdf9514d734607e56464685aeb9d87850ad6bf1ae23e87039b864d80",
-  notused_other: "0c8e02016b7d83c223f4d76d2bc2e9e7b3b3b210da62e5a7b3819653da32308a",
-  live_calcom: "5fe5c29cb3f99e8d51b03630ec0b72095e1cafcb674b8a6a4597d9e468e19195",
-  live_highlevel_personal: "d016bc7ee2286c9b5550e891d944524b1b013ebf3a126e53fa62966623fe395c",
-  live_calendly_nobaa: "df5cb9c75b1d53d8ec4bd7c8aae0468d2f368c9253dbc7acfd63adfecc4922a6",
+  uncovered_nobaa: "166fb36ad83fcc703030932ffbc37cadc84f64c148013be03356cd23cac3ceed",
+  uncovered_personal: "ef55df334e511813e7f5ac5beb2f14153c41472c14b9a3003bad098f9f66d0c2",
+  notused_mindbody: "498c741e998f538e271b00d98631f4910cd1819081a973bddcac74e21634cc70",
+  notused_other: "50a449f04aa76816edb8faef10b02a3b3eaf74689f69563889e0d7b196e5b5b5",
+  live_calcom: "487cc6e8deb479c8de50026cb1c99a38e73a4029760ab7e1b50525b76f09b5ee",
+  live_highlevel_personal: "c6472ec33af0df4b1dd749b9a164c965b112ee128ca09e666d1513b7042250e7",
+  live_calendly_nobaa: "8343db376f561f8259cc8fa93e20fb598d9d67cbd180f5a78f30f7a5ae3e878e",
 };
 
 describe("1.6.0: Anthropic's retention as Anthropic documents it (a draft)", () => {
@@ -2061,10 +2063,13 @@ describe("1.6.0: Anthropic's retention as Anthropic documents it (a draft)", () 
     expect(text).toContain("Version 1.6.0 — executed electronically");
   });
 
-  /** The clauses 1.6.0 changes: Anthropic's paragraph, and the two that point at it. */
-  const CHANGED = ["subcontractors", "state-law", "term"];
+  /**
+   * The clauses 1.6.0 changes: Anthropic's paragraph, the two that point at
+   * it, and the Safeguards clause's sentence on SMS (§20).
+   */
+  const CHANGED = ["subcontractors", "state-law", "safeguards", "term"];
 
-  test("every clause but those three is 1.5.1's own object, in the same order", () => {
+  test("every clause but those four is 1.5.1's own object, in the same order", () => {
     expect(v160().clauses.map((c) => c.id)).toEqual(v151().clauses.map((c) => c.id));
     v160().clauses.forEach((clause, i) => {
       if (CHANGED.includes(clause.id)) expect(clause, clause.id).not.toBe(v151().clauses[i]);
@@ -2167,6 +2172,34 @@ describe("1.6.0: Anthropic's retention as Anthropic documents it (a draft)", () 
       expect(stateLaw(V151), label).toContain("may keep for abuse detection and security");
       expect(term(V151), label).toContain("only for the purposes and periods that clause states");
     }
+  });
+
+  test("the Safeguards clause is 1.5.1's but for the one optional payment-link text, folded into the telephone exception", () => {
+    // 1.5.1 (1.3.0's object) says healdesk "places no calls to patients and
+    // sends no SMS"; the owner allowed one optional text after a call
+    // (28-29 October 2026), stated in general words on his instruction.
+    const was =
+      "healdesk places no calls to patients and sends no SMS. This exception does not extend to " +
+      "any other channel or content.";
+    const now =
+      "healdesk places no calls to patients and sends no SMS, except that the assistant is " +
+      "engineered and designed to offer a caller a single text message that carries fixed " +
+      "wording and Practice's own payment link, where Practice has chosen that option. This " +
+      "exception, that text included, does not extend to any other channel or content.";
+    const p151 = body(V151, "safeguards").split("\n\n");
+    const p160 = body(V160, "safeguards").split("\n\n");
+    expect(p160).toHaveLength(p151.length);
+    expect(p160.slice(0, -1)).toEqual(p151.slice(0, -1));
+    const last151 = unwrap(p151.at(-1)!).trim();
+    const last160 = unwrap(p160.at(-1)!).trim();
+    expect(last151.endsWith(` ${was}`)).toBe(true);
+    expect(last160).toBe(last151.slice(0, -was.length) + now);
+    // Nothing specific: no sender, number, carrier, vendor or timing, and no
+    // promise that a text is sent.
+    expect(last160).not.toMatch(/sender|number healdesk|carrier|regist|vendor|minute|hour|will send|sends a|after the call/i);
+    // 1.5.1 is frozen and keeps what it said.
+    expect(unwrap(body(V151, "safeguards"))).toContain(was);
+    expect(unwrap(body(V151, "safeguards"))).not.toContain("payment link");
   });
 
   test("no 1.6.0 document gives Anthropic's retention a purpose its documentation does not state", () => {

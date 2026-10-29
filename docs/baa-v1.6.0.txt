@@ -22,10 +22,28 @@ delete them; the provider's own retention for anything left is one day." Every
 other sentence is unchanged. 1.6.0 carries 1.5.1's clause 11 as its own
 object, so it says the same, and its hashes moved with it. The golden hashes
 were regenerated: the sample was
-93bb381e707af83c815dde22b9923e2d5a0d42a7b3aa9e532b8075b7689bf73c and is now
+93bb381e707af83c815dde22b9923e2d5a0d42a7b3aa9e532b8075b7689bf73c and became
 2e75509a8d9d5bd315e7e95ada8fa7e12ba58f1a8efbde73a3d9abf103324d07.
 
-What is new against 1.5.1: three clauses, all about Anthropic. The second
+Edited again on 29 October 2026, on the owner's instruction of 28 and 29
+October 2026 and with the version number unchanged (still a draft;
+docs/counsel/agreement-changes.md §20; counsel has not reviewed it). Clause
+10, Safeguards, changed in its last two sentences, so the agreement no longer
+says healdesk sends no SMS without the one optional payment-link text the
+owner allowed after a call, in deliberately general words. "healdesk places
+no calls to patients and sends no SMS. This exception does not extend to any
+other channel or content." became "healdesk places no calls to patients and
+sends no SMS, except that the assistant is engineered and designed to offer a
+caller a single text message that carries fixed wording and Practice's own
+payment link, where Practice has chosen that option. This exception, that
+text included, does not extend to any other channel or content." Every other
+sentence is unchanged, and 1.5.1 and every earlier version keep their text.
+The sample's hash moved from
+2e75509a8d9d5bd315e7e95ada8fa7e12ba58f1a8efbde73a3d9abf103324d07 to
+21fe6c06960ee5b5bd4431d822d010b9db6c6b06bb3a1e8bb0ab7c23b7c2715d.
+
+What is new against 1.5.1: four clauses, three of them about Anthropic, and
+clause 10's sentence on SMS described above. The second
 paragraph of clause 13, Subcontractors: 1.5.1 says, in the clause object
 1.3.0, 1.4.0 and 1.5.0 carry too, that Anthropic retains conversation content
 "for 30 days, for abuse detection and security", that content the law requires
@@ -58,7 +76,8 @@ it", kept "for that purpose and period only, and used for nothing else"; the
 standard retention, outside 1.5.1's exception, is now inside it. The DPA
 shares this wording. In clause 17, Term, Anthropic may keep its copies "only
 for the periods that clause states", where 1.5.1 says "the purposes and
-periods". Every other clause is 1.5.1's own clause object, word for word,
+periods". Clause 10, Safeguards, carries the payment-link text described
+above. Every other clause is 1.5.1's own clause object, word for word,
 clause 11's website-chat wording included, and the preamble differs only in
 its version line. The draft was first written on 1.5.0, the version current
 that morning, and rebuilt on 1.5.1 when 1.5.1 was released the same day.
@@ -70,7 +89,7 @@ business associate agreement. The specialty shows as the golden test passes
 it, an id rather than the catalogue's display name. From the title line on,
 the sample is exactly what apps/app/tests/baa-golden.test.ts pins as 1.6.0 /
 covered_estimated (SHA-256
-2e75509a8d9d5bd315e7e95ada8fa7e12ba58f1a8efbde73a3d9abf103324d07). The clauses
+21fe6c06960ee5b5bd4431d822d010b9db6c6b06bb3a1e8bb0ab7c23b7c2715d). The clauses
 that render only for some practices follow in Appendix A, where A3's clause 4
 carries the state-law change too, the calendar election in Appendix B, and the
 Google Calendar disclosure the practice ticks before connecting in Appendix C;
@@ -511,8 +530,10 @@ EFFECTIVE 13 September 2026
   switches on live call transfer, the assistant may also transfer a caller to
   the number Practice gives for that purpose. What is said after that is
   between the caller and Practice. healdesk places no calls to patients and
-  sends no SMS. This exception does not extend to any other channel or
-  content.
+  sends no SMS, except that the assistant is engineered and designed to offer
+  a caller a single text message that carries fixed wording and Practice's own
+  payment link, where Practice has chosen that option. This exception, that
+  text included, does not extend to any other channel or content.
 
 11. MINIMUM NECESSARY
 

@@ -4686,8 +4686,10 @@ function validate151(v: BaaVariables): void {
  * documentation says it for the models the product calls
  * (docs/counsel/agreement-changes.md §17; packages/catalog
  * model-retention.ts), and the two clauses that point at that paragraph
- * pointing at what it now says. Against 1.5.1, those three clauses change
- * and nothing else does; every other clause is 1.5.1's own object, in
+ * pointing at what it now says; and, since 29 October 2026, the
+ * Safeguards clause's sentence on SMS carrying the one optional
+ * payment-link text (SAFEGUARDS_1_6, below). Against 1.5.1, those four
+ * clauses change and nothing else does; every other clause is 1.5.1's own object, in
  * 1.5.1's order, and the preamble differs only in its version line. The
  * draft was first built on 1.5.0, the version current when it was written;
  * 1.5.1, released the same day, changes only the Minimum necessary clause,
@@ -4733,6 +4735,14 @@ function validate151(v: BaaVariables): void {
  *                    the periods that clause states", where 1.5.1 says "the
  *                    purposes and periods", purposes the new paragraph does
  *                    not state.
+ *   safeguards       1.5.1's (1.3.0's) but for its last two sentences:
+ *                    1.5.1 says healdesk "places no calls to patients and
+ *                    sends no SMS"; 1.6.0 adds that the assistant is
+ *                    engineered and designed to offer a caller one text with
+ *                    fixed wording and Practice's own payment link, where
+ *                    Practice has chosen that option, and folds that text
+ *                    into the telephone exception (owner, 28-29 October
+ *                    2026; the wording kept general on his instruction).
  *
  * Not at BAA_TEMPLATES[0] and approvedByCounsel false, so checkout does not
  * offer it, signing refuses it (signableTemplate), provisioning refuses it,
@@ -4808,13 +4818,57 @@ const TERM_1_6: BaaClause = {
   },
 };
 
-/** 1.5.1's clauses in 1.5.1's order, with the three clauses above in place of its own. */
+/** 1.3.0's Safeguards clause, the object 1.4.0, 1.5.0 and 1.5.1 carry. */
+const SAFEGUARDS_1_3: BaaClause = CLAUSES_1_5_1.find((clause) => clause.id === "safeguards")!;
+
+/** The two sentences that end 1.3.0's telephone exception. */
+const NO_SMS_1_3 =
+  `healdesk places no calls to patients and sends no SMS. This exception does not extend ` +
+  `to any other channel or content.`;
+
+/**
+ * The same two sentences with the one optional payment-link text the owner
+ * allowed after a call (28-29 October 2026), in deliberately general words
+ * ("engineered and designed to"): no sender, number, timing or promise that
+ * a text is offered or sent. The text is folded into the telephone
+ * exception ("that text included"), since an SMS cannot negotiate
+ * encryption either, and nothing else is.
+ */
+const NO_SMS_1_6 =
+  `healdesk places no calls to patients and sends no SMS, except that the assistant is ` +
+  `engineered and designed to offer a caller a single text message that carries fixed ` +
+  `wording and Practice's own payment link, where Practice has chosen that option. This ` +
+  `exception, that text included, does not extend to any other channel or content.`;
+
+/**
+ * 1.3.0's Safeguards clause with its last two sentences as NO_SMS_1_6 says
+ * them. Every other sentence is 1.3.0's, and the replacement refuses to
+ * render if 1.3.0's sentences are not there, compared with the wrap undone.
+ */
+const SAFEGUARDS_1_6: BaaClause = {
+  id: SAFEGUARDS_1_3.id,
+  heading: SAFEGUARDS_1_3.heading,
+  appliesWhen: SAFEGUARDS_1_3.appliesWhen,
+  body: (v) => {
+    const paragraphs = SAFEGUARDS_1_3.body(v).split("\n\n");
+    const last = paragraphs[paragraphs.length - 1]!.replace(/\s+/g, " ").trim();
+    if (!last.endsWith(` ${NO_SMS_1_3}`)) {
+      throw new Error("1.6.0's Safeguards clause: 1.3.0's sentences on calls and SMS are not there.");
+    }
+    paragraphs[paragraphs.length - 1] = wrap(last.slice(0, -NO_SMS_1_3.length) + NO_SMS_1_6);
+    return paragraphs.join("\n\n");
+  },
+};
+
+/** 1.5.1's clauses in 1.5.1's order, with the four clauses above in place of its own. */
 const CLAUSES_1_6: readonly BaaClause[] = CLAUSES_1_5_1.map((clause) => {
   switch (clause.id) {
     case SUBCONTRACTORS_1_6.id:
       return SUBCONTRACTORS_1_6;
     case STATE_LAW_1_6.id:
       return STATE_LAW_1_6;
+    case SAFEGUARDS_1_6.id:
+      return SAFEGUARDS_1_6;
     case TERM_1_6.id:
       return TERM_1_6;
     default:

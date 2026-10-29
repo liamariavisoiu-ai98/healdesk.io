@@ -8,22 +8,22 @@ import { c, font } from "../tokens";
 
 const TIMES: readonly [number, string, string][] = [
   [0, "6:58", "Tuesday, October 28"],
-  [38, "11:48", "Tuesday, October 28"],
-  [74, "2:15", "Wednesday, October 29"],
-  [110, "7:02", "Wednesday, October 29"],
+  [30, "11:48", "Tuesday, October 28"],
+  [58, "2:15", "Wednesday, October 29"],
+  [86, "7:02", "Wednesday, October 29"],
 ];
 
 // What healdesk tells the clinic about a single patient is a pointer into the
 // portal: an amount and a channel, never a name, a time or a treatment (the
 // spec's email rules). Only the morning summary adds up totals.
 const OVERNIGHT = [
-  { at: 40, title: `New booking · ${money(199)}`, body: "From Instagram · open your portal", time: "11:48 PM" },
-  { at: 76, title: `Deposit received · ${money(CLINIC.deposit, true)}`, body: "From website chat · open your portal", time: "2:15 AM" },
-  { at: 112, title: `3 new bookings overnight · ${money(300)} in deposits`, body: `Booked value ${money(697)}`, time: "7:02 AM" },
+  { at: 32, title: `New booking · ${money(199)}`, body: "From Instagram · open your portal", time: "11:48 PM" },
+  { at: 60, title: `Deposit received · ${money(CLINIC.deposit, true)}`, body: "From website chat · open your portal", time: "2:15 AM" },
+  { at: 88, title: `3 new bookings overnight · ${money(300)} in deposits`, body: `Booked value ${money(697)}`, time: "7:02 AM" },
 ];
 
 /**
- * Scene 6, the dream outcome, 720–900 (180 frames). The clinic closes; the
+ * Scene 6, the dream outcome, 150 frames. The clinic closes; the
  * night passes on the owner's lock screen; healdesk's notifications arrive
  * one by one, and the morning brings the summary.
  */
@@ -33,8 +33,8 @@ export const S6Night: React.FC = () => {
   const { wide } = useLayout();
 
   const night = lerp(frame, [0, 22], [0, 1]);
-  const dawn = lerp(frame, [104, 140], [0, 1]);
-  const toIvory = lerp(frame, [168, 180], [0, 1]);
+  const dawn = lerp(frame, [80, 112], [0, 1]);
+  const toIvory = lerp(frame, [138, 150], [0, 1]);
 
   const phoneW = wide ? 430 : 520;
   const phoneX = wide ? 1240 : (1080 - phoneW) / 2;
@@ -51,7 +51,7 @@ export const S6Night: React.FC = () => {
       <AbsoluteFill style={{ opacity: Math.max(1 - night, toIvory) }}>
         <Backdrop mood="ivory" />
       </AbsoluteFill>
-      <Shell duration={180} push={0.05} enterBlur>
+      <Shell duration={150} push={0.05} enterBlur>
         <Stage>
           <div
             style={{
@@ -97,10 +97,10 @@ export const S6Night: React.FC = () => {
 
           <div style={{ position: "absolute", left: wide ? 120 : 60, top: wide ? 330 : 90, width: wide ? 960 : 960, textAlign: wide ? "left" : "center" }}>
             <Kinetic
-              text="You do the treatments. AYA handles the rush."
-              at={122}
-              stagger={2.4}
-              highlight={["AYA", "handles", "the", "rush"]}
+              text="You do the treatments. Aya handles the rush."
+              at={98}
+              stagger={1.8}
+              highlight={["Aya", "handles", "the", "rush"]}
               style={{ fontWeight: 800, fontSize: wide ? 88 : 76, lineHeight: 1.05, letterSpacing: "-0.02em", color: c.white, textShadow: "0 10px 40px rgba(0,0,0,0.35)" }}
             />
           </div>

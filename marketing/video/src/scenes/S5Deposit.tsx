@@ -16,7 +16,7 @@ const NOTIFY = 84;
 const SHEET_OUT = 94;
 
 /**
- * Scene 5, the deposit, 600–720 (120 frames). In the website chat AYA sends
+ * Scene 5, the deposit, 120 frames. In the website chat Aya sends
  * the clinic's own payment link; the patient pays $100.00 on Stripe's
  * checkout; the money lands. The checkout shows only the clinic, an amount,
  * a generic descriptor and a reference: the treatment never reaches Stripe.
@@ -44,7 +44,7 @@ export const S5Deposit: React.FC = () => {
                 <ClinicMark size={54} light />
                 <div style={{ fontFamily: font, color: c.white }}>
                   <div style={{ fontWeight: 800, fontSize: 30 }}>{CLINIC.name}</div>
-                  <div style={{ fontWeight: 500, fontSize: 22, opacity: 0.9 }}>Website chat · AYA · AI assistant</div>
+                  <div style={{ fontWeight: 500, fontSize: 22, opacity: 0.9 }}>Website chat · Aya · AI assistant</div>
                 </div>
               </div>
               <div style={{ flex: 1, padding: 28, display: "flex", flexDirection: "column", gap: 16 }}>
@@ -97,7 +97,7 @@ const Appear: React.FC<{ at: number; children: React.ReactNode }> = ({ at, child
   return <div style={{ display: "flex", flexDirection: "column", transform: `scale(${0.85 + 0.15 * p})`, transformOrigin: "0 100%", opacity: Math.min(1, p) }}>{children}</div>;
 };
 
-/** The payment link AYA sends, and what it becomes once paid. */
+/** The payment link Aya sends, and what it becomes once paid. */
 const PayLink: React.FC<{ frame: number; paid: boolean }> = ({ frame, paid }) => {
   const ripple = lerp(frame, [TAP, TAP + 14], [0, 1]);
   return (

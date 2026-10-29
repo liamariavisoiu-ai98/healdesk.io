@@ -1,0 +1,12 @@
+{
+  "fps": 30,
+  "scenes": {
+    "hook": { "from": 0, "to": 240 },
+    "aya": { "from": 240, "to": 320 },
+    "url": { "from": 320, "to": 500 },
+    "channels": { "from": 500, "to": 680 },
+    "deposit": { "from": 680, "to": 800 },
+    "night": { "from": 800, "to": 950 },
+    "close": { "from": 950, "to": 1100 }
+  }
+}

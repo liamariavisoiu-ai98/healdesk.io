@@ -1,80 +1,87 @@
+import timeline from "./timeline.json";
+
 /**
  * Every word the ad says or prints, and the timeline, in one place, so the
  * claims can be checked against the spec without reading the scenes.
  *
  * Two hooks. `soft` is the default and the one to publish until a primary
  * source for the voicemail statistics is named (SCRIPT.md, "Before
- * publishing", item 1). `stat` is the 85% / 82% / $1,500 version as
- * written, for the hook test once the source is in the small print.
+ * publishing", item 1). `stat` carries the 85% and $1,500 lines as the
+ * script wrote them, for the hook test once the source is in the small print.
  */
 export type Hook = "soft" | "stat";
 
-/** Scene boundaries in global frames at 30 fps. Scenes count their own frames from 0. */
-export const SCENES = {
-  hook: { from: 0, to: 150 },
-  aya: { from: 150, to: 240 },
-  url: { from: 240, to: 420 },
-  channels: { from: 420, to: 600 },
-  deposit: { from: 600, to: 720 },
-  night: { from: 720, to: 900 },
-  dare: { from: 900, to: 1080 },
-} as const;
+/**
+ * Scene boundaries in global frames at 30 fps, from timeline.json, which
+ * scripts/soundtrack.mjs reads too. Scenes count their own frames from 0.
+ */
+export const SCENES = timeline.scenes;
+export const DURATION = timeline.scenes.close.to;
 
-export const HOOK_COPY: Record<
-  Hook,
-  { slam: string; flip: string | null; line1: string; line2: string; line3: string; smallPrint: string | null }
-> = {
+/**
+ * The opening, slow enough to read: two questions, one answer, one loss.
+ * Both hooks share the questions; only the answer differs.
+ */
+export const HOOK_COPY: Record<Hook, { line: string; loss: string; smallPrint: string | null }> = {
   stat: {
-    slam: "85%",
-    flip: "82%",
-    line1: "85% of callers who reach voicemail hang up without leaving a message.",
-    line2: "…and most of them call your competitor next.",
-    line3: "That's a $1,500 consult. Gone.",
+    line: "85% of callers who reach voicemail hang up without leaving a message.",
+    loss: "That's a $1,500 consult. Gone.",
     smallPrint: "Source: name the primary study here before publishing.",
   },
   soft: {
-    slam: "Missed.",
-    flip: null,
-    line1: "Most callers who hit voicemail never call back.",
-    line2: "…and many call your competitor next.",
-    line3: "That booking? Gone.",
+    line: "Most callers who hit voicemail never call back.",
+    loss: "That booking? Gone.",
     smallPrint: null,
   },
 };
 
 /** A voiceover line, spread evenly over [from, to) in global frames. */
-export type VoLine = { from: number; to: number; text: string };
+export type VoLine = { from: number; to: number; text: string; burn?: false };
 
 /**
- * The voiceover, as burned-in captions. Timed to the scenes above; once a
- * voice is recorded, replace these with its word timestamps.
+ * The voiceover. Burned in as captions except where the same words are
+ * already on screen (the opening questions, the closing line), so nothing
+ * is read twice. Once a voice is recorded, replace these with its word
+ * timestamps.
  *
- * One change from SCRIPT.md: "grab your free trial" reads "build your free
- * AYA". healdesk has no free trial (billing starts at the first answer and
- * the setup fee is paid at checkout); what is free is the AYA built from the
- * visitor's URL, which is what the end card offers.
+ * Changes from SCRIPT.md, each because the line said something the product
+ * does not do: "grab your free trial" became the closing line (healdesk has
+ * no free trial: billing starts at the first answer and the setup fee is
+ * paid at checkout); "Seconds later, I know your treatments" lost its
+ * "seconds", and the closer says "a few minutes", because the demo built
+ * from a URL estimates about three minutes and has not been timed yet
+ * (apps/web/src/lib/demo/build-progress.ts).
  */
+const at = (scene: keyof typeof SCENES, frame: number) => SCENES[scene].from + frame;
+
 export const VO: readonly VoLine[] = [
-  { from: 75, to: 140, text: "Busy line? After six? They're not waiting." },
-  { from: 160, to: 236, text: "Not on my watch. Hi, I'm AYA, your 24/7 assistant." },
+  { from: at("hook", 10), to: at("hook", 200), text: "Missed calls? Missed DMs? After six, they're not waiting.", burn: false },
+  { from: at("aya", 8), to: at("aya", 76), text: "Not on my watch. Hi, I'm Aya, your 24/7 assistant." },
   {
-    from: 250,
-    to: 416,
-    text: "Give me your website. Seconds later, I know your treatments, I sound like your clinic, and I'm ready for your patients.",
+    from: at("url", 10),
+    to: at("url", 172),
+    text: "Give me your website, and I learn your treatments, sound like your clinic, and get ready for your patients.",
   },
   {
-    from: 430,
-    to: 708,
+    from: at("channels", 10),
+    to: at("deposit", 110),
     text: "Calls, DMs, chats, all at once. I book them straight in, and I send the deposit link right in the chat. Honestly? It's kind of my thing.",
   },
   {
-    from: 730,
-    to: 896,
-    text: "Now you close at six and still wake up to new bookings, deposits already in. Your team stops chasing the phone. And you get your evenings back.",
+    from: at("night", 14),
+    to: at("night", 140),
+    text: "Now you close at six and still wake up to new bookings, deposits already in. And you get your evenings back.",
   },
-  { from: 912, to: 1006, text: "Don't believe me? Click below, build your free AYA, and see for yourself." },
-  { from: 1016, to: 1046, text: "I'll be here. Obviously." },
+  { from: at("close", 10), to: at("close", 120), text: "Try me out now. Just add your website, and I'll be ready in a few minutes.", burn: false },
 ];
+
+/** The closing scene's words. */
+export const CLOSE = {
+  line: "Try me out now.",
+  sub: "Just add your website, and I'll be ready in a few minutes.",
+  button: "Try Aya free →",
+  url: "yourwebsite.com",
+} as const;
 
 /** The fictional clinic of the demo. Prices are made up. */
 export const CLINIC = {

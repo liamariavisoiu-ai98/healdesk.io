@@ -142,7 +142,7 @@ export const Notification: React.FC<{
 );
 
 /**
- * AYA, until the end card shows her face: a living orb of the ad's warm
+ * Aya, until the closing scene shows her face: a living orb of the ad's warm
  * colours that breathes, and swells when she speaks or acts.
  */
 export const Orb: React.FC<{ size: number; energy?: number; style?: React.CSSProperties }> = ({ size, energy = 0, style }) => {
@@ -231,30 +231,77 @@ export const Kinetic: React.FC<{
   );
 };
 
-/** The gold coin: a disc with a rim and a "$". */
-export const Coin: React.FC<{ size: number; label?: string; style?: React.CSSProperties }> = ({ size, label = "$", style }) => (
-  <div
-    style={{
-      width: size,
-      height: size,
-      borderRadius: "50%",
-      background: `radial-gradient(circle at 35% 30%, ${c.goldLight} 0%, ${c.gold} 55%, #9C7A3A 100%)`,
-      boxShadow: `inset 0 0 0 ${size * 0.07}px rgba(255,255,255,0.25), 0 ${size * 0.12}px ${size * 0.3}px rgba(0,0,0,0.35)`,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      fontFamily: font,
-      fontWeight: 800,
-      fontSize: label.length > 2 ? size * 0.22 : size * 0.5,
-      color: "#7A5A22",
-      ...style,
-    }}
-  >
-    {label}
-  </div>
-);
+/**
+ * The gold coin, minted rather than flat: a milled rim, a bevel lit from the
+ * top left, an engraved serif "$", and a highlight that sweeps across as it
+ * turns. `spin` (radians) turns it on its vertical axis.
+ */
+export const Coin: React.FC<{ size: number; label?: string; spin?: number; style?: React.CSSProperties }> = ({ size, label = "$", spin = 0, style }) => {
+  const turn = Math.cos(spin);
+  const edge = Math.abs(Math.sin(spin));
+  const sweep = ((spin / (Math.PI * 2)) % 1 + 1) % 1;
+  return (
+    <div style={{ width: size, height: size, position: "relative", transform: `scaleX(${Math.max(0.12, Math.abs(turn))})`, filter: `drop-shadow(0 ${size * 0.14}px ${size * 0.18}px rgba(0,0,0,0.45))`, ...style }}>
+      {/* The edge, seen as the coin turns. */}
+      <div style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "#7A5A22", transform: `translateX(${(turn > 0 ? 1 : -1) * edge * size * 0.05}px)` }} />
+      {/* Milled rim. */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          borderRadius: "50%",
+          background: `repeating-conic-gradient(from 0deg, #F3DC9A 0deg 3deg, #B8893A 3deg 6deg)`,
+        }}
+      />
+      {/* Bevel. */}
+      <div style={{ position: "absolute", inset: size * 0.045, borderRadius: "50%", background: "linear-gradient(135deg, #FFF1C4 0%, #D9B060 40%, #8A6526 100%)" }} />
+      {/* Face. */}
+      <div
+        style={{
+          position: "absolute",
+          inset: size * 0.1,
+          borderRadius: "50%",
+          background: "radial-gradient(circle at 38% 32%, #F6E2A6 0%, #D7AE5C 45%, #A57B33 100%)",
+          boxShadow: `inset 0 ${size * 0.02}px ${size * 0.04}px rgba(255,255,255,0.55), inset 0 -${size * 0.03}px ${size * 0.05}px rgba(90,60,20,0.45)`,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+        }}
+      >
+        {/* A fine inner ring, as struck coins have. */}
+        <div style={{ position: "absolute", inset: size * 0.05, borderRadius: "50%", boxShadow: "inset 0 0 0 1.5px rgba(122,90,34,0.55), 0 0 0 1px rgba(255,241,196,0.5)" }} />
+        <span
+          style={{
+            fontFamily: "Georgia, 'Times New Roman', serif",
+            fontWeight: 700,
+            fontSize: label.length > 2 ? size * 0.2 : size * 0.46,
+            color: "#B88A3C",
+            textShadow: `-1px -1px 0 rgba(255,244,205,0.9), 1px 1px 0 rgba(96,66,22,0.85), 0 ${size * 0.01}px ${size * 0.03}px rgba(96,66,22,0.4)`,
+            transform: `scaleX(${turn < 0 ? -1 : 1})`,
+            letterSpacing: label.length > 2 ? "-0.02em" : 0,
+          }}
+        >
+          {label}
+        </span>
+        {/* The light sweeping across as it turns. */}
+        <div
+          style={{
+            position: "absolute",
+            top: "-20%",
+            bottom: "-20%",
+            width: "35%",
+            left: `${-40 + sweep * 140}%`,
+            background: "linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,250,230,0.55) 50%, rgba(255,255,255,0) 100%)",
+            transform: "rotate(20deg)",
+          }}
+        />
+      </div>
+    </div>
+  );
+};
 
-/** A burst of "$" glyphs and coins rising from a point, for money landing. */
+/** A burst of coins and sparkles rising from a point, for money landing. */
 export const DollarBurst: React.FC<{ at: number; x: number; y: number; count?: number }> = ({ at, x, y, count = 14 }) => {
   const frame = useCurrentFrame();
   const t = (frame - at) / 34;
@@ -264,7 +311,7 @@ export const DollarBurst: React.FC<{ at: number; x: number; y: number; count?: n
       {Array.from({ length: count }).map((_, i) => {
         const a = -Math.PI / 2 + ((i / (count - 1)) - 0.5) * 2.4;
         const dist = (180 + (i % 4) * 70) * (1 - Math.pow(1 - t, 3));
-        const isCoin = i % 3 === 0;
+        const isCoin = i % 2 === 0;
         return (
           <div
             key={i}
@@ -277,9 +324,9 @@ export const DollarBurst: React.FC<{ at: number; x: number; y: number; count?: n
             }}
           >
             {isCoin ? (
-              <Coin size={44} />
+              <Coin size={48} spin={t * 9 + i} />
             ) : (
-              <span style={{ fontFamily: font, fontWeight: 800, fontSize: 52, color: i % 2 ? c.coral : c.gold, textShadow: "0 4px 12px rgba(0,0,0,0.15)" }}>$</span>
+              <Sparkle size={30 + (i % 3) * 8} colour={i % 2 ? c.goldLight : "#FFFFFF"} />
             )}
           </div>
         );
@@ -288,11 +335,18 @@ export const DollarBurst: React.FC<{ at: number; x: number; y: number; count?: n
   );
 };
 
+/** A four-point star of light. */
+export const Sparkle: React.FC<{ size: number; colour?: string }> = ({ size, colour = "#FFFFFF" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" style={{ filter: `drop-shadow(0 0 6px ${colour})` }}>
+    <path d="M12 0c.8 6.4 4.6 10.6 12 12-7.4 1.4-11.2 5.6-12 12-.8-6.4-4.6-10.6-12-12 7.4-1.4 11.2-5.6 12-12z" fill={colour} />
+  </svg>
+);
+
 /** Burned-in captions, word by word: each word fades up in 4 frames, the current one in coral. */
 export const Captions: React.FC = () => {
   const frame = useCurrentFrame();
   const { wide, W, H } = useLayout();
-  const line = VO.find((l) => frame >= l.from - 2 && frame < l.to + 10);
+  const line = VO.find((l) => l.burn !== false && frame >= l.from - 2 && frame < l.to + 10);
   if (!line) return null;
 
   const words = line.text.split(" ");
@@ -358,7 +412,7 @@ export const Captions: React.FC = () => {
   );
 };
 
-/** A chat bubble. AYA's sit left in white; the patient's sit right, tinted. */
+/** A chat bubble. Aya's sit left in white; the patient's sit right, tinted. */
 export const Bubble: React.FC<{
   from: "aya" | "patient";
   children: React.ReactNode;
@@ -429,7 +483,7 @@ export const Tick: React.FC<{ size: number; colour?: string; p?: number }> = ({ 
   </svg>
 );
 
-/** AYA's mark: three bars of a sound wave, drawn on by `p` (0..1). */
+/** Aya's mark: three bars of a sound wave, drawn on by `p` (0..1). */
 export const WaveMark: React.FC<{ size: number; p?: number; colour?: string }> = ({ size, p = 1, colour = c.gold }) => {
   const bars = [0.5, 1, 0.68];
   return (

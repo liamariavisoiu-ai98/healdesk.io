@@ -2,8 +2,9 @@ import React from "react";
 import { Composition, continueRender, delayRender } from "remotion";
 
 import { Ad, AdProps } from "./Ad";
+import { DURATION } from "./copy";
 
-const DURATION = 1080;
+
 const FPS = 30;
 
 // Wait for the three weights of Plus Jakarta Sans before any frame is taken.

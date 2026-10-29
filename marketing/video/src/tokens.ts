@@ -6,7 +6,7 @@ import { Easing } from "remotion";
 
 /**
  * The ad's own palette and type (SCRIPT.md, "Global specification"). It is
- * deliberately not the website's: night and mist until AYA arrives, and
+ * deliberately not the website's: night and mist until Aya arrives, and
  * coral only where she solves something.
  */
 export const c = {

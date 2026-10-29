@@ -9,8 +9,8 @@ import { coinRest } from "./S1Hook";
 const BADGES = ["Built for medspas & aesthetic clinics", "We sign a BAA", "Never gives medical advice"];
 
 /**
- * Scene 2, "Not on my watch", 150–240 (90 frames). The coin stops dead (the
- * catch), ivory floods out from it, and AYA arrives as the orb the coin
+ * Scene 2, "Not on my watch", 80 frames. The coin stops dead (the
+ * catch), ivory floods out from it, and Aya arrives as the orb the coin
  * melts into. Her face is kept for the end.
  */
 export const S2Arrival: React.FC = () => {
@@ -29,14 +29,14 @@ export const S2Arrival: React.FC = () => {
   const absorb = lerp(frame, [6, 20], [0, 1]);
   const coinX = interpolate(absorb, [0, 1], [rest.x, orbAt.x]);
   const coinY = interpolate(absorb, [0, 1], [rest.y, orbAt.y]) - Math.sin(absorb * Math.PI) * 120;
-  const speaking = frame > 12 && frame < 80 ? 0.5 + 0.5 * Math.abs(Math.sin(frame * 0.45)) : 0;
+  const speaking = frame > 12 && frame < 76 ? 0.5 + 0.5 * Math.abs(Math.sin(frame * 0.45)) : 0;
 
   return (
     <>
       <AbsoluteFill style={{ clipPath: `circle(${radius * scale}px at ${left + rest.x * scale}px ${top + rest.y * scale}px)` }}>
         <Backdrop mood="ivory" />
       </AbsoluteFill>
-      <Shell duration={90} push={0.05} enterBlur={false}>
+      <Shell duration={80} push={0.05} enterBlur={false}>
         <AbsoluteFill style={{ clipPath: `circle(${radius * scale}px at ${left + rest.x * scale}px ${top + rest.y * scale}px)` }}>
           <Stage>
             <div style={{ position: "absolute", left: orbAt.x - orbSize / 2, top: orbAt.y - orbSize / 2, transform: `scale(${orbIn})` }}>
@@ -46,10 +46,10 @@ export const S2Arrival: React.FC = () => {
             <div style={{ position: "absolute", left: wide ? 120 : 60, top: wide ? 200 : 70, width: wide ? 960 : 960, textAlign: wide ? "left" : "center", color: c.plum }}>
               <Kinetic text="Not on my watch." at={12} stagger={3} style={{ fontWeight: 800, fontSize: wide ? 120 : 104, lineHeight: 1, letterSpacing: "-0.03em" }} />
               <Kinetic
-                text="Hi, I'm AYA, your 24/7 assistant."
+                text="Hi, I'm Aya, your 24/7 assistant."
                 at={28}
                 stagger={2}
-                highlight={["AYA"]}
+                highlight={["Aya"]}
                 style={{ fontWeight: 600, fontSize: wide ? 58 : 54, lineHeight: 1.15, marginTop: 20, color: c.plumSoft }}
               />
             </div>
@@ -62,8 +62,8 @@ export const S2Arrival: React.FC = () => {
 
         <Stage>
           {frame < 20 ? (
-            <div style={{ position: "absolute", left: coinX - 55, top: coinY - 55, transform: `scale(${(1 + 0.25 * (1 - catchPop)) * (1 - absorb * 0.7)})`, opacity: 1 - lerp(frame, [14, 20], [0, 1]) }}>
-              <Coin size={110} />
+            <div style={{ position: "absolute", left: coinX - 65, top: coinY - 65, transform: `scale(${(1 + 0.25 * (1 - catchPop)) * (1 - absorb * 0.7)})`, opacity: 1 - lerp(frame, [14, 20], [0, 1]) }}>
+              <Coin size={130} spin={Math.min(frame, 3) * 0.35 + 240 * 0.35} />
             </div>
           ) : null}
           {frame < 20 ? (
@@ -76,7 +76,7 @@ export const S2Arrival: React.FC = () => {
                 height: 200,
                 borderRadius: "50%",
                 border: `6px solid ${c.coral}`,
-                transform: `scale(${0.4 + lerp(frame, [2, 18], [0, 1]) * 1.6})`,
+                transform: `scale(${0.85 + lerp(frame, [2, 18], [0, 1]) * 1.6})`,
                 opacity: 1 - lerp(frame, [2, 18], [0, 1]),
               }}
             />

@@ -6,10 +6,10 @@ import { exit, lerp, Shell, Stage, tilt, useLayout, useSnap } from "../motion";
 import { Backdrop, Bubble, Glass, Kinetic, Orb } from "../parts";
 import { c, font, SNAP } from "../tokens";
 
-const OPENER = `Hi! I'm AYA, ${CLINIC.name}'s AI assistant. Looking for Botox pricing, or would you like to book a consult?`;
+const OPENER = `Hi! I'm Aya, ${CLINIC.name}'s AI assistant. Looking for Botox pricing, or would you like to book a consult?`;
 
 /**
- * Scene 3, "Built from your URL", 240–420 (180 frames). The orb drops into a
+ * Scene 3, "Built from your URL", 180 frames. The orb drops into a
  * glass URL box and becomes its cursor; a URL types in; the box shatters and
  * the clinic's logo, colours, treatments and a chat in its colours assemble.
  */
@@ -68,7 +68,7 @@ export const S3UrlBuild: React.FC = () => {
               </div>
               <div style={{ display: "flex", justifyContent: "center", marginTop: 34, opacity: lerp(frame, [28, 38], [0, 1]), transform: `translateY(${(1 - lerp(frame, [28, 38], [0, 1])) * 20}px)` }}>
                 <div style={{ background: c.coral, color: c.white, fontFamily: font, fontWeight: 800, fontSize: 40, padding: "22px 48px", borderRadius: 999, transform: `translateY(${press}px) scale(${press ? 0.97 : 1})`, boxShadow: press ? "0 4px 10px rgba(255,122,89,0.35)" : "0 18px 40px rgba(255,122,89,0.45), inset 0 1px 0 rgba(255,255,255,0.4)" }}>
-                  Build my AYA →
+                  Build my Aya →
                 </div>
               </div>
             </div>
@@ -172,7 +172,7 @@ const Built: React.FC<{ frame: number; wide: boolean }> = ({ frame, wide }) => {
             <ClinicMark size={58} light />
             <div style={{ fontFamily: font, color: c.white }}>
               <div style={{ fontWeight: 800, fontSize: 32 }}>{CLINIC.name}</div>
-              <div style={{ fontWeight: 500, fontSize: 24, opacity: 0.9 }}>AYA · AI assistant · online</div>
+              <div style={{ fontWeight: 500, fontSize: 24, opacity: 0.9 }}>Aya · AI assistant · online</div>
             </div>
           </div>
           <div style={{ flex: 1, padding: 30, display: "flex", flexDirection: "column", gap: 18 }}>

@@ -16,7 +16,7 @@ const resolveAt = (i: number) => RESOLVE + i * STEP;
 const landAt = (i: number) => resolveAt(i) + 20;
 
 /**
- * Scene 4, "Every channel, at once", 420–600 (180 frames). The orb pulses and
+ * Scene 4, "Every channel, at once", 180 frames. The orb pulses and
  * five glass conversations burst out of it; each resolves, flies into the
  * week as a booking with its value, the booked value counts up, and
  * healdesk's notification lands.
@@ -212,7 +212,7 @@ const HealdeskBanner: React.FC<{ frame: number; W: number; wide: boolean }> = ({
   const width = wide ? 820 : 900;
   return (
     <div style={{ position: "absolute", left: (W - width) / 2, top: interpolate(p, [0, 1], [-200, wide ? 40 : 30]), zIndex: 60, filter: p < 0.9 ? `blur(${(1 - p) * 8}px)` : undefined }}>
-      <Notification app="healdesk" title={`AYA booked 5 appointments · ${money(BOOKED_VALUE)}`} body="Calls, Instagram, Messenger, WhatsApp and web chat" time="now" width={width} />
+      <Notification app="healdesk" title={`Aya booked 5 appointments · ${money(BOOKED_VALUE)}`} body="Calls, Instagram, Messenger, WhatsApp and web chat" time="now" width={width} />
     </div>
   );
 };

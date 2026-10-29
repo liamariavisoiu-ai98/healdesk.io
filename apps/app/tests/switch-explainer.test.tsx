@@ -35,10 +35,13 @@ const css = readFileSync(new URL("../src/app/globals.css", import.meta.url), "ut
 describe("SwitchExplainer", () => {
   test("shows the rule's reason verbatim, before the picture, with the unlock button", () => {
     const rules = switchRules(facts);
+    // The text's own rule is locked with no unlock while no sender exists
+    // (switch-rules.ts), so the deposits rule, which needs Stripe, drives the
+    // explainer here.
     const html = renderToStaticMarkup(
-      <TextLinkExplainer id="e" rule={rules.text_payment_link} targets={targets} />,
+      <TextLinkExplainer id="e" rule={rules.deposits} targets={targets} />,
     );
-    expect(html).toContain(rules.text_payment_link.reason);
+    expect(html).toContain(rules.deposits.reason);
     expect(html).toContain('href="/api/connect/stripe/start?clinic=x&amp;from=settings"');
     expect(html).toContain("Connect Stripe");
     // text first, picture last

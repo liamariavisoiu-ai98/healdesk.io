@@ -7,7 +7,7 @@ import { markCalendarBrokenWithin } from "@/lib/connections/google-calendar";
 import { saveSetting, type SettingContext } from "@/lib/portal/settings";
 import { readSettingsView } from "@/lib/portal/settings-view";
 import { fullPaymentActive, readPaymentFacts } from "@/lib/portal/switch-resets";
-import { UNLOCK_REASONS } from "@/lib/portal/switch-rules";
+import { TEXT_NOT_READY_REASON, UNLOCK_REASONS } from "@/lib/portal/switch-rules";
 import { saveSetupScreen } from "@/lib/setup/save";
 import { readSetupState } from "@/lib/setup/state";
 import { withTenant } from "@/lib/tenant";
@@ -89,6 +89,22 @@ async function history(clinicId: string) {
   );
 }
 
+/**
+ * The text switch left on from before it was locked (29 October 2026): no
+ * writer can turn it on while no sender exists (switch-rules.ts), so a test
+ * that needs it on sets the stored value directly.
+ */
+async function textOnFromBeforeTheLock(c: PortalClinic) {
+  const rows = await tenantRows(
+    c.clinicId,
+    `update clinic_settings set text_payment_link = true where clinic_id = $1 returning clinic_id`,
+    [c.clinicId],
+  );
+  expect(rows).toHaveLength(1);
+}
+
+const TEXT_REFUSED = { ok: false, field: "text_payment_link", message: TEXT_NOT_READY_REASON } as const;
+
 /** Stripe connected, a deposit on a treatment, and (optionally) a working calendar. */
 async function ready(c: PortalClinic, options: { calendar?: boolean } = {}) {
   await migrator(
@@ -144,11 +160,7 @@ describeDb("payment switches", () => {
       field: "payment_ask",
       message: UNLOCK_REASONS.connect_stripe,
     });
-    expect(await saveSetting(ctx, "text_payment_link", true, tick())).toEqual({
-      ok: false,
-      field: "text_payment_link",
-      message: UNLOCK_REASONS.connect_stripe,
-    });
+    expect(await saveSetting(ctx, "text_payment_link", true, tick())).toEqual(TEXT_REFUSED);
     expect(await saveSetting(ctx, "deposits_enabled", true, tick())).toEqual({
       ok: false,
       field: "deposits_enabled",
@@ -165,7 +177,8 @@ describeDb("payment switches", () => {
       field: "payment_ask",
       message: UNLOCK_REASONS.connect_calendar,
     });
-    expect(await saveSetting(ctx, "text_payment_link", true, tick())).toMatchObject({ ok: true });
+    // No sender exists, so the text stays locked with Stripe connected too.
+    expect(await saveSetting(ctx, "text_payment_link", true, tick())).toEqual(TEXT_REFUSED);
 
     await insertGoogleConnection(clinic.clinicId, { managed: true });
     const saved = await saveSetting(ctx, "payment_ask", "full_payment", tick());
@@ -177,7 +190,7 @@ describeDb("payment switches", () => {
       ),
     });
     expect(await switches(clinic.clinicId)).toMatchObject({
-      text_payment_link: true,
+      text_payment_link: false,
       payment_ask: "full_payment",
     });
     expect(await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, fullPaymentActive)).toBe(
@@ -185,7 +198,6 @@ describeDb("payment switches", () => {
     );
     // The clinic's own changes keep their before and after, and send no reset email.
     expect(await history(clinic.clinicId)).toEqual([
-      { field: "text_payment_link", before_value: "false", after_value: "true" },
       { field: "payment_ask", before_value: "deposit_only", after_value: "full_payment" },
     ]);
     expect(await resetEmails(clinic.clinicId)).toEqual([]);
@@ -206,10 +218,8 @@ describeDb("payment switches", () => {
       ok: true,
       toast: expect.stringMatching(/^Deposits on\. In chat, AYA is designed to send a secure payment link/),
     });
-    expect(await saveSetting(ctx, "text_payment_link", true, tick())).toMatchObject({
-      ok: true,
-      toast: expect.stringMatching(/^Payment-link texts on\. After a call, AYA is designed to text/),
-    });
+    expect(await saveSetting(ctx, "text_payment_link", true, tick())).toEqual(TEXT_REFUSED);
+    await textOnFromBeforeTheLock(clinic);
     await saveSetting(ctx, "payment_ask", "full_payment", tick());
 
     const outcome = await setAutoConfirm(clinic.clinicId, false, ACTOR, { label: "Front desk Mac", now: tick() });
@@ -308,7 +318,7 @@ describeDb("payment switches", () => {
     await ready(clinic);
     const ctx = ctxFor(clinic);
     await saveSetting(ctx, "deposits_enabled", true, tick());
-    await saveSetting(ctx, "text_payment_link", true, tick());
+    await textOnFromBeforeTheLock(clinic);
     await saveSetting(ctx, "payment_ask", "full_payment", tick());
 
     const result = await applyDeauthorization({
@@ -386,7 +396,7 @@ describeDb("payment switches", () => {
     expect(await save({ ...consultation, textPaymentLink: true })).toEqual({
       ok: false,
       field: "textPaymentLink",
-      message: UNLOCK_REASONS.connect_stripe,
+      message: TEXT_NOT_READY_REASON,
     });
     expect((await switches(clinic.clinicId)).text_payment_link).toBe(false);
 
@@ -394,11 +404,15 @@ describeDb("payment switches", () => {
       `update clinics set stripe_connect_account_id = 'acct_1LaneWizard', stripe_connect_connected_at = now() where id = $1`,
       [clinic.clinicId],
     );
-    expect(await save({ ...consultation, textPaymentLink: true, paymentAsk: "deposit_only" })).toMatchObject({
-      ok: true,
+    // With Stripe the text is still locked: no sender exists.
+    expect(await save({ ...consultation, textPaymentLink: true, paymentAsk: "deposit_only" })).toEqual({
+      ok: false,
+      field: "textPaymentLink",
+      message: TEXT_NOT_READY_REASON,
     });
+    expect(await save({ ...consultation, paymentAsk: "deposit_only" })).toMatchObject({ ok: true });
     expect(await switches(clinic.clinicId)).toMatchObject({
-      text_payment_link: true,
+      text_payment_link: false,
       payment_ask: "deposit_only",
     });
     // Without the calendar, full payment stays locked in the wizard too.
@@ -427,12 +441,9 @@ describeDb("payment switches", () => {
       )[0]!.deposit;
     expect(await depositOf()).toBe("50");
 
-    // Only the text switch: the amounts and the ask are left alone.
-    expect(await save({ textPaymentLink: true })).toMatchObject({ ok: true });
-    expect(await depositOf()).toBe("50");
-    expect(await switches(clinic.clinicId)).toMatchObject({ text_payment_link: true, payment_ask: "deposit_only" });
+    await textOnFromBeforeTheLock(clinic);
 
-    // Only the ask: the text stays on.
+    // Only the ask: the text stays as stored.
     expect(await save({ paymentAsk: "deposit_only" })).toMatchObject({ ok: true });
     expect((await switches(clinic.clinicId)).text_payment_link).toBe(true);
 
@@ -440,6 +451,11 @@ describeDb("payment switches", () => {
     expect(await save({})).toMatchObject({ ok: true });
     expect(await depositOf()).toBe("50");
     expect((await switches(clinic.clinicId)).text_payment_link).toBe(true);
+
+    // Only the text switch (off always passes): the amounts and the ask are left alone.
+    expect(await save({ textPaymentLink: false })).toMatchObject({ ok: true });
+    expect(await depositOf()).toBe("50");
+    expect(await switches(clinic.clinicId)).toMatchObject({ text_payment_link: false, payment_ask: "deposit_only" });
 
     // "Yes" with no amounts keeps the amounts already set; "No" clears them.
     expect(await save({ needsDeposits: true })).toMatchObject({ ok: true });
@@ -472,15 +488,14 @@ describeDb("payment switches", () => {
         .sort((a, b) => String(a[2].setting).localeCompare(String(b[2].setting)));
 
     expect(
-      await saveSetupScreen(ctx, "deposits", { textPaymentLink: true, paymentAsk: "full_payment" }, tick()),
+      await saveSetupScreen(ctx, "deposits", { textPaymentLink: false, paymentAsk: "full_payment" }, tick()),
     ).toMatchObject({ ok: true });
     expect(await feed()).toEqual([
       ["wizard", "clinic_device", { setting: "payment_ask", before: "deposit_only", after: "full_payment" }],
-      ["wizard", "clinic_device", { setting: "text_payment_link", before: "off", after: "on" }],
     ]);
     // Re-saving the same answers records nothing more.
-    await saveSetupScreen(ctx, "deposits", { textPaymentLink: true, paymentAsk: "full_payment" }, tick());
-    expect(await feed()).toHaveLength(2);
+    await saveSetupScreen(ctx, "deposits", { textPaymentLink: false, paymentAsk: "full_payment" }, tick());
+    expect(await feed()).toHaveLength(1);
 
     await inTenant(clinic.clinicId, (c) =>
       c.query(`update clinic_change_events set alerted_at = now() where alerted_at is null`),
@@ -498,6 +513,8 @@ describeDb("payment switches", () => {
   test("the settings view shows the stored values, the real facts and the rules from them", async () => {
     await ready(clinic);
     await saveSetting(ctxFor(clinic), "payment_ask", "full_payment", tick());
+    // A text left on from before the lock reads as off: nothing can send it.
+    await textOnFromBeforeTheLock(clinic);
     const actor = { type: "user", userId: clinic.userId, label: "Front desk Mac" } as const;
     const state = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
       readSetupState(tx, { userId: clinic.userId, now: NOW }),
@@ -510,7 +527,7 @@ describeDb("payment switches", () => {
       calendarConnected: true,
       rules: {
         full_payment: { enabled: true, reason: null },
-        text_payment_link: { enabled: true },
+        text_payment_link: { enabled: false, reason: TEXT_NOT_READY_REASON, unlock: null },
         deposits: { enabled: true },
       },
     });

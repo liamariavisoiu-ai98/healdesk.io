@@ -91,7 +91,8 @@ describeDb("payment switches under concurrent writers", () => {
       );
     });
     // A settings row to race on.
-    expect(await saveSetting(ctxFor(clinic), "text_payment_link", true, NOW)).toMatchObject({ ok: true });
+    // (Off: the text cannot be turned on while no sender exists; switch-rules.ts.)
+    expect(await saveSetting(ctxFor(clinic), "text_payment_link", false, NOW)).toMatchObject({ ok: true });
   });
 
   afterAll(async () => {

@@ -123,7 +123,8 @@ describe("the switches an operator sees", () => {
     "text_payment_link and payment_ask, each governed by its rule",
     () => {
       const by = Object.fromEntries(switchViews({ ...FACTS, facts: { ...FACTS.facts, gatewayConnected: true } }).map((v) => [v.key, v]));
-      expect(by.text_payment_link).toMatchObject({ kind: "switch", value: false, enabled: true });
+      // Locked while no sender exists (switch-rules.ts), Stripe or not.
+      expect(by.text_payment_link).toMatchObject({ kind: "switch", value: false, enabled: false, reason: "Texting the payment link is not available yet." });
       expect(by.payment_ask).toMatchObject({
         kind: "choice",
         value: "deposit_only",
@@ -429,7 +430,7 @@ describeDb("settings changes reach ops, and operators set switches", () => {
       );
 
     // Nothing connected: both refused with the rule's own sentence.
-    expect(await set("text_payment_link", true)).toEqual({ ok: false, message: "Connect your Stripe account first.", field: "text_payment_link" });
+    expect(await set("text_payment_link", true)).toEqual({ ok: false, message: "Texting the payment link is not available yet.", field: "text_payment_link" });
     expect(await set("payment_ask", "full_payment")).toMatchObject({ ok: false, message: "Connect your Stripe account first." });
 
     // Stripe, a deposit, and a calendar that is only degraded (Google briefly
@@ -447,10 +448,11 @@ describeDb("settings changes reach ops, and operators set switches", () => {
     await insertGoogleConnection(pay.clinicId, { managed: true, status: "degraded" });
     const ready = await read();
     expect(ready.payment_ask).toMatchObject({ value: "deposit_only", enabled: true, reason: null });
-    expect(ready.text_payment_link).toMatchObject({ value: false, enabled: true, reason: null });
+    expect(ready.text_payment_link).toMatchObject({ value: false, enabled: false, reason: "Texting the payment link is not available yet." });
 
     expect(await set("payment_ask", "full_payment")).toMatchObject({ ok: true, resets: [] });
-    expect(await set("text_payment_link", true)).toMatchObject({ ok: true, resets: [] });
+    // Still refused with Stripe connected: no sender exists.
+    expect(await set("text_payment_link", true)).toEqual({ ok: false, message: "Texting the payment link is not available yet.", field: "text_payment_link" });
 
     // Auto-confirm off from the console: full payment goes back to deposit
     // only in the same write, and the console is told so.
@@ -466,7 +468,7 @@ describeDb("settings changes reach ops, and operators set switches", () => {
     });
     const after = await read();
     expect(after.payment_ask).toMatchObject({ value: "deposit_only", enabled: false });
-    expect(after.text_payment_link).toMatchObject({ value: true, enabled: true });
+    expect(after.text_payment_link).toMatchObject({ value: false, enabled: false });
     expect(await set("payment_ask", "full_payment")).toMatchObject({
       ok: false,
       message: "Turn on Auto-confirm bookings first, so nobody pays for a time your team might decline.",

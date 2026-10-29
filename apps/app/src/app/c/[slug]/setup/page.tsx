@@ -513,7 +513,8 @@ async function DepositsStep({
           voice: channels.includes("voice"),
           text: rules.text_payment_link,
           full: rules.full_payment,
-          textPaymentLink: deposits.textPaymentLink,
+          // On only in effect: a stored choice the rules lock reads as off.
+          textPaymentLink: deposits.textPaymentLink && rules.text_payment_link.enabled,
           paymentAsk: deposits.paymentAsk,
           targets: {
             // The screen's own Connect Stripe button sits outside its form,

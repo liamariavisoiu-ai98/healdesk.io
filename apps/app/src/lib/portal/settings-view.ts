@@ -315,7 +315,10 @@ export async function readSettingsView(input: {
       uncollectable: tenant.deposits.depositUncollectable,
       holdMinutes: tenant.deposits.depositHoldMinutes,
       servicesWithDeposit: knowledge.services.filter((s) => (s.depositUsd ?? 0) > 0).length,
-      textPaymentLink: tenant.deposits.textPaymentLink,
+      // On only in effect: a stored choice the rules lock reads as off.
+      textPaymentLink:
+        tenant.deposits.textPaymentLink &&
+        switchRules(switchFactsOf(tenant.deposits)).text_payment_link.enabled,
       paymentAsk: tenant.deposits.paymentAsk,
       autoConfirm: tenant.deposits.autoConfirm,
       calendarConnected: tenant.deposits.calendarConnected,

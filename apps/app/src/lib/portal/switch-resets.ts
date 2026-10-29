@@ -11,6 +11,8 @@ import { notifySwitchesReset } from "@/lib/notices/setting-changed";
 import type { TenantTx } from "@/lib/tenant";
 
 import {
+  factRules,
+  PAYMENT_LINK_TEXT_SENDER_READY,
   resetsAfter,
   switchRules,
   type SwitchFacts,
@@ -123,7 +125,7 @@ export async function applySwitchResets(
   await lockAutoConfirm(tx);
   const current = await getDepositSettings(tx);
   const after: SwitchFacts = { ...switchFactsOf(current), [fact]: false };
-  const before = switchRules({ ...after, [fact]: true });
+  const before = factRules({ ...after, [fact]: true });
   const resets = resetsAfter(after, {
     depositsEnabled: current.depositsEnabled,
     textPaymentLink: current.textPaymentLink,
@@ -199,5 +201,5 @@ export async function fullPaymentActive(tx: TenantTx): Promise<boolean> {
  * (switch-rules.ts, text_payment_link) are all checked together.
  */
 export function paymentLinkTextOffered(): false {
-  return false;
+  return PAYMENT_LINK_TEXT_SENDER_READY;
 }

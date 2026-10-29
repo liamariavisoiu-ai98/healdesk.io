@@ -7,10 +7,15 @@
  * be greyed out on the screen yet accepted by a crafted request, and no rule is
  * written twice. Pure: facts in, answers out, nothing read or written here.
  *
- * The text switch is a clinic's choice like any other. Whether a text can
- * actually go out yet is not a clinic matter and is not decided here: the tool
- * layer checks it where the text would be offered, and the launch register
- * keeps every clinic from going live while it is open.
+ * The text switch stays locked while no compliant sender exists
+ * (PAYMENT_LINK_TEXT_SENDER_READY, below; CLAUDE.md: "the setting stays
+ * unavailable until a compliant sender and the clinic's sender registration
+ * exist"). Until 29 October 2026 a voice clinic with Stripe could turn it on,
+ * which made BAA 1.6.0's "where Practice has chosen that option" a promise
+ * nobody keeps; now it cannot be turned on, and a value already on reads as
+ * off on the Settings page and in the wizard. resetsAfter still resets only
+ * for a lost fact (the sender is not the clinic's), so the lock sends no
+ * clinic a reset email.
  *
  * Every `reason` is what the clinic reads: what is missing, in plain words,
  * with no mention of how the thing works inside.
@@ -46,6 +51,16 @@ export type SwitchRule = {
 
 const OPEN: SwitchRule = { enabled: true, reason: null, unlock: null };
 
+/**
+ * Whether a compliant text sender, and the clinic's carrier registration,
+ * exist. Never yet. When a sender is built this becomes a real check, and
+ * paymentLinkTextOffered (switch-resets.ts), which returns it, with it.
+ */
+export const PAYMENT_LINK_TEXT_SENDER_READY = false as const;
+
+/** The clinic's line while no sender exists. */
+export const TEXT_NOT_READY_REASON = "Texting the payment link is not available yet.";
+
 export type SwitchUnlock = NonNullable<SwitchRule["unlock"]>;
 
 /**
@@ -80,6 +95,22 @@ export function resetNotice(which: RuledSwitch, reason: string | null): string {
 export function switchRules(
   facts: SwitchFacts,
 ): Record<RuledSwitch, SwitchRule> {
+  return rulesFor(facts, PAYMENT_LINK_TEXT_SENDER_READY);
+}
+
+/**
+ * The rules from the clinic's own facts alone, without the sender lock: what
+ * a reset compares before and after a lost fact (resetsAfter, and
+ * applySwitchResets in switch-resets.ts). Never for showing or setting a switch.
+ */
+export function factRules(facts: SwitchFacts): Record<RuledSwitch, SwitchRule> {
+  return rulesFor(facts, true);
+}
+
+function rulesFor(
+  facts: SwitchFacts,
+  senderReady: boolean,
+): Record<RuledSwitch, SwitchRule> {
   const deposits: SwitchRule = !facts.gatewayConnected
     ? locked("connect_stripe")
     : !facts.hasDepositAmount
@@ -92,9 +123,11 @@ export function switchRules(
         reason: "Texting a payment link is for phone calls.",
         unlock: null,
       }
-    : !facts.gatewayConnected
-      ? locked("connect_stripe")
-      : OPEN;
+    : !senderReady
+      ? { enabled: false, reason: TEXT_NOT_READY_REASON, unlock: null }
+      : !facts.gatewayConnected
+        ? locked("connect_stripe")
+        : OPEN;
 
   const full: SwitchRule = !facts.gatewayConnected
     ? locked("connect_stripe")
@@ -127,7 +160,9 @@ export function resetsAfter(
   facts: SwitchFacts,
   values: RuledValues,
 ): SwitchReset[] {
-  const rules = switchRules(facts);
+  // The clinic's facts only: the sender lock is read where the switch is
+  // shown and set, never as a reset.
+  const rules = factRules(facts);
   const out: SwitchReset[] = [];
   if (values.fullPayment && !rules.full_payment.enabled) {
     out.push({

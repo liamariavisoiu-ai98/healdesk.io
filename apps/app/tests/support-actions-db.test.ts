@@ -397,7 +397,8 @@ describeDb("support email to action (lane D)", () => {
     expect(action).toMatchObject({ status: "refused" });
     expect(typeof action.reason).toBe("string");
     expect(await changes(clinic.clinicId)).toHaveLength(0);
-    expect(result.message).toContain("Connect your Stripe account first.");
+    // Locked while no sender exists (switch-rules.ts), ahead of the Stripe rule.
+    expect(result.message).toContain("Texting the payment link is not available yet.");
     // Approving again runs nothing: the refusal stands, and the reply now fails its claim check.
     const second = await sendSupportReply(item!, parseDraft(item!.draft), new Date(NOW.getTime() + 11 * MINUTE));
     expect(second).toMatchObject({ ok: false, outcomeCode: "checks_failed" });

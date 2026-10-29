@@ -1648,9 +1648,11 @@ describeDb("channel events against the database", () => {
     expect(await channelRow(c.clinicId, "web")).toMatchObject({ waiting_on: null });
     expect((await channelRow(c.clinicId, "web")).live_at).not.toBeNull();
     expect(confirming).toMatchObject({ mode: "chat" });
-    const { rows: audits } = await getMigratorPool().query<{ metadata: Record<string, unknown> }>(
-      `select metadata from audit_log where clinic_id = $1 and resource_type = 'clinic_channel' and metadata->>'via' = 'origin_seen'`,
-      [c.clinicId],
+    const { rows: audits } = await inTenant(c.clinicId, (client) =>
+      client.query<{ metadata: Record<string, unknown> }>(
+        `select metadata from audit_log where clinic_id = $1 and resource_type = 'clinic_channel' and metadata->>'via' = 'origin_seen'`,
+        [c.clinicId],
+      ),
     );
     expect(audits.map((a) => a.metadata)).toEqual([
       { channel: "web", input: "runtime_seen", via: "origin_seen", host: "staging.sight-clinic.test" },

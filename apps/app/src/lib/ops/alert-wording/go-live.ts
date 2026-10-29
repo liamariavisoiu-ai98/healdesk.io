@@ -134,7 +134,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     // "Seems": the open's Origin matched the clinic's recorded website
     // (lib/chat/web-chat.ts sightingHost). A browser cannot fake it, but a
     // script outside a browser can.
-    headline: "{clinicName} seems to have put website chat on its site: it confirms itself on a second open, or you can confirm it",
+    headline: "{clinicName} seems to have website chat on its site: a second open confirms it",
     whatHappened:
       "{clinicName}'s website chat, still waiting on the clinic's own step, was just opened from a page on the clinic's website, or from something claiming to be one. A second open at least five minutes later confirms the line by itself.",
     whyItMatters:

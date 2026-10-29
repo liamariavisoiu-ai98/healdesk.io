@@ -50,6 +50,8 @@ export type ChannelRow = {
   line: string;
   /** Website chat, once open: the line to paste. */
   snippet?: string | null;
+  /** Website chat, once open: whether the chat has been seen on the site (lib/channels/widget-sighting.ts sightingLine). */
+  sighting?: string | null;
   /** Instagram, Messenger & WhatsApp: what is connected, dropped or still to connect, and whether each login can start. */
   meta?: MetaConnectView | null;
   /** Phone, once ready for the clinic: the forwarding steps. */
@@ -99,7 +101,9 @@ export function ChannelsScreen(props: {
                   </span>
                 </p>
                 <p className="text-muted mt-1 text-sm">{row.line}</p>
-                {row.snippet ? <WebsiteLinePanel slug={props.slug} snippet={row.snippet} /> : null}
+                {row.snippet ? (
+                  <WebsiteLinePanel slug={props.slug} snippet={row.snippet} sighting={row.sighting ?? null} />
+                ) : null}
                 {row.meta ? <MetaConnectButtons slug={props.slug} from="setup" view={row.meta} /> : null}
                 {row.forwarding ? (
                   <Forwarding

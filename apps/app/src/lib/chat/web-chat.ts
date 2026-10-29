@@ -13,7 +13,8 @@ import { openingLine as assistantOpeningLine } from "@/lib/assistant/opening";
 import { answerTurn, EMPTY_CAPTURE, FAILURE_LINE, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
 import { assistantMayAnswer } from "@/lib/billing/answering";
 import { recordUsage } from "@/lib/billing/usage";
-import { noteWidgetLoaded, recordFirstAnswer } from "@/lib/channels/events";
+import { recordFirstAnswer } from "@/lib/channels/events";
+import { noteWidgetSighting } from "@/lib/channels/widget-sighting";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import {
@@ -164,8 +165,66 @@ export function originAllowed(origin: string | null, website: string | null): bo
   const host = url.hostname.toLowerCase();
   if (url.protocol === "http:" && (host === "localhost" || host === "127.0.0.1")) return true;
   if (url.protocol !== "https:") return false;
-  const site = website.toLowerCase().replace(/^https?:\/\//, "").split("/")[0]!.replace(/^www\./, "");
+  const site = registeredSite(website);
   return host === site || host === `www.${site}` || host.endsWith(`.${site}`);
+}
+
+/**
+ * The site a clinic's website field names, as originAllowed matches it: no
+ * scheme, no path, no www. drizzle/0138's app_web_widget_seen reads
+ * clinics.website the same way.
+ */
+export function registeredSite(website: string): string {
+  return website.toLowerCase().replace(/^https?:\/\//, "").split("/")[0]!.replace(/^www\./, "");
+}
+
+/**
+ * Hosting platforms whose apex many sites share. A clinic whose website is
+ * recorded as one of these bare apexes would take any tenant's page for its
+ * own, so its widget is never confirmed by a sighting and an operator
+ * confirms it (docs/design/launch-readiness-2026-10-27/
+ * webchat-2-snippet-confirmation.md, section 2). A clinic's own subdomain of
+ * one (clinic.wixsite.com) is its own site and counts.
+ */
+export const SHARED_HOST_APEXES: ReadonlySet<string> = new Set([
+  "wixsite.com",
+  "wix.com",
+  "squarespace.com",
+  "webflow.io",
+  "wordpress.com",
+  "weebly.com",
+  "godaddysites.com",
+  "myshopify.com",
+  "square.site",
+  "carrd.co",
+  "github.io",
+  "netlify.app",
+  "vercel.app",
+  "pages.dev",
+  "herokuapp.com",
+  "framer.website",
+  "framer.app",
+  "blogspot.com",
+  "jimdosite.com",
+  "strikingly.com",
+]);
+
+/**
+ * The host a widget open counts as a sighting from (lib/channels/
+ * widget-sighting.ts): the clinic's own website, www or any subdomain of it
+ * (the owner's decision of 29 October 2026), over https, never a local page,
+ * never for a clinic with no website or one recorded as a shared platform's
+ * bare apex. Null when the open is no sighting.
+ */
+export function sightingHost(origin: string | null, website: string | null): string | null {
+  if (!website || !isClinicSiteOrigin(origin, website)) return null;
+  const site = registeredSite(website);
+  if (!site.includes(".") || SHARED_HOST_APEXES.has(site)) return null;
+  try {
+    return new URL(origin!).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
 }
 
 /** A page served from the visitor's own machine: the clinic trying its widget locally. */
@@ -183,8 +242,8 @@ export function isLocalOrigin(origin: string | null | undefined): boolean {
  * The request says it comes from the clinic's own website: an origin
  * `originAllowed` accepts for the website on file, and not a local page. A
  * clinic with no website on file has no site to be seen on, so this is never
- * true for one. Only a reason to ask an operator to look: any client can
- * send any Origin (lib/channels/events.ts noteWidgetLoaded).
+ * true for one. Evidence, not proof: a browser cannot send another site's
+ * Origin, but a script outside one can (lib/channels/widget-sighting.ts).
  */
 export function isClinicSiteOrigin(origin: string | null, website: string | null): boolean {
   if (!website || !origin || isLocalOrigin(origin)) return false;
@@ -238,12 +297,15 @@ function openingLine(facts: AssistantFacts): string {
 
 /**
  * Start: the gate, then the opening line and a token with no conversation
- * yet. A start that says it comes from the clinic's own website asks an
- * operator, once, to confirm the line is on the site; it records nothing,
- * because an Origin header is never proof (lib/channels/events.ts).
+ * yet. A start from a host of the clinic's own website is a sighting
+ * (lib/channels/widget-sighting.ts): two of them at least five minutes apart
+ * confirm website chat's line is on the site, and the first also asks an
+ * operator, once, as the fallback. It comes before the gate, so the open
+ * that confirms the line is answered when nothing else is left.
  */
 export async function startWebChat(clinic: WebChatClinic, now: Date = new Date(), origin: string | null = null): Promise<{ mode: "chat"; opening: string; token: string } | ContactFormReply> {
-  if (isClinicSiteOrigin(origin, clinic.website)) await noteWidgetLoaded(clinic.clinicId, { actor: ACTOR });
+  const host = sightingHost(origin, clinic.website);
+  if (host) await noteWidgetSighting(clinic.clinicId, host, { actor: ACTOR, now });
   const decision = await assistantMayAnswer({ clinicId: clinic.clinicId, channel: "web", now, actor: ACTOR });
   if (decision.decision === "pass_through") return { mode: "contact_form", reason: decision.reason, form: await contactFormOffer(clinic, decision) };
   const facts = await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, async (tx) => ((await clinicHasLeft(tx)) ? null : assistantFacts(tx)));

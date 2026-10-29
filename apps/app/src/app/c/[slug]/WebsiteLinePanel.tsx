@@ -16,7 +16,16 @@ import { SendStepsForm } from "./SendStepsForm";
  * about it, never differ between the two (spec: "shown on screen, emailed,
  * and available in the dashboard forever").
  */
-export function WebsiteLinePanel({ slug, snippet }: { slug: string; snippet: string }) {
+export function WebsiteLinePanel({
+  slug,
+  snippet,
+  sighting = null,
+}: {
+  slug: string;
+  snippet: string;
+  /** Waiting, seen on a host, or confirmed (lib/channels/widget-sighting.ts sightingLine). */
+  sighting?: string | null;
+}) {
   const id = useId();
   return (
     <div className="mt-3 grid gap-2 text-sm">
@@ -35,6 +44,11 @@ export function WebsiteLinePanel({ slug, snippet }: { slug: string; snippet: str
         send it to whoever looks after your site. AYA is designed to start answering there once
         it&rsquo;s in.
       </p>
+      {sighting ? (
+        <p role="status" data-testid="web-sighting">
+          {sighting}
+        </p>
+      ) : null}
       <p>{WEB_CHAT_COUNTS_LINE}</p>
       <p>
         <CopyButton text={snippet} label="Copy the line" targetId={id} />

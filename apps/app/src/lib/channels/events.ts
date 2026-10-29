@@ -87,10 +87,11 @@ import { connectedMetaPlatforms } from "./meta-platforms";
  *     caller's number intact, in a forwarding test the clinic or an operator
  *     ran, or forwarded from the clinic's own line with no test at all
  *     (never the onboarding stamp alone, which an operator can set by hand);
- *     for website chat, an
- *     operator's confirmation that its line is on the clinic's site
- *     (`runtime_seen`; an Origin header is never proof, because anyone can
- *     send one); for the Meta channel, a connected platform;
+ *     for website chat, its line seen on the clinic's site (`runtime_seen`):
+ *     two widget opens from the site at least five minutes apart
+ *     (lib/channels/widget-sighting.ts; an Origin is evidence, not proof,
+ *     a risk the owner accepted on 29 October 2026), or an operator's
+ *     confirmation; for the Meta channel, a connected platform;
  *   - **setup done** as its skip lines promise (lib/setup/skip-costs.ts):
  *     every wizard screen answered or skipped, and what a skip line says a
  *     channel cannot go live without: phone's hours (confirmed) and its
@@ -815,38 +816,15 @@ async function queueChannelLive(
 // Website chat's line on the clinic's site
 // -----------------------------------------------------------------------------
 
-/**
- * The widget opened from the clinic's website, by its Origin header. That is
- * never proof the line is on the site: any client can send any Origin, and
- * taking website chat live, and starting its billing, on one would let anyone
- * do both to any clinic. So a load records nothing. While website chat is
- * waiting on its line, the first such load asks an operator, once, to look at
- * the site and confirm it (`confirmWidgetOnSite`, the ops envelope's
- * confirmWebWidget). Never throws.
- */
-export async function noteWidgetLoaded(
-  clinicId: string,
-  input: { actor: ActorContext },
-): Promise<void> {
-  try {
-    const waiting = await withTenant({ clinicId, actor: input.actor }, async (tx) => {
-      const [row] = await tx.db
-        .select({ liveAt: clinicChannels.liveAt, waitingOn: clinicChannels.waitingOn })
-        .from(clinicChannels)
-        .where(and(eq(clinicChannels.clinicId, tx.clinicId), eq(clinicChannels.channel, "web")))
-        .limit(1);
-      return row !== undefined && row.liveAt === null && row.waitingOn === "snippet";
-    });
-    if (waiting) await notifyOpsOnce("web_widget_to_confirm", { clinicId, channel: "web" });
-  } catch (error) {
-    log.error("widget load not noted", { clinicId, channel: "web", error: describeError(error) });
-  }
-}
+// The widget's own sightings (two opens from the clinic's site, at least five
+// minutes apart) record runtime_seen too: lib/channels/widget-sighting.ts,
+// drizzle/0138.
 
 /**
  * An operator looked at the clinic's website and saw its chat: website chat's
  * runtime is present. Recorded once, through drizzle/0079's definer, with
- * actor `ops`; the caller then moves the channel on.
+ * actor `ops`; the caller then moves the channel on. The fallback and the
+ * override for the widget's own confirmation (lib/channels/widget-sighting.ts).
  */
 export async function confirmWidgetOnSite(tx: TenantTx): Promise<{ recorded: boolean }> {
   const recorded = await definerFlag(

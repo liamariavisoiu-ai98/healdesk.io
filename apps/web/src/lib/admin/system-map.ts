@@ -1489,7 +1489,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "app",
     to: "meta",
     title: "AYA answers in Instagram and Messenger",
-    carries: "AYA's reply, inside Meta's 24-hour window only",
+    carries: "AYA's reply, inside Meta's 24-hour window only, and, after staff confirm a request, the clinic's payment link",
     example:
       "The clinic presses Connect with Facebook at the channels step of its set-up, or in Settings, and picks its Page; an Instagram account linked to that Page connects with it. If Meta later drops the login, Home says so and the button comes back as Reconnect. From then on AYA's answer appears in the same chat thread.",
     // The Facebook login's return address is built from the portal's.
@@ -1507,7 +1507,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "app",
     to: "meta",
     title: "AYA answers on WhatsApp",
-    carries: "AYA's reply, inside Meta's 24-hour window only",
+    carries: "AYA's reply, inside Meta's 24-hour window only, and, after staff confirm a request, the clinic's payment link",
     example:
       "The clinic presses Connect WhatsApp at set-up's channels step or in Settings, connects its number through Meta's sign-up window, and it goes live once that WhatsApp account has a payment method. If Meta drops the login the button comes back as Reconnect.",
     keys: ["aws.META_APP_ID", "aws.META_WHATSAPP_CONFIG_ID", "clinic.meta"],
@@ -1558,14 +1558,14 @@ export const BRIDGES: readonly BridgeDef[] = [
     title: "Deposit links that pay the clinic's own Stripe",
     carries: "An amount and an anonymous reference, never a treatment",
     example:
-      "The clinic presses Connect Stripe in its portal; once chat sends deposit links, a patient's deposit will land in the clinic's own Stripe account, never ours.",
+      "The clinic presses Connect Stripe in its portal; once website chat sends a deposit link after a booking, or staff confirm a Meta request while its conversation is open, a patient's deposit will land in the clinic's own Stripe account, never ours.",
     // Our platform key does the connecting and makes the links, for the
     // clinic's account; the return address is the portal's.
     keys: ["aws.STRIPE_CONNECT_CLIENT_ID", "aws.STRIPE_SECRET_KEY", "aws.BETTER_AUTH_URL", "clinic.stripe"],
     phi: false,
     build: "partial",
     buildNote:
-      "Clinics can connect their Stripe from the deposits step of set-up (if they bought a chat channel) or in Settings, and disconnect it in Settings. Website chat sends the link once it books a service that needs a deposit (lib/booking/deposit-gate.ts chatDepositFor, after the booking is in the calendar, which is written owing the deposit; a link that cannot be made, or is never made because the process stopped first, goes to the front desk with its alert, the second from the worker's sweep, lib/billing/deposit-sweep.ts), and a call books and flags the deposit for staff, never a link. Neither happens until direct booking is switched on (the booking bridge to Google Calendar), so no chat sends one yet; tested against a fake Stripe only. Set-up already tells a clinic that has connected that AYA sends the link in chat.",
+      "Clinics can connect their Stripe from the deposits step of set-up (if they bought a chat channel) or in Settings, and disconnect it in Settings. Website chat sends the link once it books a service that needs a deposit (lib/booking/deposit-gate.ts chatDepositFor, after the booking is in the calendar, which is written owing the deposit; a link that cannot be made, or is never made because the process stopped first, goes to the front desk with its alert, the second from the worker's sweep, lib/billing/deposit-sweep.ts), and a call books and flags the deposit for staff, never a link. Website chat's link waits until direct booking is switched on (the booking bridge to Google Calendar). On Instagram, Messenger and WhatsApp the link goes after staff confirm a request on Bookings while that conversation has at least five minutes of its 24-hour window left: one fixed line with no amount, treatment or time, sent after the decision commits (lib/meta/deposit-link.ts); a line that cannot go expires the session and hands the deposit to the front desk with its alert. No clinic can connect Stripe until STRIPE_CONNECT_CLIENT_ID is set in production, so no link has been sent; tested against a fake Stripe and a fake Meta sender only. Set-up already tells a clinic that has connected that AYA sends the link in chat.",
   },
   {
     id: "clinic-stripe-app",
@@ -1576,7 +1576,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     carries:
       "\"Deposit paid\", a clinic disconnecting its Stripe, and every other Stripe Checkout or Payment Link sale on the clinic's Stripe, ignored on arrival",
     example:
-      "Today: a clinic disconnects its Stripe, Stripe tells the engine, signed, and the engine turns that clinic's deposits off. Once chat sends deposit links, a patient paying one will show on the booking as paid.",
+      "Today: a clinic disconnects its Stripe, Stripe tells the engine, signed, and the engine turns that clinic's deposits off. Once a deposit link goes out, in website chat or on a Meta thread after staff confirm, a patient paying one will show on the booking as paid.",
     // The route answers 503 without our platform key.
     keys: ["aws.STRIPE_CONNECT_WEBHOOK_SECRET", "aws.STRIPE_SECRET_KEY"],
     phi: true,
@@ -1584,7 +1584,7 @@ export const BRIDGES: readonly BridgeDef[] = [
       "Stripe signs no business associate agreement. The clinic's own Stripe account sends every sale it takes through Stripe Checkout or a Payment Link, patients' details included; the engine acts only on its own deposits and a disconnect, and drops the rest on arrival without keeping it.",
     build: "built",
     buildNote:
-      "Only disconnects act until a chat sends deposit links, which waits on direct booking. A link that expires or fails unpaid moves its deposit to the front desk, with its alert.",
+      "Only disconnects act until a deposit link goes out: website chat's waits on direct booking, and a Meta link waits on a clinic connecting Stripe, which needs STRIPE_CONNECT_CLIENT_ID in production. A link that expires or fails unpaid moves its deposit to the front desk, with its alert.",
   },
   {
     id: "app-resend",

@@ -63,11 +63,11 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     id: "deposit-link-meta",
     promise:
       "On Instagram, Messenger and WhatsApp AYA is designed to send the clinic's own deposit link",
-    where: "The demo call (Aya's description of what she does and where healdesk sits)",
+    where: "The demo call (Aya's description of what she does and where healdesk sits), terms sections 2 and 9, privacy section 12, How AYA is built to behave",
     status: "building",
-    left: 'The Meta front door takes booking requests and sends no link yet. It needs the booking engine and the clinic\'s payment link on Meta replies, inside the 24-hour window, with nothing clinical in the message (owner, 26 October 2026: "this is what we will launch").',
+    left: "Built: after staff confirm a Meta request inside its window, the clinic's link is sent as fixed text (lib/meta/deposit-link.ts). Waits, as deposit-link-chat does, on Stripe Connect in production (STRIPE_CONNECT_CLIENT_ID), so no clinic can connect yet. Moves to on in the commit after Connect is configured and a live test on the demo clinic sends a link.",
     evidence:
-      "apps/app/src/lib/meta/front-door.ts, apps/app/src/lib/voice/demo-facts.ts (DEPOSIT_CLAIM)",
+      "apps/app/src/lib/meta/deposit-link.ts, apps/app/src/lib/meta/booking-requests.ts (decideWithin, decideBookingRequest), apps/app/src/lib/meta/front-door.ts, apps/app/src/lib/voice/demo-facts.ts (DEPOSIT_CLAIM)",
     blocksGoLive: true,
   },
   {

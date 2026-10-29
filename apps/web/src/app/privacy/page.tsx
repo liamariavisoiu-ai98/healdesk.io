@@ -98,6 +98,7 @@ export const metadata: Metadata = {
  *     no payment link there, where it said it could "book an appointment or
  *     send the clinic's own payment link": lib/meta/front-door.ts creates
  *     booking requests only, and nothing calls depositLinkMessage.
+ *     (Superseded for the payment link by LEGAL_VERSION 2026-10-29.3, below.)
  *
  * Revised on 13 October 2026 as LEGAL_VERSION 2026-10-13.3, for BAA 1.4.0
  * (agreement-changes.md § 14): the owner decided that day that healdesk
@@ -184,6 +185,13 @@ export const metadata: Metadata = {
  * and HELP wording, in place of "if we ever add texts". No vendor category is
  * added to section 5: the proposal adds one only once a sender is chosen, and
  * none is.
+ *
+ * Revised on 29 October 2026 as LEGAL_VERSION 2026-10-29.3 (DEP-META slice 1;
+ * see the terms): section 12 says that where the clinic takes deposits and its
+ * staff confirm a request while the conversation is open, the assistant sends
+ * the clinic's own secure payment link there, naming no treatment, amount or
+ * time (apps/app/src/lib/meta/deposit-link.ts), in place of "sends no payment
+ * link there". It still books nothing itself.
  */
 export default function PrivacyPage() {
   return (
@@ -765,7 +773,9 @@ export default function PrivacyPage() {
             <strong>Only to answer.</strong> The assistant uses the messages to answer the person
             who wrote, on the clinic&apos;s behalf, and to take a request for an appointment,
             which the clinic&apos;s staff then confirm, while that conversation is open. It books
-            nothing itself and sends no payment link there. The messages are never used for
+            nothing itself. Where the clinic takes deposits and its staff confirm the request
+            while the conversation is open, it sends the clinic&apos;s own secure payment link
+            there, which names no treatment, amount or time. The messages are never used for
             advertising, never sold, and never used to train models.
           </li>
           <li>

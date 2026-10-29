@@ -193,16 +193,19 @@ describe("the Meta channels are described as the agreement describes them", () =
 /**
  * Section 12 used to say the assistant could "book an appointment or send the
  * clinic's own payment link" on Meta. It takes booking requests, which staff
- * confirm, and sends no link there (lib/meta/front-door.ts; nothing calls
- * depositLinkMessage in lib/booking/deposit-gate.ts).
+ * confirm, and books nothing (lib/meta/front-door.ts). Since LEGAL_VERSION
+ * 2026-10-29.3 (DEP-META slice 1) it sends the clinic's own payment link only
+ * after staff confirm a request while the conversation is open
+ * (apps/app/src/lib/meta/deposit-link.ts).
  */
-describe("the Meta assistant takes booking requests and sends no payment link", () => {
+describe("the Meta assistant takes booking requests, and sends the payment link only after staff confirm one", () => {
   const text = pageText();
 
   test("section 12 says so", () => {
     expect(text).toContain(
-      "and to take a request for an appointment, which the clinic's staff then confirm, while that conversation is open. It books nothing itself and sends no payment link there.",
+      "and to take a request for an appointment, which the clinic's staff then confirm, while that conversation is open. It books nothing itself. Where the clinic takes deposits and its staff confirm the request while the conversation is open, it sends the clinic's own secure payment link there, which names no treatment, amount or time.",
     );
+    expect(text).not.toMatch(/sends no payment link/);
     expect(text).not.toMatch(/to book an appointment or send the clinic's own payment link/);
   });
 });

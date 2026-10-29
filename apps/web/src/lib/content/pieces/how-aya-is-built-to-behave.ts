@@ -13,7 +13,9 @@ import type { Piece } from "@/lib/content/types";
  * approved wording for the optional payment-link text after a call
  * (docs/design/launch-readiness-2026-10-27/legal-wording-proposal-payment-text.md),
  * also described as designed: nothing sends it yet (register item
- * `payment-link-text`).
+ * `payment-link-text`). Revised on 29 October 2026 for DEP-META slice 1: the
+ * Meta channels' desk-confirmed deposit link, described as designed (register
+ * item `deposit-link-meta`, open until Stripe Connect is configured).
  */
 export const piece: Piece = {
   slug: "how-aya-is-built-to-behave",
@@ -27,7 +29,7 @@ export const piece: Piece = {
   stage: "draft",
   legal: false,
   published: "2026-10-19",
-  lastReviewed: "2026-10-28",
+  lastReviewed: "2026-10-29",
   sections: [
     {
       id: "what-this-page-describes",
@@ -163,7 +165,7 @@ export const piece: Piece = {
             "The person is then asked not to share card details, and on Instagram, Messenger and WhatsApp no such filter runs. " +
             "On a call AYA cannot take payment, so where a service needs a deposit it is designed to book and flag the deposit for the clinic's staff to collect. " +
             "Where the clinic has turned it on, AYA is also designed to offer to text the caller the clinic's own payment link. " +
-            "On Instagram, Messenger and WhatsApp it sends no payment link.",
+            "On Instagram, Messenger and WhatsApp it is designed to send the clinic's own payment link after staff confirm a request, inside the 24-hour window, with no amount, treatment or time in the message.",
           cite: ["terms"],
         },
         {

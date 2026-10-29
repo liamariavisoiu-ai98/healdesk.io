@@ -2,19 +2,15 @@ import type { Channel } from "@healdesk/catalog";
 import { and, asc, eq, gt, gte, inArray, isNotNull, lt, lte, sql } from "drizzle-orm";
 
 import { unsafeDb, type Transaction } from "@/db";
-import { billingNotices, clinicChannels, clinics, clinicSettings, routedInteractions } from "@/db/schema";
+import { billingNotices, clinicChannels, clinics, routedInteractions } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { clinicLocalDate } from "@/lib/clinic/closures";
-import type {
-  GuaranteeMissPayload,
-  OutageEndedPayload,
-  OutageStartedPayload,
-} from "@/lib/email/templates/registry";
+import type { GuaranteeMissPayload } from "@/lib/email/templates/guarantee_miss";
+import type { OutageEndedPayload, OutageStartedPayload } from "@/lib/email/templates/outage";
 import { describeError, log } from "@/lib/log";
 import { enqueuePlanNotice } from "@/lib/notices/plan-notices";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 import { withTenant } from "@/lib/tenant";
-import { usableLine } from "@/lib/voice/fallback-line";
 
 import { OUTAGE_MISSED_REASONS } from "./routed-words";
 
@@ -49,17 +45,19 @@ import { OUTAGE_MISSED_REASONS } from "./routed-words";
  *      month (its first channel's go-live day and the 29 after it, in the
  *      practice's own calendar, firstMonthOf) on a channel that
  *      was live when it reached us ("A channel that goes live later is covered
- *      from the day it goes live"). One notice per practice-local day with a
- *      miss, queued on the practice's billing clinic (the account owner, as
- *      L30 goes) once that day has ended and MISS_NOTICE_SETTLE_MS more have
- *      passed, so its count includes the misses step 1 settles: within a day
- *      of the miss, inside the seven. Dedupe `guarantee_miss:<missedOn>`.
+ *      from the day it goes live"). One notice per channel and practice-local
+ *      day with a miss, queued on the practice's billing clinic (the account
+ *      owner, as L30 goes) once that day has ended and MISS_NOTICE_SETTLE_MS
+ *      more have passed, so the misses step 1 settles are in it: within a day
+ *      of the miss, inside the seven. It names the channel's first miss that
+ *      day (`missedAt`, the template's one moment), so an outage's many misses
+ *      are one email a channel a day, not one each. Dedupe
+ *      `guarantee_miss:<channel>:<practice-local day>`.
  *
- * The notices carry counts, dates, channel ids, the clinic's own direct line
- * and its Home link (registry.ts, the payloads), never a caller, their
- * number, a time of a call or any words. Their templates are owed (the
- * registry's PENDING_TEMPLATES): until they ship the sender holds the rows,
- * and the outbox's own switch governs sending as for every notice.
+ * The payloads are the templates' own (email/templates/outage.ts and
+ * guarantee_miss.ts): instants, a channel id, two counts and the clinic's
+ * Home link, never a caller, their number or any words. The outbox's own
+ * switch governs sending, as for every notice.
  *
  * Unswitched, like the redial sweep: the notices are a promise the Terms
  * make (the miss notice's seven days), and settling a pending row is a pure
@@ -136,33 +134,6 @@ const isOutageMiss = sql`${routedInteractions.outcome} = 'missed' and ${routedIn
  */
 const isAnswer = sql`(${routedInteractions.outcome} = 'answered' or (${routedInteractions.outcome} = 'missed' and ${routedInteractions.reason} = 'late'))`;
 
-type ClinicLinks = { homeUrl: string; directLineE164: string | null };
-
-async function clinicLinks(db: Transaction, clinicId: string): Promise<ClinicLinks | null> {
-  const [row] = await db
-    .select({
-      slug: clinics.slug,
-      published: clinics.publishedPhoneE164,
-      assistant: clinics.assistantNumberE164,
-      directLine: clinicSettings.directLineE164,
-    })
-    .from(clinics)
-    .leftJoin(clinicSettings, eq(clinicSettings.clinicId, clinics.id))
-    .where(eq(clinics.id, clinicId))
-    .limit(1);
-  if (!row) return null;
-  return {
-    homeUrl: publicUrl(`/c/${row.slug}`),
-    directLineE164: usableLine(row.directLine, [row.published, row.assistant]),
-  };
-}
-
-function channelsOf(rows: readonly { channel: string }[]): Channel[] {
-  const order: Channel[] = ["voice", "web", "meta"];
-  const seen = new Set(rows.map((r) => r.channel));
-  return order.filter((c) => seen.has(c));
-}
-
 /**
  * Steps 2 and 3 for one clinic, in its own tenant: L17 for the incident
  * still open once it has lasted ten minutes, L18 for each incident L17 told
@@ -181,9 +152,14 @@ export async function evaluateOutages(
     .from(clinicChannels)
     .where(and(eq(clinicChannels.clinicId, clinicId), isNotNull(clinicChannels.liveAt)));
   if (!live || Number(live.n) === 0) return { started, ended };
-
-  let links: ClinicLinks | null | undefined;
-  const linksOnce = async () => (links === undefined ? (links = await clinicLinks(db, clinicId)) : links);
+  if (publicOriginProblem()) {
+    // Both carry the clinic's Home link: nothing is queued that the sender would refuse.
+    log.error("outage notices not queued: no public origin", { clinicId });
+    return { started, ended };
+  }
+  const [clinic] = await db.select({ slug: clinics.slug }).from(clinics).where(eq(clinics.id, clinicId)).limit(1);
+  if (!clinic) return { started, ended };
+  const homeUrl = publicUrl(`/c/${clinic.slug}`);
 
   // The open incident: every failure since the last answer.
   const [last] = await db
@@ -207,17 +183,9 @@ export async function evaluateOutages(
     const first = open[0]!.routedAt;
     const latest = open[open.length - 1]!.routedAt;
     if (latest.getTime() - first.getTime() >= OUTAGE_AFTER_MS) {
-      const l = await linksOnce();
-      if (l) {
-        const payload: OutageStartedPayload = {
-          startedAt: first.toISOString(),
-          channels: channelsOf(open),
-          directLineE164: l.directLineE164,
-          homeUrl: l.homeUrl,
-        };
-        if (await enqueuePlanNotice(db, clinicId, "outage_started", `outage_started:${payload.startedAt}`, payload)) {
-          started += 1;
-        }
+      const payload: OutageStartedPayload = { startedAt: first.toISOString(), homeUrl };
+      if (await enqueuePlanNotice(db, clinicId, "outage_started", `outage_started:${payload.startedAt}`, payload)) {
+        started += 1;
       }
     }
   }
@@ -261,22 +229,21 @@ export async function evaluateOutages(
           lt(routedInteractions.routedAt, answer.routedAt),
         ),
       );
-    const l = await linksOnce();
-    if (!l) continue;
     const payload: OutageEndedPayload = {
-      startedAt,
       endedAt: (answer.answeredAt ?? answer.routedAt).toISOString(),
       callCount: missed.filter((m) => m.channel === "voice").length,
       chatCount: missed.filter((m) => m.channel !== "voice").length,
-      channels: channelsOf(missed),
-      homeUrl: l.homeUrl,
+      homeUrl,
     };
     if (await enqueuePlanNotice(db, clinicId, "outage_ended", `outage_ended:${startedAt}`, payload)) ended += 1;
   }
   return { started, ended };
 }
 
-type DayMisses = { channels: Set<Channel>; calls: number; messages: number };
+/** Per practice-local day, each channel's first miss that day. */
+type DayMisses = Map<Channel, Date>;
+
+const CHANNEL_ORDER: readonly Channel[] = ["voice", "web", "meta"];
 
 /**
  * Step 4's reading for one location, in its own tenant: its first-month
@@ -316,10 +283,10 @@ export async function firstMonthMisses(
   for (const row of rows) {
     const day = clinicLocalDate(row.routedAt, input.timeZone);
     if (day >= settledToday || day < month.startsOn || day > month.endsOn) continue;
-    const entry = into.get(day) ?? { channels: new Set<Channel>(), calls: 0, messages: 0 };
-    entry.channels.add(row.channel as Channel);
-    if (row.channel === "voice") entry.calls += 1;
-    else entry.messages += 1;
+    const entry: DayMisses = into.get(day) ?? new Map();
+    const channel = row.channel as Channel;
+    const first = entry.get(channel);
+    if (!first || row.routedAt < first) entry.set(channel, row.routedAt);
     into.set(day, entry);
   }
 }
@@ -354,11 +321,6 @@ export async function runAnswerNoticesSweep(now: Date = new Date()): Promise<Ans
     missNotices: 0,
   };
   let failures = 0;
-  if (publicOriginProblem()) {
-    // The notices carry the clinic's Home link: settle only, and say why.
-    log.error("answer notices not queued: no public origin", { job: "answer-notices" });
-  }
-  const queueing = !publicOriginProblem();
   let work: Work[];
   try {
     work = await workSince(new Date(now.getTime() - SWEEP_LOOKBACK_DAYS * DAY_MS));
@@ -372,7 +334,7 @@ export async function runAnswerNoticesSweep(now: Date = new Date()): Promise<Ans
     try {
       const r = await withTenant({ clinicId: w.clinicId, actor: ACTOR }, async (tx) => {
         const settled = await settlePending(tx.db, tx.clinicId, now);
-        const outages = queueing ? await evaluateOutages(tx.db, tx.clinicId, now) : { started: 0, ended: 0 };
+        const outages = await evaluateOutages(tx.db, tx.clinicId, now);
         return { settled, ...outages };
       });
       out.settled += r.settled;
@@ -389,7 +351,8 @@ export async function runAnswerNoticesSweep(now: Date = new Date()): Promise<Ans
     }
   }
 
-  if (queueing) {
+  // Step 4, per practice.
+  {
     for (const [practiceId, practice] of practices) {
       // A first month that ended more than the lookback ago has nothing left to tell.
       const monthEnd = new Date(practice.firstLiveAt.getTime() + (GUARANTEE_FIRST_MONTH_DAYS + 1) * DAY_MS);
@@ -411,23 +374,14 @@ export async function runAnswerNoticesSweep(now: Date = new Date()): Promise<Ans
           );
         }
         if (days.size === 0) continue;
-        // The first month's last day, and the claim window's, in the practice's own calendar.
-        const { endsOn: firstMonthEndsOn, claimByOn } = firstMonthOf(practice.firstLiveAt, practiceRow.timeZone);
         const queued = await withTenant({ clinicId: practiceId, actor: ACTOR }, async (tx) => {
-          const l = await clinicLinks(tx.db, tx.clinicId);
-          if (!l) return 0;
           let n = 0;
           for (const [missedOn, day] of [...days.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-            const payload: GuaranteeMissPayload = {
-              missedOn,
-              channels: (["voice", "web", "meta"] as Channel[]).filter((c) => day.channels.has(c)),
-              callCount: day.calls,
-              messageCount: day.messages,
-              firstMonthEndsOn,
-              claimByOn,
-              homeUrl: l.homeUrl,
-            };
-            if (await enqueuePlanNotice(tx.db, tx.clinicId, "guarantee_miss", `guarantee_miss:${missedOn}`, payload)) n += 1;
+            for (const channel of CHANNEL_ORDER.filter((c) => day.has(c))) {
+              // The template names one moment: the channel's first miss that day.
+              const payload: GuaranteeMissPayload = { channel, missedAt: day.get(channel)!.toISOString() };
+              if (await enqueuePlanNotice(tx.db, tx.clinicId, "guarantee_miss", `guarantee_miss:${channel}:${missedOn}`, payload)) n += 1;
+            }
           }
           return n;
         });

@@ -38,11 +38,8 @@ import type { AgreementQuestionPayload } from "@/lib/email/templates/agreement_q
 import type { SetupExtendedPayload } from "@/lib/email/templates/setup_extended";
 import type { SetupHelpOfferPayload } from "@/lib/email/templates/setup_help_offer";
 import type { SetupWaitingOnUsPayload } from "@/lib/email/templates/setup_waiting_on_us";
-import type {
-  GuaranteeMissPayload,
-  OutageEndedPayload,
-  OutageStartedPayload,
-} from "@/lib/email/templates/registry";
+import type { OutageStartedPayload, OutageEndedPayload } from "@/lib/email/templates/outage";
+import type { GuaranteeMissPayload } from "@/lib/email/templates/guarantee_miss";
 
 /**
  * The plan's own outbox kinds (lib/email/kinds.ts, owner "plan"): their
@@ -133,12 +130,12 @@ export type PlanNoticePayloads = {
   /** Dedupe `weekly_recap:<ISO week of last week's Monday>`: once per week (lib/scheduler/weekly-recap.ts). */
   weekly_recap: WeeklyRecapPayload;
   // The routed/answered counter's notices (lib/channels/answer-notices.ts),
-  // whose payloads are declared beside their pending templates (registry.ts).
-  /** Dedupe `outage_started:<startedAt>`: once per incident. */
+  // with the templates' own payloads (outage.ts, guarantee_miss.ts).
+  /** Dedupe `outage_started:<incident start>`: once per incident. */
   outage_started: OutageStartedPayload;
-  /** Dedupe `outage_ended:<startedAt>`: once per incident L17 told of. */
+  /** Dedupe `outage_ended:<the same incident start>`: once per incident L17 told of. */
   outage_ended: OutageEndedPayload;
-  /** Dedupe `guarantee_miss:<missedOn>`: once per practice-local day with a miss, on the billing clinic. */
+  /** Dedupe `guarantee_miss:<channel>:<missedOn>`: once per channel and practice-local day with a first-month miss, on the billing clinic. */
   guarantee_miss: GuaranteeMissPayload;
   /** Dedupe `website_changes:<site_rereads id>`: once per drift check that raised changes (lib/website). */
   website_changes: WebsiteChangesPayload;

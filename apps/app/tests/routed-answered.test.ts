@@ -38,6 +38,8 @@ import {
 import { assertPayloadAllowed } from "@/lib/email/lint";
 import { PENDING_TEMPLATES } from "@/lib/email/templates/registry";
 import { publicUrl } from "@/lib/public-url";
+import type { GuaranteeMissPayload } from "@/lib/email/templates/guarantee_miss";
+import type { OutageEndedPayload, OutageStartedPayload } from "@/lib/email/templates/outage";
 import { attachMetaChannel, setMetaFrontDoor, type MetaSender } from "@/lib/meta/channels";
 import type { FrontDoorResponder } from "@/lib/meta/front-door";
 import { signMetaBody } from "@/lib/meta/webhook";
@@ -136,33 +138,13 @@ describe("Terms §5's words, in code", () => {
   });
 
   test("the three payloads hold only what an email may carry", () => {
-    assertPayloadAllowed(
-      { startedAt: NOW.toISOString(), channels: ["voice", "web"], directLineE164: LINE, homeUrl: publicUrl("/c/glow") },
-      "outage_started",
-    );
-    assertPayloadAllowed(
-      {
-        startedAt: NOW.toISOString(),
-        endedAt: at(HOUR).toISOString(),
-        callCount: 3,
-        chatCount: 1,
-        channels: ["voice", "meta"],
-        homeUrl: publicUrl("/c/glow"),
-      },
-      "outage_ended",
-    );
-    assertPayloadAllowed(
-      {
-        missedOn: "2026-10-07",
-        channels: ["voice"],
-        callCount: 1,
-        messageCount: 0,
-        firstMonthEndsOn: "2026-11-03",
-        claimByOn: "2026-12-03",
-        homeUrl: publicUrl("/c/glow"),
-      },
-      "guarantee_miss",
-    );
+    // The templates' own payload types (outage.ts, guarantee_miss.ts), as the sweep builds them.
+    const started: OutageStartedPayload = { startedAt: NOW.toISOString(), homeUrl: publicUrl("/c/glow") };
+    const ended: OutageEndedPayload = { endedAt: at(HOUR).toISOString(), callCount: 3, chatCount: 1, homeUrl: publicUrl("/c/glow") };
+    const missed: GuaranteeMissPayload = { channel: "voice", missedAt: NOW.toISOString() };
+    assertPayloadAllowed(started, "outage_started");
+    assertPayloadAllowed(ended, "outage_ended");
+    assertPayloadAllowed(missed, "guarantee_miss");
   });
 
   test("the counter is built; the Gate B item waits only on the three templates", () => {
@@ -343,13 +325,9 @@ describeDb("the routed/answered counter, against the database", () => {
       const [started] = await queuedNotices(c.clinicId, ["outage_started"]);
       expect(started).toMatchObject({
         dedupe_key: `outage_started:${t(MINUTE).toISOString()}`,
-        payload: {
-          startedAt: t(MINUTE).toISOString(),
-          channels: ["voice", "web"],
-          directLineE164: LINE,
-          homeUrl: `https://app.healdesk.test/c/${c.slug}`,
-        },
+        payload: { startedAt: t(MINUTE).toISOString(), homeUrl: `https://app.healdesk.test/c/${c.slug}` },
       });
+      expect(Object.keys(started!.payload).sort()).toEqual(["homeUrl", "startedAt"]);
       assertPayloadAllowed(started!.payload, "outage_started");
 
       // Still failing: no second L17, and no L18 yet.
@@ -364,11 +342,10 @@ describeDb("the routed/answered counter, against the database", () => {
       expect(ended).toMatchObject({
         dedupe_key: `outage_ended:${t(MINUTE).toISOString()}`,
         payload: {
-          startedAt: t(MINUTE).toISOString(),
           endedAt: t(30 * MINUTE + 4_000).toISOString(),
           callCount: 3,
           chatCount: 1,
-          channels: ["voice", "web"],
+          homeUrl: `https://app.healdesk.test/c/${c.slug}`,
         },
       });
       assertPayloadAllowed(ended!.payload, "outage_ended");
@@ -436,17 +413,11 @@ describeDb("the routed/answered counter, against the database", () => {
     const notices = await queuedNotices(c.clinicId, ["guarantee_miss"]);
     expect(notices).toHaveLength(1);
     expect(notices[0]).toMatchObject({
-      dedupe_key: "guarantee_miss:2026-10-07",
-      payload: {
-        missedOn: "2026-10-07",
-        channels: ["voice"],
-        callCount: 2,
-        messageCount: 0,
-        firstMonthEndsOn: "2026-11-03",
-        claimByOn: "2026-12-03",
-        homeUrl: `https://app.healdesk.test/c/${c.slug}`,
-      },
+      // One a channel a day, naming that day's first miss (the template's one moment).
+      dedupe_key: "guarantee_miss:voice:2026-10-07",
+      payload: { channel: "voice", missedAt: "2026-10-07T13:00:00.000Z" },
     });
+    expect(Object.keys(notices[0]!.payload).sort()).toEqual(["channel", "missedAt"]);
     assertPayloadAllowed(notices[0]!.payload, "guarantee_miss");
     // The location's own outbox holds none: the account owner is told, once.
     expect(await queuedNotices(loc.clinicId, ["guarantee_miss"])).toEqual([]);
@@ -454,7 +425,7 @@ describeDb("the routed/answered counter, against the database", () => {
     // A miss after the first month ended is outside the guarantee.
     await resolve(c.clinicId, key("late-month", new Date("2026-11-05T15:00:00Z")), { outcome: "missed", reason: "error" });
     await runAnswerNoticesSweep(new Date("2026-11-06T15:00:00Z"));
-    expect((await queuedNotices(c.clinicId, ["guarantee_miss"])).map((n) => n.dedupe_key)).toEqual(["guarantee_miss:2026-10-07"]);
+    expect((await queuedNotices(c.clinicId, ["guarantee_miss"])).map((n) => n.dedupe_key)).toEqual(["guarantee_miss:voice:2026-10-07"]);
   });
 
   describe("each runtime writes the counter", () => {

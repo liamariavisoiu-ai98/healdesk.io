@@ -37,9 +37,9 @@ import { PENDING_TEMPLATES } from "@/lib/email/templates/registry";
  *     records every call or conversation routed to AYA and what became of
  *     it, and the minute sweep (lib/channels/answer-notices.ts) queues the
  *     outage notices and the guarantee's miss notice (L17, L18, L21) with
- *     the payloads lib/email/templates/registry.ts declares. Built once
- *     ROUTED_ANSWERED_COUNTER_BUILT says so and no template waits on the
- *     runtime: the three templates are still owed (package `runtime`).
+ *     the templates' own payloads (email/templates/outage.ts,
+ *     guarantee_miss.ts). Built: ROUTED_ANSWERED_COUNTER_BUILT says so and
+ *     no template waits on the runtime any more.
  *   - **Annex X9's live set** (L1, L3, L4, L7 to L15, L17 to L21, L32, L34,
  *     E3 to E6): built once each of their kinds has a template; its kinds'
  *     own packages ship them.

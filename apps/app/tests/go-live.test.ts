@@ -149,13 +149,13 @@ describe("goLivePreconditions", () => {
       ],
       notBuilt: [counter],
     });
-    // The real list, today: the counter is on it.
+    // The real list, today: the counter is built and off it; the practice questions are on it.
     expect(gate.notBuilt).toBeNull();
-    expect(
-      gateBInCode()
-        .filter((i) => !i.built)
-        .map((i) => i.id),
-    ).toContain("routed_answered_counter");
+    const notBuilt = gateBInCode()
+      .filter((i) => !i.built)
+      .map((i) => i.id);
+    expect(notBuilt).not.toContain("routed_answered_counter");
+    expect(notBuilt).toContain("practice_questions");
   });
 
   test("each precondition missing alone is its own code, in the database's order", () => {
@@ -419,7 +419,7 @@ describe("Gate B in code", () => {
     expect(gateBNotBuilt()).toContain(`${item.label}: ${item.detail}`);
   });
 
-  test("what is not built is named and asked: the routed/answered counter while it and its templates wait, and each live email still without one", () => {
+  test("the routed/answered counter and the live set are built; what is not built is still named and asked", () => {
     const items = gateBInCode();
     // Gate B is fail-closed: every item is asked.
     expect(items.every((i) => i.checked)).toBe(true);
@@ -431,20 +431,17 @@ describe("Gate B in code", () => {
     ]);
     const counter = items.find((i) => i.id === "routed_answered_counter")!;
     expect(counter.built).toBe(routedAnsweredCounterBuilt());
-    // Today the outage and miss notices (L17, L18, L21) wait on the runtime's counter.
-    expect(routedAnsweredCounterBuilt()).toBe(false);
-    expect(counter.detail).toMatch(/L17, L18, L21/);
+    // The counter (drizzle/0137) queues L17, L18 and L21, whose templates have
+    // shipped: neither item holds go-live any more, and gateBNotBuilt leaves
+    // them out. The practice questions still do.
+    expect(routedAnsweredCounterBuilt()).toBe(true);
+    expect(counter.built).toBe(true);
     const live = items.find((i) => i.id === "live_email_set")!;
-    expect(live.built).toBe(pendingLiveSet().length === 0);
-    for (const pending of pendingLiveSet()) expect(live.detail).toContain(pending.annex);
-    expect(pendingLiveSet().map((p) => p.annex)).toEqual(
-      expect.arrayContaining(["L17", "L18", "L21"]),
-    );
-    // L32, a patient's request, left the list when its template shipped
-    // (drizzle/0094): what still holds Gate B's live set is the runtime's.
-    expect(pendingLiveSet().map((p) => p.annex)).not.toContain("L32");
-    expect(live.detail).not.toMatch(/L32|patient_request/);
-    expect(pendingLiveSet().every((p) => p.package === "runtime")).toBe(true);
+    expect(pendingLiveSet()).toEqual([]);
+    expect(live.built).toBe(true);
+    expect(gateBNotBuilt().some((line) => line.startsWith(counter.label))).toBe(false);
+    expect(gateBNotBuilt().some((line) => line.startsWith(live.label))).toBe(false);
+    expect(items.find((i) => i.id === "practice_questions")!.built).toBe(false);
   });
 });
 

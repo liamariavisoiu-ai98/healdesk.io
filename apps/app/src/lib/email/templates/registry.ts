@@ -85,6 +85,8 @@ import { SETUP_HELP_OFFER_ENTRY } from "./setup_help_offer";
 import { SETUP_WAITING_ON_US_ENTRY } from "./setup_waiting_on_us";
 import { SUPPORT_REPLY_ENTRY } from "./support_reply";
 import { SUPPORT_RECEIVED_ENTRY } from "./support_received";
+import { OUTAGE_STARTED_ENTRY, OUTAGE_ENDED_ENTRY } from "./outage";
+import { GUARANTEE_MISS_ENTRY } from "./guarantee_miss";
 
 /**
  * Which kinds have a template, and who owes the rest.
@@ -244,14 +246,19 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   // L38, lane P7g: "We've got your email", the fixed acknowledgement of a
   // practice's email to support (owner decision D14), from the outbox.
   support_received: SUPPORT_RECEIVED_ENTRY,
+  // Gate B piece 3: L17 and L18, the outage pair, and L21, a guarantee miss
+  // (counts and a portal link only; the runtime counter decides when they go).
+  outage_started: OUTAGE_STARTED_ENTRY,
+  outage_ended: OUTAGE_ENDED_ENTRY,
+  guarantee_miss: GUARANTEE_MISS_ENTRY,
 };
 
 /**
  * The package that owes a pending template: one of the packages that finish
  * the funnel and portal plan (14 October 2026). `runtime` is the voice and
- * chat runtime's own work: L17, L18 and L21, which its routed/answered
- * counter queues (lib/channels/answer-notices.ts) with the payloads declared
- * below, and whose templates are still owed.
+ * chat runtime's own work; no template waits on it now that L17, L18 and
+ * L21 are built (outage.ts, guarantee_miss.ts) and its routed/answered
+ * counter queues them (lib/channels/answer-notices.ts).
  */
 export type OwingPackage =
   | "B"
@@ -328,83 +335,6 @@ type ContactTemplatedKind =
   | "agreement_question"
   | "baa_resign_chase";
 
-/**
- * The payloads of the runtime's three notices, declared here beside their
- * pending entries so their templates are written against them: the
- * routed/answered counter (lib/channels/routed-answered.ts) and its sweep
- * (lib/channels/answer-notices.ts) build them. Counts, dates, channel ids,
- * the clinic's own direct line and a portal pointer only (Annex X3's
- * allowlist, lib/email/lint.ts): never a caller, a number of theirs, a time
- * of a call, a service or any words of a conversation.
- *
- * Chosen by the counter's builder on 29 October 2026, since Annex X5 names
- * only each email's subject and trigger (plan, "Live"; "L17 and L18: one
- * pair per incident, critical. L18 gives how many calls and chats went to
- * the clinic meanwhile"; "L21: within the Terms' notice days", which Terms
- * §5 sets at 7 days of recording the miss, telling the channel and date).
- */
-
-/**
- * L17, "Calls are going to your direct line": our system or a supplier has
- * failed to answer for 10 minutes. Queued on the clinic the calls and
- * messages reached, once per incident: dedupe `outage_started:<startedAt>`.
- */
-export type OutageStartedPayload = {
-  /** When the incident began: the first unanswered call or message after the last one answered (ISO). */
-  startedAt: string;
-  /** The channels that went unanswered in it so far. */
-  channels: ("voice" | "web" | "meta")[];
-  /** The clinic's own direct line, where its forwarded calls now go; null when none is set. */
-  directLineE164: string | null;
-  /** publicUrl("/c/<slug>"): the clinic's Home. */
-  homeUrl: string;
-};
-
-/**
- * L18, "AYA is answering again": the incident L17 told of has ended (she
- * answered again). Dedupe `outage_ended:<startedAt>`, the same incident's
- * start, so it pairs with its L17 and goes once.
- */
-export type OutageEndedPayload = {
-  /** The incident's start, as L17 gave it (ISO). */
-  startedAt: string;
-  /** When AYA answered again (ISO). */
-  endedAt: string;
-  /** Calls that went to the clinic's own line meanwhile (unanswered by AYA). */
-  callCount: number;
-  /** Website and Meta conversations AYA did not answer meanwhile. */
-  chatCount: number;
-  /** The channels that went unanswered in it. */
-  channels: ("voice" | "web" | "meta")[];
-  /** publicUrl("/c/<slug>"): the clinic's Home. */
-  homeUrl: string;
-};
-
-/**
- * L21, "We missed a {call or message}": our own records show a miss under
- * the first-month guarantee (Terms §5: "If our own records show a miss, we
- * tell the account owner by email within 7 days of recording it, whether or
- * not you have claimed"). Queued on the practice's billing clinic, once per
- * clinic-local day with a miss, after that day has ended: dedupe
- * `guarantee_miss:<missedOn>`.
- */
-export type GuaranteeMissPayload = {
-  /** The day of the misses, in the practice's time zone (YYYY-MM-DD). */
-  missedOn: string;
-  /** The channels missed that day. */
-  channels: ("voice" | "web" | "meta")[];
-  /** Calls missed that day. */
-  callCount: number;
-  /** Website and Meta conversations missed that day. */
-  messageCount: number;
-  /** The last day of the practice's first month (YYYY-MM-DD). */
-  firstMonthEndsOn: string;
-  /** The last day a claim may be made: 30 days after the first month ends (YYYY-MM-DD). */
-  claimByOn: string;
-  /** publicUrl("/c/<slug>"): the clinic's Home. */
-  homeUrl: string;
-};
-
 /** Every kind still waiting for its template, with the session that owes it. */
 export const PENDING_TEMPLATES: Record<
   Exclude<
@@ -452,15 +382,15 @@ export const PENDING_TEMPLATES: Record<
     | ContactTemplatedKind
     | "support_reply"
     | "support_received"
+    | "outage_started"
+    | "outage_ended"
+    | "guarantee_miss"
     | BillingTemplatedKind
   >,
   PendingTemplate
 > = {
-  // The runtime's routed/answered counter is built (lib/channels/routed-answered.ts,
-  // drizzle/0137) and queues these with the payloads above; their templates are owed.
-  outage_started: { owner: "plan", package: "runtime", ships: "M6 (L17)" },
-  outage_ended: { owner: "plan", package: "runtime", ships: "M6 (L18)" },
-  guarantee_miss: { owner: "plan", package: "runtime", ships: "M6 (L21)" },
+  // Nothing pending: L17, L18 and L21 are templated, and the runtime's
+  // routed/answered counter queues them (lib/channels/answer-notices.ts).
 };
 
 /** The template for a kind, or undefined while it is pending. */

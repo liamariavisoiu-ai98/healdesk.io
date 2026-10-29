@@ -26,7 +26,7 @@ export const renderGraceEnding: EmailTemplate<GraceEndingPayload> = (payload, ct
       : `Your healdesk invoice for ${money(payload.amountDueCents)} is still unpaid.`;
   return compose(
     {
-      subject: `AYA stops answering on ${dayShort(payload.graceEndsAt, ctx)} unless what you owe is paid`,
+      subject: `AYA stops answering on ${dayShort(payload.graceEndsAt, ctx)} unless ${payload.amountDueCents === null ? "what you owe is paid" : `you pay ${money(payload.amountDueCents)}`}`,
       preheader: invoice,
       blocks: [
         {
@@ -35,7 +35,7 @@ export const renderGraceEnding: EmailTemplate<GraceEndingPayload> = (payload, ct
         },
         {
           type: "paragraph",
-          text: `If what you owe healdesk is still unpaid then, she stops answering on every channel: ${WHEN_AYA_STOPS}. Paying it afterwards restores everything at once.`,
+          text: `If what you owe is still unpaid then, AYA stops answering: ${WHEN_AYA_STOPS}. Paying any time after that turns her back on at once.`,
         },
         payload.hostedInvoiceUrl
           ? { type: "action", label: "Pay the invoice", url: payload.hostedInvoiceUrl }

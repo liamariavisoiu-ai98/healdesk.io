@@ -702,32 +702,33 @@ describe("the build tracker", () => {
     const passed = buildTracker(answered, NOT_CONNECTED, run());
     expect(passed.left).toEqual([]);
     expect(passed.previewUnlocked).toBe(true);
-    // Round 2 of the 19 October guardrails: the booking and deposit cases
-    // cannot be asked until AYA has booking tools, so a pass names what was
-    // asked and never says she got them all right.
+    // Every case can be asked since 29 October 2026 (casesNotAskable()
+    // empty: the booking and deposit cases have their checks), so a pass
+    // says she got them right; while a case could not be asked it named what
+    // was (round 2 of the 19 October guardrails).
     expect(engine(run())[1]).toEqual([
       "done",
-      "AYA passed the practice questions she can be asked: the line she opens with, a price on your menu, one that isn't, a clinical question, an urgent message from a patient, an off-topic patient and a question your answers don't cover. The ones about booking and deposits wait for her booking tools.",
+      "AYA answered her practice questions about your practice, and got them right.",
     ]);
-    expect(engine(run())[1]![1]).not.toMatch(/got them right/);
+    expect(engine(run())[1]![1]).not.toMatch(/booking tools/);
     const vetSpanish = setupState({
       ...answered,
       clinic: { ...answered.clinic, specialty: "veterinary" },
       settings: { ...answered.settings, languages: ["en", "es"] },
     });
-    expect(engine(run(), vetSpanish)[1]![1]).toContain(
-      "an urgent message from a client, an off-topic client, a question your answers don't cover and a conversation in Spanish.",
-    );
-    expect(engine(run(), vetSpanish)[1]![1]).not.toMatch(/patient/);
-    // Once every case can be asked, the plain line again.
+    // Were a case ever unaskable again, the pass names what was asked, in
+    // the clinic's own words for the people it serves.
     vi.resetModules();
     vi.doMock("@/lib/engine/practice/cases", async (importOriginal) => ({
       ...(await importOriginal<typeof import("@/lib/engine/practice/cases")>()),
-      casesNotAskable: () => [],
+      casesNotAskable: () => ["booking"],
     }));
     try {
       const { practicePassedDetail } = await import("@/lib/setup/tracker");
-      expect(practicePassedDetail(answered)).toBe("AYA answered her practice questions about your practice, and got them right.");
+      expect(practicePassedDetail(vetSpanish)).toContain(
+        "an urgent message from a client, an off-topic client, a question your answers don't cover and a conversation in Spanish.",
+      );
+      expect(practicePassedDetail(vetSpanish)).not.toMatch(/patient/);
     } finally {
       vi.doUnmock("@/lib/engine/practice/cases");
       vi.resetModules();

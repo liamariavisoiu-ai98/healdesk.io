@@ -85,6 +85,19 @@ import {
 } from "../lib/engine/practice/types";
 import { DEVICE_LABEL_MAX } from "../lib/factors/device";
 import {
+  MISS_CASE_STATUSES,
+  MISSED_OUTCOMES,
+  OUTAGE_STATUSES,
+  type MissedOutcome,
+  ROUTED_CHANNELS,
+  ROUTED_OUTCOMES,
+  ROUTED_REASONS,
+  type MissCaseStatus,
+  type OutageStatus,
+  type RoutedOutcome,
+  type RoutedReason,
+} from "../lib/channels/routed-words";
+import {
   CHANNEL_NAMES,
   CONVERSATION_OUTCOMES,
   type ConversationChannel,
@@ -6686,6 +6699,11 @@ export const TENANT_SCOPED_TABLES = [
   "rights_intakes",
   // Ops automation lane P6i (drizzle/0124).
   "incident_checklist_ticks",
+  // Gate B, the routed/answered counter and its workflows (drizzle/0139).
+  "routed_interactions",
+  "answer_outages",
+  "miss_cases",
+  "missed_contacts",
 ] as const;
 
 // -----------------------------------------------------------------------------
@@ -8504,3 +8522,213 @@ export const supportSlackMessages = pgTable(
   ],
 );
 export type SupportSlackMessage = typeof supportSlackMessages.$inferSelect;
+
+// -----------------------------------------------------------------------------
+// Gate B: the routed/answered counter (drizzle/0139)
+// -----------------------------------------------------------------------------
+
+/**
+ * One row per call or conversation routed to AYA for a clinic, and what
+ * became of it (lib/channels/routed-answered.ts; the words in
+ * lib/channels/routed-words.ts): the runtime's count of what was routed
+ * against what she answered, which the outage notices (L17, L18) and the
+ * first-month guarantee's miss notice (L21) read.
+ *
+ * Counts, not records: the channel, an opaque reference (the SHA-256 of the
+ * runtime's own id for the call or conversation, never the id itself, so the
+ * row joins to nothing that names a person), closed words and times. Written
+ * `pending` when the call or message reaches us, then resolved by the runtime
+ * that took it, only ever towards the worse outcome (pending, excluded,
+ * answered, missed; the trigger refuses any other move), so a retry, a
+ * redelivery or a later message never turns a miss back into an answer.
+ * Unique per clinic, channel and reference, so a retried write is the same
+ * row. Kept for good beside usage_events (KEPT_FOR_GOOD): it is the record a
+ * guarantee claim is checked against, and a claim may come after the account
+ * has closed.
+ */
+export const routedInteractions = pgTable(
+  "routed_interactions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    channel: text("channel").$type<(typeof ROUTED_CHANNELS)[number]>().notNull(),
+    /** SHA-256, hex, of the runtime's own reference for the call or conversation (routedRefHash). */
+    refHash: text("ref_hash").notNull(),
+    /** When the call, or the conversation's first message, reached us. */
+    routedAt: timestamp("routed_at", { withTimezone: true }).notNull(),
+    outcome: text("outcome").$type<RoutedOutcome>().notNull().default("pending"),
+    reason: text("reason").$type<RoutedReason>(),
+    /** When AYA first answered it, if she did. */
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    /** When the outcome last moved. */
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  },
+  (t) => [
+    unique("routed_interactions_ref_key").on(t.clinicId, t.channel, t.refHash),
+    index("routed_interactions_clinic_routed_idx").on(t.clinicId, t.routedAt),
+    index("routed_interactions_pending_idx")
+      .on(t.routedAt)
+      .where(sql`${t.outcome} = 'pending'`),
+    check("routed_interactions_channel_check", sql`${t.channel} in (${sqlList(ROUTED_CHANNELS)})`),
+    check("routed_interactions_outcome_check", sql`${t.outcome} in (${sqlList(ROUTED_OUTCOMES)})`),
+    check(
+      "routed_interactions_reason_check",
+      sql`${t.reason} is null or ${t.reason} in (${sqlList(ROUTED_REASONS)})`,
+    ),
+    check("routed_interactions_ref_check", sql`${t.refHash} ~ '^[0-9a-f]{64}$'`),
+    // Pending and answered carry no reason; an exclusion or a miss always does.
+    check(
+      "routed_interactions_reason_shape_check",
+      sql`(${t.outcome} in ('pending', 'answered')) = (${t.reason} is null)`,
+    ),
+  ],
+);
+export type RoutedInteraction = typeof routedInteractions.$inferSelect;
+
+/**
+ * An outage incident (lib/channels/answer-notices.ts): opened in the
+ * transaction that queues L17, so it is the one record L18 pairs with and
+ * nothing else; closed in the one that queues L18, with when AYA answered
+ * again and the calls and chats the counter shows went unanswered meanwhile.
+ * One open at a time per clinic. `reply_by_at` is when the owner is told the
+ * incident is still open (escalated_at), so "we'll keep you updated" cannot
+ * go quiet. Counts, channel ids and times; no patient.
+ */
+export const answerOutages = pgTable(
+  "answer_outages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /** The first unanswered call or conversation after the last one answered. */
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    lastFailureAt: timestamp("last_failure_at", { withTimezone: true }).notNull(),
+    channels: text("channels").array().$type<(typeof ROUTED_CHANNELS)[number][]>().notNull(),
+    status: text("status").$type<OutageStatus>().notNull().default("open"),
+    openedAt: timestamp("opened_at", { withTimezone: true }).notNull(),
+    replyByAt: timestamp("reply_by_at", { withTimezone: true }).notNull(),
+    escalatedAt: timestamp("escalated_at", { withTimezone: true }),
+    escalations: integer("escalations").notNull().default(0),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    callCount: integer("call_count"),
+    chatCount: integer("chat_count"),
+  },
+  (t) => [
+    unique("answer_outages_start_key").on(t.clinicId, t.startedAt),
+    uniqueIndex("answer_outages_one_open_key")
+      .on(t.clinicId)
+      .where(sql`${t.status} = 'open'`),
+    check("answer_outages_status_check", sql`${t.status} in (${sqlList(OUTAGE_STATUSES)})`),
+    check(
+      "answer_outages_channels_check",
+      sql`cardinality(${t.channels}) between 1 and 3 and ${t.channels} <@ array[${sqlList(ROUTED_CHANNELS)}]::text[]`,
+    ),
+    check(
+      "answer_outages_closed_check",
+      sql`(${t.status} = 'closed') = (${t.endedAt} is not null) and (${t.endedAt} is null) = (${t.callCount} is null) and (${t.endedAt} is null) = (${t.chatCount} is null) and coalesce(${t.callCount}, 0) >= 0 and coalesce(${t.chatCount}, 0) >= 0 and ${t.escalations} >= 0`,
+    ),
+  ],
+);
+export type AnswerOutage = typeof answerOutages.$inferSelect;
+
+/**
+ * A miss investigation (lib/channels/answer-notices.ts): opened in the
+ * transaction that queues L21, on the practice's billing clinic, one per
+ * channel and practice-local day (the collapse rule: a burst of misses is one
+ * case with a count, and one email). Its `ref` is printed in L21's subject,
+ * so the clinic's reply joins the support case it opens or the one already
+ * linked (lib/support/inbound/match.ts, app_miss_case_support_case). The
+ * owner moves it from open to looking, explained or closed in /admin's
+ * queues. Ids, a channel, counts, days and times; no patient.
+ */
+export const missCases = pgTable(
+  "miss_cases",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /** Five characters of Crockford base32, printed "HD-" + ref, as a support case's. */
+    ref: text("ref").notNull(),
+    channel: text("channel").$type<(typeof ROUTED_CHANNELS)[number]>().notNull(),
+    /** The practice-local day of the misses. */
+    missedOn: date("missed_on", { mode: "string" }).notNull(),
+    firstMissedAt: timestamp("first_missed_at", { withTimezone: true }).notNull(),
+    missCount: integer("miss_count").notNull(),
+    status: text("status").$type<MissCaseStatus>().notNull().default("open"),
+    openedAt: timestamp("opened_at", { withTimezone: true }).notNull(),
+    /** The day we look into it by: New York's next business day (replyByDay). */
+    replyByOn: date("reply_by_on", { mode: "string" }).notNull(),
+    statusAt: timestamp("status_at", { withTimezone: true }).notNull(),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    /** The support case the clinic's reply opened or joined, once it replied. */
+    supportCaseId: uuid("support_case_id").references(() => supportCases.id, { onDelete: "set null" }),
+  },
+  (t) => [
+    unique("miss_cases_day_key").on(t.clinicId, t.channel, t.missedOn),
+    uniqueIndex("miss_cases_ref_key").on(t.ref),
+    index("miss_cases_status_idx").on(t.status, t.replyByOn),
+    check("miss_cases_ref_check", sql`${t.ref} ~ '^[0-9ABCDEFGHJKMNPQRSTVWXYZ]{5}$'`),
+    check("miss_cases_channel_check", sql`${t.channel} in (${sqlList(ROUTED_CHANNELS)})`),
+    check("miss_cases_status_check", sql`${t.status} in (${sqlList(MISS_CASE_STATUSES)})`),
+    check("miss_cases_count_check", sql`${t.missCount} >= 1`),
+    check("miss_cases_closed_check", sql`(${t.status} = 'closed') = (${t.closedAt} is not null)`),
+  ],
+);
+export type MissCase = typeof missCases.$inferSelect;
+
+/**
+ * The 30-day missed-contact record (owner, 29 October 2026): one row per
+ * call or conversation routed to AYA that she did not answer, so the clinic
+ * can follow up. ⚠️ PHI: the caller's number next to the clinic. Held as
+ * contacts hold a number (E.164, in this BAA-covered database under RLS,
+ * never logged), and nothing else about the person: no words, no audio, no
+ * transcript, nothing they said. `outcome` is where the call or message went
+ * (lib/channels/routed-words.ts MISSED_OUTCOMES); `called_back_at` is the
+ * clinic's tick in the portal; `closing_note` is the owner's one or two
+ * plain lines when the miss case is explained, shown to the clinic in the
+ * portal and never emailed. One per routed call or conversation (its
+ * counter row's hashed reference). Deleted 30 days after `missed_at` by the
+ * retention purge (MISSED_CONTACT_RETENTION_DAYS), with the clinic's data at
+ * destruction, and by a person's erasure (by their number).
+ */
+export const missedContacts = pgTable(
+  "missed_contacts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    channel: text("channel").$type<(typeof ROUTED_CHANNELS)[number]>().notNull(),
+    /** The counter row's reference (routed_interactions.ref_hash): one record per call or conversation. */
+    refHash: text("ref_hash").notNull(),
+    missedAt: timestamp("missed_at", { withTimezone: true }).notNull(),
+    /** ⚠️ PHI. Never logged. E.164, when the caller's number was known. */
+    callerPhone: text("caller_phone"),
+    outcome: text("outcome").$type<MissedOutcome>().notNull(),
+    reachedDirectLine: boolean("reached_direct_line").notNull(),
+    calledBackAt: timestamp("called_back_at", { withTimezone: true }),
+    closingNote: text("closing_note"),
+    missCaseId: uuid("miss_case_id").references(() => missCases.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("missed_contacts_ref_key").on(t.clinicId, t.channel, t.refHash),
+    index("missed_contacts_clinic_missed_idx").on(t.clinicId, t.missedAt),
+    index("missed_contacts_purge_idx").on(t.missedAt),
+    check("missed_contacts_channel_check", sql`${t.channel} in (${sqlList(ROUTED_CHANNELS)})`),
+    check("missed_contacts_outcome_check", sql`${t.outcome} in (${sqlList(MISSED_OUTCOMES)})`),
+    check("missed_contacts_ref_check", sql`${t.refHash} ~ '^[0-9a-f]{64}$'`),
+    check("missed_contacts_phone_check", sql`${t.callerPhone} is null or ${t.callerPhone} ~ '^\\+[1-9][0-9]{6,14}$'`),
+    check("missed_contacts_direct_check", sql`${t.reachedDirectLine} = (${t.outcome} = 'direct_line')`),
+    // One or two plain lines: no address, no link, no markup.
+    check(
+      "missed_contacts_note_check",
+      sql`${t.closingNote} is null or (char_length(${t.closingNote}) between 1 and 280 and ${t.closingNote} !~ '[@<>]|https?:|www\\.')`,
+    ),
+  ],
+);
+export type MissedContact = typeof missedContacts.$inferSelect;

@@ -769,6 +769,8 @@ describeDb("retention purge", () => {
       booking_requests: /app_purge_booking_requests\(/,
       deposit_payments: /app_purge_deposit_payments\(/,
       record_amendments: /app_purge_amended_(appointments|conversations)\(/,
+      // lib/portal/missed-contacts.ts, which the minute sweep also calls.
+      missed_contacts: /purgeMissedContacts\(/,
     };
     for (const table of purged) {
       const evidence = BY_DEFINER[table] ?? new RegExp(`\\.delete\\(${camel(table)}\\)`);

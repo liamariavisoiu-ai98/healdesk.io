@@ -112,6 +112,11 @@ export const EVENT_FIELDS: Partial<Record<OpsEvent, readonly string[]>> = {
   // call refused in test mode.
   voice_call_start_failed: ["clinicId", "code"],
   voice_test_mode_refused: ["clinicId", "phase", "code"],
+  // lib/channels/answer-notices.ts: the incident or case by id, its start, channels and counts.
+  aya_outage_started: ["clinicId", "eventId", "windowStart", "code"],
+  aya_outage_unresolved: ["clinicId", "eventId", "windowStart", "count"],
+  aya_miss_case_opened: ["clinicId", "channel", "eventId", "count", "promisedOn"],
+  answer_notice_not_queued: ["clinicId", "kind"],
   // lib/voice/retell-fallback-sync.ts: per clinic, or with no clinic for a
   // refused key or Retell unreachable.
   retell_fallback_unsynced: ["clinicId", "code"],

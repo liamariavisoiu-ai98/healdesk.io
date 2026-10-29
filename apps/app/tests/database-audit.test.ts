@@ -119,7 +119,7 @@ describeDb("database audit (0031)", () => {
   }, 60_000);
 
   afterAll(async () => {
-    await setGateBCodeBuilt(false);
+    await setGateBCodeBuilt(true);
     await closePools();
   });
 
@@ -819,7 +819,8 @@ describeDb("database audit (0031)", () => {
     // 0093 the flags staff put on conversations; 0094 a patient's request to
     // healdesk, passed to the practice (L32); 0098 the list of who an incident
     // affected, which names contacts; 0108 the redial records of calls that
-    // ended early, sealed turns keyed to a caller.
+    // ended early, sealed turns keyed to a caller; 0139 the 30-day record of
+    // a missed call or chat, which keeps the caller's number.
     const expected = [
       "appointments",
       "booking_requests",
@@ -834,6 +835,7 @@ describeDb("database audit (0031)", () => {
       "handovers",
       "incident_affected_contacts",
       "meta_booking_drafts",
+      "missed_contacts",
       "patient_requests",
       "record_amendments",
       "slot_holds",

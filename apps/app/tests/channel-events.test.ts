@@ -685,7 +685,7 @@ describeDb("channel events against the database", () => {
 
   afterAll(async () => {
     __setMetaRuntimeForTests(undefined, undefined);
-    await setGateBCodeBuilt(false);
+    await setGateBCodeBuilt(true);
     await closePools();
   });
 

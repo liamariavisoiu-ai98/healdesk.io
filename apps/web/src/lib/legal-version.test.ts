@@ -63,18 +63,16 @@ const PINNED_BEFORE_1_6_0 = {
 /**
  * The text once BAA 1.6.0 is released (BAA_1_6_0_RELEASED in
  * packages/catalog/src/baa.ts): terms section 9 says "The Business Associate
- * Agreement states the same" again, nothing else moves, and LEGAL_VERSION is
- * 2026-10-29.4 (numbered 2026-10-28.2, then 2026-10-28.4, before the
- * payment-text wording took 2026-10-29.1, then 2026-10-29.2 before the Meta
- * deposit-link wording took 2026-10-29.3; none of those numbers went out). Privacy
- * and the deletion page are word for word the same.
- * Pinned now so the flip is not also a hash edit; if it goes out on a later
- * day, move lastUpdated here and LEGAL_LAST_UPDATED in src/lib/legal.ts
- * together and re-pin /terms. `replaces` records the live text the release
- * replaces: 2026-10-29.3 never went out, so it is 2026-10-29.1.
+ * Agreement states the same" again, and LEGAL_VERSION was 2026-10-29.4
+ * (numbered 2026-10-28.2, then 2026-10-28.4, before the payment-text wording
+ * took 2026-10-29.1, then 2026-10-29.2 before the Meta deposit-link wording
+ * took 2026-10-29.3; none of those numbers went out). 2026-10-29.4 went live
+ * on 29 October 2026. 2026-10-29.5 adds the 30-day missed-contact record to
+ * Privacy § 6; Terms and the deletion page are word for word the same.
+ * `replaces` records the live text this one replaces: 2026-10-29.4.
  */
 const PINNED_WITH_1_6_0 = {
-  version: "2026-10-29.4",
+  version: "2026-10-29.5",
   /**
    * Written out, not copied from the pin above: the release day is 29 October
    * 2026 or later, and LEGAL_LAST_UPDATED in src/lib/legal.ts and this value
@@ -84,13 +82,16 @@ const PINNED_WITH_1_6_0 = {
    */
   lastUpdated: "29 October 2026",
   /**
-   * 2026-10-29.1 is the live text this release replaces (production printed it
-   * on 29 October 2026): BAA 1.6.0 and DEP-META slice 1 land together, so
-   * 2026-10-29.2 and 2026-10-29.3 never go out, and a note citing either
-   * fails the last test in this file.
+   * 2026-10-29.4 is the live text this one replaces (healdesk.io/terms printed
+   * it on 29 October 2026, checked when GATEB and WEBCHAT-2 were merged).
    */
-  replaces: "2026-10-29.1",
-  sha256: { ...PINNED_BEFORE_1_6_0.sha256, "/terms": "4ac638372f90bc5d52d7a4cb705043ade7f9d8d3ccbdd2635c997fcdf4977506" },
+  replaces: "2026-10-29.4",
+  sha256: {
+    ...PINNED_BEFORE_1_6_0.sha256,
+    "/terms": "4ac638372f90bc5d52d7a4cb705043ade7f9d8d3ccbdd2635c997fcdf4977506",
+    // 2026-10-29.5: Privacy § 6 lists the 30-day missed-contact record.
+    "/privacy": "82ff31ac73c289db7b2565be604f7162c0ad24b414ddc272ee5cce5decd6aff2",
+  },
 } as const;
 
 const PINNED = BAA_1_6_0_RELEASED ? PINNED_WITH_1_6_0 : PINNED_BEFORE_1_6_0;

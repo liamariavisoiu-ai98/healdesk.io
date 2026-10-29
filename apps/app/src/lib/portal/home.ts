@@ -14,6 +14,7 @@ import { withTenant, type TenantTx } from "@/lib/tenant";
 import { countWebsiteChanges } from "@/lib/website/store";
 
 import { readWaitingCounts, type WaitingCounts } from "./bookings";
+import { readAnswerAttention, type AnswerAttention } from "./missed-contacts";
 import { readOpenPatientRequests, type OpenPatientRequest } from "./patient-requests";
 
 /**
@@ -47,6 +48,8 @@ export type HomeFacts = {
   quietChannels: Channel[];
   /** Patients' requests passed to the practice and not yet marked received (L32): ids and days. */
   patientRequests: OpenPatientRequest[];
+  /** An open outage, and the missed calls and chats nobody has called back (missed_contacts): counts only. */
+  answering: AnswerAttention;
   /**
    * After go-live: calls in the last seven days that ended unexpectedly
    * (lib/voice/ended-early.ts). A count and a pointer to Conversations, where
@@ -97,6 +100,7 @@ export async function readHomeFacts(input: {
         : null,
       quietChannels: live ? await readQuietChannels(tx, channels, now) : [],
       patientRequests: await readOpenPatientRequests(tx),
+      answering: await readAnswerAttention(tx, now),
       endedEarly: live ? await countEndedEarly(tx, new Date(now.getTime() - HOME_WEEK_DAYS * 86_400_000)) : 0,
     };
   });

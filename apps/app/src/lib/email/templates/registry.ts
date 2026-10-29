@@ -85,6 +85,8 @@ import { SETUP_HELP_OFFER_ENTRY } from "./setup_help_offer";
 import { SETUP_WAITING_ON_US_ENTRY } from "./setup_waiting_on_us";
 import { SUPPORT_REPLY_ENTRY } from "./support_reply";
 import { SUPPORT_RECEIVED_ENTRY } from "./support_received";
+import { OUTAGE_STARTED_ENTRY, OUTAGE_ENDED_ENTRY } from "./outage";
+import { GUARANTEE_MISS_ENTRY } from "./guarantee_miss";
 
 /**
  * Which kinds have a template, and who owes the rest.
@@ -244,13 +246,19 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   // L38, lane P7g: "We've got your email", the fixed acknowledgement of a
   // practice's email to support (owner decision D14), from the outbox.
   support_received: SUPPORT_RECEIVED_ENTRY,
+  // Gate B piece 3: L17 and L18, the outage pair, and L21, a guarantee miss
+  // (counts and a portal link only; the runtime counter decides when they go).
+  outage_started: OUTAGE_STARTED_ENTRY,
+  outage_ended: OUTAGE_ENDED_ENTRY,
+  guarantee_miss: GUARANTEE_MISS_ENTRY,
 };
 
 /**
  * The package that owes a pending template: one of the packages that finish
  * the funnel and portal plan (14 October 2026). `runtime` is the voice and
- * chat runtime's own work: L17, L18 and L21 wait for its routed/answered
- * counter, which no package here builds.
+ * chat runtime's own work; no template waits on it now that L17, L18 and
+ * L21 are built (outage.ts, guarantee_miss.ts) and its routed/answered
+ * counter queues them (lib/channels/answer-notices.ts).
  */
 export type OwingPackage =
   | "B"
@@ -374,14 +382,15 @@ export const PENDING_TEMPLATES: Record<
     | ContactTemplatedKind
     | "support_reply"
     | "support_received"
+    | "outage_started"
+    | "outage_ended"
+    | "guarantee_miss"
     | BillingTemplatedKind
   >,
   PendingTemplate
 > = {
-  // The runtime's routed/answered counter: blocked, owned by no package yet.
-  outage_started: { owner: "plan", package: "runtime", ships: "M6 (L17)" },
-  outage_ended: { owner: "plan", package: "runtime", ships: "M6 (L18)" },
-  guarantee_miss: { owner: "plan", package: "runtime", ships: "M6 (L21)" },
+  // Nothing pending: L17, L18 and L21 are templated, and the runtime's
+  // routed/answered counter queues them (lib/channels/answer-notices.ts).
 };
 
 /** The template for a kind, or undefined while it is pending. */

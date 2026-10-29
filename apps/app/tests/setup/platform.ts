@@ -35,12 +35,12 @@ export async function withdrawPlatform(subjects: readonly PlatformSubject[]): Pr
 }
 
 /**
- * Stand in for the commit that builds what Gate B asks of the code (the
- * routed/answered counter, its miss notice, the live emails): it redefines
- * app_gate_b_code_built() to true (drizzle/0090), as the migrator, which
- * owns it. A file that does so puts it back to false in afterAll, the
- * migration's own definition, so the next file reads the database as main
- * leaves it. The TypeScript half is each file's mock of gateBNotBuilt.
+ * Redefine app_gate_b_code_built() as the migrator, which owns it. True is
+ * the migrations' own definition since 0139 (the routed/answered counter and
+ * its notices built), so a file puts it back to true when it ends; a test
+ * that stands in for Gate B's code coming undone sets false and restores
+ * true, so the next file reads the database as the migrations leave it. The
+ * TypeScript half is each file's mock of gateBNotBuilt.
  */
 export async function setGateBCodeBuilt(built: boolean): Promise<void> {
   await getMigratorPool().query(

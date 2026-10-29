@@ -11,6 +11,7 @@ import {
   erasureRequests,
   handovers,
   metaBookingDrafts,
+  missedContacts,
   suppressions,
   voiceRedialContexts,
   webhookEvents,
@@ -204,6 +205,8 @@ export type ErasureCounts = {
   deposits: number;
   /** Their requests for a person, found by the call-back number they gave (drizzle/0092). */
   handovers: number;
+  /** Their missed calls in the 30-day missed-contact record, by their number (drizzle/0139). */
+  missedContacts: number;
 };
 
 function noCounts(): ErasureCounts {
@@ -223,6 +226,7 @@ function noCounts(): ErasureCounts {
     holds: 0,
     deposits: 0,
     handovers: 0,
+    missedContacts: 0,
   };
 }
 
@@ -750,6 +754,13 @@ async function eraseSurveyed(
   // handover named by its id goes the same way, alone (drizzle/0092).
   if (s.phones.length) {
     await eraseHandovers(tx, counts, inArray(handovers.callbackPhone, s.phones), before);
+    // A missed call of theirs holds their number and nothing else of theirs
+    // (drizzle/0139): it goes by the number, whatever its date.
+    const missed = await tx.db
+      .delete(missedContacts)
+      .where(and(eq(missedContacts.clinicId, tx.clinicId), inArray(missedContacts.callerPhone, s.phones)))
+      .returning({ id: missedContacts.id });
+    counts.missedContacts += missed.length;
   }
   if (s.handovers.length) {
     await eraseHandovers(tx, counts, inArray(handovers.id, s.handovers), before);

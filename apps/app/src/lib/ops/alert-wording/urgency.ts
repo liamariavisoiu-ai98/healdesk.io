@@ -81,6 +81,11 @@ export const URGENCY: Readonly<Record<OpsEvent, Urgency>> = {
   voice_deprovision_failed: "today",
   voice_direct_line_loops: "urgent",
   voice_test_mode_refused: "urgent",
+  // The counter's workflows: a clinic's calls going unanswered, and a promise in an email.
+  aya_outage_started: "urgent",
+  aya_outage_unresolved: "urgent",
+  aya_miss_case_opened: "today",
+  answer_notice_not_queued: "urgent",
   // Calendar.
   calendar_broken: "today",
   calendar_degraded: "today",

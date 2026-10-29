@@ -14,6 +14,15 @@ import { answerTurn, EMPTY_CAPTURE, FAILURE_LINE, type AssistantResponder, type 
 import { assistantMayAnswer } from "@/lib/billing/answering";
 import { recordUsage } from "@/lib/billing/usage";
 import { recordFirstAnswer } from "@/lib/channels/events";
+import {
+  noteResolved,
+  noteRouted,
+  passThroughResolution,
+  resolveRouted,
+  timedAnswer,
+  type RoutedKey,
+} from "@/lib/channels/routed-answered";
+import { MESSAGE_ANSWER_WITHIN_MS } from "@/lib/channels/routed-words";
 import { noteWidgetSighting } from "@/lib/channels/widget-sighting";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
@@ -384,11 +393,25 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
   const conversationId = existing && existing.payload.turns.length < MAX_TURNS ? token.conversationId! : randomUUID();
   const continuing = conversationId === token.conversationId && existing !== null;
 
+  // The routed/answered counter (Gate B): the conversation reached AYA when
+  // its first message did. Written pending first, so a process that stops
+  // mid-answer still leaves it to be counted missed; a widget opened from
+  // the clinic's own machine (localhost) is a test, not a patient, and is
+  // not counted. The answer's timing is measured from here.
+  const startedMs = Date.now();
+  const counted = !isLocalOrigin(deps.origin);
+  const routed: RoutedKey = { channel: "web", ref: conversationId, routedAt: now };
+  const answeredAt = () => new Date(now.getTime() + (Date.now() - startedMs));
+  if (counted && !continuing) await noteRouted(clinic.clinicId, routed);
+
   // The gate, outside any transaction; the conversation's reference is what
   // the hard cap asks about, so one already counted is never cut off.
   const usage = { source: "web_chat" as const, sourceRef: identifierRef("chat_conversation", clinic.clinicId, conversationId) };
   const decision = await assistantMayAnswer({ clinicId: clinic.clinicId, channel: "web", usage, continuing, now, actor: ACTOR });
-  if (decision.decision === "pass_through") return { mode: "contact_form", reason: decision.reason, form: await contactFormOffer(clinic, decision) };
+  if (decision.decision === "pass_through") {
+    if (counted) await noteResolved(clinic.clinicId, routed, passThroughResolution(decision.reason, "contact_form"));
+    return { mode: "contact_form", reason: decision.reason, form: await contactFormOffer(clinic, decision) };
+  }
 
   try {
     await recordUsage({
@@ -408,7 +431,10 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
   const facts = await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, async (tx) =>
     (await clinicHasLeft(tx)) ? null : assistantFacts(tx, { alertTransport: deps.transport }),
   );
-  if (!facts) return { mode: "contact_form", reason: "clinic_left", form: CLOSED_FORM };
+  if (!facts) {
+    if (counted) await noteResolved(clinic.clinicId, routed, { outcome: "excluded", reason: "clinic_left" });
+    return { mode: "contact_form", reason: "clinic_left", form: CLOSED_FORM };
+  }
 
   const state: ChatState = continuing
     ? existing!.payload.state
@@ -520,6 +546,20 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
         })
         .where(and(eq(conversations.id, conversationId), eq(conversations.clinicId, tx.clinicId)));
       const payload: OpenChatState<ChatState> = { channel: "web_chat", startedAt: state.openedAt, turns, state: next };
+      // The counter, in the answer's own transaction: answered when AYA's
+      // reply is a real one within the minute; the failure line alone is
+      // not an answer (Terms §5). A savepoint, so it never undoes the answer.
+      if (counted) {
+        await resolveRouted(
+          tx.db,
+          tx.clinicId,
+          routed,
+          turn.source === "fallback"
+            ? { outcome: "missed", reason: "failure_line" }
+            : timedAnswer(now, answeredAt(), MESSAGE_ANSWER_WITHIN_MS),
+          now,
+        );
+      }
       if (continuing) {
         const ok = await updateOpenChat(tx, existing!.id, payload, { now, end: ended });
         if (!ok) throw new ChatTakenError();
@@ -537,6 +577,8 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
       return sendWebChatMessage(clinic, signToken({ ...token, conversationId: null, issuedAt: now.getTime() }), text, deps);
     }
     log.error("web chat message not recorded", { clinicId: clinic.clinicId, error: describeError(error) });
+    // The visitor hears the failure line: a miss, whatever failed.
+    if (counted) await noteResolved(clinic.clinicId, routed, { outcome: "missed", reason: "error" });
     // An urgent message whose alert rolled back with the rest: ops is told,
     // now that the transaction has ended, so someone phones the clinic.
     if (turn.urgent && !state.urgentAlerted) {

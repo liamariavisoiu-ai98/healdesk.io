@@ -12,6 +12,15 @@ import { checkMenu } from "@/lib/assistant/menu-check";
 import { openingLine } from "@/lib/assistant/opening";
 import { answerTurn, EMPTY_CAPTURE, failureLine, languageTerms, spokenOnly, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
 import { assistantFallbackRefused, patientDataRefused, voiceAnswerDecision, type AnswerDecision } from "@/lib/billing/answering";
+import {
+  noteResolved,
+  noteRouted,
+  passThroughResolution,
+  timedAnswer,
+  type RoutedKey,
+  type RoutedResolution,
+} from "@/lib/channels/routed-answered";
+import { CALL_ANSWER_WITHIN_MS, CALLER_ENDED_WITHIN_MS } from "@/lib/channels/routed-words";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { demoVoiceOpening, voiceDisclosureEs } from "@/lib/compliance/disclosure";
 import { renderTranscriptEmail, sendTranscriptEmail, type TranscriptTurn } from "@/lib/conversations/transcript-email";
@@ -392,6 +401,15 @@ export type RetellSessionDeps = {
    * a demo call only, the first slice the owner hears; off on a clinic's.
    */
   anticipate?: boolean;
+  /**
+   * The routed/answered counter's two writes (lib/channels/routed-answered.ts):
+   * the call reached us, and what became of it. Unset uses the counter; a
+   * demo call and a test-mode refusal never reach either.
+   */
+  routed?: {
+    note: (clinicId: string, key: RoutedKey) => Promise<void>;
+    resolve: (clinicId: string, key: RoutedKey, resolution: RoutedResolution) => Promise<void>;
+  };
 };
 
 /**
@@ -450,6 +468,8 @@ const START_DEADLINE_MS = 3_000;
 const LATE_START_GRACE_MS = 5_000;
 /** The direct line read alone, for a start that failed rather than hung. */
 const LINE_ALONE_DEADLINE_MS = 1_500;
+/** How long the call's record waits for the routed/answered counter's write (Gate B). */
+const COUNTER_DEADLINE_MS = 1_500;
 /** The urgent and handover alerts' writes; past it the reply is said without them. */
 const ALERT_DEADLINE_MS = 2_000;
 /** How long the first reply waits for the redial lookup before answering as an ordinary call. */
@@ -701,6 +721,21 @@ export class RetellCallSession {
   private warmTimer: ReturnType<typeof setInterval> | null = null;
   /** Retell's call object from call details, for a demo call's context; dropped once read. */
   private demoCall: unknown = null;
+  /**
+   * The routed/answered counter (Gate B, lib/channels/routed-answered.ts):
+   * what the start decided for this call, read when the call is recorded.
+   * Null until then: a call that hangs up first is judged by how long the
+   * caller waited (Terms §5).
+   */
+  private routedVerdict: RoutedResolution | null = null;
+  /** When AYA first started speaking to the caller: the opening line, or a late start's first reply. */
+  private answerStartedAt: Date | null = null;
+  /** A turn failed after she had answered and the call went to the direct line: cut off by our side. */
+  private cutOff = false;
+  /** The call was put through to a line (the direct line, or the urgent-help number). */
+  private transferred = false;
+  /** The call's pending row has been asked for (once). */
+  private routedNoted: Promise<void> | null = null;
 
   constructor(
     readonly clinicId: string,
@@ -765,6 +800,7 @@ export class RetellCallSession {
       return;
     }
     if (options.endCall || options.transferTo) this.final = { content, endCall: Boolean(options.endCall), transferTo: options.transferTo ?? null };
+    if (options.transferTo) this.transferred = true;
     this.send({
       response_type: "response",
       response_id: responseId,
@@ -790,6 +826,10 @@ export class RetellCallSession {
     const startBy = Date.now() + (this.deps.startDeadlineMs ?? START_DEADLINE_MS);
     if (!(this.deps.realCalls ?? voiceRealCallsAllowed()) && !(await this.madeUpClinic(startBy))) return;
     this.send({ response_type: "config", config: { auto_reconnect: true, call_details: true } });
+    // Routed (Gate B): the call reached us. Written pending beside the start,
+    // never in its way, so a process that stops mid-call still leaves it to
+    // be counted missed; what became of it is written when it is recorded.
+    this.routedNoted = (this.deps.routed?.note ?? noteRouted)(this.clinicId, this.routedKey()).catch(() => {});
     const now = this.now();
     let gated: AnswerDecision | null = null;
     // Nothing here writes the session but keepsNothing: a start that finishes
@@ -842,6 +882,45 @@ export class RetellCallSession {
       return;
     }
     this.begin(result);
+  }
+
+  /** This call's row in the routed/answered counter: Retell's call id, hashed there, and when it reached us. */
+  private routedKey(): RoutedKey {
+    return { channel: "voice", ref: this.callId, routedAt: this.openedAt };
+  }
+
+  /**
+   * What became of the call, for the counter (Terms §5): what the start
+   * decided; else answered when the opening line (or a late start's first
+   * reply) began within 10 seconds of the call reaching us and our side did
+   * not later cut it off; else, with nothing said, a caller who hung up
+   * within 5 seconds does not count and one who waited longer was missed.
+   */
+  private routedResolution(endedAt: Date): RoutedResolution {
+    const resolved = this.routedOutcome(endedAt);
+    if (resolved.outcome !== "missed") return resolved;
+    // Where it went, and the number for the missed-contact record: never for
+    // a call of which nothing may be kept (patientDataRefused).
+    return {
+      ...resolved,
+      wentTo: this.transferred ? "direct_line" : "nowhere",
+      callerPhone: this.keepsNothing ? null : this.callerPhone,
+    };
+  }
+
+  private routedOutcome(endedAt: Date): RoutedResolution {
+    if (this.outbound) return { outcome: "excluded", reason: "outbound" };
+    if (this.routedVerdict) return this.routedVerdict;
+    if (this.answerStartedAt) {
+      const timed = timedAnswer(this.openedAt, this.answerStartedAt, CALL_ANSWER_WITHIN_MS);
+      if (timed.outcome === "answered" && this.cutOff) {
+        return { outcome: "missed", reason: "cut_off", answeredAt: this.answerStartedAt };
+      }
+      return timed;
+    }
+    return endedAt.getTime() - this.openedAt.getTime() <= CALLER_ENDED_WITHIN_MS
+      ? { outcome: "excluded", reason: "caller_ended" }
+      : { outcome: "missed", reason: "no_opening" };
   }
 
   /** The opening line: the demo's for a demo call, the clinic's (openingLine) otherwise. */
@@ -917,6 +996,10 @@ export class RetellCallSession {
     this.directLine = this.usable(facts?.directLine ?? (decision.decision === "pass_through" ? decision.directLine : null));
     // Kept for a later call that cannot read the database (fallback-line.ts).
     if (facts) rememberDirectLine(this.clinicId, this.usable(facts.directLine), facts.phone);
+    // The counter: a refused call is the gate's reason (passThroughResolution);
+    // an answered one with no facts is a clinic that has left.
+    if (decision.decision === "pass_through") this.routedVerdict = passThroughResolution(decision.reason);
+    else if (!facts) this.routedVerdict = { outcome: "excluded", reason: "clinic_left" };
     // Hung up while the start was read: nothing is said, and nothing heard.
     if (this.hungUp) return;
 
@@ -946,6 +1029,7 @@ export class RetellCallSession {
       return;
     }
     this.disclosurePlayedAt = this.now();
+    this.answerStartedAt ??= this.disclosurePlayedAt;
     // Short since 24 October 2026, and said whole: the caller cannot talk
     // over the disclosure, so it is heard before anything they say is answered.
     this.say(responseId, openingLine(facts, "voice"), { noInterruption: true });
@@ -1061,6 +1145,10 @@ export class RetellCallSession {
     // The latest request, if the caller has spoken while this was found.
     const responseId = Math.max(this.latestResponseId, 0);
     const line = found ? usableLine(found.line, [this.calledNumber]) : null;
+    // The counter: the call reached us and our side could not start it. A
+    // miss, even put through to the direct line (Terms §5), unless the gate
+    // had already refused it for the clinic's own reason.
+    this.routedVerdict ??= { outcome: "missed", reason: "start_failed" };
     if (found && line) {
       this.say(responseId, this.lines.troubleTransfer, { transferTo: line });
     } else {
@@ -1687,13 +1775,18 @@ export class RetellCallSession {
     const sorry =
       afterStall && turn.source === "guard" && !turn.spoken && !recovery && !callbackLine ? pickUnsaid(STALL_SORRY[language.language], said, pick) : null;
 
-    if (turn.source !== "fallback") this.answered = true;
+    if (turn.source !== "fallback") {
+      this.answered = true;
+      // A late start answering the caller's words: her first reply is the answer's start.
+      this.answerStartedAt ??= this.now();
+    }
     let reply0 = callbackLine ?? stallLine ?? roleplayLine ?? (sorry ? `${sorry} ${turn.reply}` : turn.reply);
     if (turn.source === "fallback") {
       this.failures += 1;
       const line = this.usable(this.directLine);
       if (this.failures >= 2 && line) {
         this.closing = true;
+        this.cutOff = true;
         this.say(responseId, this.lines.troubleTransfer, { transferTo: line, spokenBefore: acknowledgement });
         return;
       }
@@ -1783,6 +1876,7 @@ export class RetellCallSession {
     const line = this.usable(this.directLine);
     if (line) {
       this.closing = true;
+      this.cutOff = true;
       this.say(responseId, this.lines.troubleTransfer, { transferTo: line });
       return;
     }
@@ -1871,6 +1965,23 @@ export class RetellCallSession {
       return null;
     }
     await Promise.all(this.sending);
+    // The counter (Gate B): what became of the call, once, before anything
+    // else is decided about keeping it. Counts and closed words only, so it
+    // is written even for a call of which nothing else may be kept.
+    // Bounded: a database that hangs must not hold the call's record, or the
+    // process's drain; a row left pending is counted missed by the sweep.
+    try {
+      const resolution = this.routedResolution(this.now());
+      await withDeadline(
+        (async () => {
+          await this.routedNoted;
+          await (this.deps.routed?.resolve ?? noteResolved)(this.clinicId, this.routedKey(), resolution);
+        })(),
+        COUNTER_DEADLINE_MS,
+      );
+    } catch (error) {
+      log.error("retell call not counted", { clinicId: this.clinicId, error: describeError(error) });
+    }
     if (this.keepsNothing) {
       // Nothing may be kept for this call: no conversation, no minutes, no transcript.
       log.info("retell call not recorded: nothing may be kept", { clinicId: this.clinicId });

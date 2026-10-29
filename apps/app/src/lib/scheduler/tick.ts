@@ -2,6 +2,7 @@ import { runAgreementResignsJob } from "@/lib/agreements/resign";
 import { runAnnualOverageJob } from "@/lib/billing/annual-overage";
 import { sweepChannelStates } from "@/lib/channels/events";
 import { sweepEndedPauses } from "@/lib/channels/pause";
+import { runAnswerNoticesSweep } from "@/lib/channels/answer-notices";
 import { runCardExpiringJob } from "@/lib/billing/card-expiring";
 import { sweepUnlinkedDeposits } from "@/lib/billing/deposit-sweep";
 import { runBillingHousekeepingJob } from "@/lib/billing/housekeeping";
@@ -141,7 +142,15 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // `expired`. Not a switched job: a pure function of the clock over rows
   // that already exist, like the sweep below. (It ran inside the call-back
   // dialer job until that was removed.)
-  await record("booking-request-expiry", async () => ({ status: "ok", note: `${(await expireLapsedRequests(now)).expired} expired` }));
+  // The routed/answered counter's sweep (lib/channels/answer-notices.ts):
+  // every minute from the billing-minute clock; this is its backstop for a
+  // worker whose queue was never installed. Each notice is deduplicated, so
+  // the overlap is harmless.
+  await record("answer-notices", async () => {
+    const r = await runAnswerNoticesSweep(now);
+    return { status: r.status, note: r.note };
+  });
+  await record("booking-request-expiry", async () =>({ status: "ok", note: `${(await expireLapsedRequests(now)).expired} expired` }));
   // §H.5: a clinic whose setup link expired unspent gets the specialty
   // defaults stamped as its booking requirement set. Same shape as the sweep
   // above: a pure function of the clock over rows that already exist.

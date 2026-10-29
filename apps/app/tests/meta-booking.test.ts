@@ -665,6 +665,50 @@ describeDb("the booking hand-off, end to end", () => {
     }
   });
 
+  test("after a decision the adapter reads the thread's frozen last inbound: a later message does not reopen a decided request's window", async () => {
+    // DEP-META slice 1: the deposit link is sent after the decision commits,
+    // with no lastInboundAt, so the adapter reads the newest request on the
+    // thread; the 0040 trigger freezes a terminal request's last_inbound_at.
+    const c = await liveClinic("booking-frozen", "143456789012345");
+    const token = await quickRequest("messenger", "143456789012345", "user-14", { name: "Ira", phone: "+14155550144" });
+    expect((await deskDecide(token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: new Date(Date.now() + 3 * DAY) }, sender)).outcome).toBe("decided");
+    const frozen = (await inTenant(c.clinicId, (client) => client.query<{ last_inbound_at: Date }>(`select last_inbound_at from booking_requests`))).rows[0]!.last_inbound_at;
+    const { touchMetaThread, sendMetaReply, resolveFollowUpOwner } = await import("@/lib/meta/channels");
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => touchMetaThread(tx, "messenger", "user-14", new Date(frozen.getTime() + 2 * DAY)));
+    expect((await inTenant(c.clinicId, (client) => client.query<{ last_inbound_at: Date }>(`select last_inbound_at from booking_requests`))).rows[0]!.last_inbound_at).toEqual(frozen);
+    const connectionId = (await inTenant(c.clinicId, (client) => client.query<{ connection_id: string }>(`select connection_id from booking_requests`))).rows[0]!.connection_id;
+    const owner = await resolveFollowUpOwner({ clinicId: c.clinicId, connectionId, platform: "messenger", actor: ACTOR });
+    const at = (ms: number) =>
+      withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => sendMetaReply(tx, owner, "143456789012345", "user-14", "probe", sender, { now: new Date(frozen.getTime() + ms) }));
+    expect(await at(DAY - 60_000)).toEqual({ status: "sent" });
+    expect(await at(DAY + 60_000)).toEqual({ status: "outside_window" });
+  });
+
+  test("a Meta confirmation is priced by the engine for its service, not the clinic-wide rule; the follow-up still goes first", async () => {
+    // DEP-META slice 1: with Take deposits off, the engine owes nothing, so
+    // the clinic-wide "deposit required" rule no longer flags a Meta booking
+    // (a call's request still takes it: tests/phase8.test.ts).
+    const c = await liveClinic("booking-priced", "153456789012345");
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      updateAgentConfig(tx, {
+        greeting: "Hi",
+        services: [{ name: "Consultation", priceFromUsd: 0, priceToUsd: 0, durationMinutes: 30 }],
+        escalationPhone: null,
+        escalationHours: "Weekdays 9 to 5",
+        notes: null,
+        depositPolicy: { required: true, amountUsd: 50, collection: "front_desk" },
+      }),
+    );
+    const token = await quickRequest("messenger", "153456789012345", "user-15", { name: "Noa", phone: "+14155550145" });
+    sent.length = 0;
+    const decided = await deskDecide(token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: new Date(Date.now() + 3 * DAY), treatment: "Consultation" }, sender);
+    expect(decided).toMatchObject({ outcome: "decided", followUp: "sent" });
+    expect(decided.depositLink).toBeUndefined();
+    expect(sent.map((m) => m.text)).toEqual([followUpLine("booking-priced Clinic", "confirmed")]);
+    expect((await inTenant(c.clinicId, (client) => client.query(`select deposit_status, deposit_usd from appointments`))).rows).toEqual([{ deposit_status: "none", deposit_usd: null }]);
+    expect(await queuedNotices(c.clinicId, ["deposit_to_collect"])).toEqual([]);
+  });
+
   test("a clinic with no report recipient still gets the request and its alert", async () => {
     const c = await liveClinic("booking-nodesk", "133456789012345");
     await inTenant(c.clinicId, (client) => client.query(`delete from report_recipients`));

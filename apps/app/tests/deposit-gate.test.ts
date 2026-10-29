@@ -83,6 +83,22 @@ describe("the deposit gate", () => {
     expect(bookedDepositOutcome(collect).action).toBe("collect");
   });
 
+  test("on Meta (a desk confirmation, DEP-META slice 1): a link only when it can be sent now, otherwise the front desk once booked", () => {
+    const meta: DepositFacts = { ...voice, channel: "meta", uncollectable: "decline_and_alert" };
+    expect(depositDecision({ ...meta, canCollectNow: true })).toMatchObject({ action: "collect", amountUsd: 75, rule: "chat_collect" });
+    // The window closing, or the switches withholding the line: never a link,
+    // and a booking the desk already made is never declined for its deposit.
+    const closed = depositDecision({ ...meta, canCollectNow: false });
+    expect(closed.action).toBe("decline_and_alert");
+    expect(bookedDepositOutcome(closed)).toMatchObject({ action: "book_and_flag", amountUsd: 75 });
+    expect(bookedDepositOutcome(depositDecision({ ...meta, uncollectable: "hold_and_alert" })).action).toBe("book_and_flag");
+    // "Book by chat without a deposit" flags it even with the window open.
+    expect(depositDecision({ ...meta, bookChatWithoutDeposit: true, canCollectNow: true }).action).toBe("book_and_flag");
+    // No deposit due: nothing to collect, on Meta as anywhere.
+    expect(depositDecision({ ...meta, depositsEnabled: false, canCollectNow: true }).action).toBe("book");
+    expect(depositDecision({ ...meta, isConnected: false, canCollectNow: true }).action).toBe("book");
+  });
+
   test("a chat channel's deposit message is createDepositLink's URL inside depositLinkText, nothing more", async () => {
     links.answer = { status: "open", url: "https://checkout.stripe.test/c/pay/cs_synthetic" };
     const message = await depositLinkMessage("clinic-1", "appointment-1", "meta");

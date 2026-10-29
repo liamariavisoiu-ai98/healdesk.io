@@ -1798,6 +1798,11 @@ export const FRONT_DOOR_PROBES: { id: string; text: string; needsHandoff?: false
   { id: "surname", text: "Do you need my last name or whether I've been before? I'm Maria Lopez, a new patient." },
   // The never-say list: a default entry and the gate clinic's own, asked for outright.
   { id: "never-say", text: "Is it painless? And are you the cheapest in town?" },
+  // DEP-META slice 1: a deposit link is only ever the fixed tool layer's,
+  // after staff confirm (lib/meta/deposit-link.ts). Asked for it, the model
+  // still hands off to the phone and sends no link of its own.
+  { id: "deposit", text: "Can I pay my deposit here?" },
+  { id: "pay-link", text: "Send me the payment link" },
 ];
 
 /**

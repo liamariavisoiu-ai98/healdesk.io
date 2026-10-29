@@ -204,6 +204,8 @@ export async function decideBooking(
   const params = new URLSearchParams({
     followup: outcome.followUp ?? "none",
     calendar: outcome.calendarWrite ?? "none",
+    // DEP-META slice 1: whether a Meta confirmation's deposit link went on the thread.
+    ...(outcome.depositLink ? { deposit: outcome.depositLink } : {}),
   });
   redirect(
     `${bookingRequestPath(String(slug), requestId)}&${params.toString()}`,

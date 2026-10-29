@@ -228,6 +228,22 @@ describeDb(
       expect(JSON.stringify(params)).not.toMatch(/peel|Chemical|\+1555|2026-10-09/i);
     });
 
+    test("a Meta link (DEP-META slice 1) is the same session as web chat's, recorded as channel meta, with nothing more reaching Stripe", async () => {
+      const c = await depositClinic("link-meta-shape");
+      const appt = await appointment(c.clinicId);
+      const result = await createDepositLink(c.clinicId, appt, { channel: "meta", now: NOW });
+      expect(result).toMatchObject({ status: "open", url: "https://checkout.stripe.com/c/pay/cs_test_1", amountCents: 7500, reused: false });
+      const [row] = (await deposits(c.clinicId)).rows;
+      expect(row).toMatchObject({ status: "open", channel: "meta", amount_cents: 7500, stripe_account_id: ACCOUNT });
+      const [params] = fake.callsTo("checkout.sessions.create")[0]!.args as [Record<string, unknown>];
+      expect(params).toMatchObject({
+        line_items: [{ price_data: { unit_amount: 7500, product_data: { name: "Appointment deposit" } } }],
+        payment_intent_data: { statement_descriptor_suffix: "DEPOSIT", metadata: { hd: "deposit", ref: row!.id } },
+        client_reference_id: row!.id,
+      });
+      expect(JSON.stringify(params)).not.toMatch(/peel|Chemical|\+1555|\bmeta\b|instagram|messenger|whatsapp/i);
+    });
+
     test("never on a call: the ledger refuses a link for any channel but website chat and Meta", async () => {
       // BAA 1.3.0 release gate 10 (docs/counsel/agreement-changes.md § 12.14):
       // links only in website chat and on Meta. The type allows only those two;

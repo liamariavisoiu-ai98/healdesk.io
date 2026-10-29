@@ -68,6 +68,19 @@ export const DEMO_RETENTION_AFTER_EXPIRY_DAYS = 30;
 
 const CACHE_MS = 60_000;
 
+/**
+ * A row still being built is cached for a few seconds only: the build lands
+ * within a minute (lib/demo/budget.ts), often on another instance, and the
+ * person watching the countdown must see "ready" when it happens, not up to
+ * a minute later. At one read per five seconds per instance, a build's
+ * watchers cost the Sheet at most twelve reads a minute however many poll.
+ */
+const BUILDING_CACHE_MS = 5_000;
+
+function cacheFor(session: DemoSession): number {
+  return session.status === "building" || session.status === "auditing" ? BUILDING_CACHE_MS : CACHE_MS;
+}
+
 /** Lower-case words, hyphens, a random tail. Shape-checked on every route before any read. */
 export const SLUG_SHAPE = /^[a-z0-9]+(?:-[a-z0-9]+)*-[a-z2-9]{10}$/;
 
@@ -105,9 +118,11 @@ export function demoUrl(slug: string): string {
 
 /**
  * A build or an audit still running after this long has been cut off (the
- * routes that run it stop at 300 s), so the console offers a retry for it.
+ * routes that run it stop at 300 s; a build itself takes a minute,
+ * lib/demo/budget.ts), so the console offers a retry for it and the waiting
+ * screen hands over to the team.
  */
-export const DEMO_BUILD_STALL_MS = 8 * 60 * 1000;
+export const DEMO_BUILD_STALL_MS = 6 * 60 * 1000;
 
 const STATUSES: readonly DemoSessionStatus[] = ["building", "auditing", "ready", "held", "failed"];
 const VERDICTS: readonly DemoAuditVerdict[] = ["pass", "flagged", "held", "unavailable", "released"];
@@ -285,7 +300,7 @@ export function __resetDemoCacheForTests(): void {
 export async function getDemoSession(slug: string, options: { fresh?: boolean } = {}): Promise<DemoSession | null> {
   if (!isDemoSlug(slug)) return null;
   const hit = cache.get(slug);
-  if (hit && !options.fresh && Date.now() - hit.at < CACHE_MS) return hit.value;
+  if (hit && !options.fresh && Date.now() - hit.at < cacheFor(hit.value)) return hit.value;
   try {
     const client = await store();
     const found = (await readAll(client)).find((r) => r.value.slug === slug);

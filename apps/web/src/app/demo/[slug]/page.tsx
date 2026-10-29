@@ -6,8 +6,9 @@ import { AgentMark, AgentPanel } from "@/components/agent-panel/AgentPanel";
 import { VoiceCard } from "@/components/agent-panel/VoiceCard";
 import { BuyModalProvider } from "@/components/BuyModal";
 import { RefreshingOfferCountdown } from "@/components/checkout/SetupOfferBanner";
-import { BuildProgress } from "@/components/demo/BuildProgress";
+import { DemoBuildWait } from "@/components/demo/DemoBuildWait";
 import { ClinicChatPanel } from "@/components/demo/ClinicChatPanel";
+import { DemoNotFound } from "@/components/demo/DemoNotFound";
 import { ClosePage } from "@/components/demo/ClosePage";
 import { CoverageOffer } from "@/components/demo/CoverageOffer";
 import { DemoBuyButton } from "@/components/demo/DemoBuyButton";
@@ -125,15 +126,16 @@ export default async function DemoPage({ params }: Props) {
       <Shell colour={colour}>
         {state === "building" || state === "auditing" ? (
           <>
-            {expired ? null : <RefreshWhileBuilding />}
-            <main className="mx-auto flex w-full max-w-[640px] flex-1 flex-col items-center justify-center px-5 py-24 text-center">
+            {/* Every four seconds: a building row is cached for five (lib/demo/sessions.ts), so the demo opens within seconds of being ready. */}
+            {expired ? null : <RefreshWhileBuilding everyMs={4_000} />}
+            <main className="mx-auto flex w-full max-w-[640px] flex-1 flex-col items-center justify-center px-5 py-20 text-center">
               <h1 className="font-display text-[34px] leading-tight font-medium tracking-[-0.02em]">
                 We&rsquo;re building {name}&rsquo;s demo
               </h1>
-              <p className="text-muted mt-3 mb-9 text-[17px] font-medium">
+              <p className="text-muted mt-3 mb-10 text-[17px] font-medium">
                 Your voice and chat assistants, from {host}.
               </p>
-              <BuildProgress stage={state} elapsedMs={demoBuildElapsedMs(session)} host={host} />
+              <DemoBuildWait stage={state} elapsedMs={demoBuildElapsedMs(session)} host={host} name={name} logoUrl={session.logoUrl} />
             </main>
           </>
         ) : (
@@ -235,7 +237,7 @@ export default async function DemoPage({ params }: Props) {
             {name}, answering every call and chat.
           </h1>
           <p className="text-muted mt-3 max-w-[56ch] text-[18px] leading-[1.5] font-medium">
-            {site.agent} already knows {name}&rsquo;s services, prices and FAQs. Try her the way a {one} would.
+            {site.agent} has already read {name}&rsquo;s website. Try her the way a {one} would.
           </p>
           {/* The owner asked for "the most human-like agent on the market" and
               "HIPAA compliant". Both are worded to what can be backed: the
@@ -290,6 +292,9 @@ export default async function DemoPage({ params }: Props) {
             />
           </AgentPanel>
         </div>
+
+        {/* What the demo could not find on the website or Google listing (owner, 29 October 2026). */}
+        <DemoNotFound profile={profile} audience={audience} />
 
         {/* Under both panels: what the assistant does beyond answering (owner, 7 October 2026). */}
         <div className="mt-6 flex flex-col items-center gap-1 text-center">

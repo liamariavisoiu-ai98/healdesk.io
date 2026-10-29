@@ -95,7 +95,7 @@ const CHANNEL_FAMILY: Record<ConversationChannel, Channel> = {
   voice: "voice",
   web_chat: "web",
   web_form: "web",
-  // A legacy value no v1 path writes (v1 never texts): a phone number's channel.
+  // A legacy value no v1 path writes (texting is not a v1 channel): a phone number's channel.
   sms: "voice",
   instagram: "meta",
   messenger: "meta",

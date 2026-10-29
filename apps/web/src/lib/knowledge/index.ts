@@ -126,7 +126,9 @@ WHAT HEALDESK ACTUALLY DOES
   booking waits for its front desk to approve. Website chat and the Meta
   channels can send the clinic's own checkout link for a deposit while the
   patient is still there; on the phone it books and flags the deposit for the
-  desk. It never takes a card number. It sends no texts.
+  desk. It never takes a card number. Where the clinic turns it on, after a
+  phone booking it is designed to text the clinic's own payment link once,
+  only if the caller agrees. It sends no other texts.
 
   Google Calendar is the only thing it writes to. Calendly, Cal.com and Google
   Calendar on its own read that calendar for conflicts, so the slot disappears
@@ -153,8 +155,9 @@ WHAT THE CLINIC SEES
 WHAT IT DELIBERATELY DOES NOT DO
   · It does not answer clinical questions. That is a design decision, not a gap.
   · It does not replace anyone. It picks up what the desk could not reach.
-  · It never contacts a patient first or after a conversation ends: no
-    texts, no reminders, no follow-ups, no call-backs.
+  · It never contacts a patient first or follows a conversation up: no
+    reminders, no follow-ups, no call-backs, no marketing texts. The one
+    optional payment-link text after a phone booking is the only exception.
 
 HANDLING THE OBJECTIONS THAT ACTUALLY COME UP
   "We never miss calls."

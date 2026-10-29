@@ -142,9 +142,10 @@ export function smsDisclosure(context: DisclosureContext): string {
  * Meta states in its own Cloud API terms that it is not a Business Associate
  * and that the API is not HIPAA compliant. So the job on these channels is to
  * be useful without ever confirming anything, and to move the conversation to
- * a channel we can actually secure. "By phone", never "or text": healdesk
- * sends no texts (v1 spec, "SMS cut from v1 entirely"), and a greeting that
- * promised one would be a promise nothing in the product can keep.
+ * a channel we can actually secure. "By phone", never "or text": texting is
+ * not a channel and healdesk never texts first (the one optional payment-link
+ * text after a booking call is designed, not built), so a greeting that
+ * promised a text would be a promise nothing in the product can keep.
  *
  * The same line on Instagram, Messenger and WhatsApp. It opens the first
  * reply of each conversation and no later one (lib/meta/greeting.ts says

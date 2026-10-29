@@ -66,10 +66,18 @@ describe("the demo describes v1 as the spec defines it", () => {
     }
     // The positive claims, so a later edit cannot quietly drop them and leave
     // the demo saying nothing about what it does not do.
-    expect(prompt).toContain("It never texts patients");
     expect(prompt).toContain("It is inbound only.");
-    expect(knowledge).toContain("It sends no texts.");
+    expect(prompt).toContain("no reminders, no follow-ups, no call-backs, no marketing texts");
     expect(knowledge).toContain("It never contacts a patient first");
+    const flat = (text: string) => text.replace(/\s+/g, " ");
+    expect(flat(knowledge)).toContain("no reminders, no follow-ups, no call-backs, no marketing texts");
+    // Owner, 29 October 2026: no claim that AYA sends no texts at all. The
+    // one optional payment-link text after a phone booking is designed, not
+    // built, so both say "designed to", and neither offers any other text.
+    for (const text of [prompt, knowledge]) {
+      expect(flat(text)).not.toMatch(/\bnever texts patients\b|\bsends no texts\b/i);
+      expect(flat(text)).toMatch(/designed to (text|send) the clinic's own payment link once, only if the caller agrees/);
+    }
   });
 
   test("both say she books straight into the clinic's Google Calendar", async () => {

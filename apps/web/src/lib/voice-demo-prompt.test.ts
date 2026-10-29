@@ -321,12 +321,15 @@ describe("the rules every call keeps", () => {
     for (const fact of [
       "checks live availability in their Google Calendar and books during the conversation",
       "Auto-confirm is on by default",
-      "It sends no texts and never contacts a patient first",
+      "It never contacts a patient first or afterwards, apart from one optional text with the clinic's payment link after a phone booking, designed to go only if the caller agrees.",
       "booked value at their own prices",
       "It never answers clinical questions",
     ]) {
       expect(prompt).toContain(fact);
     }
+    // Owner, 29 October 2026: no claim that AYA sends no texts at all, since
+    // the optional payment-link text after a call is designed.
+    expect(prompt).not.toContain("It sends no texts");
   });
 });
 

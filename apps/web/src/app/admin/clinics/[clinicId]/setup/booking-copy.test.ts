@@ -463,7 +463,7 @@ describe("the phone card shows the clinic's coverage and offers no routing of it
     );
   });
 
-  test("a deposit the desk collects says AYA never texts, and nothing implies a text channel", () => {
+  test("a deposit the desk collects says AYA never texts first, and nothing implies a text channel", () => {
     const html = panel(
       viewOf(null, null, null, {}, {
         version: 1,
@@ -479,7 +479,9 @@ describe("the phone card shows the clinic's coverage and offers no routing of it
     );
     const said = text(h("div", { dangerouslySetInnerHTML: { __html: html } }));
     expect(said).toContain("The clinic takes a booking deposit");
-    expect(said).toContain("AYA never texts anyone");
+    expect(said).toContain("AYA never texts anyone first");
+    // Owner, 29 October 2026: the optional payment-link text is designed, not sent.
+    expect(said).toContain("the optional payment-link text after a call is designed, not built, and nothing sends it");
     expect(said).not.toMatch(/10DLC|text channel/i);
   });
 });

@@ -39,7 +39,7 @@ const EXTRA_100 = (Object.keys(PRODUCTS) as ProductId[])
 
 const HOW_TO = `# healdesk, for the practice's staff
 
-healdesk gives the practice AYA, an AI assistant that answers its patients (or, at a veterinary practice, its clients) on the channels it bought: Phone, Website chat, and Instagram, Messenger & WhatsApp. AYA answers inbound only: she never contacts anyone first, sends no texts, reminders or follow-ups, and makes no call-backs.
+healdesk gives the practice AYA, an AI assistant that answers its patients (or, at a veterinary practice, its clients) on the channels it bought: Phone, Website chat, and Instagram, Messenger & WhatsApp. AYA answers inbound only: she never contacts anyone first, sends no reminders, follow-ups or marketing texts, and makes no call-backs. The one exception is the optional payment-link text: after a booking call, she is designed to text the practice's payment link once, only if the caller agrees.
 
 ## The portal
 
@@ -106,7 +106,7 @@ Switching a channel off in Settings → Channels stops AYA there at once: calls 
 - Google Calendar is where every booking is written, on every channel. Connect or reconnect it in Settings → Calendar.
 - If the calendar connection breaks or expires, bookings arrive as requests for the team to confirm until it is reconnected.
 - AYA holds a slot for 60 seconds before she confirms anything, and a repeated request never books twice.
-- AYA never takes card numbers. In website chat and on the Meta channels she can send a secure payment link through the practice's own payment account (Settings → Payments). On a call she books and flags the deposit for the team.
+- AYA never takes card numbers. In website chat and on the Meta channels she can send a secure payment link through the practice's own payment account (Settings → Payments). On a call she books and flags the deposit for the team; with "Text the payment link after a call" turned on, she is designed to offer to text the link once the booking is made.
 
 ## Conversations and transcripts
 

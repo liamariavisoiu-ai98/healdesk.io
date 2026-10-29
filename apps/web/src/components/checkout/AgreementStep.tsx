@@ -576,9 +576,11 @@ export function AgreementStep({
           <p className="text-muted mt-1.5 text-[15.6px] leading-relaxed">
             {/* In the practice's word (audienceFor): the covered-entity question is
                 skipped exactly where HIPAA cannot reach, a vet's, whose people are clients. */}
-            healdesk only answers. It never calls or texts your {asks ? "patients" : "clients"}, and
-            sends no reminders, follow-ups, win-backs or call-backs: every conversation it has is
-            one a {asks ? "patient" : "client"} started. It says it is an AI assistant first, on
+            healdesk only answers. It never calls your {asks ? "patients" : "clients"} or texts them
+            first, and sends no reminders, follow-ups, win-backs or call-backs: every conversation it
+            has is one a {asks ? "patient" : "client"} started. One optional text is the exception:
+            after a booking call, it is designed to text the caller your payment link once, only if
+            they agree. It says it is an AI assistant first, on
             every channel. You give no consent warranty, because nothing is ever placed in your name.
           </p>
         </div>

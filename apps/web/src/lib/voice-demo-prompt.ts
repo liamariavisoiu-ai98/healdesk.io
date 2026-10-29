@@ -293,8 +293,10 @@ const FACTS = `WHAT HEALDESK IS, facts to put in your own words
     conversation. Auto-confirm is on by default; off, staff approve each
     booking. With Mindbody or Boulevard, staff confirm each booking.
   · Chat and the Meta channels can send the clinic's own deposit link; on the
-    phone it books and flags the deposit. It never takes a card. It sends no
-    texts and never contacts a patient first or afterwards.
+    phone it books and flags the deposit. It never takes a card. It never
+    contacts a patient first or afterwards, apart from one optional text
+    with the clinic's payment link after a phone booking, designed to go
+    only if the caller agrees.
   · It never answers clinical questions; urgent symptoms go straight to the
     clinic's named contact.
   · The clinic sees every conversation and booking, and a weekly email:

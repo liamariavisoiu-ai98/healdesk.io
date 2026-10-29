@@ -191,3 +191,4 @@ No merge, push, production deploy, Terraform apply, live vendor changes, real pa
 
 ## End-of-session update contract
 Before stopping, replace stale values above with **actual** task ID/status, UTC time, branch/HEAD, dirty paths, changed files, exact tests/results (including skips), evidence links, blockers, Owner decisions and **one next executable step**. Keep stable architectural guidance at the top unchanged. If interrupted, reconstruct state from Git and CI; do not invent a checkpoint.
+- 2026-10-29 audit/notices: docs/design/launch-readiness-2026-10-27/client-notice-audit.md ranks clinic-facing notices against the owner standard of 29 Oct and lists missing ones (docs only, nothing implemented; local until pushed).

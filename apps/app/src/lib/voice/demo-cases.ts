@@ -39,7 +39,7 @@ import {
  * a clinic's owner talking about their business, never a patient.
  */
 
-export const DEMO_CASES_VERSION = "2026-10-26.5";
+export const DEMO_CASES_VERSION = "2026-10-29.1";
 
 /** The made-up clinic every case calls about. */
 export const DEMO_CASE_CLINIC: DemoCallClinic = {
@@ -747,6 +747,24 @@ const positioning: DemoCase[] = [
           noGuardLine: true,
           heardIncludes: ["Unlike a phone-only bot"],
           noteIncludes: ["Say with confidence that Aya does more than the usual options", 'never name, describe or quote any company, and never say "the only"', "designed to send the clinic's own deposit link"],
+        },
+      },
+    ],
+  },
+  {
+    id: "payment-text-as-design",
+    title: "Asked about texting a deposit link after a call: the one optional text, as design, and no text promised",
+    why: `Owner, 29 October 2026: "Make sure there are no references to AYA not sending texts." The one optional payment-link text after a booking call is designed, not built, so the note says it as design, never "never by text message", and she still never says she will send one.`,
+    turns: [
+      ...TO_PITCH,
+      {
+        caller: "Can you text my patients a deposit link after they book on the phone?",
+        model: [modelSays("If you switch it on, I'm designed to text your payment link once after a booking call, only if the caller agrees. What happens with your missed calls today?", { asked: "missed" })],
+        check: {
+          noGuardLine: true,
+          heardIncludes: ["designed to text your payment link once"],
+          noteIncludes: ["after a booking call a clinic can turn on one text with its payment link, designed to go only if the caller agrees", "Never say you will send a link, an email or a text"],
+          noteExcludes: ["never by text message"],
         },
       },
     ],

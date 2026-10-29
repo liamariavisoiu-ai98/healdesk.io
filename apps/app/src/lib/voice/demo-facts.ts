@@ -950,10 +950,14 @@ const TALK = [
  * those channels too as this is what we will launch"): website chat,
  * Instagram, Messenger and WhatsApp, as design, since none sends one in
  * production yet (LAUNCH_PROMISES, deposit-link-chat and deposit-link-meta),
- * and never on a call, where voice books and flags the deposit for staff.
+ * and never during a call, where voice books and flags the deposit for staff.
+ * After a booking call, a clinic's optional payment-link text is designed,
+ * not built (owner, 29 October 2026: no claim that AYA sends no texts;
+ * LAUNCH_PROMISES payment-link-text), so it is said as design too. She never
+ * says she will send a text herself.
  */
 export const DEPOSIT_CLAIM =
-  "in website chat, Instagram, Messenger and WhatsApp she is designed to send the clinic's own deposit link, so a booking can come with its deposit; never on a phone call, where she books and flags the deposit for the team";
+  "in website chat, Instagram, Messenger and WhatsApp she is designed to send the clinic's own deposit link, so a booking can come with its deposit; never during a phone call, where she books and flags the deposit for the team, and after a booking call a clinic can turn on one text with its payment link, designed to go only if the caller agrees";
 
 /**
  * Where healdesk sits (owner, 26 October 2026, 6b), for a question she has
@@ -972,7 +976,7 @@ const POSITIONING = `Where healdesk sits (one line of it, only when it is releva
  * mention WhatsApp upfront?"): every channel and the deposit link, at once.
  */
 export const WHAT_AYA_DOES =
-  "one Aya answers the clinic's phone, website chat, Instagram, Messenger and WhatsApp, in English and Spanish, with the same knowledge of its treatments, prices and hours, taking booking requests and passing anyone who wants a person to the team; in website chat, Instagram, Messenger and WhatsApp she is designed to send the clinic's own deposit link (never on a call)";
+  "one Aya answers the clinic's phone, website chat, Instagram, Messenger and WhatsApp, in English and Spanish, with the same knowledge of its treatments, prices and hours, taking booking requests and passing anyone who wants a person to the team; in website chat, Instagram, Messenger and WhatsApp she is designed to send the clinic's own deposit link (never during a call)";
 
 /** A rich answer read for everything it answers (test call 72dc66b7). */
 const ANSWERED_RULE = `When their words answer more than the question you asked (for example, they name the channels and the jobs they want you to handle, which answers both what they are after and how they see you helping), add "answered": [each of goal, volume, missed and coverage those words answered] to the state, and never ask those. Read what they said for all it tells you before you ask anything.`;
@@ -1246,7 +1250,7 @@ export function demoStageNote(
     DEFLECT,
     POSITIONING,
     pushbackRule(progress.pushback),
-    `Never say you will send a link, an email or a text, and never take payment details on the call. Deposit links go only in website chat or social messages, never on a call and never by text message.`,
+    `Never say you will send a link, an email or a text, and never take payment details on the call. Deposit links go in website chat or social messages, never during a call; the one text is optional, a clinic's switch: after a booking call, it is designed to send the clinic's payment link once, only if the caller agrees, and nothing else is ever texted.`,
     channelsLine(),
     `True answers to the usual doubts, in a sentence each: patients minding an AI (you say you are an AI in your first line, and anyone who wants a person gets passed to the team); patient data ("We sign a business associate agreement and handle patient data under it", never "HIPAA compliant"); setup (about fifteen minutes of their attention; phone goes live once they set up call forwarding on their own line, so they keep their number; website chat once a snippet is on their site); mistakes (you never diagnose or quote a price that is not on their list, urgent calls go straight to their team, and if anything fails, calls go to their own direct line); cost (the monthly price only starts once you are answering their patients).`,
     ...(covered ? [prices] : []),

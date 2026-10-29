@@ -342,7 +342,10 @@ describe("a demo call's facts", () => {
     expect(first).toContain("Find out what they need before you sell anything");
     expect(first).toContain("no pitch, no price and no talk of signing up until the questions are answered");
     expect(first).toContain('Next: take their reaction to the role-play in a few words (if they are unsure or not convinced, ask what would make it convincing for them), then find out what they are after: "What made you want to look at an AI assistant for Lumen?"');
-    expect(first).toContain("never on a call and never by text message");
+    expect(first).toContain("never during a call; the one text is optional, a clinic's switch: after a booking call, it is designed to send the clinic's payment link once, only if the caller agrees, and nothing else is ever texted.");
+    // Owner, 29 October 2026: no claim that she sends no texts at all, and she still never promises one herself.
+    expect(first).not.toContain("never by text message");
+    expect(first).toContain("Never say you will send a link, an email or a text");
     // No pitch until the questions are answered.
     expect(first).not.toContain("The pitch, in this order");
     // Capitals only in the rule against them, so nothing she copies spells it out.

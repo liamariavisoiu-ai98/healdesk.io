@@ -37,25 +37,46 @@ one; in the cloud container it is
   and snap curves.
 - `src/motion.tsx`: the stage (1080 × 1500 for 9:16 and 4:5, 1920 × 1080 for
   16:9) and the motion helpers.
-- `src/scenes/S1Hook.tsx` … `S6Dare.tsx`: one file per scene. Timings are the
-  global frame numbers SCRIPT.md gives; `src/Ad.tsx` switches scenes on the
-  frame rather than wrapping them in `<Sequence>`.
-- `scripts/soundtrack.mjs`: the music bed and every effect from the cue
-  sheet, synthesised (no licensed audio), then loudness-normalised to
+- `src/scenes/S1Hook.tsx` … `S7Dare.tsx`: one file per scene, each counting
+  its own frames from 0. The timeline is `SCENES` in `src/copy.ts`;
+  `src/Ad.tsx` places the scenes on it.
+- `src/parts.tsx`: the glass kit: `Glass`, the drifting colour field behind
+  it (`Backdrop`), the notification banner, the orb that stands for AYA,
+  blur-in kinetic type, the dollar burst, the captions.
+- `scripts/soundtrack.mjs`: the music bed and every effect, synthesised (no
+  licensed audio), cued to the same timeline, then loudness-normalised to
   -14 LUFS, -1 dBTP. Deterministic.
-- `public/`: AYA cut out of her brand portrait (`aya-cutout.webp`), her
-  3-second brand clip (`aya-gesture-720.mp4`, from
-  `apps/web/public/brand/aya-final-cta.mp4`), its last frame, the channel
-  icons and the healdesk wordmark, copied from `apps/web/public`.
+- `public/`: AYA's 3-second brand clip (`aya-gesture-720.mp4`, from
+  `apps/web/public/brand/aya-final-cta.mp4`) and its last frame, the healdesk
+  app icon and wordmark, and the channel and Stripe icons, copied from
+  `apps/web/public` (Messenger's is drawn in `messenger.svg`).
+
+## The cut, scene by scene
+
+| # | Frames | What happens |
+| --- | --- | --- |
+| 1 | 0–150 | A glass lock screen: the call rings out, then missed calls, Instagram, Messenger, WhatsApp and website chat pile up and fly off to "Clinic down the street". |
+| 2 | 150–240 | The coin is caught; ivory floods out; AYA arrives as a glowing glass orb. Three badges. |
+| 3 | 240–420 | The orb becomes the caret of a URL box; the clinic's brand, prices and chat assemble. |
+| 4 | 420–600 | Five glass conversations burst from the orb (phone, WhatsApp, Instagram, Messenger, website chat), each books into the week with its price, the booked value counts to $1,646, and a healdesk notification lands. |
+| 5 | 600–720 | In website chat AYA sends the deposit link; the patient pays $100.00 on Stripe's checkout; the money lands; healdesk notifies the clinic. |
+| 6 | 720–900 | The night on the owner's lock screen: healdesk notifications at 11:48 PM, 2:15 AM and 7:02 AM. |
+| 7 | 900–1080 | AYA's face, the only time it appears; the dare; the end card. |
 
 ## Where this build differs from SCRIPT.md
 
-- **AYA is the existing brand photography, not an illustrated rig.** The repo
-  has no character artwork, so the acting beats are carried by motion: the
-  coin stops dead mid-roll with a tink and a coral ring (the catch), the
-  finger snap is a coral spark, and the dare plays her real brand clip. The
-  wink, eyebrow raises and finger counting need the rig the script's asset
-  list describes.
+- **AYA is an orb until the end.** Her face appears only in the last scene,
+  from her real brand clip. Before that, a glowing glass orb stands for her,
+  so the acting beats (the catch, the snap, the counting) are carried by
+  motion rather than by an illustrated character.
+- **The deposit is a Stripe checkout for a real booking:** a HydraFacial
+  ($199) booked in website chat, held by a $100.00 deposit. The checkout
+  shows only the clinic, "Appointment deposit", the amount and a reference:
+  no treatment name reaches Stripe, which CLAUDE.md requires. The card is
+  Stripe's well-known test number, masked. Treatments are named only in
+  website chat; the Meta messages stay non-clinical, and their prices appear
+  only on the clinic's own calendar.
+- **Every notification AYA sends the clinic carries the healdesk icon.**
 - **No voice yet.** The voiceover runs as burned-in, word-by-word captions on
   the script's timings. When a voice is recorded, add it as an `<Audio>` in
   `src/Ad.tsx`, replace `VO` in `src/copy.ts` with its word timestamps, and

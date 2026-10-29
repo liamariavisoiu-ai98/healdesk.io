@@ -176,81 +176,97 @@ function band(from, to, { full }) {
 }
 
 // Music enters with AYA at 0:05 (the catch), drops to the felt piano for the
-// dream outcome, cuts for the 12 frames before "Don't believe me?", returns.
-band(f2s(154), f2s(690), { full: true });
-band(f2s(690), f2s(900), { full: false });
+// night, cuts for the 12 frames before "Don't believe me?", returns. Every
+// cue below is a global frame of the timeline in src/copy.ts (SCENES).
+band(f2s(154), f2s(720), { full: true });
+band(f2s(720), f2s(900), { full: false });
 band(f2s(912), f2s(1080), { full: true });
 
 // ---------------------------------------------------------------- effects
 
-// Hook: a muffled ring, twice, then a flat voicemail beep.
-for (const at of [10, 28]) {
+/** A soft glassy pop: a notification or a card landing. */
+function pop(at, gain = 0.2, pitch = 0, pan = 0) {
+  const f = 520 * 2 ** (pitch / 12);
+  add(at, 0.14, (t) => Math.sin(2 * Math.PI * (f + 900 * Math.exp(-40 * t)) * t) * Math.exp(-30 * t), { gain, pan, send: 0.2 });
+}
+
+/** A swoosh: noise swelling and falling, for things flying. */
+function swoosh(at, dur = 0.3, gain = 0.14, pan = 0) {
+  const lp = lowpass(2500);
+  add(at, dur, (t) => lp(rand()) * Math.sin((Math.PI * t) / dur), { gain, pan });
+}
+
+// Scene 1: a muffled ring, twice; a flat voicemail beep; the pile-up, a dull
+// pop per notification; the pile-up flies off; the coin drops and rattles.
+for (const at of [12, 28]) {
   const lp = lowpass(1400);
   add(f2s(at), 0.42, (t) => lp((Math.sin(2 * Math.PI * 440 * t) + Math.sin(2 * Math.PI * 480 * t)) * (Math.sin(2 * Math.PI * 20 * t) > 0 ? 1 : 0.2)) * Math.min(1, t * 80) * Math.min(1, (0.42 - t) * 30), { gain: 0.16, send: 0.1 });
 }
-add(f2s(50), 0.32, (t) => Math.sin(2 * Math.PI * 1000 * t) * Math.min(1, t * 200) * Math.min(1, (0.32 - t) * 200), { gain: 0.08 });
-// One soft thunk per faded caller.
-for (let i = 0; i < 17; i++) add(f2s(60 + i * 2), 0.18, (t) => Math.sin(2 * Math.PI * (70 + 30 * Math.exp(-30 * t)) * t) * Math.exp(-22 * t), { gain: 0.18, pan: -0.6 + i * 0.07 });
-// The door closes.
+add(f2s(44), 0.32, (t) => Math.sin(2 * Math.PI * 1000 * t) * Math.min(1, t * 200) * Math.min(1, (0.32 - t) * 200), { gain: 0.08 });
+for (let i = 0; i < 6; i++) pop(f2s(44 + i * 9), 0.12, -12, -0.3 + i * 0.12);
+swoosh(f2s(100), 0.8, 0.16, 0.4);
+add(f2s(134), f2s(16), (t) => (Math.sin(2 * Math.PI * (8 + 20 * t) * t) > 0.9 ? rand() * 0.6 : 0) * 0.5, { gain: 0.25, pan: 0.3 });
+
+// Scene 2: the catch, the orb blooms, three badges.
+tink(f2s(152), 0, 0.42);
 {
-  const lp = lowpass(500);
-  add(f2s(134), 0.5, (t) => (Math.sin(2 * Math.PI * 55 * t) * 0.9 + lp(rand()) * 0.8) * Math.exp(-10 * t), { gain: 0.42, pan: 0.5, send: 0.2 });
+  const lp = lowpass(900);
+  add(f2s(158), 1.2, (t) => lp(rand()) * Math.sin((Math.PI * t) / 1.2) * 0.8 + Math.sin(2 * Math.PI * 110 * t) * Math.exp(-3 * t) * 0.4, { gain: 0.2, send: 0.4 });
 }
-// The coin rolls: a rattle that speeds up.
-add(f2s(138), f2s(16), (t) => (Math.sin(2 * Math.PI * (8 + 20 * t) * t) > 0.9 ? rand() * 0.6 : 0) * 0.5, { gain: 0.25, pan: 0.3 });
+for (let i = 0; i < 3; i++) pop(f2s(194 + i * 6), 0.18, i * 2, -0.4 + i * 0.4);
 
-// The catch.
-tink(f2s(154), 0, 0.42);
-
-// Keyboard: a soft click per character, then the button.
+// Scene 3: keys, the button, the box shatters into the build.
 for (let k = 0; k < 19; k++) {
   const lp = lowpass(4000);
-  add(f2s(285 + k * 1.8), 0.04, (t) => lp(rand()) * Math.exp(-120 * t), { gain: 0.16, pan: -0.2 + (k % 3) * 0.2 });
+  add(f2s(255 + k * 1.6), 0.04, (t) => lp(rand()) * Math.exp(-120 * t), { gain: 0.16, pan: -0.2 + (k % 3) * 0.2 });
 }
-add(f2s(316), 0.06, (t) => Math.sin(2 * Math.PI * 180 * t) * Math.exp(-60 * t), { gain: 0.3 });
-// The build's shimmer: a rising band of noise and a sparkle.
+add(f2s(286), 0.06, (t) => Math.sin(2 * Math.PI * 180 * t) * Math.exp(-60 * t), { gain: 0.3 });
 {
   const lpA = lowpass(9000);
   let lpB = 0;
-  add(f2s(320), 0.9, (t) => {
+  add(f2s(290), 0.9, (t) => {
     const cut = 400 + 6000 * (t / 0.9);
     const a = Math.exp((-2 * Math.PI * cut) / SR);
     const n = lpA(rand());
     lpB = (1 - a) * n + a * lpB;
     return (n - lpB) * Math.sin((Math.PI * t) / 0.9);
   }, { gain: 0.16, send: 0.4 });
-  for (let k = 0; k < 6; k++) tink(f2s(330 + k * 3), 5 + k * 2, 0.05);
+  for (let k = 0; k < 6; k++) tink(f2s(304 + k * 3), 5 + k * 2, 0.05);
 }
+for (let i = 0; i < 3; i++) pop(f2s(312 + i * 6), 0.12, 4 + i, -0.5 + i * 0.3);
 
-// The finger snap.
-{
-  const lp = lowpass(3500);
-  const lp2 = lowpass(1500);
-  add(f2s(452), 0.08, (t) => {
-    const n = lp(rand());
-    return (n - lp2(n)) * Math.exp(-70 * t) * 3;
-  }, { gain: 0.35, send: 0.3, pan: -0.2 });
+// Scene 4: the orb pulses, five cards burst out, five bookings land rising a
+// semitone each, and healdesk's notification.
+pop(f2s(420), 0.22, -5);
+for (let i = 0; i < 5; i++) swoosh(f2s(428 + i * 6), 0.3, 0.12, -0.6 + i * 0.3);
+for (let i = 0; i < 5; i++) tink(f2s(488 + i * 16), i, 0.24);
+tink(f2s(558), 7, 0.3);
+pop(f2s(558), 0.2, 7);
+
+// Scene 5: the tap, Stripe's sheet, the card typing, pay, paid, the money and
+// healdesk's notification.
+pop(f2s(622), 0.2, 2);
+swoosh(f2s(626), 0.45, 0.16);
+for (let k = 0; k < 12; k++) {
+  const lp = lowpass(4000);
+  add(f2s(640 + k * 1.4), 0.035, (t) => lp(rand()) * Math.exp(-120 * t), { gain: 0.12 });
 }
-// Four cards burst out: paper-soft swooshes.
-for (let i = 0; i < 4; i++) {
-  const lp = lowpass(2500);
-  add(f2s(465 + i * 12), 0.3, (t) => lp(rand()) * Math.sin((Math.PI * t) / 0.3), { gain: 0.14, pan: -0.5 + i * 0.33 });
-}
-// Four bookings, four tinks, rising a semitone each.
-for (let i = 0; i < 4; i++) tink(f2s(540 + i * 20), i, 0.26);
-// The deposit: the biggest tink, a fifth on top.
-tink(f2s(626), 4, 0.42);
-tink(f2s(626.5), 11, 0.18);
-tink(f2s(648), 7, 0.12);
+add(f2s(664), 0.06, (t) => Math.sin(2 * Math.PI * 200 * t) * Math.exp(-60 * t), { gain: 0.3 });
+tink(f2s(676), 4, 0.44);
+tink(f2s(676.5), 11, 0.2);
+for (let k = 0; k < 8; k++) tink(f2s(678 + k * 2), 12 + (k % 4) * 2, 0.05);
+tink(f2s(684), 7, 0.22);
+swoosh(f2s(694), 0.4, 0.12);
 
-// Booked tiles settle; the lamp clicks off; one notification overnight.
-tink(f2s(726), 2, 0.14);
-add(f2s(790), 0.05, (t) => rand() * Math.exp(-150 * t), { gain: 0.3 });
-tink(f2s(842), 4, 0.26);
+// Scene 6: the lamp clicks off; three notifications overnight, the last brightest.
+add(f2s(740), 0.05, (t) => rand() * Math.exp(-150 * t), { gain: 0.3 });
+tink(f2s(760), 2, 0.2);
+tink(f2s(796), 4, 0.22);
+tink(f2s(832), 7, 0.3);
 
-// The end card.
-tink(f2s(1044), 7, 0.36);
-tink(f2s(1044.6), 0, 0.16);
+// Scene 7: the end card.
+tink(f2s(1042), 7, 0.36);
+tink(f2s(1042.6), 0, 0.16);
 
 // ---------------------------------------------------------------- reverb and write
 

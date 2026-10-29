@@ -90,3 +90,43 @@ export function drift(frame: number, phase = 0, amount = 4): number {
 export function lerp(frame: number, input: number[], output: number[], ease = easeEnter): number {
   return interpolate(frame, input, output, { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: ease });
 }
+
+/**
+ * A scene's camera, the After Effects way: it pushes in slowly through the
+ * whole scene, arrives out of a blur, and leaves into one, scaled past the
+ * lens, so cuts read as one continuous move.
+ */
+export const Shell: React.FC<{ duration: number; children: React.ReactNode; push?: number; enterBlur?: boolean; exitBlur?: boolean }> = ({
+  duration,
+  children,
+  push = 0.04,
+  enterBlur = true,
+  exitBlur = true,
+}) => {
+  const frame = useCurrentFrame();
+  const inP = enterBlur ? interpolate(frame, [0, 10], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: easeEnter }) : 1;
+  const outP = exitBlur ? interpolate(frame, [duration - 9, duration], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: easeExit }) : 0;
+  const scale = 1 + push * (frame / duration) + (1 - inP) * -0.06 + outP * 0.12;
+  const blur = (1 - inP) * 14 + outP * 18;
+  return (
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        transform: `scale(${scale})`,
+        filter: blur > 0.2 ? `blur(${blur}px)` : undefined,
+        opacity: Math.min(inP * 1.2, 1 - outP * 0.9),
+      }}
+    >
+      {children}
+    </div>
+  );
+};
+
+/** A 3D tilt for a UI panel: it swings in from `from` degrees and then floats. */
+export function tilt(frame: number, at: number, from = 18, phase = 0): React.CSSProperties {
+  const p = interpolate(frame, [at, at + 20], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: easeEnter });
+  const rx = (1 - p) * from + Math.sin((frame + phase) / 40) * 2.2;
+  const ry = (1 - p) * -from * 0.6 + Math.cos((frame + phase) / 50) * 2.8;
+  return { transform: `perspective(1800px) rotateX(${rx}deg) rotateY(${ry}deg) translateY(${(1 - p) * 60}px)`, opacity: Math.min(1, p * 1.4) };
+}

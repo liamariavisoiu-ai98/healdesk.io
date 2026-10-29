@@ -29,7 +29,13 @@ import {
   type ReadinessFacts,
 } from "@/lib/channels/events";
 import { readPhoneStepsNumber } from "@/lib/channels/state";
-import { sendWebChatMessage, startWebChat, webChatClinic } from "@/lib/chat/web-chat";
+import {
+  __resetSightingThrottleForTests,
+  noteWidgetSighting,
+  readWidgetSighting,
+  sightingLine,
+} from "@/lib/channels/widget-sighting";
+import { sendWebChatMessage, sightingHost, startWebChat, webChatClinic } from "@/lib/chat/web-chat";
 import { assertPayloadAllowed, copyProblems, subjectProblems } from "@/lib/email/lint";
 import { CHANNEL_LIVE_ENTRY, renderChannelLive } from "@/lib/email/templates/channel_live";
 import { attachMetaChannel, setMetaFrontDoor, type MetaSender } from "@/lib/meta/channels";
@@ -382,6 +388,38 @@ describe("L1, AYA is answering on a channel", () => {
       expect(copyProblems(`${rendered.subject}\n${rendered.text}`)).toEqual([]);
       expect(rendered.text).not.toMatch(/\$\d/);
     }
+  });
+});
+
+describe("sightingHost (WEBCHAT-2)", () => {
+  test("the site, www and any subdomain over https count; another site, plain http, a local page, no website and a shared apex do not", () => {
+    const site = "https://www.Clinic-Site.test/about";
+    expect(sightingHost("https://clinic-site.test", site)).toBe("clinic-site.test");
+    expect(sightingHost("https://www.clinic-site.test", site)).toBe("www.clinic-site.test");
+    expect(sightingHost("https://STAGING.Clinic-Site.test", site)).toBe("staging.clinic-site.test");
+    expect(sightingHost("https://a.b.clinic-site.test", "clinic-site.test")).toBe("a.b.clinic-site.test");
+    for (const origin of [
+      "https://evilclinic-site.test",
+      "https://clinic-site.test.evil.test",
+      "http://clinic-site.test",
+      "http://localhost:3000",
+      "https://localhost",
+      "not a url",
+      null,
+    ]) {
+      expect(sightingHost(origin, site), String(origin)).toBeNull();
+    }
+    expect(sightingHost("https://clinic-site.test", null)).toBeNull();
+    expect(sightingHost("https://anyone.github.io", "https://github.io")).toBeNull();
+    expect(sightingHost("https://clinic.github.io", "clinic.github.io")).toBe("clinic.github.io");
+    expect(sightingHost("https://intranet", "intranet")).toBeNull();
+  });
+
+  test("the portal's three states, in plain words, with no time promised beyond the step", () => {
+    expect(sightingLine({ state: "waiting" })).toContain("click the chat bubble");
+    expect(sightingLine({ state: "seen", host: "clinic.test" })).toContain("We saw the chat on clinic.test.");
+    expect(sightingLine({ state: "confirmed", by: "sighting", host: "clinic.test" })).toBe("Done: we saw the chat on clinic.test.");
+    expect(sightingLine({ state: "confirmed", by: "team" })).toBe("Done: our team confirmed the chat is on your website.");
   });
 });
 
@@ -1515,6 +1553,209 @@ describeDb("channel events against the database", () => {
       status: "error",
       message: "The clinic didn't buy website chat.",
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // WEBCHAT-2: two opens from the clinic's own site, five minutes apart,
+  // confirm website chat's line (drizzle/0137, lib/channels/widget-sighting.ts)
+  // ---------------------------------------------------------------------------
+
+  /** A web-only clinic with every input but its line, waiting on the snippet, at `website`. */
+  async function waitingOnLine(label: string, website: string) {
+    const c = await boughtClinic(label, { plan: "webchat-1000", channels: [{ channel: "web" }] });
+    await getMigratorPool().query(`update clinics set website = $2 where id = $1`, [c.clinicId, website]);
+    await setWeekdayHours(c.clinicId);
+    await agent(c.clinicId);
+    await finishSetup(c.clinicId);
+    await passAudit(c.clinicId, "web");
+    await evaluate(c.clinicId, "web");
+    expect(await channelRow(c.clinicId, "web")).toMatchObject({ waiting_on: "snippet", live_at: null });
+    return c;
+  }
+
+  /** The sighting rows website chat has, with their host and how they were recorded. */
+  async function sightingsOf(clinicId: string) {
+    const { rows } = await inTenant(clinicId, (c) =>
+      c.query<{ kind: string; actor: string | null; detail: Record<string, unknown> }>(
+        `select kind, actor, detail from channel_events
+          where channel = 'web' and kind in ('widget_seen', 'runtime_seen') order by occurred_at, kind`,
+      ),
+    );
+    return rows;
+  }
+
+  /** The first sighting, moved `minutes` into the past: the clock the definer reads is the database's. */
+  async function ageFirstSighting(clinicId: string, minutes: number): Promise<void> {
+    const { rows } = await inTenant(clinicId, (c) =>
+      c.query<{ id: string }>(
+        `update channel_events set occurred_at = now() - make_interval(mins => $2::int)
+          where clinic_id = $1 and channel = 'web' and kind = 'widget_seen' returning id`,
+        [clinicId, minutes],
+      ),
+    );
+    expect(rows).toHaveLength(1);
+  }
+
+  function start(slug: string, origin: string | null, ip: string) {
+    return startPost(
+      new Request(`http://app.test/api/widget/v1/${slug}/start`, {
+        method: "POST",
+        headers: { ...(origin ? { origin } : {}), "x-forwarded-for": ip },
+        body: "{}",
+      }),
+      { params: Promise.resolve({ slug }) },
+    );
+  }
+
+  test("WEBCHAT-2: one open is seen, a second too soon writes nothing, one five minutes later from a subdomain confirms the line and takes website chat live", async () => {
+    __resetSightingThrottleForTests();
+    const c = await waitingOnLine("ev-sight", "https://www.sight-clinic.test/home");
+    const clinic = (await webChatClinic(c.slug))!;
+    const t0 = new Date();
+    const at = (minutes: number) => new Date(t0.getTime() + minutes * 60_000);
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) =>
+      expect(sightingLine(await readWidgetSighting(tx))).toMatch(/^We haven't seen the chat on your website yet\./),
+    );
+
+    // The first open, from the site itself: seen, recorded once with its host, the operator asked once.
+    expect(await startWebChat(clinic, t0, "https://sight-clinic.test")).toMatchObject({ mode: "contact_form", reason: "channel_not_live" });
+    expect(await sightingsOf(c.clinicId)).toEqual([
+      { kind: "widget_seen", actor: "system", detail: { host: "sight-clinic.test" } },
+    ]);
+    expect(await opsAlerts("web_widget_to_confirm", c.clinicId)).toHaveLength(1);
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
+      expect(await readWidgetSighting(tx)).toEqual({ state: "seen", host: "sight-clinic.test" });
+      expect(sightingLine(await readWidgetSighting(tx))).toMatch(/^We saw the chat on sight-clinic\.test\. Click the chat bubble there once more/);
+    });
+
+    // A replay in the same minute is not even asked; two minutes on, too soon: nothing written.
+    expect(await startWebChat(clinic, at(0.5), "https://sight-clinic.test")).toMatchObject({ mode: "contact_form" });
+    expect(await startWebChat(clinic, at(2), "https://www.sight-clinic.test")).toMatchObject({ mode: "contact_form" });
+    expect(await sightingsOf(c.clinicId)).toHaveLength(1);
+    expect((await channelRow(c.clinicId, "web")).live_at).toBeNull();
+
+    // Five minutes after the first, from a staging subdomain (the owner's decision 2): confirmed, live, answered.
+    await ageFirstSighting(c.clinicId, 6);
+    const confirming = await startWebChat(clinic, at(7), "https://staging.sight-clinic.test");
+    expect(await sightingsOf(c.clinicId)).toEqual([
+      { kind: "widget_seen", actor: "system", detail: { host: "sight-clinic.test" } },
+      {
+        kind: "runtime_seen",
+        actor: "system",
+        detail: { via: "origin_seen", host: "staging.sight-clinic.test", first_host: "sight-clinic.test" },
+      },
+    ]);
+    expect(await channelRow(c.clinicId, "web")).toMatchObject({ waiting_on: null });
+    expect((await channelRow(c.clinicId, "web")).live_at).not.toBeNull();
+    expect(confirming).toMatchObject({ mode: "chat" });
+    const { rows: audits } = await getMigratorPool().query<{ metadata: Record<string, unknown> }>(
+      `select metadata from audit_log where clinic_id = $1 and resource_type = 'clinic_channel' and metadata->>'via' = 'origin_seen'`,
+      [c.clinicId],
+    );
+    expect(audits.map((a) => a.metadata)).toEqual([
+      { channel: "web", input: "runtime_seen", via: "origin_seen", host: "staging.sight-clinic.test" },
+    ]);
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) =>
+      expect(sightingLine(await readWidgetSighting(tx))).toBe("Done: we saw the chat on staging.sight-clinic.test."),
+    );
+
+    // Later opens write nothing more, and the operator's button still answers (already recorded).
+    expect(await startWebChat(clinic, at(20), "https://sight-clinic.test")).toMatchObject({ mode: "chat" });
+    expect(await sightingsOf(c.clinicId)).toHaveLength(2);
+    expect(await data("confirmWebWidget", { clinicId: c.clinicId })).toEqual({ status: "updated" });
+    expect(await sightingsOf(c.clinicId)).toHaveLength(2);
+    // The start body carries nothing from the visitor, and nothing of theirs is kept.
+    expect(JSON.stringify(await sightingsOf(c.clinicId))).not.toMatch(/203\.0\.113|user.?agent/i);
+  });
+
+  test("WEBCHAT-2: a hostile page, a missing Origin, another clinic's site, a local page, plain http and a shared platform's apex are never sightings", async () => {
+    __resetSightingThrottleForTests();
+    const victim = await waitingOnLine("ev-sight-victim", "victim-clinic.test");
+    const other = await waitingOnLine("ev-sight-other", "https://other-clinic.test");
+    const ip = "198.51.100.7";
+    // A browser on another site sends its own Origin: refused before anything is recorded.
+    for (const origin of [
+      "https://evil.test",
+      "https://evilvictim-clinic.test",
+      "https://victim-clinic.test.evil.test",
+      "https://other-clinic.test",
+      "http://victim-clinic.test",
+      null,
+    ]) {
+      expect((await start(victim.slug, origin, ip)).status, String(origin)).toBe(403);
+    }
+    // A local page is allowed to chat, never a sighting.
+    expect((await start(victim.slug, "http://localhost:3000", ip)).status).toBe(200);
+    expect(await sightingsOf(victim.clinicId)).toEqual([]);
+    expect(await sightingsOf(other.clinicId)).toEqual([]);
+    expect(await opsAlerts("web_widget_to_confirm", victim.clinicId)).toHaveLength(0);
+
+    // The definer re-checks the host itself: the runtime role cannot name another site.
+    const client = await getAppPool().connect();
+    try {
+      await client.query("begin");
+      await client.query(`select set_config('app.clinic_id', $1, true)`, [victim.clinicId]);
+      const seen = async (host: string) =>
+        (await client.query<{ o: string }>(`select app_web_widget_seen($1) as o`, [host])).rows[0]!.o;
+      expect(await seen("other-clinic.test")).toBe("wrong_host");
+      expect(await seen("evilvictim-clinic.test")).toBe("wrong_host");
+      await client.query("savepoint s");
+      await expect(client.query(`select app_web_widget_seen('Victim-Clinic.test/x')`)).rejects.toMatchObject({ code: "22023" });
+      await client.query("rollback to savepoint s");
+      await expect(
+        client.query(`insert into channel_events (clinic_id, channel, kind) values ($1, 'web', 'widget_seen')`, [victim.clinicId]),
+      ).rejects.toMatchObject({ code: "42501" });
+    } finally {
+      await client.query("rollback").catch(() => {});
+      client.release();
+    }
+    expect(await sightingsOf(victim.clinicId)).toEqual([]);
+    // Outside a tenant it refuses.
+    await expect(getAppPool().query(`select app_web_widget_seen('victim-clinic.test')`)).rejects.toMatchObject({ code: "42501" });
+
+    // A clinic recorded as a shared platform's bare apex is never confirmed by a sighting.
+    expect(sightingHost("https://anyone.wixsite.com", "wixsite.com")).toBeNull();
+    expect(sightingHost("https://clinic.wixsite.com", "clinic.wixsite.com")).toBe("clinic.wixsite.com");
+
+    // The operator's tick alone satisfies the step too (owner, 29 October 2026), and the portal says who confirmed it.
+    expect(await data("confirmWebWidget", { clinicId: victim.clinicId })).toEqual({ status: "updated" });
+    expect((await channelRow(victim.clinicId, "web")).live_at).not.toBeNull();
+    await withTenant({ clinicId: victim.clinicId, actor: ACTOR }, async (tx) => {
+      expect(await readWidgetSighting(tx)).toEqual({ state: "confirmed", by: "team" });
+    });
+    // A later open from the site writes nothing more.
+    __resetSightingThrottleForTests();
+    expect(await noteWidgetSighting(victim.clinicId, "victim-clinic.test", { actor: ACTOR })).toBe("not_waiting");
+  });
+
+  test("WEBCHAT-2: the 21st start in a minute from one address is 429, and a flood records one sighting", async () => {
+    __resetSightingThrottleForTests();
+    const c = await waitingOnLine("ev-sight-flood", "flood-clinic.test");
+    const statuses: number[] = [];
+    for (let i = 0; i < 21; i += 1) statuses.push((await start(c.slug, "https://flood-clinic.test", "192.0.2.21")).status);
+    expect(statuses.slice(0, 20).every((s) => s === 200)).toBe(true);
+    expect(statuses[20]).toBe(429);
+    // Another address keeps going, and still no more than the one first sighting is written.
+    for (let i = 0; i < 5; i += 1) expect((await start(c.slug, "https://flood-clinic.test", "192.0.2.22")).status).toBe(200);
+    expect(await sightingsOf(c.clinicId)).toEqual([
+      { kind: "widget_seen", actor: "system", detail: { host: "flood-clinic.test" } },
+    ]);
+    expect((await channelRow(c.clinicId, "web")).live_at).toBeNull();
+    // Even past the throttle, a second open inside five minutes is too soon.
+    __resetSightingThrottleForTests();
+    expect(await noteWidgetSighting(c.clinicId, "flood-clinic.test", { actor: ACTOR })).toBe("too_soon");
+    expect(await sightingsOf(c.clinicId)).toHaveLength(1);
+  });
+
+  test("WEBCHAT-2: nothing is recorded for a clinic that did not buy website chat or has left", async () => {
+    __resetSightingThrottleForTests();
+    const phoneOnly = await boughtClinic("ev-sight-phone", { channels: [{ channel: "voice" }] });
+    await getMigratorPool().query(`update clinics set website = 'phone-only.test' where id = $1`, [phoneOnly.clinicId]);
+    expect(await noteWidgetSighting(phoneOnly.clinicId, "phone-only.test", { actor: ACTOR })).toBe("not_waiting");
+    const left = await waitingOnLine("ev-sight-left", "left-clinic.test");
+    await getMigratorPool().query(`update clinics set offboarding_started_at = now() where id = $1`, [left.clinicId]);
+    expect(await noteWidgetSighting(left.clinicId, "left-clinic.test", { actor: ACTOR })).toBe("not_waiting");
+    expect(await sightingsOf(left.clinicId)).toEqual([]);
   });
 
   test("the Meta webhook records the Meta channel's first answer when a reply reaches the person", async () => {

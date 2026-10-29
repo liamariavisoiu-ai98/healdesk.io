@@ -242,7 +242,7 @@ describeDb("database audit (0031)", () => {
       c.query(`insert into clinic_channels (clinic_id, channel) values ($1, 'voice')`, [clinicId]),
     );
     await asTenant(clinicId, async (c) => {
-      for (const kind of ["ready", "live", "first_answer", "audit_passed", "runtime_seen"]) {
+      for (const kind of ["ready", "live", "first_answer", "audit_passed", "runtime_seen", "widget_seen"]) {
         await c.query("savepoint s");
         await expect(
           c.query(`insert into channel_events (clinic_id, channel, kind) values ($1, 'voice', $2)`, [clinicId, kind]),
@@ -260,7 +260,8 @@ describeDb("database audit (0031)", () => {
              has_function_privilege('public', p.oid, 'EXECUTE') as anyone
         from pg_proc p
        where p.proname in ('app_channel_record_input', 'app_channel_mark_ready', 'app_channel_mark_live',
-                           'app_channel_record_first_answer', 'app_channel_ours_ok', 'app_channel_live_ok')
+                           'app_channel_record_first_answer', 'app_channel_ours_ok', 'app_channel_live_ok',
+                           'app_web_widget_seen')
        order by p.proname
     `);
     expect(definers).toEqual([
@@ -270,6 +271,7 @@ describeDb("database audit (0031)", () => {
       { name: "app_channel_ours_ok", definer: false, app: false, anyone: false },
       { name: "app_channel_record_first_answer", definer: true, app: true, anyone: false },
       { name: "app_channel_record_input", definer: true, app: true, anyone: false },
+      { name: "app_web_widget_seen", definer: true, app: true, anyone: false },
     ]);
   });
 

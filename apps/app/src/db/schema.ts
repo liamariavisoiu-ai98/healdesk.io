@@ -5037,6 +5037,11 @@ export const CHANNEL_EVENT_KINDS = [
   // loading on the clinic's own site.
   "audit_passed",
   "runtime_seen",
+  // Website chat's first open from a page on the clinic's own site, by its
+  // Origin (drizzle/0137, lib/channels/widget-sighting.ts): once per channel.
+  // A second open at least five minutes later records runtime_seen by
+  // 'origin_seen'; the definer alone writes either.
+  "widget_seen",
 ] as const;
 export type ChannelEventKind = (typeof CHANNEL_EVENT_KINDS)[number];
 
@@ -5078,11 +5083,12 @@ export const channelEvents = pgTable(
     uniqueIndex("channel_events_first_answer_idx")
       .on(t.clinicId, t.channel)
       .where(sql`${t.kind} = 'first_answer'`),
-    // Each of `live`'s recorded inputs once per channel (drizzle/0079), so
-    // its definer records it with ON CONFLICT and takes no row lock.
+    // Each of `live`'s recorded inputs once per channel (drizzle/0079), and
+    // website chat's first sighting (0137), so its definer records it with
+    // ON CONFLICT and takes no row lock.
     uniqueIndex("channel_events_input_once_idx")
       .on(t.clinicId, t.channel, t.kind)
-      .where(sql`${t.kind} in ('audit_passed', 'runtime_seen')`),
+      .where(sql`${t.kind} in ('audit_passed', 'runtime_seen', 'widget_seen')`),
     index("channel_events_clinic_idx").on(t.clinicId, t.occurredAt),
     check(
       "channel_events_channel_check",

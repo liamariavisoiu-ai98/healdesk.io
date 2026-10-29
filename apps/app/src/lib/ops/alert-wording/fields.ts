@@ -150,7 +150,7 @@ export const EVENT_FIELDS: Partial<Record<OpsEvent, readonly string[]>> = {
   // lib/ops/health-flags.ts flagClinic.
   no_interactions_48_hours: ["clinicId"],
   no_inbound_calls_14_days: ["clinicId", "channel", "conversationId"],
-  // lib/channels/events.ts recordFirstAnswer, goLiveIfReady, noteWidgetLoaded.
+  // lib/channels/events.ts recordFirstAnswer, goLiveIfReady; lib/channels/widget-sighting.ts noteWidgetSighting.
   first_answer_not_recorded: ["clinicId", "channel"],
   go_live_held: ["clinicId", "code", "count"],
   web_widget_to_confirm: ["clinicId", "channel"],

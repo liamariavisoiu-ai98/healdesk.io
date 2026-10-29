@@ -127,19 +127,20 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Press Check go-live now on the clinic's Setup tab once Go live lists nothing. If the clinic is still not live after that, tell the owner: the reason is in the app's error log. You are done when Go live says Live.",
     ],
   },
-  // lib/channels/events.ts noteWidgetLoaded, once per clinic while website
-  // chat waits on its line.
+  // lib/channels/widget-sighting.ts noteWidgetSighting, once per clinic, on
+  // a sighting that did not confirm the line while website chat waits on it.
   web_widget_to_confirm: {
     title: "Confirm a clinic's website chat is on its site",
-    // "Seems": the load's Origin matched the clinic's recorded website
-    // (lib/chat/web-chat.ts isClinicSiteOrigin), which any client can send.
-    headline: "{clinicName} seems to have put website chat on its site: check it before confirming",
+    // "Seems": the open's Origin matched the clinic's recorded website
+    // (lib/chat/web-chat.ts sightingHost). A browser cannot fake it, but a
+    // script outside a browser can.
+    headline: "{clinicName} seems to have put website chat on its site: it confirms itself on a second open, or you can confirm it",
     whatHappened:
-      "{clinicName}'s website chat, still waiting on the clinic's own step, was just opened. The chat was opened from a page that says it is the clinic's website. That is not proof: any page can say so, so nothing was recorded.",
+      "{clinicName}'s website chat, still waiting on the clinic's own step, was just opened from a page on the clinic's website, or from something claiming to be one. A second open at least five minutes later confirms the line by itself.",
     whyItMatters:
-      "Until a person confirms the chat is on the site, website chat stays off and tells visitors to call the practice. Confirming on a claim alone could take website chat live on a site that is not the clinic's.",
+      "Until the line is confirmed, website chat stays off and tells visitors to call the practice. If the second open never comes (the clinic tried it once, or its site is on another address than the one we hold), it waits on you.",
     steps: [
-      "Open the clinic's Setup tab and read Channels: Website chat says nobody has confirmed the chat is on the clinic's website.",
+      "Open the clinic's Setup tab and read Channels. If Website chat no longer waits on the clinic's own step, it confirmed itself and you are done.",
       "Check the clinic's own website in a browser for the chat bubble, which must open as AYA. The Setup tab does not show the site's address; ask the clinic if you do not have it.",
       "Press The line is on their website under Channels on the Setup tab only once you have seen the chat there. Do not press it on the strength of this alert alone.",
       "Check Channels on the clinic's Setup tab. You are done when Website chat no longer waits on the clinic's own step: it moves on as far as its other inputs allow.",

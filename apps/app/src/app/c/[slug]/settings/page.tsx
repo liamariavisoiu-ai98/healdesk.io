@@ -16,6 +16,7 @@ import { loadOpenAddressChange } from "@/lib/sign-in/address-change";
 import { forwardingView, type ForwardingView } from "@/lib/setup/forwarding";
 import { readForwardingTest } from "@/lib/setup/forwarding-test-view";
 import { formatPhone } from "@/lib/setup/help";
+import { readWidgetSighting, sightingLine } from "@/lib/channels/widget-sighting";
 import { snippetOpen, widgetSnippet } from "@/lib/setup/snippet";
 import { withTenant } from "@/lib/tenant";
 
@@ -103,6 +104,11 @@ export default async function SettingsPage({
   const webLine = snippetOpen(page.state.channels.find((c) => c.channel === "web"))
     ? widgetSnippet(page.state.clinic.slug)
     : null;
+  const webSighting = webLine
+    ? sightingLine(
+        await withTenant({ clinicId: portal.clinicId, actor: page.actorContext }, (tx) => readWidgetSighting(tx)),
+      )
+    : null;
   const factors = await readSignInFactors(portal.userId, await sessionBinding(portal));
   const tz = page.state.clinic.timezone;
   const settingsPath = `/c/${portal.clinicSlug}/settings`;
@@ -131,6 +137,7 @@ export default async function SettingsPage({
             phoneSteps={ayaNumber ? { numberLabel: formatPhone(ayaNumber) } : null}
             forwarding={forwarding}
             webLine={webLine}
+            webSighting={webSighting}
             metaOutcome={typeof meta === "string" ? meta : null}
           />
           <TalkCard view={view} />

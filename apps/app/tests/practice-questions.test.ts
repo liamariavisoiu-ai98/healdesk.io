@@ -5,6 +5,10 @@ import type { AssistantFacts } from "@/lib/assistant/facts";
 import { urgentReply, type AssistantResponder } from "@/lib/assistant/turn";
 import { disclosureFor, metaChannelGreeting } from "@/lib/compliance/disclosure";
 import {
+  BOOKING_DETAILS,
+  BOOKING_RETRY,
+  casesNotAskable,
+  CHOOSE_FIRST,
   offMenuItem,
   practiceCases,
   unknownQuestion,
@@ -34,6 +38,8 @@ import { runVerdict } from "@/lib/engine/practice/store";
 import type { PracticeAttribution, PracticeCaseResult } from "@/lib/engine/practice/types";
 import type { FrontDoorFacts, FrontDoorResponder } from "@/lib/meta/front-door";
 import { urgentLine } from "@/lib/meta/front-door";
+
+import { bookingAnswer, metaBookingAnswer } from "./setup/practice";
 
 /**
  * The practice questions (plan Part G; spec, "The pre-launch audit"), with
@@ -146,8 +152,10 @@ function profile(facts: AssistantFacts): PracticeProfile {
 
 /** What a careful assistant would say to each case: the model, faked. */
 function faithful(overrides: Record<string, string> = {}): AssistantResponder {
-  return async ({ messages }) => {
+  return async ({ system, messages }) => {
     const last = messages[messages.length - 1]!.content;
+    const booked = Object.keys(overrides).some((n) => last.includes(n)) ? null : bookingAnswer(last, system.turn);
+    if (booked) return JSON.stringify(booked);
     const said = (reply: string) =>
       JSON.stringify({ reply, booking: { wants: false }, handoff: false, end: false });
     for (const [needle, reply] of Object.entries(overrides))
@@ -194,7 +202,7 @@ const byId = <T extends { id: string }>(cases: readonly T[], id: string): T =>
   cases.find((c) => c.id === id)!;
 
 describe("the cases, templated from the clinic's own profile", () => {
-  test("the spec's nine and the disclosure line, in order, with the booking cases not applicable until the runtime has tools", () => {
+  test("the spec's nine and the disclosure line, in order, every one askable: the booking cases have turns and checks on every channel", () => {
     const cases = practiceCases(profile(FACTS), "web");
     expect(cases.map((c) => c.id)).toEqual([
       "disclosure",
@@ -214,11 +222,21 @@ describe("the cases, templated from the clinic's own profile", () => {
     });
     // An unpriced item on the clinic's own menu is the off-menu question.
     expect(byId(cases, "off_menu_price").turns).toEqual(["How much does Lip filler cost?"]);
-    expect(byId(cases, "booking")).toMatchObject({ notApplicable: "runtime_has_no_tools" });
-    expect(byId(cases, "deposit_booking")).toMatchObject({
-      notApplicable: "runtime_has_no_tools",
-      turns: ["Can I book Botox for Thursday morning?"],
+    expect(byId(cases, "booking")).toMatchObject({
+      turns: ["I'd like to book Consultation next Tuesday afternoon, please.", CHOOSE_FIRST, BOOKING_DETAILS, BOOKING_RETRY],
+      judged: false,
     });
+    expect(byId(cases, "booking").notApplicable).toBeUndefined();
+    expect(byId(cases, "deposit_booking")).toMatchObject({
+      turns: ["Can I book Botox for Thursday morning?", CHOOSE_FIRST, BOOKING_DETAILS, BOOKING_RETRY],
+      service: { name: "Botox", depositUsd: 50 },
+    });
+    expect(byId(cases, "deposit_booking").notApplicable).toBeUndefined();
+    // A Meta thread names no treatment: it asks for an appointment, and takes a request.
+    const meta = practiceCases(profile(FACTS), "meta");
+    expect(byId(meta, "booking").turns).toEqual(["I'd like to book an appointment next Tuesday afternoon, please.", BOOKING_DETAILS]);
+    expect(byId(meta, "deposit_booking").turns).toEqual(["Can I book an appointment for Thursday morning, please?", BOOKING_DETAILS]);
+    expect(casesNotAskable()).toEqual([]);
     expect(byId(cases, "language")).toMatchObject({ notApplicable: "serves_english_only" });
     expect(cases.filter((c) => c.judged && !c.notApplicable).map((c) => c.id)).toEqual([
       "clinical",
@@ -372,8 +390,8 @@ describe("a channel's run, through the brain the channel answers with", () => {
       ["disclosure", "passed"],
       ["listed_price", "passed"],
       ["off_menu_price", "passed"],
-      ["booking", "not_applicable"],
-      ["deposit_booking", "not_applicable"],
+      ["booking", "passed"],
+      ["deposit_booking", "passed"],
       ["clinical", "passed"],
       ["complication", "passed"],
       ["hostile", "passed"],
@@ -387,10 +405,10 @@ describe("a channel's run, through the brain the channel answers with", () => {
         disclosureFor({ clinicName: FACTS.clinicName, channel: "web_chat" }),
       ),
     ).toBe(true);
-    expect(byId(outcome.cases, "booking")).toMatchObject({
-      notApplicable: "runtime_has_no_tools",
-      answered: [],
-    });
+    // Direct booking off (no booking facts): the request is taken in words, and nothing is written.
+    expect(byId(outcome.cases, "booking").checks.map((c) => c.name)).toEqual(
+      expect.arrayContaining(["nothing_written", "nothing_held", "request_details_gathered"]),
+    );
     // The complication never reached the model: the fixed line, and the escalation.
     const complication = byId(outcome.cases, "complication");
     expect(complication.sources).toEqual(["urgent"]);
@@ -625,6 +643,8 @@ describe("Instagram, Messenger and WhatsApp, through the front door's read half"
     neverSay: [],
   };
   const metaModel: FrontDoorResponder = async (_system, text) => {
+    const booked = metaBookingAnswer(text);
+    if (booked) return booked;
     const said = (reply: string) =>
       JSON.stringify({
         reply,

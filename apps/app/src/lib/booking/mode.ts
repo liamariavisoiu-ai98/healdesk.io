@@ -101,6 +101,16 @@ const BOOK_OR_REQUEST_ONLY: ReadonlySet<BookingModeReasonCode> = new Set([
 ]);
 
 /**
+ * What a set of reasons comes to, by decideBookingMode's own rule: live with
+ * none, and times on offer while every one decides only booking or request.
+ * For a reader that weighs the reasons as they would be once something
+ * changed (the practice questions read the script as approved).
+ */
+export function modeOfReasons(codes: readonly BookingModeReasonCode[]): Pick<BookingModeDecision, "mode" | "canOfferTimes"> {
+  return { mode: codes.length === 0 ? "live" : "manual", canOfferTimes: codes.every((code) => BOOK_OR_REQUEST_ONLY.has(code)) };
+}
+
+/**
  * In the clinic's words, as the calendar page words the same states, because
  * the portal shows them; the console shows the code beside them. A manual
  * booking system's sentence is the catalogue's own (manualBookingNotice),

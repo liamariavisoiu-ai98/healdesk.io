@@ -53,6 +53,7 @@ import {
   resumeScreen,
   SCREEN_DEFINITIONS,
   STEP_TITLES,
+  channelSetupFinished,
   wizardFinished,
   type StepNumber,
 } from "@/lib/setup/screens";
@@ -578,9 +579,7 @@ async function ChannelsStep({
   actor: ActorContext;
   metaProblem: string | null;
 }) {
-  const finished = state.screens
-    .filter((id) => id !== "channels" && SCREEN_DEFINITIONS[id].step !== "end")
-    .every((id) => state.progress.has(id));
+  const finished = channelSetupFinished(state.screens, state.progress);
   const bought = state.channels.map((c) => c.channel);
   const metaView = bought.includes("meta")
     ? await withTenant({ clinicId: state.clinic.id, actor }, (tx) => readMetaConnectView(tx.db, tx.clinicId))

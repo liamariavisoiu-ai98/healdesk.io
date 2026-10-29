@@ -114,6 +114,22 @@ export function wizardFinished(screens: readonly SetupScreenId[], progress: Prog
   return wizardScreens(screens).every((id) => progress.has(id));
 }
 
+/**
+ * The ONE `setupFinished` input for channel status (channelPresentation,
+ * channelNextStep), on Home, in Settings and in the wizard's Your channels
+ * step: every screen before the channels screen has been left. The channels
+ * screen is the one that shows each channel's status, so counting it would
+ * make a channel say "finish setup" while its own screen is the thing being
+ * finished; counting `wizardFinished` there made Settings and the wizard
+ * disagree about the same channel. (A step shown under a wizard row still
+ * overrides it for that row.)
+ */
+export function channelSetupFinished(screens: readonly SetupScreenId[], progress: Progress): boolean {
+  return wizardScreens(screens)
+    .filter((id) => id !== "channels")
+    .every((id) => progress.has(id));
+}
+
 /** How many of the four steps still have a screen nobody has answered or skipped. */
 export function stepsLeft(screens: readonly SetupScreenId[], progress: Progress): number {
   const open = new Set<StepNumber>();

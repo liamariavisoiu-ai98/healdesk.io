@@ -2,12 +2,13 @@ import type { ChannelAction, ChannelPresentation, ChannelStatusKind } from "@/li
 import { channelActionHref } from "@/lib/setup/channel-status";
 
 /**
- * A channel's status as the wizard's step 4 and Settings' Channels card draw
- * it: the pill, the one sentence and, where there is one, the single button.
- * Everything comes from channelPresentation, so the two screens cannot word a
+ * A channel's status as Home's Your channels list, the wizard's step 4 and Settings'
+ * Channels card draw it: the pill, the one sentence and, where there is one, the single button.
+ * Everything comes from channelPresentation, so the screens cannot word a
  * status differently. Static markup with no motion, so it reads the same with
  * animation off; the state is carried by a glyph and the words as well as by
- * the pill's tint, so colour is never the only signal, in light or dark.
+ * the pill's tint, so colour is never the only signal (the app has one light
+ * theme).
  */
 
 const GLYPH: Record<ChannelStatusKind, string> = {

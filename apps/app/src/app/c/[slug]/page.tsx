@@ -26,14 +26,14 @@ import { loadPortalPage, shellProps } from "@/lib/portal/page";
 import { claimLines } from "@/lib/reporting/claim-words";
 import { claimsPayload } from "@/lib/reporting/claims";
 import {
-  channelNextStep,
-  channelStatusLabel,
-  setupSentence,
-} from "@/lib/setup/channels";
-import { wizardFinished } from "@/lib/setup/screens";
+  channelPresentation,
+  metaNeedsReconnect,
+} from "@/lib/setup/channel-status";
+import { channelSetupFinished } from "@/lib/setup/screens";
 import { buildTracker, joinWords } from "@/lib/setup/tracker";
 import { withTenant } from "@/lib/tenant";
 
+import { ChannelPill } from "./ChannelStatus";
 import { HomeUnavailable, NeedsYou, WhatAyaDid } from "./HomeSections";
 import { PatientRequestsCard } from "./PatientRequestsCard";
 import { PortalShell } from "./PortalShell";
@@ -163,7 +163,7 @@ export default async function ClinicHome({
     facts.practice,
     facts.goLive ?? undefined,
   );
-  const finished = wizardFinished(state.screens, state.progress);
+  const finished = channelSetupFinished(state.screens, state.progress);
   const plan = state.billing ? getPlan(state.billing.boughtPlanId) : undefined;
   const one = audienceSingular(shell.audience);
   const started = state.billing?.planStartedAt ?? null;
@@ -274,25 +274,31 @@ export default async function ClinicHome({
           Your channels
         </h2>
         <ul className="mt-3 grid gap-2">
-          {state.channels.map((c) => (
-            <li
-              key={c.channel}
-              className="border-line rounded-xl border bg-white px-4 py-3"
-            >
-              <p className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-semibold">
-                  {CHANNEL_NAMES[c.channel]}
-                </span>
-                {/* The wizard's label; it wraps rather than overflows, as "Paused until …" can. */}
-                <span className="bg-paper-2 max-w-full rounded-full px-3 py-1 text-xs font-semibold">
-                  {channelStatusLabel(c, state.clinic.timezone, now)}
-                </span>
-              </p>
-              <p className="text-muted mt-1 text-sm">
-                {setupSentence(c.channel, channelNextStep(c, finished))}
-              </p>
-            </li>
-          ))}
+          {state.channels.map((c) => {
+            const presentation = channelPresentation(c, {
+              setupFinished: finished,
+              timeZone: state.clinic.timezone,
+              now,
+              needsReconnect: c.channel === "meta" && metaNeedsReconnect(meta),
+            });
+            return (
+              <li
+                key={c.channel}
+                className="border-line rounded-xl border bg-white px-4 py-3"
+              >
+                <p className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-semibold">
+                    {CHANNEL_NAMES[c.channel]}
+                  </span>
+                  {/* The same pill and sentence as Settings and the wizard; it wraps rather than overflows. */}
+                  <span>
+                    <ChannelPill presentation={presentation} />
+                  </span>
+                </p>
+                <p className="text-muted mt-1 text-sm">{presentation.detail}</p>
+              </li>
+            );
+          })}
         </ul>
         {isBuiltSection("settings") ? (
           <p className="text-muted mt-3 text-sm">

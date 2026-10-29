@@ -38,7 +38,7 @@ import { channelStatusWord } from "@/lib/setup/channels";
 import { channelPresentation, metaNeedsReconnect, type ChannelPresentation } from "@/lib/setup/channel-status";
 import { defaultChatGreeting, defaultPhoneGreeting } from "@/lib/setup/greetings";
 import { formatPhone } from "@/lib/setup/help";
-import { wizardFinished } from "@/lib/setup/screens";
+import { channelSetupFinished } from "@/lib/setup/screens";
 import type { SetupState } from "@/lib/setup/state";
 import { urgentHelpField } from "@/lib/setup/urgent";
 import { withTenant } from "@/lib/tenant";
@@ -203,7 +203,6 @@ export async function readSettingsView(input: {
     };
   });
   const summary = await getBillingSummary(state.clinic.id, { now });
-  const finished = wizardFinished(state.screens, state.progress);
   const { settings, clinic, knowledge } = state;
 
   const applies: Partial<Record<SettingKey, string | null>> = {};
@@ -239,7 +238,7 @@ export async function readSettingsView(input: {
     applies,
     channels: state.channels.map((c) => {
       const presentation = channelPresentation(c, {
-        setupFinished: finished,
+        setupFinished: channelSetupFinished(state.screens, state.progress),
         timeZone: clinic.timezone,
         now,
         needsReconnect: c.channel === "meta" && metaNeedsReconnect(tenant.meta.connect),

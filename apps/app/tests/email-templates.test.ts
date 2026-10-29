@@ -452,26 +452,29 @@ describe("O8, your AYA is ready to talk to", () => {
     vi.resetModules();
   });
 
-  test("names the questions asked and says the booking ones wait, then goes back to the plain line once every case can be asked", async () => {
+  test("says the plain line now every case can be asked (29 October 2026), and names the questions asked while any case cannot be", async () => {
+    for (const audience of ["patients", "clients"] as const) {
+      const r = ASSISTANT_READY_ENTRY.render(ASSISTANT_READY_ENTRY.fixture, contextFor("assistant_ready", audience));
+      expect(r.preheader).toBe(`She has passed her practice questions. Nothing in the preview reaches ${audience}.`);
+      expect(r.text).toContain("AYA has passed her practice questions about Radiance Med Spa:");
+      expect(r.text).not.toMatch(/booking tools/);
+      expect(copyProblems([r.subject, r.preheader, r.text].join("\n"))).toEqual([]);
+    }
+    vi.resetModules();
+    vi.doMock("@/lib/engine/practice/cases", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("@/lib/engine/practice/cases")>()),
+      casesNotAskable: () => ["booking"],
+    }));
+    const { ASSISTANT_READY_ENTRY: some } = await import("@/lib/email/templates/assistant_ready");
     for (const audience of ["patients", "clients"] as const) {
       const one = audience === "clients" ? "client" : "patient";
-      const r = ASSISTANT_READY_ENTRY.render(ASSISTANT_READY_ENTRY.fixture, contextFor("assistant_ready", audience));
+      const r = some.render(some.fixture, contextFor("assistant_ready", audience));
       expect(r.text).toContain(`an urgent message from a ${one}, an off-topic ${one} and a question your answers don't cover.`);
       expect(r.text).toContain("The ones about booking and deposits wait for her booking tools.");
       expect(r.text).not.toMatch(/among others/);
       expect(r.preheader).toBe(`She has passed the practice questions she can be asked. Nothing in the preview reaches ${audience}.`);
       expect(copyProblems([r.subject, r.preheader, r.text].join("\n"))).toEqual([]);
     }
-    vi.resetModules();
-    vi.doMock("@/lib/engine/practice/cases", async (importOriginal) => ({
-      ...(await importOriginal<typeof import("@/lib/engine/practice/cases")>()),
-      casesNotAskable: () => [],
-    }));
-    const { ASSISTANT_READY_ENTRY: every } = await import("@/lib/email/templates/assistant_ready");
-    const plain = every.render(every.fixture, contextFor("assistant_ready"));
-    expect(plain.preheader).toBe("She has passed her practice questions. Nothing in the preview reaches patients.");
-    expect(plain.text).toContain("AYA has passed her practice questions about Radiance Med Spa:");
-    expect(plain.text).not.toMatch(/booking tools/);
   });
 });
 

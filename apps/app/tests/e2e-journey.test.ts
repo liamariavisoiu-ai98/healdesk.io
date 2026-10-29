@@ -408,7 +408,7 @@ describeDb("E2E: a synthetic clinic from checkout to a booked appointment", () =
 
   afterAll(async () => {
     gate.built = false;
-    await setGateBCodeBuilt(false);
+    await setGateBCodeBuilt(true);
     __setStripeForTests(null);
     restoreGoogleEnv();
     J.ses?.server.closeAllConnections();

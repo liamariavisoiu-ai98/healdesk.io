@@ -874,14 +874,17 @@ workflow, in plain words, is `docs/design/launch-readiness-2026-10-27/gate-b-not
   by itself once she has answered for ten minutes with nothing failing, with the calls and chats
   that went unanswered meanwhile, and the incident closes.
 - `aya_outage_unresolved`: the incident is still open two hours after it opened, and again every
-  twelve. The clinic was told we will keep it updated: phone it or email it from hello@ with what
-  is wrong, and note it on its Touch log.
+  twelve. The clinic was told only that we will email when it is fixed: phone it or email it from
+  hello@ with what is wrong, and note it on its Touch log.
 - `aya_miss_case_opened`: a call or message in a practice's first month went unanswered, and the
   account owner has been emailed "Looking into a call (or message) from <day>" (L21), one email
-  per channel and day, with the case's ref in the subject. Mark the case Looking, then Explained,
-  then Close it, in Queues › Misses and outages. The clinic's reply arrives as a case on Support
-  carrying the same ref; answer it there. A miss can also mean a refund under the first-month
-  guarantee if the owner claims it (Billing tab, Refund under Terms § 5).
+  per channel and day, with a button to that missed contact in its portal. No follow-up email is
+  promised. Mark the case Looking, then Explained with a one- or two-line closing note (shown to
+  the clinic beside its missed calls in the portal, never emailed), then Close it, in Queues ›
+  Misses and outages. The clinic's reply arrives as a case on Support, matched to the miss case by
+  its subject and the clinic's address (the case then shows "the clinic replied"); answer it
+  there. A miss can also mean a refund under the first-month guarantee if the owner claims it
+  (Billing tab, Refund under Terms § 5).
 - `answer_notice_not_queued`: one of those emails could not be queued, so its incident or case was
   not opened either; the sweep tries again every minute. It has no row on the Jobs page: the
   worker's `answer notices` error lines say what failed, and runs failing on the Jobs page point

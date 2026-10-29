@@ -119,7 +119,7 @@ describeDb("database audit (0031)", () => {
   }, 60_000);
 
   afterAll(async () => {
-    await setGateBCodeBuilt(false);
+    await setGateBCodeBuilt(true);
     await closePools();
   });
 

@@ -64,7 +64,7 @@ const PINNED_BEFORE_1_6_0 = {
  * The text once BAA 1.6.0 is released (BAA_1_6_0_RELEASED in
  * packages/catalog/src/baa.ts): terms section 9 says "The Business Associate
  * Agreement states the same" again, nothing else moves, and LEGAL_VERSION is
- * 2026-10-29.4 (numbered 2026-10-28.2, then 2026-10-28.4, before the
+ * 2026-10-29.5 (numbered 2026-10-28.2, then 2026-10-28.4, before the
  * payment-text wording took 2026-10-29.1, then 2026-10-29.2 before the Meta
  * deposit-link wording took 2026-10-29.3; none of those numbers went out). Privacy
  * and the deletion page are word for word the same.
@@ -74,7 +74,7 @@ const PINNED_BEFORE_1_6_0 = {
  * replaces: 2026-10-29.3 never went out, so it is 2026-10-29.1.
  */
 const PINNED_WITH_1_6_0 = {
-  version: "2026-10-29.4",
+  version: "2026-10-29.5",
   /**
    * Written out, not copied from the pin above: the release day is 29 October
    * 2026 or later, and LEGAL_LAST_UPDATED in src/lib/legal.ts and this value
@@ -90,7 +90,12 @@ const PINNED_WITH_1_6_0 = {
    * fails the last test in this file.
    */
   replaces: "2026-10-29.1",
-  sha256: { ...PINNED_BEFORE_1_6_0.sha256, "/terms": "4ac638372f90bc5d52d7a4cb705043ade7f9d8d3ccbdd2635c997fcdf4977506" },
+  sha256: {
+    ...PINNED_BEFORE_1_6_0.sha256,
+    "/terms": "4ac638372f90bc5d52d7a4cb705043ade7f9d8d3ccbdd2635c997fcdf4977506",
+    // 2026-10-29.5: Privacy § 6 lists the 30-day missed-contact record.
+    "/privacy": "82ff31ac73c289db7b2565be604f7162c0ad24b414ddc272ee5cce5decd6aff2",
+  },
 } as const;
 
 const PINNED = BAA_1_6_0_RELEASED ? PINNED_WITH_1_6_0 : PINNED_BEFORE_1_6_0;

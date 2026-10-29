@@ -12,7 +12,7 @@ import type { AlertWording } from "./types";
 export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // Once per outage incident, as it opens and L17 is queued.
   aya_outage_started: {
-    title: "AYA has not been answering a clinic for ten minutes",
+    title: "AYA has not answered a clinic for ten minutes",
     headline: "{clinicName}: AYA has not answered a call or message for ten minutes",
     whatHappened:
       "AYA has failed to answer every call or message to {clinicName} for at least ten minutes[, since {windowStart}]. We have emailed the clinic that the cause is on our side, that we are working on it, and that we will email it the moment it is fixed.",

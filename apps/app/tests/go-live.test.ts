@@ -149,13 +149,9 @@ describe("goLivePreconditions", () => {
       ],
       notBuilt: [counter],
     });
-    // The real list, today: the counter is built and off it; the practice questions are on it.
+    // The real list, today: empty (the counter, its emails and every practice case are built).
     expect(gate.notBuilt).toBeNull();
-    const notBuilt = gateBInCode()
-      .filter((i) => !i.built)
-      .map((i) => i.id);
-    expect(notBuilt).not.toContain("routed_answered_counter");
-    expect(notBuilt).toContain("practice_questions");
+    expect(gateBInCode().filter((i) => !i.built)).toEqual([]);
   });
 
   test("each precondition missing alone is its own code, in the database's order", () => {
@@ -435,9 +431,9 @@ describe("Gate B in code", () => {
     ]);
     const counter = items.find((i) => i.id === "routed_answered_counter")!;
     expect(counter.built).toBe(routedAnsweredCounterBuilt());
-    // The counter (drizzle/0137) queues L17, L18 and L21, whose templates have
-    // shipped: neither item holds go-live any more, and gateBNotBuilt leaves
-    // them out. The practice questions still do.
+    // The counter (drizzle/0139) queues L17, L18 and L21, whose templates have
+    // shipped, and the practice questions ask every case (0137): nothing Gate B
+    // asks of the code is unbuilt, so gateBNotBuilt is empty.
     expect(routedAnsweredCounterBuilt()).toBe(true);
     expect(counter.built).toBe(true);
     const live = items.find((i) => i.id === "live_email_set")!;
@@ -445,7 +441,7 @@ describe("Gate B in code", () => {
     expect(live.built).toBe(true);
     expect(gateBNotBuilt().some((line) => line.startsWith(counter.label))).toBe(false);
     expect(gateBNotBuilt().some((line) => line.startsWith(live.label))).toBe(false);
-    expect(items.find((i) => i.id === "practice_questions")!.built).toBe(false);
+    expect(gateBNotBuilt()).toEqual([]);
   });
 });
 
@@ -572,18 +568,21 @@ describeDb("Gate B's code, as the database and the TypeScript read it", DB_TEST_
     await attestPlatform();
   }, 180_000);
 
-  test("app_gate_b_code_built() is gateBNotBuilt() being empty: both say not built today", async () => {
+  test("app_gate_b_code_built() is gateBNotBuilt() being empty: both say built since 0139", async () => {
     const { rows } = await getMigratorPool().query<{ built: boolean }>(
       `select app_gate_b_code_built() as built`,
     );
     expect(rows[0]!.built).toBe(gateBInCode().every((i) => i.built));
-    expect(rows[0]!.built).toBe(false);
+    expect(rows[0]!.built).toBe(true);
   });
 
-  test("everything else holds and only the counter is missing: the clinic stays as it is, and ops, the console and the tracker say why", async () => {
+  test("if an item of Gate B's code came undone, on both sides: the clinic stays as it is, and ops, the console and the tracker say why", async () => {
+    // Built since 0139; this stands in for the counter coming undone again,
+    // so the refusal keeps a test.
     const counter = gateBInCode().find((i) => i.id === "routed_answered_counter")!;
     const line = `${counter.label}: ${counter.detail}`;
     gate.notBuilt = [line];
+    await setGateBCodeBuilt(false);
     try {
       const c = await ready("gl-not-built");
       expect(await codes(c.clinicId)).toEqual(["gate_b_not_built"]);
@@ -638,7 +637,7 @@ describeDb("Gate B's code, as the database and the TypeScript read it", DB_TEST_
       expect(await liveAt(c.clinicId, "web")).not.toBeNull();
     } finally {
       gate.notBuilt = null;
-      await setGateBCodeBuilt(false);
+      await setGateBCodeBuilt(true);
     }
   });
 });
@@ -656,7 +655,7 @@ describeDb("automatic go-live against the database", DB_TEST_OPTIONS, () => {
 
   afterAll(async () => {
     gate.notBuilt = null;
-    await setGateBCodeBuilt(false);
+    await setGateBCodeBuilt(true);
     await closePools();
   });
 

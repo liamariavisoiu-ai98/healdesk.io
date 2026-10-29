@@ -131,11 +131,11 @@ export type PlanNoticePayloads = {
   weekly_recap: WeeklyRecapPayload;
   // The routed/answered counter's notices (lib/channels/answer-notices.ts),
   // with the templates' own payloads (outage.ts, guarantee_miss.ts).
-  /** Dedupe `outage_started:<incident start>`: once per incident. */
+  /** Dedupe `outage_started:<answer_outages.id>`: once per incident (answer-notices.ts); none for a quiet (flapping) one. */
   outage_started: OutageStartedPayload;
-  /** Dedupe `outage_ended:<the same incident start>`: once per incident L17 told of. */
+  /** Dedupe `outage_ended:<the same answer_outages.id>`: once per incident L17 told of. */
   outage_ended: OutageEndedPayload;
-  /** Dedupe `guarantee_miss:<channel>:<missedOn>`: once per channel and practice-local day with a first-month miss, on the billing clinic. */
+  /** Dedupe `guarantee_miss:<miss_cases.id>`: once per case, the case being one per channel and practice-local day with a first-month miss, on the billing clinic. */
   guarantee_miss: GuaranteeMissPayload;
   /** Dedupe `website_changes:<site_rereads id>`: once per drift check that raised changes (lib/website). */
   website_changes: WebsiteChangesPayload;

@@ -171,6 +171,9 @@ export async function resolveRouted(
 ): Promise<boolean> {
   const reason: RoutedReason | null = resolution.outcome === "answered" ? null : resolution.reason;
   const answeredAt = resolution.outcome === "excluded" ? null : (resolution.answeredAt ?? null);
+  // A miss is dated by the call or message that failed (the key's own time),
+  // not by the conversation's first message, which the row keeps.
+  const failedAt = resolution.outcome === "missed" ? key.routedAt : null;
   try {
     return await db.transaction(async (savepoint) => {
       const rows = await savepoint
@@ -184,6 +187,7 @@ export async function resolveRouted(
           reason,
           answeredAt,
           resolvedAt: now,
+          failedAt,
         })
         .onConflictDoUpdate({
           target: [routedInteractions.clinicId, routedInteractions.channel, routedInteractions.refHash],
@@ -193,10 +197,11 @@ export async function resolveRouted(
             // The first answer is kept: a later miss of an answered conversation leaves it.
             answeredAt: sql`coalesce(${routedInteractions.answeredAt}, excluded.answered_at)`,
             resolvedAt: sql`excluded.resolved_at`,
+            failedAt: sql`coalesce(${routedInteractions.failedAt}, excluded.failed_at)`,
           },
           setWhere: sql`${rankSql(sql`excluded.outcome`)} > ${rankSql(routedInteractions.outcome)}`,
         })
-        .returning({ id: routedInteractions.id, routedAt: routedInteractions.routedAt });
+        .returning({ id: routedInteractions.id, routedAt: routedInteractions.routedAt, failedAt: routedInteractions.failedAt });
       const moved = rows[0];
       // Not answered at all (a late answer was one): the 30-day missed-contact
       // record, once per call or conversation, in a savepoint of its own so a
@@ -205,7 +210,7 @@ export async function resolveRouted(
         await recordMissedContact(savepoint, clinicId, {
           channel: key.channel,
           refHash: routedRefHash(key.channel, key.ref),
-          missedAt: moved.routedAt,
+          missedAt: moved.failedAt ?? moved.routedAt,
           wentTo: resolution.wentTo ?? "nowhere",
           callerPhone: resolution.callerPhone ?? null,
         });

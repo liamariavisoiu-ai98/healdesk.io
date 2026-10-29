@@ -114,12 +114,13 @@ export function verbFor(channel: Channel, singular: string, plural: string): str
  * What happens when AYA stops answering (Terms §6, §8: "on every channel",
  * forwarded calls passed to the direct line), as a clause that follows
  * "AYA stops answering:". It names every chat channel, Meta's included,
- * because the payloads carry no list of the channels a clinic bought; "whichever
+ * because the payloads carry no list of the channels a clinic bought; "if AYA
+ * answers your phone" keeps the direct line true for a clinic without voice, and "whichever
  * you use" keeps it true for a clinic with only some of them. Plain words for
  * the same facts, never a threat (owner, 29 October 2026).
  */
 export const WHEN_AYA_STOPS =
-  "callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use";
+  "if AYA answers your phone, callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use";
 
 /**
  * The other way a bought channel's price joins the plan (BD4, R33): a channel

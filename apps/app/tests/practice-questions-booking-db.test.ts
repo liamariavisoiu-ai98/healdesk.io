@@ -6,6 +6,10 @@ import { COVERAGE_VENDORS } from "@/lib/compliance/vendor-coverage";
 import { readPracticeBookingFacts, practiceToolsLive } from "@/lib/engine/practice/booking";
 import { runOnePracticeRun } from "@/lib/engine/practice/job";
 import { runPracticeChannel } from "@/lib/engine/practice/runner";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { PRACTICE_CASES_VERSION } from "@/lib/engine/practice/cases";
 import { practiceQuestionsGate, readPracticeInputs } from "@/lib/engine/practice/store";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
 import { saveSetupScreen, type SaveContext } from "@/lib/setup/save";
@@ -194,14 +198,14 @@ describeDb("the practice questions' booking cases, against the database", { time
 
   test("a pass recorded while a case could not be asked opens no channel, in TypeScript and in the database; a pass of every case does", async () => {
     const clinic = await provisionPortalClinic("pq-old", { plan: "voice-webchat-1000-1000" });
-    const record = (cases: unknown[]) =>
+    const record = (cases: unknown[], version: string = PRACTICE_CASES_VERSION) =>
       inTenant(clinic.clinicId, async (c) => {
         const { rows } = await c.query<{ id: string }>(
           `insert into practice_question_runs
              (clinic_id, status, reason, requested_at, run_after, started_at, finished_at, cases_version, input_version)
-           values ($1, 'passed', 'ops', now(), now(), now(), clock_timestamp(), '2026-10-19.2', $2)
+           values ($1, 'passed', 'ops', now(), now(), now(), clock_timestamp(), $3, $2)
            returning id`,
-          [clinic.clinicId, "e".repeat(64)],
+          [clinic.clinicId, "e".repeat(64), version],
         );
         await c.query(
           `insert into practice_question_results (clinic_id, run_id, channel, input_version, status, cases)
@@ -234,5 +238,23 @@ describeDb("the practice questions' booking cases, against the database", { time
     ]);
     expect(await gate()).toEqual({ open: true, why: "passed" });
     expect(await sqlGate()).toBe(true);
+
+    // The same pass of every case, recorded against an older case set: a
+    // bump of PRACTICE_CASES_VERSION cannot let it stand, in either gate.
+    await record(
+      [
+        { ...passed, id: "listed_price" },
+        { ...passed, id: "booking" },
+        { ...passed, id: "deposit_booking" },
+      ],
+      "2026-10-19.2",
+    );
+    expect(await gate()).toEqual({ open: false, why: "channel_not_passed" });
+    expect(await sqlGate()).toBe(false);
+  });
+
+  test("the database gate names the current case set, so a bump of the version needs a migration", () => {
+    const sql = readFileSync(join(__dirname, "../drizzle/0137_practice_gate_askable_cases.sql"), "utf8");
+    expect(sql).toContain(`r.cases_version IS NOT DISTINCT FROM '${PRACTICE_CASES_VERSION}'`);
   });
 });

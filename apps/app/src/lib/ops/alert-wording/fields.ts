@@ -117,6 +117,10 @@ export const EVENT_FIELDS: Partial<Record<OpsEvent, readonly string[]>> = {
   aya_outage_unresolved: ["clinicId", "eventId", "windowStart", "count"],
   aya_miss_case_opened: ["clinicId", "channel", "eventId", "count", "promisedOn"],
   answer_notice_not_queued: ["clinicId", "kind"],
+  // An incident opened within the hour of the last closing (no L17, no L18), per clinic hourly.
+  aya_outage_flapping: ["clinicId"],
+  // The sweep itself failing runs in a row: no clinic, the count of runs.
+  answer_notices_failing: ["count"],
   // lib/voice/retell-fallback-sync.ts: per clinic, or with no clinic for a
   // refused key or Retell unreachable.
   retell_fallback_unsynced: ["clinicId", "code"],

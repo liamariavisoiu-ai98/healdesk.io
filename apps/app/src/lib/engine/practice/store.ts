@@ -793,6 +793,7 @@ export async function readPracticeState(
       failedSection: latest.failedSection,
       failedCount: latest.failedCount,
       triggerSection: latest.triggerSection,
+      casesVersion: latest.casesVersion,
       reviewDueOn,
     },
   };
@@ -830,6 +831,10 @@ export async function practiceQuestionsGate(
   if (state.pending) return { open: false, why: "pending" };
   if (!state.latest) return { open: false, why: "not_run" };
   if (state.latest.status !== "passed") return { open: false, why: state.latest.status };
+  // A pass of an older case set is not a pass of these cases: a bump of
+  // PRACTICE_CASES_VERSION closes the gate until a run asks the new ones
+  // (app_practice_gate_open compares the same version, drizzle/0137).
+  if (state.latest.casesVersion !== PRACTICE_CASES_VERSION) return { open: false, why: "channel_not_passed" };
   const [result] = await tx.db
     .select({ status: practiceQuestionResults.status, cases: practiceQuestionResults.cases })
     .from(practiceQuestionResults)

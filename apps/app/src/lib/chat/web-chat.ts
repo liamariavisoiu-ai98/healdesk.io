@@ -216,6 +216,10 @@ export const SHARED_HOST_APEXES: ReadonlySet<string> = new Set([
   "blogspot.com",
   "jimdosite.com",
   "strikingly.com",
+  // Google Sites serves every site under one host's paths, and Google's
+  // Business Profile sites share business.site.
+  "sites.google.com",
+  "business.site",
 ]);
 
 /**

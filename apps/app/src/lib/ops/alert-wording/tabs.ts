@@ -190,6 +190,9 @@ export const NO_CLINIC_PAGE: Readonly<Record<OpsEvent, string>> = {
   aya_outage_unresolved: "/admin/queues#answer-cases",
   aya_miss_case_opened: "/admin/queues#answer-cases",
   answer_notice_not_queued: "/admin/queues#answer-cases",
+  aya_outage_flapping: "/admin/queues#answer-cases",
+  // no clinic: the answer-notices job's runs.
+  answer_notices_failing: "/admin/system/jobs",
   plan_start_after_cancel: "/admin/clinics",
   // no clinic: the dmarc-review job's row.
   dmarc_review_due: "/admin/system/jobs",

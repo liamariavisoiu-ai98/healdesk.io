@@ -3929,7 +3929,7 @@ exports[`each template's output > grace_ending, for clients: the snapshot 1`] = 
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Your healdesk invoice for $520 is still unpaid.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">Your healdesk invoice for $520 is still unpaid. AYA keeps answering until 10:32 am EDT on Tuesday 13 October.</p>
-<p style="margin:0 0 16px;">If what you owe is still unpaid then, AYA stops answering: callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Paying any time after that turns her back on at once.</p>
+<p style="margin:0 0 16px;">If what you owe is still unpaid then, AYA stops answering: if AYA answers your phone, callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Paying any time after that turns her back on at once.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://invoice.stripe.com/i/acct_testplatform/test_invoice" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Pay the invoice</a></p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
@@ -3942,7 +3942,7 @@ exports[`each template's output > grace_ending, for clients: the snapshot 1`] = 
   "subject": "AYA stops answering on 13 October unless you pay $520",
   "text": "Your healdesk invoice for $520 is still unpaid. AYA keeps answering until 10:32 am EDT on Tuesday 13 October.
 
-If what you owe is still unpaid then, AYA stops answering: callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Paying any time after that turns her back on at once.
+If what you owe is still unpaid then, AYA stops answering: if AYA answers your phone, callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Paying any time after that turns her back on at once.
 
 Pay the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
@@ -3975,7 +3975,7 @@ exports[`each template's output > grace_ending, for patients: the snapshot 1`] =
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Your healdesk invoice for $520 is still unpaid.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">Your healdesk invoice for $520 is still unpaid. AYA keeps answering until 10:32 am EDT on Tuesday 13 October.</p>
-<p style="margin:0 0 16px;">If what you owe is still unpaid then, AYA stops answering: callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Paying any time after that turns her back on at once.</p>
+<p style="margin:0 0 16px;">If what you owe is still unpaid then, AYA stops answering: if AYA answers your phone, callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Paying any time after that turns her back on at once.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://invoice.stripe.com/i/acct_testplatform/test_invoice" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Pay the invoice</a></p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
@@ -3988,7 +3988,7 @@ exports[`each template's output > grace_ending, for patients: the snapshot 1`] =
   "subject": "AYA stops answering on 13 October unless you pay $520",
   "text": "Your healdesk invoice for $520 is still unpaid. AYA keeps answering until 10:32 am EDT on Tuesday 13 October.
 
-If what you owe is still unpaid then, AYA stops answering: callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Paying any time after that turns her back on at once.
+If what you owe is still unpaid then, AYA stops answering: if AYA answers your phone, callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Paying any time after that turns her back on at once.
 
 Pay the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
@@ -5779,7 +5779,7 @@ exports[`each template's output > payment_failed, for clients: the snapshot 1`] 
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Pay the $520 invoice and AYA keeps answering.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">We couldn&#39;t take your $520 payment.</p>
-<p style="margin:0 0 16px;">AYA keeps answering until 10:32 am EDT on Tuesday 13 October. Pay before then and nothing changes. If it&#39;s still unpaid, AYA stops answering: callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Paying afterwards turns her back on at once.</p>
+<p style="margin:0 0 16px;">AYA keeps answering until 10:32 am EDT on Tuesday 13 October. Pay before then and nothing changes. If it&#39;s still unpaid, AYA stops answering: if AYA answers your phone, callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Paying afterwards turns her back on at once.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://invoice.stripe.com/i/acct_testplatform/test_invoice" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Pay the invoice</a></p>
 <p style="margin:0 0 16px;">The invoice page takes a different card if this one is the problem.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -5793,7 +5793,7 @@ exports[`each template's output > payment_failed, for clients: the snapshot 1`] 
   "subject": "Your $520 healdesk payment didn't go through",
   "text": "We couldn't take your $520 payment.
 
-AYA keeps answering until 10:32 am EDT on Tuesday 13 October. Pay before then and nothing changes. If it's still unpaid, AYA stops answering: callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Paying afterwards turns her back on at once.
+AYA keeps answering until 10:32 am EDT on Tuesday 13 October. Pay before then and nothing changes. If it's still unpaid, AYA stops answering: if AYA answers your phone, callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Paying afterwards turns her back on at once.
 
 Pay the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
@@ -5828,7 +5828,7 @@ exports[`each template's output > payment_failed, for patients: the snapshot 1`]
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Pay the $520 invoice and AYA keeps answering.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">We couldn&#39;t take your $520 payment.</p>
-<p style="margin:0 0 16px;">AYA keeps answering until 10:32 am EDT on Tuesday 13 October. Pay before then and nothing changes. If it&#39;s still unpaid, AYA stops answering: callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Paying afterwards turns her back on at once.</p>
+<p style="margin:0 0 16px;">AYA keeps answering until 10:32 am EDT on Tuesday 13 October. Pay before then and nothing changes. If it&#39;s still unpaid, AYA stops answering: if AYA answers your phone, callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Paying afterwards turns her back on at once.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://invoice.stripe.com/i/acct_testplatform/test_invoice" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Pay the invoice</a></p>
 <p style="margin:0 0 16px;">The invoice page takes a different card if this one is the problem.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -5842,7 +5842,7 @@ exports[`each template's output > payment_failed, for patients: the snapshot 1`]
   "subject": "Your $520 healdesk payment didn't go through",
   "text": "We couldn't take your $520 payment.
 
-AYA keeps answering until 10:32 am EDT on Tuesday 13 October. Pay before then and nothing changes. If it's still unpaid, AYA stops answering: callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Paying afterwards turns her back on at once.
+AYA keeps answering until 10:32 am EDT on Tuesday 13 October. Pay before then and nothing changes. If it's still unpaid, AYA stops answering: if AYA answers your phone, callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Paying afterwards turns her back on at once.
 
 Pay the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
@@ -8639,7 +8639,7 @@ exports[`each template's output > suspended, for clients: the snapshot 1`] = `
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Paying what you owe healdesk restores everything at once.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">Your healdesk invoice for $520 is unpaid, so we&#39;ve suspended your service.</p>
-<p style="margin:0 0 16px;">AYA has stopped answering: callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Your data is kept, and you can still sign in to healdesk.</p>
+<p style="margin:0 0 16px;">AYA has stopped answering: if AYA answers your phone, callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Your data is kept, and you can still sign in to healdesk.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://invoice.stripe.com/i/acct_testplatform/test_invoice" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Pay the invoice</a></p>
 <p style="margin:0 0 16px;">Paying what you owe healdesk restores everything at once.</p>
 <p style="margin:0 0 16px;">If your clinic&#39;s line forwards to AYA, you can undo that while this is sorted out. Follow these Verizon steps, dialling each code from the clinic&#39;s own line:</p>
@@ -8655,7 +8655,7 @@ exports[`each template's output > suspended, for clients: the snapshot 1`] = `
   "subject": "AYA has stopped answering because $520 is unpaid",
   "text": "Your healdesk invoice for $520 is unpaid, so we've suspended your service.
 
-AYA has stopped answering: callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Your data is kept, and you can still sign in to healdesk.
+AYA has stopped answering: if AYA answers your phone, callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Your data is kept, and you can still sign in to healdesk.
 
 Pay the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
@@ -8696,7 +8696,7 @@ exports[`each template's output > suspended, for patients: the snapshot 1`] = `
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Paying what you owe healdesk restores everything at once.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">Your healdesk invoice for $520 is unpaid, so we&#39;ve suspended your service.</p>
-<p style="margin:0 0 16px;">AYA has stopped answering: callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Your data is kept, and you can still sign in to healdesk.</p>
+<p style="margin:0 0 16px;">AYA has stopped answering: if AYA answers your phone, callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Your data is kept, and you can still sign in to healdesk.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://invoice.stripe.com/i/acct_testplatform/test_invoice" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Pay the invoice</a></p>
 <p style="margin:0 0 16px;">Paying what you owe healdesk restores everything at once.</p>
 <p style="margin:0 0 16px;">If your clinic&#39;s line forwards to AYA, you can undo that while this is sorted out. Follow these Verizon steps, dialling each code from the clinic&#39;s own line:</p>
@@ -8712,7 +8712,7 @@ exports[`each template's output > suspended, for patients: the snapshot 1`] = `
   "subject": "AYA has stopped answering because $520 is unpaid",
   "text": "Your healdesk invoice for $520 is unpaid, so we've suspended your service.
 
-AYA has stopped answering: callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Your data is kept, and you can still sign in to healdesk.
+AYA has stopped answering: if AYA answers your phone, callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Your data is kept, and you can still sign in to healdesk.
 
 Pay the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
@@ -8754,7 +8754,7 @@ exports[`each template's output > suspended_for_cause, for clients: the snapshot
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">We suspended Radiance Med Spa&#39;s healdesk service at 12:20 pm EDT on Wednesday 14 October. Our Terms of Service let us do that at once when use of the service creates a legal or security risk, and say we tell you why.</p>
 <p style="margin:0 0 16px;">Why: We saw signs that your practice&#39;s healdesk account, or an account connected to it, is being used by someone outside your practice.</p>
-<p style="margin:0 0 16px;">AYA has stopped answering: callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Your data is kept, and you can still sign in to healdesk.</p>
+<p style="margin:0 0 16px;">AYA has stopped answering: if AYA answers your phone, callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Your data is kept, and you can still sign in to healdesk.</p>
 <p style="margin:0 0 16px;">Paying an invoice doesn&#39;t lift this suspension. Reply to this email and we&#39;ll tell you what&#39;s needed to restore the service.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
@@ -8769,7 +8769,7 @@ exports[`each template's output > suspended_for_cause, for clients: the snapshot
 
 Why: We saw signs that your practice's healdesk account, or an account connected to it, is being used by someone outside your practice.
 
-AYA has stopped answering: callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Your data is kept, and you can still sign in to healdesk.
+AYA has stopped answering: if AYA answers your phone, callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Your data is kept, and you can still sign in to healdesk.
 
 Paying an invoice doesn't lift this suspension. Reply to this email and we'll tell you what's needed to restore the service.
 
@@ -8803,7 +8803,7 @@ exports[`each template's output > suspended_for_cause, for patients: the snapsho
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">We suspended Radiance Med Spa&#39;s healdesk service at 12:20 pm EDT on Wednesday 14 October. Our Terms of Service let us do that at once when use of the service creates a legal or security risk, and say we tell you why.</p>
 <p style="margin:0 0 16px;">Why: We saw signs that your practice&#39;s healdesk account, or an account connected to it, is being used by someone outside your practice.</p>
-<p style="margin:0 0 16px;">AYA has stopped answering: callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Your data is kept, and you can still sign in to healdesk.</p>
+<p style="margin:0 0 16px;">AYA has stopped answering: if AYA answers your phone, callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Your data is kept, and you can still sign in to healdesk.</p>
 <p style="margin:0 0 16px;">Paying an invoice doesn&#39;t lift this suspension. Reply to this email and we&#39;ll tell you what&#39;s needed to restore the service.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
@@ -8818,7 +8818,7 @@ exports[`each template's output > suspended_for_cause, for patients: the snapsho
 
 Why: We saw signs that your practice's healdesk account, or an account connected to it, is being used by someone outside your practice.
 
-AYA has stopped answering: callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Your data is kept, and you can still sign in to healdesk.
+AYA has stopped answering: if AYA answers your phone, callers go straight to your direct line, and chat stops answering on whichever of website chat, Instagram, Messenger and WhatsApp you use. Your data is kept, and you can still sign in to healdesk.
 
 Paying an invoice doesn't lift this suspension. Reply to this email and we'll tell you what's needed to restore the service.
 

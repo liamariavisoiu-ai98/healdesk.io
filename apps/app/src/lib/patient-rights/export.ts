@@ -513,6 +513,18 @@ export async function amendContact(
     .update(contacts)
     .set({ ...changes, updatedAt: new Date() })
     .where(and(eq(contacts.clinicId, tx.clinicId), eq(contacts.id, contactId)));
+  // The 30-day missed-contact record holds the number a call came from. A
+  // corrected or cleared number is corrected there too, so the clinic's
+  // "call back" list never keeps the wrong one (BAA clause 14(b)); a
+  // correction that is not a dialable E.164 number clears it instead, as the
+  // row's own check allows only that shape.
+  if (changes.phone !== undefined && before.phone && changes.phone !== before.phone) {
+    const corrected = changes.phone && /^\+[1-9][0-9]{6,14}$/.test(changes.phone) ? changes.phone : null;
+    await tx.db
+      .update(missedContacts)
+      .set({ callerPhone: corrected })
+      .where(and(eq(missedContacts.clinicId, tx.clinicId), eq(missedContacts.callerPhone, before.phone)));
+  }
   tx.audit.record({
     action: "update",
     resourceType: "contact_amendment",

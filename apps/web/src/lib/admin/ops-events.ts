@@ -52,6 +52,8 @@ export const OPS_EVENTS = [
   "aya_outage_unresolved",
   "aya_miss_case_opened",
   "answer_notice_not_queued",
+  "aya_outage_flapping",
+  "answer_notices_failing",
   "plan_start_after_cancel",
   "dmarc_review_due",
   "export_undelivered_before_destruction",

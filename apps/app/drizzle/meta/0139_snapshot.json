@@ -1,5 +1,5 @@
 {
-  "id": "63be2056-d54d-4d03-8684-6cf2440e6f9b",
+  "id": "e3585dfe-3fc5-4486-88de-862893121be0",
   "prevId": "d48a62cd-db89-4b11-90b6-d32a89e8d055",
   "version": "7",
   "dialect": "postgresql",
@@ -463,6 +463,19 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": false
+        },
+        "closed_at": {
+          "name": "closed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "quiet": {
+          "name": "quiet",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         }
       },
       "indexes": {
@@ -521,7 +534,7 @@
         },
         "answer_outages_closed_check": {
           "name": "answer_outages_closed_check",
-          "value": "(\"answer_outages\".\"status\" = 'closed') = (\"answer_outages\".\"ended_at\" is not null) and (\"answer_outages\".\"ended_at\" is null) = (\"answer_outages\".\"call_count\" is null) and (\"answer_outages\".\"ended_at\" is null) = (\"answer_outages\".\"chat_count\" is null) and coalesce(\"answer_outages\".\"call_count\", 0) >= 0 and coalesce(\"answer_outages\".\"chat_count\", 0) >= 0 and \"answer_outages\".\"escalations\" >= 0"
+          "value": "(\"answer_outages\".\"status\" = 'closed') = (\"answer_outages\".\"ended_at\" is not null) and (\"answer_outages\".\"status\" = 'closed') = (\"answer_outages\".\"closed_at\" is not null) and (\"answer_outages\".\"ended_at\" is null) = (\"answer_outages\".\"call_count\" is null) and (\"answer_outages\".\"ended_at\" is null) = (\"answer_outages\".\"chat_count\" is null) and coalesce(\"answer_outages\".\"call_count\", 0) >= 0 and coalesce(\"answer_outages\".\"chat_count\", 0) >= 0 and \"answer_outages\".\"escalations\" >= 0"
         }
       },
       "isRLSEnabled": false
@@ -12776,6 +12789,12 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "failed_at": {
+          "name": "failed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -12796,6 +12815,28 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "routed_interactions_clinic_failed_idx": {
+          "name": "routed_interactions_clinic_failed_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "failed_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"routed_interactions\".\"failed_at\" is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -12865,6 +12906,10 @@
         "routed_interactions_reason_shape_check": {
           "name": "routed_interactions_reason_shape_check",
           "value": "(\"routed_interactions\".\"outcome\" in ('pending', 'answered')) = (\"routed_interactions\".\"reason\" is null)"
+        },
+        "routed_interactions_failed_check": {
+          "name": "routed_interactions_failed_check",
+          "value": "(\"routed_interactions\".\"outcome\" = 'missed') = (\"routed_interactions\".\"failed_at\" is not null)"
         }
       },
       "isRLSEnabled": false

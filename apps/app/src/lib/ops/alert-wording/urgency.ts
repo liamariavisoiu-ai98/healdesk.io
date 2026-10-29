@@ -86,6 +86,8 @@ export const URGENCY: Readonly<Record<OpsEvent, Urgency>> = {
   aya_outage_unresolved: "urgent",
   aya_miss_case_opened: "today",
   answer_notice_not_queued: "urgent",
+  aya_outage_flapping: "urgent",
+  answer_notices_failing: "urgent",
   // Calendar.
   calendar_broken: "today",
   calendar_degraded: "today",

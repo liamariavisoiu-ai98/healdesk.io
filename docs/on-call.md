@@ -861,18 +861,30 @@ clinic".
 
 ### Answering
 
-`aya_outage_started`, `aya_outage_unresolved`, `aya_miss_case_opened`, `answer_notice_not_queued`.
+`aya_outage_started`, `aya_outage_unresolved`, `aya_outage_flapping`, `aya_miss_case_opened`,
+`answer_notice_not_queued`, `answer_notices_failing`.
 The routed/answered counter's minute sweep (`apps/app/src/lib/channels/answer-notices.ts`, on the
 billing-minute clock with an hourly backstop on the tick; unswitched) raises them, each once per
 incident or case, after the transaction that opened the record and queued its email. The whole
 workflow, in plain words, is `docs/design/launch-readiness-2026-10-27/gate-b-notice-workflows.md`.
 
-- `aya_outage_started`: AYA failed to answer every call and message to a clinic for ten minutes.
+- `aya_outage_started`: calls or messages to a clinic kept failing for ten minutes, each within ten
+  minutes of the one before, with none answered in between (one failure, or two hours apart, is not
+  an outage).
   The clinic has been emailed "AYA can't answer right now" (L17), and an outage incident is open in
   Queues › Misses and outages. Find the cause (the Jobs page first: if runs fail everywhere it is
   every clinic), fix it, and make a test call. The clinic is emailed "AYA is answering again" (L18)
   by itself once she has answered for ten minutes with nothing failing, with the calls and chats
   that went unanswered meanwhile, and the incident closes.
+- `aya_outage_flapping`: an outage opened less than an hour after the last one closed. The rule:
+  the clinic is sent neither "AYA can't answer right now" (L17) nor "AYA is answering again" (L18)
+  for it, so it is not told both over and over; this alert, at most once an hour per clinic, goes
+  instead. The incident is in Queues › Misses and outages as usual. Find why AYA keeps dropping, and
+  if it goes on, phone or email the clinic yourself.
+- `answer_notices_failing`: the answer-notices sweep itself failed five runs in a row (five
+  minutes on the worker's clock), at most one alert an hour while it goes on. No L17, L18 or L21
+  goes to any clinic while it fails. Read the Jobs page and the worker's `answer notices` error
+  lines, fix the cause, and wait for an ok run.
 - `aya_outage_unresolved`: the incident is still open two hours after it opened, and again every
   twelve. The clinic was told only that we will email when it is fixed: phone it or email it from
   hello@ with what is wrong, and note it on its Touch log.

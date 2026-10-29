@@ -23,18 +23,25 @@ off, because the emails and the 30-day deletion are promises.
 
 ## 1. "AYA can't answer right now" (L17) and the outage
 
-- **When it goes.** AYA has failed to answer everything that reached a clinic
-  for ten minutes: the first and the latest failure are at least ten minutes
-  apart, with nothing answered in between. A single failure with no traffic
-  after it sends nothing.
+- **When it goes.** Calls or messages to a clinic have kept failing for ten
+  minutes: a continuous run of failures, each within ten minutes of the one
+  before, whose first and latest are at least ten minutes apart, with nothing
+  answered in between. A single failure, or two failures hours apart, sends
+  nothing. Each failure is dated by the call or message that failed, not by
+  when its conversation began (an Instagram or WhatsApp thread can run for a
+  day).
+- **Flapping.** If the clinic's last outage closed (and it was emailed "AYA is
+  answering again") less than an hour ago, a new outage is still opened and
+  listed, but the clinic is sent neither L17 nor, when it ends, L18. You get
+  one alert instead ("A clinic's outage came back within the hour"), at most once an hour per clinic.
 - **What happens at the same moment.** An outage is opened for that clinic
   (when it started, which channels failed), and the email is queued in the
   same step, so there is never an email without an outage or the other way
-  round. You get an ops alert ("AYA has not answered a clinic for ten
+  round. You get an ops alert ("AYA kept failing at a clinic for ten
   minutes"), in your inbox and Slack.
 - **What the clinic reads.** That AYA has not been able to answer since a
   time, that the cause is on our side, that calls ring through to its direct
-  line (only if it has one that works), that website chat shows its contact
+  line (only if calls are among what failed and it has a line that works), that website chat shows its contact
   form (only if website chat is affected), and that we will email the moment
   it is fixed.
 - **Where you see it.** /admin › Queues › Misses and outages: each outage,
@@ -46,13 +53,14 @@ off, because the emails and the 30-day deletion are promises.
 
 ## 2. "AYA is answering again" (L18)
 
-- **When it goes.** AYA has answered something again, and ten minutes have
-  passed since that answer with nothing failing on any channel. A failure
+- **When it goes.** AYA has answered something again, ten minutes have
+  passed since that answer with nothing failing on any channel, and nothing
+  that reached her since the last failure is still waiting for its outcome. A failure
   inside those ten minutes starts the clock again, so a flapping fault never
   sends "answering again" early.
 - **What happens.** The outage closes, with when AYA answered again and how
-  many calls and chats went unanswered while it lasted (counted from the
-  counter), and the email is queued in the same step: once per outage, and
+  many calls rang through to the direct line and how many chats failed while
+  it lasted (counted from the counter and the missed-contact record), and the email is queued in the same step: once per outage, and
   only for an outage that sent L17.
 - **What the clinic reads.** That AYA has been answering again since a time,
   and, if anything came in meanwhile, how many calls rang through and how many
@@ -105,8 +113,8 @@ off, because the emails and the 30-day deletion are promises.
   the sweep, and nightly by the retention purge). Deleted with the clinic's
   data at destruction. A person's erasure takes their missed calls by their
   number. A person's export, and the clinic's export, include them. Correcting
-  a contact's details does not change these rows: they record the number the
-  call came from.
+  a contact's number (`ops:amend-contact`) corrects it on these rows too, and
+  clearing it clears it, so the call-back list never keeps a wrong number.
 - In the portal: Home shows "Needs your attention" while AYA is not answering
   or a missed call or chat is waiting for a call back (counts only). The list
   is at `/c/<slug>/missed` and one missed contact at `/c/<slug>/missed/<id>`,
@@ -117,7 +125,9 @@ off, because the emails and the 30-day deletion are promises.
 ## What the owner must do
 
 - Nothing to switch on: the sweep runs whenever the worker runs.
-- Watch for the four alerts; follow each outage to closed and each miss case
+- Watch for the six alerts (the four above, the flapping one, and "The
+  answering-emails sweep keeps failing", sent after five failed runs
+  in a row, at most hourly); follow each outage to closed and each miss case
   to closed in /admin › Queues › Misses and outages.
 - The emails send only while the outbox's own switch is on, as every email.
 

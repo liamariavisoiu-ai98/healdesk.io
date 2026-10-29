@@ -70,6 +70,8 @@ const BAD: ReadonlySet<string> = new Set<OpsEvent>([
   "voice_call_start_failed",
   "aya_outage_started",
   "aya_outage_unresolved",
+  "aya_outage_flapping",
+  "answer_notices_failing",
   "calendar_broken",
   "connection_broken",
   "urgent_alert_not_queued",

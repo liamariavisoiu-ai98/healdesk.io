@@ -7,11 +7,15 @@ import { updateClinicSettings } from "@/lib/billing/settings";
 import {
   firstMonthOf,
   missedPath,
+  noteSweepOutcome,
   OUTAGE_ESCALATE_AFTER_MS,
   OUTAGE_ESCALATE_EVERY_MS,
+  outageRunStart,
   RECOVERY_QUIET_MS,
+  resetSweepFailures,
   ROUTED_PENDING_GRACE_MS,
   runAnswerNoticesSweep,
+  SWEEP_FAILING_AFTER_RUNS,
 } from "@/lib/channels/answer-notices";
 import {
   closingNoteOf,
@@ -26,12 +30,13 @@ import { COVERAGE_VENDORS } from "@/lib/compliance/vendor-coverage";
 import { assertPayloadAllowed } from "@/lib/email/lint";
 import { deliverNotice } from "@/lib/email/outbox";
 import { erasePerson } from "@/lib/patient-rights/erasure";
+import { amendContact } from "@/lib/patient-rights/export";
 import { readAnswerAttention } from "@/lib/portal/missed-contacts";
 import type { DeliveryResult, EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { inTenant, seedChannels, seedClinic } from "./setup/factories";
+import { inTenant, seedChannels, seedClinic, seedContact } from "./setup/factories";
 import { attestPlatform } from "./setup/platform";
 
 /**
@@ -219,7 +224,8 @@ describeDb("the notice workflows, against the database", () => {
       expect((await outages(c.clinicId))[0]).toMatchObject({
         status: "closed",
         ended_at: t(28 * MINUTE + 3_000),
-        call_count: 3,
+        // Of the three failed calls only f1 rang through to the direct line.
+        call_count: 1,
         chat_count: 1,
       });
       const ended = await notices(c.clinicId, ["outage_ended"]);
@@ -228,7 +234,7 @@ describeDb("the notice workflows, against the database", () => {
         dedupe_key: `outage_ended:${incident!.id}`,
         payload: {
           endedAt: t(28 * MINUTE + 3_000).toISOString(),
-          callCount: 3,
+          callCount: 1,
           chatCount: 1,
           homeUrl: `https://app.healdesk.test/c/${c.slug}`,
           missedUrl: `https://app.healdesk.test/c/${c.slug}/missed`,
@@ -296,6 +302,205 @@ describeDb("the notice workflows, against the database", () => {
       expect(await deliverNotice(c.clinicId, notice!.id, { now: due, transport: failing })).toBe("retrying");
       expect(await deliverNotice(c.clinicId, notice!.id, { now: new Date(due.getTime() + DAY), transport: working })).toBe("sent");
       expect(sent).toHaveLength(1);
+    });
+  });
+
+  describe("the final review's fixes: when an outage is one, and what it says", () => {
+    const T0 = new Date("2026-10-16T13:02:00Z");
+    const t = (ms: number) => new Date(T0.getTime() + ms);
+
+    test("two failures hours apart, with no answer between, are no outage", async () => {
+      const c = await liveClinic("fx-apart");
+      await resolve(c.clinicId, key("f1", T0), { outcome: "missed", reason: "error" });
+      await resolve(c.clinicId, key("f2", t(5 * HOUR)), { outcome: "missed", reason: "error" });
+      await runAnswerNoticesSweep(t(5 * HOUR + MINUTE));
+      expect(await outages(c.clinicId)).toEqual([]);
+      expect(await notices(c.clinicId, ["outage_started"])).toEqual([]);
+      // A continuous run after them still is one, dated from its own start.
+      await resolve(c.clinicId, key("f3", t(5 * HOUR + 6 * MINUTE)), { outcome: "missed", reason: "error" });
+      await resolve(c.clinicId, key("f4", t(5 * HOUR + 12 * MINUTE)), { outcome: "missed", reason: "error" });
+      await runAnswerNoticesSweep(t(5 * HOUR + 13 * MINUTE));
+      expect(await outages(c.clinicId)).toMatchObject([{ status: "open", started_at: t(5 * HOUR) }]);
+    });
+
+    test("the run rule: each failure within ten minutes of the one before, lasting ten minutes", () => {
+      const at = (...minutes: number[]) => minutes.map((m) => t(m * MINUTE));
+      expect(outageRunStart(at(0))).toBeNull();
+      expect(outageRunStart(at(0, 300))).toBeNull();
+      expect(outageRunStart(at(0, 9))).toBeNull();
+      expect(outageRunStart(at(0, 10))).toBe(0);
+      expect(outageRunStart(at(0, 5, 11))).toBe(0);
+      expect(outageRunStart(at(0, 11, 15, 21))).toBe(1);
+      expect(outageRunStart(at(0, 11, 22))).toBeNull();
+    });
+
+    test("only failed calls say calls ring through to the direct line, and L18 counts only calls that reached it", async () => {
+      const web = await liveClinic("fx-web-only");
+      await resolve(web.clinicId, key("w1", T0, "web"), { outcome: "missed", reason: "error", wentTo: "contact_form" });
+      await resolve(web.clinicId, key("w2", t(10 * MINUTE), "web"), { outcome: "missed", reason: "error", wentTo: "contact_form" });
+      await runAnswerNoticesSweep(t(11 * MINUTE));
+      expect((await notices(web.clinicId, ["outage_started"]))[0]).toMatchObject({
+        payload: { canReachDirectLine: false, isChatAffected: true },
+      });
+
+      const calls = await liveClinic("fx-calls");
+      await resolve(calls.clinicId, key("c1", T0), { outcome: "missed", reason: "start_failed", wentTo: "direct_line" });
+      await resolve(calls.clinicId, key("c2", t(5 * MINUTE)), { outcome: "missed", reason: "error" });
+      await resolve(calls.clinicId, key("c3", t(10 * MINUTE)), { outcome: "missed", reason: "no_opening", wentTo: "direct_line" });
+      await resolve(calls.clinicId, key("m1", t(11 * MINUTE), "web"), { outcome: "missed", reason: "error", wentTo: "contact_form" });
+      await runAnswerNoticesSweep(t(12 * MINUTE));
+      expect((await notices(calls.clinicId, ["outage_started"]))[0]).toMatchObject({ payload: { canReachDirectLine: true } });
+      await resolve(calls.clinicId, key("ok", t(20 * MINUTE)), { outcome: "answered", answeredAt: t(20 * MINUTE) });
+      await runAnswerNoticesSweep(t(20 * MINUTE + RECOVERY_QUIET_MS));
+      // Three failed calls, two put through to the direct line; one chat.
+      expect((await notices(calls.clinicId, ["outage_ended"]))[0]).toMatchObject({ payload: { callCount: 2, chatCount: 1 } });
+    });
+
+    test("a clinic with no usable direct line is never told calls ring through to it", async () => {
+      const c = await seedClinic("fx-no-line");
+      await seedChannels(c.clinicId, [{ channel: "voice", readyAt: LIVE_SINCE, liveAt: LIVE_SINCE }]);
+      await resolve(c.clinicId, key("c1", T0), { outcome: "missed", reason: "error" });
+      await resolve(c.clinicId, key("c2", t(10 * MINUTE)), { outcome: "missed", reason: "error" });
+      await runAnswerNoticesSweep(t(11 * MINUTE));
+      expect((await notices(c.clinicId, ["outage_started"]))[0]).toMatchObject({ payload: { canReachDirectLine: false } });
+    });
+
+    test("recovery waits for a call still pending inside the quiet time", async () => {
+      const c = await liveClinic("fx-pending");
+      await resolve(c.clinicId, key("f1", T0), { outcome: "missed", reason: "error" });
+      await resolve(c.clinicId, key("f2", t(10 * MINUTE)), { outcome: "missed", reason: "error" });
+      await runAnswerNoticesSweep(t(11 * MINUTE));
+      await resolve(c.clinicId, key("ok", t(12 * MINUTE)), { outcome: "answered", answeredAt: t(12 * MINUTE) });
+      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => recordRouted(tx.db, tx.clinicId, key("p1", t(15 * MINUTE))));
+      await runAnswerNoticesSweep(t(12 * MINUTE + RECOVERY_QUIET_MS));
+      expect((await outages(c.clinicId))[0]).toMatchObject({ status: "open" });
+      expect(await notices(c.clinicId, ["outage_ended"])).toEqual([]);
+      // It was answered after all: now the incident closes.
+      await resolve(c.clinicId, key("p1", t(15 * MINUTE)), { outcome: "answered", answeredAt: t(15 * MINUTE) });
+      await runAnswerNoticesSweep(t(12 * MINUTE + RECOVERY_QUIET_MS + MINUTE));
+      expect((await outages(c.clinicId))[0]).toMatchObject({ status: "closed", ended_at: t(12 * MINUTE) });
+      expect(await notices(c.clinicId, ["outage_ended"])).toHaveLength(1);
+    });
+
+    test("flapping: an outage within the hour of the last closing sends no L17 and no L18, and ops is told once", async () => {
+      const c = await liveClinic("fx-flap");
+      await resolve(c.clinicId, key("f1", T0), { outcome: "missed", reason: "error" });
+      await resolve(c.clinicId, key("f2", t(10 * MINUTE)), { outcome: "missed", reason: "error" });
+      await runAnswerNoticesSweep(t(11 * MINUTE));
+      await resolve(c.clinicId, key("ok1", t(12 * MINUTE)), { outcome: "answered", answeredAt: t(12 * MINUTE) });
+      await runAnswerNoticesSweep(t(22 * MINUTE));
+      expect(await outages(c.clinicId)).toMatchObject([{ status: "closed" }]);
+      expect(await notices(c.clinicId, ["outage_started", "outage_ended"])).toHaveLength(2);
+
+      // Failing again from 30 minutes, under an hour after it closed at 22.
+      await resolve(c.clinicId, key("g1", t(30 * MINUTE)), { outcome: "missed", reason: "error" });
+      await resolve(c.clinicId, key("g2", t(40 * MINUTE)), { outcome: "missed", reason: "error" });
+      for (const at of [t(41 * MINUTE), t(42 * MINUTE)]) await runAnswerNoticesSweep(at);
+      const [, second] = await outages(c.clinicId);
+      expect(second).toMatchObject({ status: "open", started_at: t(30 * MINUTE) });
+      expect(await notices(c.clinicId, ["outage_started"])).toHaveLength(1);
+      expect(await alerts("aya_outage_flapping", c.clinicId)).toEqual([expect.objectContaining({ clinicId: c.clinicId })]);
+      expect(await alerts("aya_outage_started", c.clinicId)).toHaveLength(1);
+
+      await resolve(c.clinicId, key("ok2", t(45 * MINUTE)), { outcome: "answered", answeredAt: t(45 * MINUTE) });
+      await runAnswerNoticesSweep(t(45 * MINUTE + RECOVERY_QUIET_MS));
+      expect((await outages(c.clinicId))[1]).toMatchObject({ status: "closed" });
+      expect(await notices(c.clinicId, ["outage_ended"])).toHaveLength(1);
+
+      // Past the hour, an outage is told again.
+      await resolve(c.clinicId, key("h1", t(3 * HOUR)), { outcome: "missed", reason: "error" });
+      await resolve(c.clinicId, key("h2", t(3 * HOUR + 10 * MINUTE)), { outcome: "missed", reason: "error" });
+      await runAnswerNoticesSweep(t(3 * HOUR + 11 * MINUTE));
+      expect(await notices(c.clinicId, ["outage_started"])).toHaveLength(2);
+    });
+
+    test("a conversation's later failure is dated when it failed, and its earlier answer still counts", async () => {
+      const c = await liveClinic("fx-meta", ["voice", "web", "meta"]);
+      const nine = new Date("2026-10-16T13:00:00Z");
+      await resolve(c.clinicId, key("other-a", new Date(nine.getTime() - 5 * MINUTE), "meta"), { outcome: "missed", reason: "error" });
+      // The thread's first message, answered at 09:00 New York.
+      await resolve(c.clinicId, key("thread", nine, "meta"), { outcome: "answered", answeredAt: nine });
+      await resolve(c.clinicId, key("other-b", new Date(nine.getTime() + 6 * MINUTE), "meta"), { outcome: "missed", reason: "error" });
+      await runAnswerNoticesSweep(new Date(nine.getTime() + 7 * MINUTE));
+      // A later message of the same thread fails at 14:00 New York.
+      const two = new Date("2026-10-16T18:00:00Z");
+      await resolve(c.clinicId, key("thread", two, "meta"), { outcome: "missed", reason: "failure_line", wentTo: "nowhere" });
+      await runAnswerNoticesSweep(new Date(two.getTime() + MINUTE));
+      // Neither 08:55 to 09:06 (answered between) nor 09:06 to 14:00 (hours apart) is an outage.
+      expect(await outages(c.clinicId)).toEqual([]);
+      const row = await inTenant(c.clinicId, async (q) =>
+        (
+          await q.query<{ routed_at: Date; failed_at: Date; answered_at: Date; outcome: string }>(
+            `select routed_at, failed_at, answered_at, outcome from routed_interactions where channel = 'meta' and answered_at is not null`,
+          )
+        ).rows,
+      );
+      expect(row).toEqual([{ routed_at: nine, failed_at: two, answered_at: nine, outcome: "missed" }]);
+      const thread = (await missed(c.clinicId)).find((m) => m.missed_at.getTime() === two.getTime());
+      expect(thread).toMatchObject({ channel: "meta", outcome: "nowhere" });
+      // A second failure ten minutes on makes it an outage dated 14:00, not 09:00.
+      await resolve(c.clinicId, key("other-c", new Date(two.getTime() + 10 * MINUTE), "meta"), { outcome: "missed", reason: "error" });
+      await runAnswerNoticesSweep(new Date(two.getTime() + 11 * MINUTE));
+      expect(await outages(c.clinicId)).toMatchObject([{ status: "open", started_at: two }]);
+      expect((await notices(c.clinicId, ["outage_started"]))[0]).toMatchObject({ payload: { startedAt: two.toISOString() } });
+      // The miss is a time a guard cannot change.
+      await expect(
+        inTenant(c.clinicId, (q) => q.query(`update routed_interactions set failed_at = now() where failed_at is not null`)),
+      ).rejects.toThrow(/written once/);
+    });
+
+    test("L21 dates a thread's miss by the day it failed, not the day it began", async () => {
+      const c = await liveClinic("fx-meta-day", ["voice", "web", "meta"]);
+      // Begun 23:30 on Wednesday 7 October in New York, failed 00:30 on Thursday 8.
+      const begun = new Date("2026-10-08T03:30:00Z");
+      const failed = new Date("2026-10-08T04:30:00Z");
+      await resolve(c.clinicId, key("late-thread", begun, "meta"), { outcome: "answered", answeredAt: begun });
+      await resolve(c.clinicId, key("late-thread", failed, "meta"), { outcome: "missed", reason: "error" });
+      await runAnswerNoticesSweep(new Date("2026-10-09T04:30:00Z"));
+      const l21 = await notices(c.clinicId, ["guarantee_miss"]);
+      expect(l21).toHaveLength(1);
+      expect(l21[0]).toMatchObject({ payload: { channel: "meta", missedAt: failed.toISOString() } });
+      const cases = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async () => listAnswerCases(ACTOR));
+      expect(cases.missCases).toMatchObject([{ channel: "meta", missedOn: "2026-10-08" }]);
+    });
+  });
+
+  describe("the sweep that keeps failing is told to ops", () => {
+    const failing = async () => {
+      const { rows } = await getMigratorPool().query<{ repeats: number; fields: Record<string, unknown> }>(
+        `select repeats, fields from ops_alerts where event = 'answer_notices_failing'`,
+      );
+      return rows;
+    };
+
+    test(`after ${SWEEP_FAILING_AFTER_RUNS} failed runs in a row, once an hour while it goes on; an ok run starts the count again`, async () => {
+      resetSweepFailures();
+      for (let i = 1; i < SWEEP_FAILING_AFTER_RUNS; i += 1) expect(await noteSweepOutcome("failed")).toBe(false);
+      expect(await failing()).toEqual([]);
+      expect(await noteSweepOutcome("failed")).toBe(true);
+      expect(await failing()).toEqual([expect.objectContaining({ repeats: 0, fields: expect.objectContaining({ count: SWEEP_FAILING_AFTER_RUNS }) })]);
+      // The next failed minute is the same alert inside its hour: a repeat, no second email.
+      await noteSweepOutcome("failed");
+      expect((await failing()).map((r) => r.repeats)).toEqual([1]);
+      // An ok run resets: four more failures raise nothing.
+      expect(await noteSweepOutcome("ok")).toBe(false);
+      for (let i = 1; i < SWEEP_FAILING_AFTER_RUNS; i += 1) expect(await noteSweepOutcome("failed")).toBe(false);
+      expect((await failing()).map((r) => r.repeats)).toEqual([1]);
+      resetSweepFailures();
+    });
+  });
+
+  describe("a corrected number reaches the missed-contact record", () => {
+    test("amending a contact's number corrects it on its missed calls, and clearing it clears them", async () => {
+      const c = await liveClinic("fx-amend");
+      const now = new Date("2026-10-15T15:00:00Z");
+      const contactId = await seedContact(c.clinicId, CALLER);
+      await resolve(c.clinicId, key("m1", now), { outcome: "missed", reason: "error", callerPhone: CALLER });
+      await resolve(c.clinicId, key("m2", new Date(now.getTime() + MINUTE)), { outcome: "missed", reason: "error", callerPhone: "+14155550188" });
+      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => amendContact(tx, contactId, { phone: "+14155550199" }, "practice"));
+      expect((await missed(c.clinicId)).map((m) => m.caller_phone)).toEqual(["+14155550199", "+14155550188"]);
+      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => amendContact(tx, contactId, { phone: null }, "practice"));
+      expect((await missed(c.clinicId)).map((m) => m.caller_phone)).toEqual([null, "+14155550188"]);
     });
   });
 

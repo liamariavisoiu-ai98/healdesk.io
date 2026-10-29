@@ -101,6 +101,8 @@ export const OPS_EVENTS = [
   "aya_outage_unresolved",
   "aya_miss_case_opened",
   "answer_notice_not_queued",
+  "aya_outage_flapping",
+  "answer_notices_failing",
   "plan_start_after_cancel",
   // The DMARC review reminder (open item 14; the owner, 6 October 2026):
   // raised once, ever, by the dmarc-review job on the 14th day after Resend

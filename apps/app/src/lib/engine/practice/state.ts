@@ -23,6 +23,8 @@ export type PracticeState = {
     failedCount: number | null;
     /** The section whose change asked for the run, when one did. */
     triggerSection: PracticeSection | null;
+    /** The case set the run asked (PRACTICE_CASES_VERSION when it ran); the gate passes only the current one. */
+    casesVersion?: string | null;
     /** The review's promised day (YYYY-MM-DD, New York), while one is open. */
     reviewDueOn: string | null;
   } | null;

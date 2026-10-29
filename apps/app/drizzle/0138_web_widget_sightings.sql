@@ -19,7 +19,11 @@ ALTER TABLE "channel_events" ADD CONSTRAINT "channel_events_kind_check" CHECK ("
 -- browser cannot do is send another site's Origin, so a hostile page is only
 -- ever seen on its own host, never on another clinic's.
 --
--- The rule, enforced here and nowhere else:
+-- The rule, enforced here (the host against the clinic's website, the once
+-- and the five minutes); one part of it is TypeScript only: a clinic whose
+-- website is a shared platform's bare apex (SHARED_HOST_APEXES in
+-- lib/chat/web-chat.ts, sightingHost) is never confirmed by a sighting, and
+-- that list is not repeated here:
 --   - a sighting is a widget open from a host of the clinic's own website:
 --     the site itself, www, or any subdomain of it (the owner's decision 2,
 --     as originAllowed in lib/chat/web-chat.ts reads it), re-checked here

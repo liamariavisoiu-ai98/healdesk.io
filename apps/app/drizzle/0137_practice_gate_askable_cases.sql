@@ -25,6 +25,12 @@
 -- the hourly sweep asks one for a clinic whose latest run read another
 -- version.
 --
+-- The latest run must also have asked this case set: its cases_version is
+-- PRACTICE_CASES_VERSION ('2026-10-29.1', lib/engine/practice/cases.ts), so a
+-- later bump of the version cannot let a pass of an older set stand. A bump
+-- therefore needs a migration that redefines this function with the new
+-- literal; tests/practice-questions-booking-db.test.ts pins it to the constant.
+--
 -- A channel already live is not touched: the gate opens for a live channel
 -- whatever the runs say (0097), and nothing is deleted.
 --
@@ -48,6 +54,7 @@ AS $$
              THEN false
            ELSE coalesce((
              SELECT r.status = 'passed'
+                    AND r.cases_version IS NOT DISTINCT FROM '2026-10-29.1'
                     AND EXISTS (SELECT 1 FROM practice_question_results x
                                  WHERE x.run_id = r.id AND x.clinic_id = p_clinic
                                    AND x.channel = p_channel AND x.status = 'passed'

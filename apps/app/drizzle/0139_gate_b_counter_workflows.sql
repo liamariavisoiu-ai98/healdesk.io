@@ -12,10 +12,12 @@ CREATE TABLE "answer_outages" (
 	"ended_at" timestamp with time zone,
 	"call_count" integer,
 	"chat_count" integer,
+	"closed_at" timestamp with time zone,
+	"quiet" boolean DEFAULT false NOT NULL,
 	CONSTRAINT "answer_outages_start_key" UNIQUE("clinic_id","started_at"),
 	CONSTRAINT "answer_outages_status_check" CHECK ("answer_outages"."status" in ('open', 'closed')),
 	CONSTRAINT "answer_outages_channels_check" CHECK (cardinality("answer_outages"."channels") between 1 and 3 and "answer_outages"."channels" <@ array['voice', 'web', 'meta']::text[]),
-	CONSTRAINT "answer_outages_closed_check" CHECK (("answer_outages"."status" = 'closed') = ("answer_outages"."ended_at" is not null) and ("answer_outages"."ended_at" is null) = ("answer_outages"."call_count" is null) and ("answer_outages"."ended_at" is null) = ("answer_outages"."chat_count" is null) and coalesce("answer_outages"."call_count", 0) >= 0 and coalesce("answer_outages"."chat_count", 0) >= 0 and "answer_outages"."escalations" >= 0)
+	CONSTRAINT "answer_outages_closed_check" CHECK (("answer_outages"."status" = 'closed') = ("answer_outages"."ended_at" is not null) and ("answer_outages"."status" = 'closed') = ("answer_outages"."closed_at" is not null) and ("answer_outages"."ended_at" is null) = ("answer_outages"."call_count" is null) and ("answer_outages"."ended_at" is null) = ("answer_outages"."chat_count" is null) and coalesce("answer_outages"."call_count", 0) >= 0 and coalesce("answer_outages"."chat_count", 0) >= 0 and "answer_outages"."escalations" >= 0)
 );
 --> statement-breakpoint
 CREATE TABLE "miss_cases" (
@@ -72,12 +74,14 @@ CREATE TABLE "routed_interactions" (
 	"reason" text,
 	"answered_at" timestamp with time zone,
 	"resolved_at" timestamp with time zone,
+	"failed_at" timestamp with time zone,
 	CONSTRAINT "routed_interactions_ref_key" UNIQUE("clinic_id","channel","ref_hash"),
 	CONSTRAINT "routed_interactions_channel_check" CHECK ("routed_interactions"."channel" in ('voice', 'web', 'meta')),
 	CONSTRAINT "routed_interactions_outcome_check" CHECK ("routed_interactions"."outcome" in ('pending', 'excluded', 'answered', 'missed')),
 	CONSTRAINT "routed_interactions_reason_check" CHECK ("routed_interactions"."reason" is null or "routed_interactions"."reason" in ('no_agreement', 'agreement_insufficient', 'unpaid', 'not_active', 'cancel_before_start', 'suspended', 'canceled', 'not_purchased', 'channel_not_live', 'channel_off', 'ai_paused', 'outside_coverage', 'allowance_cap', 'clinic_left', 'withheld', 'caller_ended', 'outside_window', 'outbound', 'host_agreement_lapsed', 'vendor_agreement_lapsed', 'start_failed', 'late', 'no_opening', 'cut_off', 'failure_line', 'error', 'no_outcome')),
 	CONSTRAINT "routed_interactions_ref_check" CHECK ("routed_interactions"."ref_hash" ~ '^[0-9a-f]{64}$'),
-	CONSTRAINT "routed_interactions_reason_shape_check" CHECK (("routed_interactions"."outcome" in ('pending', 'answered')) = ("routed_interactions"."reason" is null))
+	CONSTRAINT "routed_interactions_reason_shape_check" CHECK (("routed_interactions"."outcome" in ('pending', 'answered')) = ("routed_interactions"."reason" is null)),
+	CONSTRAINT "routed_interactions_failed_check" CHECK (("routed_interactions"."outcome" = 'missed') = ("routed_interactions"."failed_at" is not null))
 );
 --> statement-breakpoint
 ALTER TABLE "answer_outages" ADD CONSTRAINT "answer_outages_clinic_id_clinics_id_fk" FOREIGN KEY ("clinic_id") REFERENCES "public"."clinics"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -92,6 +96,7 @@ CREATE INDEX "miss_cases_status_idx" ON "miss_cases" USING btree ("status","repl
 CREATE INDEX "missed_contacts_clinic_missed_idx" ON "missed_contacts" USING btree ("clinic_id","missed_at");--> statement-breakpoint
 CREATE INDEX "missed_contacts_purge_idx" ON "missed_contacts" USING btree ("missed_at");--> statement-breakpoint
 CREATE INDEX "routed_interactions_clinic_routed_idx" ON "routed_interactions" USING btree ("clinic_id","routed_at");--> statement-breakpoint
+CREATE INDEX "routed_interactions_clinic_failed_idx" ON "routed_interactions" USING btree ("clinic_id","failed_at") WHERE "routed_interactions"."failed_at" is not null;--> statement-breakpoint
 CREATE INDEX "routed_interactions_pending_idx" ON "routed_interactions" USING btree ("routed_at") WHERE "routed_interactions"."outcome" = 'pending';
 --> statement-breakpoint
 -- =============================================================================
@@ -145,6 +150,9 @@ BEGIN
   IF OLD.answered_at IS NOT NULL AND NEW.answered_at IS DISTINCT FROM OLD.answered_at THEN
     RAISE EXCEPTION 'routed_interactions: the first answer is written once';
   END IF;
+  IF OLD.failed_at IS NOT NULL AND NEW.failed_at IS DISTINCT FROM OLD.failed_at THEN
+    RAISE EXCEPTION 'routed_interactions: the time of the miss is written once';
+  END IF;
   RETURN NEW;
 END;
 $$;--> statement-breakpoint
@@ -155,7 +163,7 @@ CREATE TRIGGER routed_interactions_guard
 
 REVOKE ALL ON routed_interactions FROM healdesk_app;--> statement-breakpoint
 GRANT SELECT, INSERT ON routed_interactions TO healdesk_app;--> statement-breakpoint
-GRANT UPDATE (outcome, reason, answered_at, resolved_at) ON routed_interactions TO healdesk_app;--> statement-breakpoint
+GRANT UPDATE (outcome, reason, answered_at, resolved_at, failed_at) ON routed_interactions TO healdesk_app;--> statement-breakpoint
 
 ALTER TABLE routed_interactions ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE routed_interactions FORCE ROW LEVEL SECURITY;--> statement-breakpoint
@@ -186,7 +194,7 @@ BEGIN
      ORDER BY cl.created_at
   LOOP
     PERFORM set_config('app.clinic_id', c.id::text, true);
-    SELECT exists (SELECT 1 FROM routed_interactions r WHERE r.clinic_id = c.id AND r.routed_at >= since)
+    SELECT exists (SELECT 1 FROM routed_interactions r WHERE r.clinic_id = c.id AND (r.routed_at >= since OR r.failed_at >= since))
         OR exists (SELECT 1 FROM answer_outages o WHERE o.clinic_id = c.id AND o.status = 'open')
         OR exists (SELECT 1 FROM missed_contacts mc WHERE mc.clinic_id = c.id)
       INTO recent;
@@ -226,6 +234,9 @@ COMMENT ON FUNCTION app_routed_answered_work(timestamptz) IS
 -- that queues L17 ("We are working on it and will keep you updated"), so L18
 -- can only ever pair with an incident L17 told of; closed in the one that
 -- queues L18, with the counts. One open per clinic; a closed one is final.
+-- `quiet` is fixed at insert: an incident opened within an hour of the last
+-- one closing (flapping) sends the clinic neither L17 nor L18; ops is told
+-- once instead (lib/channels/answer-notices.ts).
 -- The runtime role inserts and moves the status, the counts and the
 -- escalation; it never deletes.
 --
@@ -243,7 +254,7 @@ COMMENT ON FUNCTION app_routed_answered_work(timestamptz) IS
 
 REVOKE ALL ON answer_outages FROM healdesk_app;--> statement-breakpoint
 GRANT SELECT, INSERT ON answer_outages TO healdesk_app;--> statement-breakpoint
-GRANT UPDATE (status, last_failure_at, channels, escalated_at, escalations, ended_at, call_count, chat_count) ON answer_outages TO healdesk_app;--> statement-breakpoint
+GRANT UPDATE (status, last_failure_at, channels, escalated_at, escalations, ended_at, call_count, chat_count, closed_at) ON answer_outages TO healdesk_app;--> statement-breakpoint
 ALTER TABLE answer_outages ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE answer_outages FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 CREATE POLICY answer_outages_tenant_isolation ON answer_outages
@@ -311,7 +322,7 @@ $$;
 
 REVOKE ALL ON missed_contacts FROM healdesk_app;--> statement-breakpoint
 GRANT SELECT, INSERT, DELETE ON missed_contacts TO healdesk_app;--> statement-breakpoint
-GRANT UPDATE (called_back_at, closing_note, miss_case_id) ON missed_contacts TO healdesk_app;--> statement-breakpoint
+GRANT UPDATE (called_back_at, closing_note, miss_case_id, caller_phone) ON missed_contacts TO healdesk_app;--> statement-breakpoint
 ALTER TABLE missed_contacts ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE missed_contacts FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 CREATE POLICY missed_contacts_tenant_isolation ON missed_contacts

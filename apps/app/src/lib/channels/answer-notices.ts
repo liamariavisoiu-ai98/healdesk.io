@@ -1,5 +1,5 @@
 import type { Channel } from "@healdesk/catalog";
-import { and, asc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, sql, type SQL } from "drizzle-orm";
 
 import { unsafeDb, type Transaction } from "@/db";
 import {
@@ -18,7 +18,7 @@ import type { GuaranteeMissPayload } from "@/lib/email/templates/guarantee_miss"
 import type { OutageEndedPayload, OutageStartedPayload } from "@/lib/email/templates/outage";
 import { describeError, log } from "@/lib/log";
 import { enqueuePlanNotice } from "@/lib/notices/plan-notices";
-import { notifyOpsOnce } from "@/lib/ops/notify";
+import { notifyOps, notifyOpsOnce } from "@/lib/ops/notify";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 import { replyByDay } from "@/lib/reply-by";
 import { newSupportRef } from "@/lib/support/cases";
@@ -44,27 +44,37 @@ import { OUTAGE_MISSED_REASONS } from "./routed-words";
  *      after it reached us belongs to a process that stopped before it said
  *      what happened: Terms §5 counts that as missed (`no_outcome`).
  *
- *   2. **L17 and the outage incident.** An outage is the run of calls and
- *      conversations our side failed to answer (every miss but a late answer,
- *      OUTAGE_MISSED_REASONS) since the last one AYA answered, across the
- *      clinic's channels. Once that run has lasted OUTAGE_AFTER_MS (its first
- *      and latest failure at least ten minutes apart, nothing answered
- *      between), one transaction opens the incident (answer_outages, status
- *      open, its channels and start) and queues L17 under
- *      `outage_started:<incident id>`; after it commits, ops is alerted
+ *   2. **L17 and the outage incident.** An outage is a continuous run of
+ *      calls and conversations our side failed to answer (every miss but a
+ *      late answer, OUTAGE_MISSED_REASONS) since the last one AYA answered,
+ *      across the clinic's channels, each failure dated by the call or
+ *      message that failed (routed_interactions.failed_at), not by its
+ *      conversation's first message. A run is failures each within
+ *      OUTAGE_AFTER_MS of the one before; once one run has lasted
+ *      OUTAGE_AFTER_MS (so at least two failures, its first and latest ten
+ *      minutes apart or more), one transaction opens the incident
+ *      (answer_outages, status open, its channels and start) and queues L17
+ *      under `outage_started:<incident id>`; after it commits, ops is alerted
  *      (`aya_outage_started`, once per incident). A failure with no traffic
- *      after it is no evidence of an outage, and sends nothing.
+ *      after it, or two failures hours apart, is no evidence of an outage,
+ *      and sends nothing. **Flapping:** an incident opened within
+ *      OUTAGE_FLAP_WINDOW_MS of the last one closing is opened `quiet`: the
+ *      clinic is sent neither its L17 nor its L18 (it was told "answering
+ *      again" under an hour ago), and ops is told instead
+ *      (`aya_outage_flapping`, once an hour per clinic).
  *
  *   3. **L18 and recovery.** The open incident takes in each later failure
  *      (its latest failure and channels move on). It has recovered once AYA
  *      has answered something after its latest failure and RECOVERY_QUIET_MS
- *      have passed since that first answer with no failure on any channel:
- *      a failure inside the quiet time moves the latest failure on, so the
- *      clock starts again (no flapping). One transaction then closes the
- *      incident, with when she answered again and the calls and chats the
- *      counter shows unanswered from its start until then, and queues L18
- *      under `outage_ended:<incident id>`, so L18 goes once, only for an
- *      incident L17 opened. One still open OUTAGE_ESCALATE_AFTER_MS after it
+ *      have passed since that first answer with no failure on any channel
+ *      and nothing still pending that reached us after the latest failure (a
+ *      call inside the quiet time whose outcome is not known yet may still
+ *      fail): a failure inside the quiet time moves the latest failure on,
+ *      so the clock starts again. One transaction then closes the
+ *      incident, with when she answered again, the calls the counter shows
+ *      rang through to the direct line and the chats that failed from its
+ *      start until then, and queues L18 under `outage_ended:<incident id>`,
+ *      so L18 goes once, only for an incident L17 opened (never a quiet one). One still open OUTAGE_ESCALATE_AFTER_MS after it
  *      opened, and every OUTAGE_ESCALATE_EVERY_MS after, is escalated to the
  *      owner (`aya_outage_unresolved`), so "we will keep you updated" cannot
  *      go quiet.
@@ -88,7 +98,9 @@ import { OUTAGE_MISSED_REASONS } from "./routed-words";
  *
  * A notice that could not be queued (the transaction failed) leaves its
  * incident or case unopened, so the next minute tries again, and ops hears
- * of it once per clinic and kind (`answer_notice_not_queued`).
+ * of it once per clinic and kind (`answer_notice_not_queued`). A sweep that
+ * fails SWEEP_FAILING_AFTER_RUNS runs in a row is told to ops
+ * (`answer_notices_failing`, at most once an hour while it keeps failing).
  *
  * Unswitched, like the redial sweep: the notices are promises of the Terms
  * and of the emails, and settling a pending row is a pure function of the
@@ -103,6 +115,13 @@ export const ROUTED_PENDING_GRACE_MS = 10 * 60_000;
 export const OUTAGE_AFTER_MS = 10 * 60_000;
 /** Recovery: AYA has answered, and nothing has failed, for this long. */
 export const RECOVERY_QUIET_MS = 10 * 60_000;
+/**
+ * Flapping: an incident opened this soon after the last one closed sends the
+ * clinic no L17 and no L18; ops is told instead.
+ */
+export const OUTAGE_FLAP_WINDOW_MS = 60 * 60_000;
+/** The sweep failing this many runs in a row (a minute apart) is told to ops, at most hourly. */
+export const SWEEP_FAILING_AFTER_RUNS = 5;
 /** An incident still open this long after it opened is escalated to the owner. */
 export const OUTAGE_ESCALATE_AFTER_MS = 2 * 60 * 60_000;
 /** And again this often while it stays open. */
@@ -155,7 +174,8 @@ async function workSince(since: Date): Promise<Work[]> {
 export async function settlePending(db: Transaction, clinicId: string, now: Date): Promise<number> {
   const rows = await db
     .update(routedInteractions)
-    .set({ outcome: "missed", reason: "no_outcome", resolvedAt: now })
+    // Dated by when it reached us: the process stopped before it said more.
+    .set({ outcome: "missed", reason: "no_outcome", resolvedAt: now, failedAt: sql`${routedInteractions.routedAt}` })
     .where(
       and(
         eq(routedInteractions.clinicId, clinicId),
@@ -182,16 +202,43 @@ const isOutageMiss = sql`${routedInteractions.outcome} = 'missed' and ${routedIn
   OUTAGE_MISSED_REASONS.map((r) => sql`${r}`),
   sql`, `,
 )})`;
+/** When a miss happened: the failing call or message (set on every miss; routed_at for safety). */
+const failedTime = sql<Date | string>`coalesce(${routedInteractions.failedAt}, ${routedInteractions.routedAt})`;
+/** When AYA answered it. */
+const answerTime = sql<Date | string>`coalesce(${routedInteractions.answeredAt}, ${routedInteractions.routedAt})`;
 /**
- * AYA answered it, if late: an answer ends a run of failures. Not a
- * conversation answered once and then failed (a miss with a first answer
- * kept), which is part of the outage.
+ * AYA answered it, if late: an answer ends a run of failures. A conversation
+ * AYA answered and that failed on a later message keeps its real answer (an
+ * answer before its failure); a call she started and that was cut off is no
+ * answer (its failure is dated at the call's start, before the answer).
  */
-const isAnswer = sql`(${routedInteractions.outcome} = 'answered' or (${routedInteractions.outcome} = 'missed' and ${routedInteractions.reason} = 'late'))`;
+const isAnswer = sql`(${routedInteractions.outcome} = 'answered' or (${routedInteractions.outcome} = 'missed' and (${routedInteractions.reason} = 'late' or ${routedInteractions.answeredAt} < ${routedInteractions.failedAt})))`;
+
+function asDate(value: Date | string): Date {
+  return value instanceof Date ? value : new Date(value);
+}
+
+function at(value: Date): SQL {
+  return sql`${value.toISOString()}::timestamptz`;
+}
 
 function channelsOf(rows: readonly { channel: string }[]): Channel[] {
   const seen = new Set(rows.map((r) => r.channel));
   return CHANNEL_ORDER.filter((c) => seen.has(c));
+}
+
+/**
+ * The first continuous run of failures (each within OUTAGE_AFTER_MS of the
+ * one before) that has lasted OUTAGE_AFTER_MS, as the index of its first
+ * failure; null when none has. Failures in time order.
+ */
+export function outageRunStart(times: readonly Date[]): number | null {
+  let start = 0;
+  for (let i = 1; i < times.length; i += 1) {
+    if (times[i]!.getTime() - times[i - 1]!.getTime() > OUTAGE_AFTER_MS) start = i;
+    else if (times[i]!.getTime() - times[start]!.getTime() >= OUTAGE_AFTER_MS) return start;
+  }
+  return null;
 }
 
 /** The portal's missed-contact list (app/c/[slug]/missed), and one contact on it. */
@@ -199,7 +246,7 @@ export function missedPath(slug: string, missedContactId?: string): string {
   return missedContactId ? `/c/${slug}/missed/${missedContactId}` : `/c/${slug}/missed`;
 }
 
-type ClinicLinks = { slug: string; homeUrl: string; missedUrl: string; canReachDirectLine: boolean };
+type ClinicLinks = { slug: string; homeUrl: string; missedUrl: string; hasUsableDirectLine: boolean };
 
 async function linksOf(db: Transaction, clinicId: string): Promise<ClinicLinks | null> {
   const [clinic] = await db
@@ -219,7 +266,7 @@ async function linksOf(db: Transaction, clinicId: string): Promise<ClinicLinks |
     homeUrl: publicUrl(`/c/${clinic.slug}`),
     missedUrl: publicUrl(missedPath(clinic.slug)),
     // A line that forwards back to us is no line (lib/voice/fallback-line.ts).
-    canReachDirectLine: usableLine(clinic.directLine, [clinic.published, clinic.assistant]) !== null,
+    hasUsableDirectLine: usableLine(clinic.directLine, [clinic.published, clinic.assistant]) !== null,
   };
 }
 
@@ -231,9 +278,10 @@ export type OutageStep = { started: number; ended: number; escalated: number; af
 
 /**
  * Steps 2 and 3 for one clinic, in its own tenant: open the incident and
- * queue L17 once ten minutes of failures say so; take later failures into an
- * open incident; close it and queue L18 once recovered; escalate one that
- * stays open. Returns what it did and the alerts to raise after commit.
+ * queue L17 once a continuous ten-minute run of failures says so; take later
+ * failures into an open incident; close it and queue L18 once recovered;
+ * escalate one that stays open. Returns what it did and the alerts to raise
+ * after commit.
  */
 export async function evaluateOutages(db: Transaction, clinicId: string, now: Date): Promise<OutageStep> {
   const step: OutageStep = { started: 0, ended: 0, escalated: 0, after: [] };
@@ -259,32 +307,48 @@ export async function evaluateOutages(db: Transaction, clinicId: string, now: Da
     return step;
   }
 
-  // No incident open: the failures since the last answer.
+  // No incident open: the failures since the last answer, by when each failed.
   const [last] = await db
-    .select({ at: sql<Date | string | null>`max(${routedInteractions.routedAt})` })
+    .select({ at: sql<Date | string | null>`max(${answerTime})` })
     .from(routedInteractions)
-    .where(and(eq(routedInteractions.clinicId, clinicId), isAnswer, lte(routedInteractions.routedAt, now)));
-  const lastAnswer = last?.at ? new Date(last.at) : null;
-  const failures = await db
-    .select({ channel: routedInteractions.channel, routedAt: routedInteractions.routedAt })
+    .where(and(eq(routedInteractions.clinicId, clinicId), isAnswer, sql`${answerTime} <= ${at(now)}`));
+  const lastAnswer = last?.at ? asDate(last.at) : null;
+  const rows = await db
+    .select({ channel: routedInteractions.channel, at: failedTime })
     .from(routedInteractions)
     .where(
       and(
         eq(routedInteractions.clinicId, clinicId),
         isOutageMiss,
-        lastAnswer ? gt(routedInteractions.routedAt, lastAnswer) : undefined,
-        lte(routedInteractions.routedAt, now),
+        lastAnswer ? sql`${failedTime} > ${at(lastAnswer)}` : undefined,
+        sql`${failedTime} <= ${at(now)}`,
       ),
     )
-    .orderBy(asc(routedInteractions.routedAt));
-  if (failures.length === 0) return step;
-  const first = failures[0]!.routedAt;
-  const latest = failures[failures.length - 1]!.routedAt;
-  if (latest.getTime() - first.getTime() < OUTAGE_AFTER_MS) return step;
+    .orderBy(asc(failedTime));
+  const failures = rows.map((r) => ({ channel: r.channel, at: asDate(r.at) }));
+  const runStart = outageRunStart(failures.map((f) => f.at));
+  if (runStart === null) return step;
+  const run = failures.slice(runStart);
+  const first = run[0]!.at;
+  const latest = run[run.length - 1]!.at;
 
   const links = await linksOf(db, clinicId);
   if (!links) return step;
-  const channels = channelsOf(failures);
+  const channels = channelsOf(run);
+  // Flapping: the last incident closed under an hour ago, and the clinic was
+  // told then that AYA is answering again. This one is recorded, quietly.
+  const [recent] = await db
+    .select({ id: answerOutages.id })
+    .from(answerOutages)
+    .where(
+      and(
+        eq(answerOutages.clinicId, clinicId),
+        eq(answerOutages.status, "closed"),
+        gte(answerOutages.closedAt, new Date(now.getTime() - OUTAGE_FLAP_WINDOW_MS)),
+      ),
+    )
+    .limit(1);
+  const quiet = recent !== undefined;
   try {
     const opened = await db.transaction(async (savepoint) => {
       const [incident] = await savepoint
@@ -296,29 +360,37 @@ export async function evaluateOutages(db: Transaction, clinicId: string, now: Da
           channels,
           openedAt: now,
           replyByAt: new Date(now.getTime() + OUTAGE_ESCALATE_AFTER_MS),
+          quiet,
         })
         .onConflictDoNothing()
         .returning({ id: answerOutages.id });
       if (!incident) return null;
-      const payload: OutageStartedPayload = {
-        startedAt: first.toISOString(),
-        homeUrl: links.homeUrl,
-        canReachDirectLine: links.canReachDirectLine,
-        // Website chat is among what failed: its visitors see the contact form.
-        isChatAffected: channels.includes("web"),
-      };
-      await enqueuePlanNotice(savepoint, clinicId, "outage_started", `outage_started:${incident.id}`, payload);
+      if (!quiet) {
+        const payload: OutageStartedPayload = {
+          startedAt: first.toISOString(),
+          homeUrl: links.homeUrl,
+          // Only calls ring through to a direct line: said only when calls
+          // are among what failed and the line is one that rings somewhere.
+          canReachDirectLine: channels.includes("voice") && links.hasUsableDirectLine,
+          // Website chat is among what failed: its visitors see the contact form.
+          isChatAffected: channels.includes("web"),
+        };
+        await enqueuePlanNotice(savepoint, clinicId, "outage_started", `outage_started:${incident.id}`, payload);
+      }
       return incident.id;
     });
     if (opened) {
       step.started += 1;
-      step.after.push(() =>
-        notifyOpsOnce("aya_outage_started", {
-          clinicId,
-          eventId: opened,
-          windowStart: first.toISOString(),
-          code: channels.join("_"),
-        }),
+      step.after.push(
+        quiet
+          ? () => notifyOps("aya_outage_flapping", { clinicId })
+          : () =>
+              notifyOpsOnce("aya_outage_started", {
+                clinicId,
+                eventId: opened,
+                windowStart: first.toISOString(),
+                code: channels.join("_"),
+              }),
       );
     }
   } catch (error) {
@@ -326,6 +398,38 @@ export async function evaluateOutages(db: Transaction, clinicId: string, now: Da
     step.after.push(notQueued(clinicId, "outage_started"));
   }
   return step;
+}
+
+/** An incident's calls that rang through to the direct line, and its chats that failed. */
+async function incidentCounts(
+  db: Transaction,
+  clinicId: string,
+  from: Date,
+  until: Date,
+): Promise<{ callCount: number; chatCount: number }> {
+  const [row] = await db
+    .select({
+      calls: sql<number>`(count(*) filter (where ${routedInteractions.channel} = 'voice' and ${missedContacts.reachedDirectLine}))::int`,
+      chats: sql<number>`(count(*) filter (where ${routedInteractions.channel} in ('web', 'meta')))::int`,
+    })
+    .from(routedInteractions)
+    .leftJoin(
+      missedContacts,
+      and(
+        eq(missedContacts.clinicId, routedInteractions.clinicId),
+        eq(missedContacts.channel, routedInteractions.channel),
+        eq(missedContacts.refHash, routedInteractions.refHash),
+      ),
+    )
+    .where(
+      and(
+        eq(routedInteractions.clinicId, clinicId),
+        isOutageMiss,
+        sql`${failedTime} >= ${at(from)}`,
+        sql`${failedTime} < ${at(until)}`,
+      ),
+    );
+  return { callCount: Number(row?.calls ?? 0), chatCount: Number(row?.chats ?? 0) };
 }
 
 async function followOpenIncident(
@@ -336,21 +440,22 @@ async function followOpenIncident(
   step: OutageStep,
 ): Promise<void> {
   // Later failures join it.
-  const later = await db
-    .select({ channel: routedInteractions.channel, routedAt: routedInteractions.routedAt })
+  const laterRows = await db
+    .select({ channel: routedInteractions.channel, at: failedTime })
     .from(routedInteractions)
     .where(
       and(
         eq(routedInteractions.clinicId, clinicId),
         isOutageMiss,
-        gt(routedInteractions.routedAt, incident.lastFailureAt),
-        lte(routedInteractions.routedAt, now),
+        sql`${failedTime} > ${at(incident.lastFailureAt)}`,
+        sql`${failedTime} <= ${at(now)}`,
       ),
     )
-    .orderBy(asc(routedInteractions.routedAt));
+    .orderBy(asc(failedTime));
+  const later = laterRows.map((r) => ({ channel: r.channel, at: asDate(r.at) }));
   let lastFailureAt = incident.lastFailureAt;
   if (later.length > 0) {
-    lastFailureAt = later[later.length - 1]!.routedAt;
+    lastFailureAt = later[later.length - 1]!.at;
     const channels = CHANNEL_ORDER.filter((c) => incident.channels.includes(c) || later.some((l) => l.channel === c));
     await db
       .update(answerOutages)
@@ -358,45 +463,54 @@ async function followOpenIncident(
       .where(and(eq(answerOutages.id, incident.id), eq(answerOutages.clinicId, clinicId)));
   }
 
-  // Recovered: answered since the latest failure, and quiet for RECOVERY_QUIET_MS since that answer.
-  const [answer] = await db
-    .select({ routedAt: routedInteractions.routedAt, answeredAt: routedInteractions.answeredAt })
+  // Recovered: answered since the latest failure, quiet for RECOVERY_QUIET_MS
+  // since that answer, and nothing that reached us since still unsettled
+  // (a call inside the quiet time whose outcome is not known may yet fail).
+  const [answerRow] = await db
+    .select({ at: answerTime })
     .from(routedInteractions)
     .where(
       and(
         eq(routedInteractions.clinicId, clinicId),
         isAnswer,
-        gt(routedInteractions.routedAt, lastFailureAt),
-        lte(routedInteractions.routedAt, now),
+        sql`${answerTime} > ${at(lastFailureAt)}`,
+        sql`${answerTime} <= ${at(now)}`,
       ),
     )
-    .orderBy(asc(routedInteractions.routedAt))
+    .orderBy(asc(answerTime))
     .limit(1);
-  if (answer && now.getTime() - answer.routedAt.getTime() >= RECOVERY_QUIET_MS) {
-    const endedAt = answer.answeredAt ?? answer.routedAt;
-    const missed = await db
-      .select({ channel: routedInteractions.channel })
+  const answeredAgainAt = answerRow ? asDate(answerRow.at) : null;
+  let stillPending = false;
+  if (answeredAgainAt) {
+    const [pending] = await db
+      .select({ n: sql<number>`count(*)::int` })
       .from(routedInteractions)
       .where(
         and(
           eq(routedInteractions.clinicId, clinicId),
-          isOutageMiss,
-          gte(routedInteractions.routedAt, incident.startedAt),
-          lt(routedInteractions.routedAt, answer.routedAt),
+          eq(routedInteractions.outcome, "pending"),
+          gt(routedInteractions.routedAt, lastFailureAt),
+          lte(routedInteractions.routedAt, now),
         ),
       );
-    const callCount = missed.filter((m) => m.channel === "voice").length;
-    const chatCount = missed.length - callCount;
+    stillPending = Number(pending?.n ?? 0) > 0;
+  }
+  if (answeredAgainAt && !stillPending && now.getTime() - answeredAgainAt.getTime() >= RECOVERY_QUIET_MS) {
+    const endedAt = answeredAgainAt;
+    const { callCount, chatCount } = await incidentCounts(db, clinicId, incident.startedAt, endedAt);
     const links = await linksOf(db, clinicId);
     if (!links) return;
     try {
       await db.transaction(async (savepoint) => {
         const closed = await savepoint
           .update(answerOutages)
-          .set({ status: "closed", endedAt, callCount, chatCount })
+          .set({ status: "closed", endedAt, callCount, chatCount, closedAt: now })
           .where(and(eq(answerOutages.id, incident.id), eq(answerOutages.status, "open")))
           .returning({ id: answerOutages.id });
         if (closed.length === 0) return;
+        step.ended += 1;
+        // A quiet (flapping) incident sent no L17, so it sends no L18.
+        if (incident.quiet) return;
         const payload: OutageEndedPayload = {
           endedAt: endedAt.toISOString(),
           callCount,
@@ -404,9 +518,7 @@ async function followOpenIncident(
           homeUrl: links.homeUrl,
           missedUrl: links.missedUrl,
         };
-        if (await enqueuePlanNotice(savepoint, clinicId, "outage_ended", `outage_ended:${incident.id}`, payload)) {
-          step.ended += 1;
-        }
+        await enqueuePlanNotice(savepoint, clinicId, "outage_ended", `outage_ended:${incident.id}`, payload);
       });
     } catch (error) {
       log.error("outage incident not closed", { clinicId, error: describeError(error) });
@@ -471,7 +583,8 @@ export async function firstMonthMisses(
   const rows = await db
     .select({
       channel: routedInteractions.channel,
-      routedAt: routedInteractions.routedAt,
+      // Dated by the call or message that failed, not the conversation's first.
+      missedAt: failedTime,
       contactId: missedContacts.id,
       outcome: missedContacts.outcome,
     })
@@ -492,21 +605,22 @@ export async function firstMonthMisses(
       and(
         eq(routedInteractions.clinicId, clinicId),
         eq(routedInteractions.outcome, "missed"),
-        gte(routedInteractions.routedAt, input.firstLiveAt),
-        lt(routedInteractions.routedAt, monthEnd),
-        gte(routedInteractions.routedAt, since),
+        sql`${failedTime} >= ${at(input.firstLiveAt)}`,
+        sql`${failedTime} < ${at(monthEnd)}`,
+        sql`${failedTime} >= ${at(since)}`,
         isNotNull(clinicChannels.liveAt),
-        lte(clinicChannels.liveAt, routedInteractions.routedAt),
+        sql`${clinicChannels.liveAt} <= ${failedTime}`,
       ),
     );
   // Only days that have ended, and settled past the pending grace.
   const settledToday = clinicLocalDate(new Date(input.now.getTime() - MISS_NOTICE_SETTLE_MS), input.timeZone);
   for (const row of rows) {
-    const day = clinicLocalDate(row.routedAt, input.timeZone);
+    const missedAt = asDate(row.missedAt);
+    const day = clinicLocalDate(missedAt, input.timeZone);
     if (day >= settledToday || day < month.startsOn || day > month.endsOn) continue;
     const entry: DayMisses = into.get(day) ?? new Map();
     const channel = row.channel as Channel;
-    const seen: ChannelDay = entry.get(channel) ?? { first: row.routedAt, count: 0, firstContact: null, contacts: new Map() };
+    const seen: ChannelDay = entry.get(channel) ?? { first: missedAt, count: 0, firstContact: null, contacts: new Map() };
     seen.count += 1;
     const contact = row.contactId
       ? {
@@ -516,8 +630,8 @@ export async function firstMonthMisses(
           wasRoutedToDirectLine: row.outcome === "direct_line" || row.outcome === "contact_form",
         }
       : null;
-    if (row.routedAt <= seen.first) {
-      seen.first = row.routedAt;
+    if (missedAt <= seen.first) {
+      seen.first = missedAt;
       seen.firstContact = contact ?? seen.firstContact;
     } else if (!seen.firstContact && contact) {
       seen.firstContact = contact;
@@ -654,8 +768,43 @@ async function runAfter(after: readonly After[]): Promise<void> {
   }
 }
 
+/** Runs of the sweep failed in a row, in this process (the worker runs it every minute). */
+let failedRunsInARow = 0;
+
+/**
+ * Item 7 of the final review: a sweep that keeps failing must not be only a
+ * log line, since every L17, L18 and L21 waits on it. After
+ * SWEEP_FAILING_AFTER_RUNS failed runs in a row (five minutes on the
+ * worker's clock), ops is told (`answer_notices_failing`); notifyOps keeps
+ * it to one alert an hour while the failures go on (OPS_DEDUPE_WINDOW_MS),
+ * falling back to this process's memory when the database itself is what
+ * failed. A run that succeeds starts the count again. Held in memory so it
+ * still counts while the database is down.
+ */
+export async function noteSweepOutcome(status: AnswerNoticesOutcome["status"]): Promise<boolean> {
+  if (status === "ok") {
+    failedRunsInARow = 0;
+    return false;
+  }
+  failedRunsInARow += 1;
+  if (failedRunsInARow < SWEEP_FAILING_AFTER_RUNS) return false;
+  await notifyOps("answer_notices_failing", { count: failedRunsInARow });
+  return true;
+}
+
+/** For tests: forget the failures counted so far. */
+export function resetSweepFailures(): void {
+  failedRunsInARow = 0;
+}
+
 /** The run: settle, then each clinic's outages, then each practice's first-month misses. Never throws. */
 export async function runAnswerNoticesSweep(now: Date = new Date()): Promise<AnswerNoticesOutcome> {
+  const out = await sweepOnce(now);
+  await noteSweepOutcome(out.status);
+  return out;
+}
+
+async function sweepOnce(now: Date): Promise<AnswerNoticesOutcome> {
   const out: AnswerNoticesOutcome = {
     status: "ok",
     note: "",

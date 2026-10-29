@@ -8564,10 +8564,21 @@ export const routedInteractions = pgTable(
     answeredAt: timestamp("answered_at", { withTimezone: true }),
     /** When the outcome last moved. */
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    /**
+     * When it was missed: the time the failing call or message reached us,
+     * written once as the row becomes `missed`. A conversation's row keeps
+     * its first message's `routed_at`, which on a Meta thread can be hours
+     * before a later message failed; the outage sweep, the miss notice's day
+     * and the missed-contact record date the miss by this instead.
+     */
+    failedAt: timestamp("failed_at", { withTimezone: true }),
   },
   (t) => [
     unique("routed_interactions_ref_key").on(t.clinicId, t.channel, t.refHash),
     index("routed_interactions_clinic_routed_idx").on(t.clinicId, t.routedAt),
+    index("routed_interactions_clinic_failed_idx")
+      .on(t.clinicId, t.failedAt)
+      .where(sql`${t.failedAt} is not null`),
     index("routed_interactions_pending_idx")
       .on(t.routedAt)
       .where(sql`${t.outcome} = 'pending'`),
@@ -8583,6 +8594,8 @@ export const routedInteractions = pgTable(
       "routed_interactions_reason_shape_check",
       sql`(${t.outcome} in ('pending', 'answered')) = (${t.reason} is null)`,
     ),
+    // A miss, and only a miss, is dated.
+    check("routed_interactions_failed_check", sql`(${t.outcome} = 'missed') = (${t.failedAt} is not null)`),
   ],
 );
 export type RoutedInteraction = typeof routedInteractions.$inferSelect;
@@ -8615,6 +8628,14 @@ export const answerOutages = pgTable(
     endedAt: timestamp("ended_at", { withTimezone: true }),
     callCount: integer("call_count"),
     chatCount: integer("chat_count"),
+    /** When the sweep closed it (and queued L18, unless `quiet`). */
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    /**
+     * Opened within OUTAGE_FLAP_WINDOW_MS of the last one closing: the clinic
+     * is sent neither L17 nor L18 for it, and ops is told once instead
+     * (lib/channels/answer-notices.ts, `aya_outage_flapping`).
+     */
+    quiet: boolean("quiet").notNull().default(false),
   },
   (t) => [
     unique("answer_outages_start_key").on(t.clinicId, t.startedAt),
@@ -8628,7 +8649,7 @@ export const answerOutages = pgTable(
     ),
     check(
       "answer_outages_closed_check",
-      sql`(${t.status} = 'closed') = (${t.endedAt} is not null) and (${t.endedAt} is null) = (${t.callCount} is null) and (${t.endedAt} is null) = (${t.chatCount} is null) and coalesce(${t.callCount}, 0) >= 0 and coalesce(${t.chatCount}, 0) >= 0 and ${t.escalations} >= 0`,
+      sql`(${t.status} = 'closed') = (${t.endedAt} is not null) and (${t.status} = 'closed') = (${t.closedAt} is not null) and (${t.endedAt} is null) = (${t.callCount} is null) and (${t.endedAt} is null) = (${t.chatCount} is null) and coalesce(${t.callCount}, 0) >= 0 and coalesce(${t.chatCount}, 0) >= 0 and ${t.escalations} >= 0`,
     ),
   ],
 );

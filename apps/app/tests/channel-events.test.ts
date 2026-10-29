@@ -1718,6 +1718,10 @@ describeDb("channel events against the database", () => {
     // A clinic recorded as a shared platform's bare apex is never confirmed by a sighting.
     expect(sightingHost("https://anyone.wixsite.com", "wixsite.com")).toBeNull();
     expect(sightingHost("https://clinic.wixsite.com", "clinic.wixsite.com")).toBe("clinic.wixsite.com");
+    // Google Sites serves every site from one host's paths; Business Profile sites share an apex.
+    expect(sightingHost("https://sites.google.com", "https://sites.google.com/view/glow-clinic")).toBeNull();
+    expect(sightingHost("https://business.site", "business.site")).toBeNull();
+    expect(sightingHost("https://glow.business.site", "glow.business.site")).toBe("glow.business.site");
 
     // The operator's tick alone satisfies the step too (owner, 29 October 2026), and the portal says who confirmed it.
     expect(await data("confirmWebWidget", { clinicId: victim.clinicId })).toEqual({ status: "updated" });

@@ -454,8 +454,9 @@ function AgentForm({ view, onSave }: { view: OnboardingView; onSave: Actions["sa
               </label>
               <p className="text-muted sm:col-span-2 text-xs">
                 The agent says a deposit is due and that the desk will call to collect it; the booking is flagged for the desk
-                and the booked alert says so. AYA never texts anyone: a payment link goes only inside a chat, through the
-                clinic&rsquo;s own gateway, and a call always leaves the deposit to the desk.
+                and the booked alert says so. AYA never texts anyone first: a payment link goes inside a chat, through the
+                clinic&rsquo;s own gateway, and a call leaves the deposit to the desk (the optional payment-link text after a
+                call is designed, not built, and nothing sends it).
               </p>
             </div>
           ) : null}

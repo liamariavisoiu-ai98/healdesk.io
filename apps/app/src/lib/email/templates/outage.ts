@@ -11,8 +11,9 @@ import type { EmailTemplate } from "./types";
  * mechanics, one Open Home button (owner, 29 October 2026).
  *
  *   - L17 is the owner's own text: AYA has not been able to answer since
- *     {when}, because of a fault at healdesk or one of our suppliers; we are
- *     working on it and will keep the clinic updated.
+ *     {when}, due to a connectivity error (or, when that is not what it is,
+ *     a technical fault on our side); we are working on it and will email
+ *     the moment it is fixed.
  *   - L18: AYA is answering again as of {when}, everything working normally;
  *     then, only when something reached the clinic meanwhile, one sentence
  *     with the two counts.
@@ -25,6 +26,8 @@ export type OutageStartedPayload = {
   startedAt: string;
   /** Calls are ringing through to a usable direct line. */
   canReachDirectLine: boolean;
+  /** The cause is a connectivity error; false is any other technical fault on our side. */
+  isConnectivityFault: boolean;
   /** Website chat is among what stopped: visitors see the contact form. */
   isChatAffected: boolean;
   /** publicUrl("/c/<slug>"): Home. */
@@ -45,16 +48,19 @@ export type OutageEndedPayload = {
 };
 
 export const renderOutageStarted: EmailTemplate<OutageStartedPayload> = (payload, ctx) => {
+  const cause = payload.isConnectivityFault
+    ? "a connectivity error"
+    : "a technical fault on our side";
   const blocks: Block[] = [
     {
       type: "paragraph",
-      text: `AYA hasn't been able to answer since ${momentLong(payload.startedAt, ctx)}. The cause is on our side and we're working on it now.`,
+      text: `AYA hasn't been able to answer since ${momentLong(payload.startedAt, ctx)} due to ${cause}. We're working on it now.`,
     },
   ];
   if (payload.canReachDirectLine) {
     blocks.push({
       type: "paragraph",
-      text: "Calls are ringing through to your direct line, so please keep it staffed.",
+      text: "In the meantime, calls are ringing through to your direct line, so please keep it staffed.",
     });
   }
   if (payload.isChatAffected) {
@@ -70,7 +76,7 @@ export const renderOutageStarted: EmailTemplate<OutageStartedPayload> = (payload
   return compose(
     {
       subject: "AYA can't answer right now",
-      preheader: "The cause is on our side and we're working on it now.",
+      preheader: "We're working on it now.",
       blocks,
     },
     ctx,
@@ -123,6 +129,7 @@ export const OUTAGE_STARTED_ENTRY: TemplateEntry<OutageStartedPayload> = {
   get fixture(): OutageStartedPayload {
     return {
       startedAt: "2026-10-06T13:04:00Z",
+      isConnectivityFault: true,
       canReachDirectLine: true,
       isChatAffected: false,
       homeUrl: publicUrl("/c/radiance-med-spa"),

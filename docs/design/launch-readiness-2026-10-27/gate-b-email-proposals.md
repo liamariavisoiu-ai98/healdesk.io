@@ -8,15 +8,15 @@ Payload keys are named to pass the allowlist in `lib/email/lint.ts`: its boolean
 
 **Subject:** AYA can't answer right now
 
-> AYA hasn't been able to answer since 9:04 am EDT on Tuesday 6 October. The cause is on our side and we're working on it now.
+> AYA hasn't been able to answer since 9:04 am EDT on Tuesday 6 October due to a connectivity error. We're working on it now.
 >
-> Calls are ringing through to your direct line, so please keep it staffed.
+> In the meantime, calls are ringing through to your direct line, so please keep it staffed.
 >
 > We'll email you the moment it's fixed.
 >
 > [Open Home]
 
-The direct-line sentence appears only when `canReachDirectLine` is true. When `isChatAffected` is true, "Website chat visitors are being shown your contact form." is added. Fields: `startedAt`, `canReachDirectLine`, `isChatAffected`, `homeUrl`.
+When `isConnectivityFault` is false, the first sentence ends "due to a technical fault on our side." The "In the meantime" sentence appears only when `canReachDirectLine` is true. When `isChatAffected` is true, "Website chat visitors are being shown your contact form." is added (alone, it has no "In the meantime"). Fields: `startedAt`, `isConnectivityFault`, `canReachDirectLine`, `isChatAffected`, `homeUrl`.
 
 ## L18, AYA is back (critical, any hour)
 

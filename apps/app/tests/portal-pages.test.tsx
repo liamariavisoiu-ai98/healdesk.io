@@ -355,7 +355,7 @@ describeDb("the portal's screens, before and after go-live", () => {
       expect(html).toContain(`href="/c/${portal.clinicSlug}/bookings"`);
       // This week, from the claims function.
       expect(words).toContain(
-        "This week The last 7 days. Conversations handled 1 Phone 1 call · 1 would otherwise have rung out Website chat 0 chats Booking requests taken 1 · 0 confirmed by your team",
+        "What AYA did this week AYA handled 1 conversation and took 1 booking request. 1 call would otherwise have rung out. The last 7 days. Conversations handled 1 Phone 1 call · 1 would otherwise have rung out Website chat 0 chats Booking requests taken 1 · 0 confirmed by your team",
       );
       expect(words).not.toMatch(/Maria|Lopez|4155550134|Consultation|Thursday afternoon|revenue/);
       expect(words).not.toContain("AYA isn’t answering patients yet");

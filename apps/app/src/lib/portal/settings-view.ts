@@ -35,14 +35,15 @@ import type { MetaPlatform } from "@/lib/meta/front-door";
 import { readMetaConnectView, type MetaConnectView } from "@/lib/meta/reconnect";
 import { urgentAlertReadiness } from "@/lib/notices/urgent-readiness";
 import {
-  channelNextStep,
-  channelStatusLabel,
-  channelStatusWord,
-  setupSentence,
-} from "@/lib/setup/channels";
+  channelPresentation,
+  metaNeedsReconnect,
+  metaPlatformStatus,
+  type ChannelPresentation,
+  type ChannelStatusKind,
+} from "@/lib/setup/channel-status";
 import { defaultChatGreeting, defaultPhoneGreeting } from "@/lib/setup/greetings";
 import { formatPhone } from "@/lib/setup/help";
-import { wizardFinished } from "@/lib/setup/screens";
+import { channelSetupFinished } from "@/lib/setup/screens";
 import type { SetupState } from "@/lib/setup/state";
 import { urgentHelpField } from "@/lib/setup/urgent";
 import { withTenant } from "@/lib/tenant";
@@ -72,6 +73,8 @@ export type SettingsView = {
     /** Where the channel stands, with its time where it has one: the wizard's label (channelStatusLabel). */
     statusLabel: string;
     line: string;
+    /** The channel's status, detail and one button (lib/setup/channel-status.ts), the same reading the wizard draws. */
+    presentation: ChannelPresentation;
     switchLine: string;
     applies: string | null;
     /**
@@ -86,6 +89,8 @@ export type SettingsView = {
       name: string;
       on: boolean;
       statusLabel: string;
+      /** This platform's own kind (metaPlatformStatus), for its glyph and data-channel-status. */
+      statusKind: ChannelStatusKind;
       switchLine: string;
     }[];
   }[];
@@ -205,7 +210,6 @@ export async function readSettingsView(input: {
     };
   });
   const summary = await getBillingSummary(state.clinic.id, { now });
-  const finished = wizardFinished(state.screens, state.progress);
   const { settings, clinic, knowledge } = state;
 
   const applies: Partial<Record<SettingKey, string | null>> = {};
@@ -240,7 +244,16 @@ export async function readSettingsView(input: {
     metaConnect: tenant.meta.connect,
     applies,
     channels: state.channels.map((c) => {
-      const statusLabel = channelStatusLabel(c, clinic.timezone, now);
+      const presentationOptions = {
+        setupFinished: channelSetupFinished(state.screens, state.progress),
+        timeZone: clinic.timezone,
+        now,
+      };
+      const presentation = channelPresentation(c, {
+        ...presentationOptions,
+        needsReconnect: c.channel === "meta" && metaNeedsReconnect(tenant.meta.connect),
+      });
+      const statusLabel = presentation.label;
       if (c.channel === "meta") {
         return {
           channel: c.channel,
@@ -248,25 +261,26 @@ export async function readSettingsView(input: {
           name: CHANNEL_NAMES[c.channel],
           on: c.enabled,
           statusLabel,
-          line: setupSentence(c.channel, channelNextStep(c, finished)),
+          line: presentation.detail,
+          presentation,
           switchLine: SWITCH_LINES[c.channel],
           applies: applies.channel_instagram ?? null,
           platforms: tenant.meta.connected.map((platform) => {
             const on = tenant.meta.switches[platform];
+            const platformStatus = metaPlatformStatus({
+              platform,
+              on,
+              // Without the channel-wide reconnect flag: only this platform's own login counts.
+              channel: channelPresentation(c, { ...presentationOptions, needsReconnect: false }),
+              connect: tenant.meta.connect,
+            });
             return {
               platform,
               key: `channel_${platform}` as SettingKey,
               name: META_PLATFORM_NAMES[platform],
               on,
-              // Off is the platform's own. A pause is clinic-wide, so it is true of
-              // every platform; but the Meta channel's live date is the first
-              // platform's, and one connected later did not go live then, so a
-              // live platform says only that it is live.
-              statusLabel: !on
-                ? channelStatusWord("off")
-                : c.status === "live"
-                  ? channelStatusWord("live")
-                  : statusLabel,
+              statusLabel: platformStatus.label,
+              statusKind: platformStatus.kind,
               switchLine: `Off leaves ${META_PLATFORM_NAMES[platform]} messages for your team to answer in ${META_PLATFORM_NAMES[platform]}.`,
             };
           }),
@@ -279,7 +293,8 @@ export async function readSettingsView(input: {
         name: CHANNEL_NAMES[c.channel],
         on: c.enabled,
         statusLabel,
-        line: setupSentence(c.channel, channelNextStep(c, finished)),
+        line: presentation.detail,
+        presentation,
         switchLine: SWITCH_LINES[c.channel],
         applies: applies[key] ?? null,
         platforms: [],

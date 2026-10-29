@@ -63,7 +63,7 @@ describeDb("the portal's screens", () => {
       const html = await renderHome();
       expect(html).toContain("AYA isn’t answering patients yet.");
       expect(html).toContain(`href="/c/${portal.clinicSlug}#tracker"`);
-      expect(html).toContain("Needs attention");
+      expect(html).toContain("Needs you");
       expect(html).toContain("Setup isn&#x27;t finished: 4 steps left.");
       expect(html).toContain("Building your AYA");
       expect(html).toMatch(/<button[^>]*disabled[^>]*>Talk to your AYA<\/button>/);
@@ -119,8 +119,10 @@ describeDb("the portal's screens", () => {
         );
       });
       const html = await renderHome();
-      const attention = html.slice(html.indexOf("Needs attention"));
-      expect(attention.indexOf(`We can&#x27;t email ${clinic.email}`)).toBeGreaterThan(0);
+      // The first item of the "Needs you" list: nothing else sits between the heading and it.
+      const list = html.slice(html.indexOf('id="attention-heading"'));
+      const firstItem = list.slice(list.indexOf("<li"), list.indexOf("</li>"));
+      expect(firstItem).toContain(`We can&#x27;t email ${clinic.email}`);
       expect(brokenLinks(html, portal.clinicSlug)).toEqual([]);
     });
   });

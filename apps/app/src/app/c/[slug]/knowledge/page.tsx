@@ -16,6 +16,7 @@ import { WEBSITE_CHANGE_SECTION_NAMES } from "@/lib/website/types";
 import type { HoursInitial } from "../editors";
 import { FeedbackProvider } from "../feedback";
 import { PortalShell } from "../PortalShell";
+import { EmptyState } from "../states";
 
 import {
   HoursForm,
@@ -60,9 +61,9 @@ export default async function KnowledgePage({ params }: { params: Promise<{ slug
     return (
       <PortalShell {...shell}>
         <h1 className="text-2xl font-semibold">Knowledge</h1>
-        <p className="border-line mt-6 rounded-xl border bg-white px-4 py-3">
-          This account has closed, so there is nothing left to change.
-        </p>
+        <div className="mt-6">
+          <EmptyState>This account has closed, so there is nothing left to change.</EmptyState>
+        </div>
       </PortalShell>
     );
   }

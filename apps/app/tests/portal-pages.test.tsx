@@ -346,23 +346,28 @@ describeDb("the portal's screens, before and after go-live", () => {
       const html = await render("home");
       const words = text(html);
       // The first card: counts and an age, one tap into Bookings, nobody named.
-      expect(words.indexOf("Waiting for you:")).toBeLessThan(words.indexOf("Needs attention"));
+      // It is the FIRST item of the "Needs you" list, ahead of the broken calendar and the rest.
+      expect(words).toContain("Needs you Waiting for you: 1 person to call back");
+      expect(words.indexOf("Waiting for you:")).toBeLessThan(
+        words.indexOf("Your calendar stopped working"),
+      );
       expect(words).toContain("Waiting for you: 1 person to call back (oldest 2 h) Open Bookings");
       expect(html).toContain(`href="/c/${portal.clinicSlug}/bookings"`);
       // This week, from the claims function.
       expect(words).toContain(
-        "This week The last 7 days. Conversations handled 1 Phone 1 call · 1 would otherwise have rung out Website chat 0 chats Booking requests taken 1 · 0 confirmed by your team",
+        "What AYA did this week AYA handled 1 conversation and took 1 booking request. 1 call would otherwise have rung out. The last 7 days. Conversations handled 1 Phone 1 call · 1 would otherwise have rung out Website chat 0 chats Booking requests taken 1 · 0 confirmed by your team",
       );
       expect(words).not.toMatch(/Maria|Lopez|4155550134|Consultation|Thursday afternoon|revenue/);
       expect(words).not.toContain("AYA isn’t answering patients yet");
       expect(words).not.toContain("Building your AYA");
       expect(html).not.toMatch(/<button[^>]*disabled[^>]*>Talk to your AYA<\/button>/);
-      expect(words).toMatch(/Website chat Live/);
-      expect(words).toMatch(/Phone Live/);
+      // The status glyph (aria-hidden) sits before the pill's words.
+      expect(words).toMatch(/Website chat ● Live/);
+      expect(words).toMatch(/Phone ● Live/);
       expect(words).toMatch(
         /Your plan started on [A-Z][a-z]+day \d{1,2} [A-Z][a-z]+, when AYA first answered/,
       );
-      const attention = words.slice(words.indexOf("Needs attention"));
+      const attention = words.slice(words.indexOf("Needs you Waiting for you:"));
       expect(attention).toContain(
         "Your calendar stopped working, so bookings arrive as requests your team confirms. Reconnect it in Settings",
       );
@@ -384,30 +389,33 @@ describeDb("the portal's screens, before and after go-live", () => {
       const settingsPills = (html: string, label: RegExp) =>
         html.match(new RegExp(`<span[^>]*rounded-full[^>]*>${label.source}</span>`, "g")) ?? [];
       const SINCE = /Live since 14 October(?: 2026)?/;
+      // Home draws each status with its glyph first (ChannelPill): ● live, ❚❚ paused.
+      const homeLive = (name: string) => new RegExp(`${name} ● ${SINCE.source} `);
+      const homePaused = (name: string, what: RegExp) => new RegExp(`${name} ❚❚ ${what.source} `);
       const UNTIL = /Paused until \d{1,2}(?::\d{2})? [ap]m [A-Z]{2,5} on Monday 2 March 2099/;
       const OPEN_ENDED = /Paused until you switch AYA back on/;
       await setChannels(`live_at = '2026-10-14T15:00:00Z'`);
       try {
         const home = text(await render("home"));
-        expect(home).toMatch(new RegExp(`Website chat ${SINCE.source} `));
-        expect(home).toMatch(new RegExp(`Phone ${SINCE.source} `));
+        expect(home).toMatch(homeLive("Website chat"));
+        expect(home).toMatch(homeLive("Phone"));
         expect(settingsPills(await render("settings"), SINCE)).toHaveLength(2);
 
         await pause(`ai_paused_at = now(), ai_paused_until = '2099-03-02T19:00:00Z'`);
         const pausedHome = text(await render("home"));
-        expect(pausedHome).toMatch(new RegExp(`Website chat ${UNTIL.source} `));
-        expect(pausedHome).toMatch(new RegExp(`Phone ${UNTIL.source} `));
+        expect(pausedHome).toMatch(homePaused("Website chat", UNTIL));
+        expect(pausedHome).toMatch(homePaused("Phone", UNTIL));
         expect(settingsPills(await render("settings"), UNTIL)).toHaveLength(2);
 
         await pause(`ai_paused_until = null`);
         const heldHome = text(await render("home"));
-        expect(heldHome).toMatch(new RegExp(`Website chat ${OPEN_ENDED.source} `));
-        expect(heldHome).toMatch(new RegExp(`Phone ${OPEN_ENDED.source} `));
+        expect(heldHome).toMatch(homePaused("Website chat", OPEN_ENDED));
+        expect(heldHome).toMatch(homePaused("Phone", OPEN_ENDED));
         const held = await render("settings");
         expect(settingsPills(held, OPEN_ENDED)).toHaveLength(2);
         // No bare word left on either screen.
         expect(settingsPills(held, /(?:Live|Paused)/)).toEqual([]);
-        expect(heldHome).not.toMatch(/(?:Website chat|Phone) (?:Live|Paused) (?!since |until )/);
+        expect(heldHome).not.toMatch(/(?:Website chat|Phone) \S+ (?:Live|Paused) (?!since |until )/);
         expect(await axeViolations(held, "settings")).toEqual([]);
       } finally {
         await pause(`ai_paused_at = null, ai_paused_until = null`);

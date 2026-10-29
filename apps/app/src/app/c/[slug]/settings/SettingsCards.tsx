@@ -4,12 +4,14 @@ import type { ReactNode } from "react";
 import { isBuiltSection, sectionPath } from "@/lib/portal/nav";
 import type { SettingsView } from "@/lib/portal/settings-view";
 import { WEB_CHAT_COUNTS_LINE } from "@/lib/setup/channels";
+import type { ChannelAction, ChannelPresentation, ChannelStatusKind } from "@/lib/setup/channel-status";
 import type { ForwardingView } from "@/lib/setup/forwarding";
 import type { ForwardingTestView } from "@/lib/setup/forwarding-test-words";
 import { GREETING_LABELS, META_GREETING_NOTE } from "@/lib/setup/greetings";
 
 import { portalMetaOutcome } from "@/lib/meta/portal-return";
 
+import { ChannelNextButton, ChannelPill } from "../ChannelStatus";
 import { ForwardingTestPanel } from "../ForwardingTestPanel";
 import { MetaConnectButtons } from "../MetaConnectButtons";
 import { SendStepsForm } from "../SendStepsForm";
@@ -116,7 +118,7 @@ export function ChannelsCard({
               applies={c.applies}
               initial={c.on}
             />
-            <StatusLine label={c.statusLabel} line={c.line} />
+            <StatusLine presentation={c.presentation} slug={view.slug} />
           </div>
         ) : (
           // The Meta channel: a switch for each platform the clinic has
@@ -134,16 +136,16 @@ export function ChannelsCard({
                   applies={c.applies}
                   initial={p.on}
                 />
-                <StatusLine label={p.statusLabel} />
+                <StatusLine label={p.statusLabel} kind={p.statusKind} />
               </div>
             ))}
             {c.platforms.length === 0 ? (
               <>
                 <p className="pt-3 font-semibold">{c.name}</p>
-                <StatusLine label={c.statusLabel} line={c.line} />
+                <StatusLine presentation={c.presentation} slug={view.slug} />
               </>
             ) : (
-              <StatusLine line={c.line} />
+              <StatusLine line={c.line} action={c.presentation.action} slug={view.slug} />
             )}
           </div>
         ),
@@ -211,18 +213,39 @@ export function ChannelsCard({
 // no transcript: each is emailed to the clinic when its conversation ends, and
 // BAA 1.4.0 gives the clinic no period to shorten (lib/portal/settings.ts).
 
-/** A channel's status word, and the one line on what happens next. */
-/** A channel's status label (the wizard's, with its time) and its line. */
-function StatusLine({ label, line }: { label?: string; line?: string }) {
+/**
+ * A channel's status pill, its one line and its one button. Given a whole
+ * presentation it draws all three; the Meta platforms pass their own label
+ * (and their own kind, for the glyph) and the channel's line below them.
+ */
+function StatusLine({
+  presentation,
+  label,
+  kind,
+  line,
+  action = null,
+  slug = "",
+}: {
+  presentation?: ChannelPresentation;
+  label?: string;
+  kind?: ChannelStatusKind;
+  line?: string;
+  action?: ChannelAction | null;
+  slug?: string;
+}) {
+  const shownLabel = presentation?.label ?? label;
+  const shownKind = presentation?.kind ?? kind ?? "waiting";
+  const shownLine = presentation?.detail ?? line;
+  const shownAction = presentation?.action ?? action;
   return (
-    <p className="text-muted -mt-1 pb-3 text-sm">
-      {label ? (
-        <span className="bg-paper-2 text-ink mr-2 inline-block max-w-full rounded-full px-2 py-0.5 text-xs font-semibold">
-          {label}
-        </span>
-      ) : null}
-      {line}
-    </p>
+    <div className="-mt-1 pb-3 text-sm">
+      <p className="text-muted">
+        {shownLabel ? <ChannelPill presentation={{ kind: shownKind, label: shownLabel }} /> : null}
+        {shownLabel && shownLine ? " " : null}
+        {shownLine}
+      </p>
+      <ChannelNextButton surface="settings" slug={slug} action={shownAction} />
+    </div>
   );
 }
 

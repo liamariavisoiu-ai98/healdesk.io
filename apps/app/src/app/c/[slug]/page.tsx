@@ -1,4 +1,9 @@
-import { audienceSingular, CHANNEL_NAMES, getPlan, planStartSentence } from "@healdesk/catalog";
+import {
+  audienceSingular,
+  CHANNEL_NAMES,
+  getPlan,
+  planStartSentence,
+} from "@healdesk/catalog";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
@@ -10,22 +15,34 @@ import { requirePortal } from "@/lib/portal/access";
 import { needsAttention } from "@/lib/portal/attention";
 import { readLaterLocations } from "@/lib/portal/location-details";
 import { portalDay } from "@/lib/portal/format";
-import { HOME_WEEK_DAYS, readHomeFacts, readHomePatientRequests } from "@/lib/portal/home";
+import {
+  HOME_WEEK_DAYS,
+  readHomeFacts,
+  readHomePatientRequests,
+} from "@/lib/portal/home";
+import { needItems, weekHeadline } from "@/lib/portal/home-summary";
 import { isBuiltSection, sectionPath } from "@/lib/portal/nav";
 import { loadPortalPage, shellProps } from "@/lib/portal/page";
-import { waitingSentence } from "@/lib/portal/waiting-words";
 import { claimLines } from "@/lib/reporting/claim-words";
 import { claimsPayload } from "@/lib/reporting/claims";
-import { channelNextStep, channelStatusLabel, setupSentence } from "@/lib/setup/channels";
-import { wizardFinished } from "@/lib/setup/screens";
+import {
+  channelPresentation,
+  metaNeedsReconnect,
+} from "@/lib/setup/channel-status";
+import { channelSetupFinished } from "@/lib/setup/screens";
 import { buildTracker, joinWords } from "@/lib/setup/tracker";
 import { withTenant } from "@/lib/tenant";
 
 import { AnswerAttentionCard } from "./AnswerAttentionCard";
+import { ChannelPill } from "./ChannelStatus";
+import { HomeUnavailable, NeedsYou, WhatAyaDid } from "./HomeSections";
 import { PatientRequestsCard } from "./PatientRequestsCard";
 import { PortalShell } from "./PortalShell";
 
-export const metadata: Metadata = { title: "Home · healdesk", referrer: "no-referrer" };
+export const metadata: Metadata = {
+  title: "Home · healdesk",
+  referrer: "no-referrer",
+};
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +65,11 @@ export const dynamic = "force-dynamic";
  * patient's request passed to the practice that nobody has marked received
  * (L32), with its day and one tap to its page, behind the step-up.
  */
-export default async function ClinicHome({ params }: { params: Promise<{ slug: string }> }) {
+export default async function ClinicHome({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
   const { slug } = await params;
   const portal = await requirePortal(slug);
   const now = new Date();
@@ -79,23 +100,37 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
     );
   }
 
-  const facts = await readHomeFacts({
-    clinicId: portal.clinicId,
-    address: state.address,
+  let facts: Awaited<ReturnType<typeof readHomeFacts>>;
+  try {
+    facts = await readHomeFacts({
+      clinicId: portal.clinicId,
+      address: state.address,
+      actor: page.actorContext,
+      channels: state.channels,
+      now,
+    });
+  } catch {
+    return (
+      <PortalShell {...shell}>
+        <h1 className="text-2xl font-semibold">Home</h1>
+        <HomeUnavailable />
+      </PortalShell>
+    );
+  }
+  const calendar = await getCalendarConnection(portal.clinicId, {
     actor: page.actorContext,
-    channels: state.channels,
-    now,
   });
-  const calendar = await getCalendarConnection(portal.clinicId, { actor: page.actorContext });
   const live = shell.status.kind !== "not_yet";
   const meta = state.channels.some((c) => c.channel === "meta")
-    ? await withTenant({ clinicId: portal.clinicId, actor: page.actorContext }, (tx) =>
-        readMetaConnectView(tx.db, tx.clinicId),
+    ? await withTenant(
+        { clinicId: portal.clinicId, actor: page.actorContext },
+        (tx) => readMetaConnectView(tx.db, tx.clinicId),
       )
     : null;
   const locationsToConfirm = (
-    await withTenant({ clinicId: portal.clinicId, actor: page.actorContext }, (tx) =>
-      readLaterLocations(tx),
+    await withTenant(
+      { clinicId: portal.clinicId, actor: page.actorContext },
+      (tx) => readLaterLocations(tx),
     )
   ).filter((l) => !l.confirmed);
   const attention = needsAttention({
@@ -107,15 +142,35 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
     meta,
     locationsToConfirm,
   });
-  const bookingsHref = isBuiltSection("bookings") ? sectionPath(portal.clinicSlug, "bookings") : null;
-  const conversationsHref = isBuiltSection("conversations") ? sectionPath(portal.clinicSlug, "conversations") : null;
+  const bookingsHref = isBuiltSection("bookings")
+    ? sectionPath(portal.clinicSlug, "bookings")
+    : null;
+  const conversationsHref = isBuiltSection("conversations")
+    ? sectionPath(portal.clinicSlug, "conversations")
+    : null;
+  const needs = needItems({
+    waiting: live ? facts.waiting : null,
+    endedEarly: live ? facts.endedEarly : 0,
+    attention,
+    bookingsHref,
+    conversationsHref,
+    now,
+    weekDays: HOME_WEEK_DAYS,
+  });
   const week = facts.week ? claimLines(claimsPayload(facts.week)) : [];
-  const tracker = buildTracker(state, calendar, facts.practice, facts.goLive ?? undefined);
-  const finished = wizardFinished(state.screens, state.progress);
+  const tracker = buildTracker(
+    state,
+    calendar,
+    facts.practice,
+    facts.goLive ?? undefined,
+  );
+  const finished = channelSetupFinished(state.screens, state.progress);
   const plan = state.billing ? getPlan(state.billing.boughtPlanId) : undefined;
   const one = audienceSingular(shell.audience);
   const started = state.billing?.planStartedAt ?? null;
-  const summary = started ? await getBillingSummary(portal.clinicId, { now }) : null;
+  const summary = started
+    ? await getBillingSummary(portal.clinicId, { now })
+    : null;
 
   return (
     <PortalShell {...shell}>
@@ -131,89 +186,31 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
         now={now}
       />
 
-      {live && facts.waiting ? (
-        <section aria-labelledby="waiting-heading" className="mt-6">
-          {/* The first card after go-live (plan Part F1): counts only, and
-              one tap into Bookings, where the people open behind the
-              passkey. */}
-          <div className="border-line flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white px-4 py-3">
-            <p>
-              <span id="waiting-heading" className="font-semibold">
-                Waiting for you:
-              </span>{" "}
-              {waitingSentence(facts.waiting, now)}
-            </p>
-            {bookingsHref ? (
-              <a
-                href={bookingsHref}
-                className="bg-ink inline-flex min-h-11 items-center rounded-full px-5 text-sm font-bold text-white"
-              >
-                Open Bookings
-              </a>
-            ) : null}
-          </div>
-        </section>
-      ) : null}
-
-      {live && facts.endedEarly > 0 && conversationsHref ? (
-        <section aria-labelledby="ended-early-heading" className="mt-6">
-          {/* Calls cut off by a fault this week (lib/voice/ended-early.ts):
-              a count and a pointer only; Conversations marks each one, and
-              the people open there behind the passkey. healdesk calls
-              nobody back: the team decides. */}
-          <div className="border-line flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white px-4 py-3">
-            <p>
-              <span id="ended-early-heading" className="font-semibold">
-                {facts.endedEarly === 1 ? "1 call ended early" : `${facts.endedEarly} calls ended early`}
-              </span>{" "}
-              in the last {HOME_WEEK_DAYS} days. The caller may want a call back.
-            </p>
-            <a
-              href={conversationsHref}
-              className="bg-ink inline-flex min-h-11 items-center rounded-full px-5 text-sm font-bold text-white"
-            >
-              Open Conversations
-            </a>
-          </div>
-        </section>
-      ) : null}
-
-      {attention.length > 0 ? (
-        <section aria-labelledby="attention-heading" className="mt-6">
-          <h2 id="attention-heading" className="text-lg font-semibold">
-            Needs attention
-          </h2>
-          <ul className="mt-3 grid gap-2">
-            {attention.map((item) => (
-              <li
-                key={item.key ?? item.id}
-                className="border-line flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white px-4 py-3"
-              >
-                <span>{item.text}</span>
-                <a
-                  href={item.action.href}
-                  className="bg-ink inline-flex min-h-11 items-center rounded-full px-5 text-sm font-bold text-white"
-                >
-                  {item.action.label}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+      <NeedsYou items={needs} answering={shell.status.kind === "answering"} />
 
       {live ? null : (
-        <section id="tracker" aria-labelledby="tracker-heading" className="mt-10 scroll-mt-6">
+        <section
+          id="tracker"
+          aria-labelledby="tracker-heading"
+          className="mt-10 scroll-mt-6"
+        >
           <h2 id="tracker-heading" className="text-lg font-semibold">
             Building your AYA
           </h2>
           <ol className="mt-3 grid gap-2">
             {tracker.stages.map((stage) => (
-              <li key={stage.id} className="border-line rounded-xl border bg-white px-4 py-3">
+              <li
+                key={stage.id}
+                className="border-line rounded-xl border bg-white px-4 py-3"
+              >
                 <p className="flex items-center justify-between gap-3 font-semibold">
                   <span>{stage.label}</span>
                   <span
-                    className={stage.state === "done" ? "text-green text-sm" : "text-muted text-sm"}
+                    className={
+                      stage.state === "done"
+                        ? "text-green text-sm"
+                        : "text-muted text-sm"
+                    }
                   >
                     {stage.state === "done"
                       ? "Done ✓"
@@ -251,34 +248,28 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
             )}
             <p id="preview-left" className="text-muted mt-2 text-sm">
               {tracker.previewUnlocked ? (
-                <>Every stage above is done: talk to her before anyone else does.</>
+                <>
+                  Every stage above is done: talk to her before anyone else
+                  does.
+                </>
               ) : (
                 <>
                   Opens when every stage above is done. Still to come:{" "}
                   {joinWords(tracker.left.map((l) => l.toLowerCase()))}.
                 </>
               )}{" "}
-              In the preview nothing reaches {shell.audience}, and nothing is booked.
+              In the preview nothing reaches {shell.audience}, and nothing is
+              booked.
             </p>
           </div>
         </section>
       )}
 
-      {live && week.length > 0 ? (
-        <section aria-labelledby="week-heading" className="mt-10">
-          <h2 id="week-heading" className="text-lg font-semibold">
-            This week
-          </h2>
-          <p className="text-muted mt-1 text-sm">The last 7 days.</p>
-          <dl className="border-line mt-3 grid gap-2 rounded-xl border bg-white px-4 py-3">
-            {week.map((line) => (
-              <div key={line.label} className="flex flex-wrap items-baseline justify-between gap-x-3">
-                <dt className="text-muted">{line.label}</dt>
-                <dd className="font-semibold">{line.value}</dd>
-              </div>
-            ))}
-          </dl>
-        </section>
+      {live && facts.week ? (
+        <WhatAyaDid
+          headline={weekHeadline(claimsPayload(facts.week))}
+          lines={week}
+        />
       ) : null}
 
       <section aria-labelledby="channels-heading" className="mt-10">
@@ -286,20 +277,31 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
           Your channels
         </h2>
         <ul className="mt-3 grid gap-2">
-          {state.channels.map((c) => (
-            <li key={c.channel} className="border-line rounded-xl border bg-white px-4 py-3">
-              <p className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-semibold">{CHANNEL_NAMES[c.channel]}</span>
-                {/* The wizard's label; it wraps rather than overflows, as "Paused until …" can. */}
-                <span className="bg-paper-2 max-w-full rounded-full px-3 py-1 text-xs font-semibold">
-                  {channelStatusLabel(c, state.clinic.timezone, now)}
-                </span>
-              </p>
-              <p className="text-muted mt-1 text-sm">
-                {setupSentence(c.channel, channelNextStep(c, finished))}
-              </p>
-            </li>
-          ))}
+          {state.channels.map((c) => {
+            const presentation = channelPresentation(c, {
+              setupFinished: finished,
+              timeZone: state.clinic.timezone,
+              now,
+              needsReconnect: c.channel === "meta" && metaNeedsReconnect(meta),
+            });
+            return (
+              <li
+                key={c.channel}
+                className="border-line rounded-xl border bg-white px-4 py-3"
+              >
+                <p className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-semibold">
+                    {CHANNEL_NAMES[c.channel]}
+                  </span>
+                  {/* The same pill and sentence as Settings and the wizard; it wraps rather than overflows. */}
+                  <span>
+                    <ChannelPill presentation={presentation} />
+                  </span>
+                </p>
+                <p className="text-muted mt-1 text-sm">{presentation.detail}</p>
+              </li>
+            );
+          })}
         </ul>
         {isBuiltSection("settings") ? (
           <p className="text-muted mt-3 text-sm">
@@ -322,8 +324,9 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
           </h2>
           {started && summary ? (
             <p className="text-muted mt-2">
-              {plan.name}. Your plan started on {portalDay(started, state.clinic.timezone, now)},
-              when AYA first answered
+              {plan.name}. Your plan started on{" "}
+              {portalDay(started, state.clinic.timezone, now)}, when AYA first
+              answered
               {summary.firstPeriodEndsAt
                 ? `; your first ${state.billing.interval === "year" ? "year" : "month"} runs to ${portalDay(
                     new Date(new Date(summary.firstPeriodEndsAt).getTime() - 1),
@@ -335,18 +338,23 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
             </p>
           ) : (
             <p className="text-muted mt-2">
-              {plan.name}. {planStartSentence(plan, state.billing.interval, one)}
+              {plan.name}.{" "}
+              {planStartSentence(plan, state.billing.interval, one)}
             </p>
           )}
           {state.billing.setupDeadlineAt && !started ? (
             <p className="text-muted mt-2 text-sm">
               Setup stays available until{" "}
               {portalDay(
-                setupLastDay(state.billing.setupDeadlineAt, state.clinic.timezone),
+                setupLastDay(
+                  state.billing.setupDeadlineAt,
+                  state.clinic.timezone,
+                ),
                 state.clinic.timezone,
                 now,
               )}
-              . If nothing is answering {shell.audience} by the end of that day, the account closes.
+              . If nothing is answering {shell.audience} by the end of that day,
+              the account closes.
             </p>
           ) : null}
           {isBuiltSection("billing") ? (

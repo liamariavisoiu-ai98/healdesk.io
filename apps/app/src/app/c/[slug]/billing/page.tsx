@@ -31,6 +31,7 @@ import { loadPortalPage, shellProps } from "@/lib/portal/page";
 
 import { FeedbackProvider } from "../feedback";
 import { PortalShell } from "../PortalShell";
+import { EmptyState } from "../states";
 
 import {
   AddLocation,
@@ -235,7 +236,9 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
               Usage
             </h2>
             {summary.usage.length === 0 ? (
-              <p className="text-muted mt-2 text-sm">Nothing to measure on this plan.</p>
+              <div className="mt-2">
+                <EmptyState>Nothing to measure on this plan.</EmptyState>
+              </div>
             ) : (
               <>
                 <ul className="mt-2 grid gap-4">

@@ -50,6 +50,7 @@ import {
 } from "@/lib/setup/prices";
 import { dueReminderNumber, isDaytime, SETUP_REMINDER_COUNT } from "@/lib/setup/reminders";
 import {
+  channelSetupFinished,
   neighbours,
   resumeScreen,
   screensFor,
@@ -161,6 +162,14 @@ describe("the clinic's screens", () => {
     );
     expect(wizardFinished(screens, all)).toBe(true);
     expect(resumeScreen(screens, all)).toBe("backup");
+    // Channel status uses one rule everywhere: everything before the channels
+    // screen has been left, whether or not the channels screen itself has.
+    const beforeChannels = new Map(all);
+    beforeChannels.delete("channels");
+    expect(wizardFinished(screens, beforeChannels)).toBe(false);
+    expect(channelSetupFinished(screens, beforeChannels)).toBe(true);
+    beforeChannels.delete("tone");
+    expect(channelSetupFinished(screens, beforeChannels)).toBe(false);
     expect(neighbours(screens, "basics")).toEqual({ previous: null, next: "hours" });
     expect(neighbours(screens, "backup")).toEqual({ previous: "channels", next: null });
   });

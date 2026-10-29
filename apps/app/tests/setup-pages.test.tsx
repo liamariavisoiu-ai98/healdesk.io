@@ -320,7 +320,8 @@ describeDb("the setup wizard's pages", () => {
       try {
         const html = await wizard({ s: "channels" });
         const words = text(html);
-        expect(words).toContain("Website chat Waiting on you Paste one line on your website.");
+        expect(words).toContain("Waiting for the line on your website");
+        expect(words).toContain("Paste one line on your website.");
         expect(words).toContain("The line for your website");
         // The line confirms itself from two opens on the site (or an
         // operator), not on the paste, and live waits on the other inputs
@@ -424,15 +425,15 @@ describeDb("the setup wizard's pages", () => {
       );
       try {
         expect(text(await wizard({ s: "channels" }))).toMatch(
-          /Website chat Live since 14 October(?: 2026)? /,
+          /Website chat ● Live since 14 October(?: 2026)? /,
         );
         await pause(`ai_paused_at = now(), ai_paused_until = '2099-03-02T19:00:00Z'`);
         expect(text(await wizard({ s: "channels" }))).toMatch(
-          /Website chat Paused until \d{1,2}(?::\d{2})? [ap]m [A-Z]{2,5} on Monday 2 March 2099 /,
+          /Website chat ❚❚ Paused until \d{1,2}(?::\d{2})? [ap]m [A-Z]{2,5} on Monday 2 March 2099 /,
         );
         await pause(`ai_paused_until = null`);
         expect(text(await wizard({ s: "channels" }))).toContain(
-          "Website chat Paused until you switch AYA back on",
+          "Website chat ❚❚ Paused until you switch AYA back on",
         );
       } finally {
         await pause(`ai_paused_at = null, ai_paused_until = null`);
@@ -460,7 +461,8 @@ describeDb("the setup wizard's pages", () => {
       try {
         const html = await wizard({ s: "channels" });
         const words = text(html);
-        expect(words).toContain("Phone Waiting on you Set call forwarding on your main line.");
+        expect(words).toContain("Waiting for call forwarding");
+        expect(words).toContain("Set call forwarding on your main line.");
         expect(words).not.toContain("Don't change your call forwarding");
         expect(words).toContain("Forward your main line’s calls to AYA");
         expect(words).toContain("(512) 555-0142");

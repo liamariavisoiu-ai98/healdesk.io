@@ -16,6 +16,7 @@ import type { ConversationListItem } from "@/lib/portal/conversations";
 import { portalMoment } from "@/lib/portal/format";
 
 import { useAnnounce } from "../feedback";
+import { EmptyState } from "../states";
 
 import { confirmExportAction, exportAllAction, findConversationsAction } from "./actions";
 import { digestOf, downloadJson } from "./download";
@@ -174,17 +175,23 @@ export function ConversationsView(props: {
         {problem ? <p className="mt-2 text-sm text-red-800">{problem}</p> : null}
       </form>
 
-      <p role="status" aria-live="polite" className="text-muted mt-6 text-sm">
-        {rows.length === 0
-          ? shownFlagged
-            ? "No flagged conversations. Open one and use Flag this answer when AYA gets something wrong."
-            : filtered
-              ? "No conversations match."
-              : "No conversations yet."
-          : `${rows.length === 1 ? "1 conversation" : `${rows.length} conversations`}${
-              rows.length >= props.limit ? `, the newest ${props.limit}` : ""
-            }, newest first.`}
-      </p>
+      {rows.length === 0 ? (
+        <div className="mt-6">
+          <EmptyState live>
+            {shownFlagged
+              ? "No flagged conversations. Open one and use Flag this answer when AYA gets something wrong."
+              : filtered
+                ? "No conversations match."
+                : "No conversations yet. They appear here once AYA answers a call, chat or message."}
+          </EmptyState>
+        </div>
+      ) : (
+        <p role="status" aria-live="polite" className="text-muted mt-6 text-sm">
+          {`${rows.length === 1 ? "1 conversation" : `${rows.length} conversations`}${
+            rows.length >= props.limit ? `, the newest ${props.limit}` : ""
+          }, newest first.`}
+        </p>
+      )}
 
       <ul className="mt-3 grid gap-2">
         {rows.map((row) => (

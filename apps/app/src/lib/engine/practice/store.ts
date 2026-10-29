@@ -37,6 +37,7 @@ import { readSetupState, type SetupState } from "@/lib/setup/state";
 import { answersMissing, stagesLeft, TALK_TO_AYA_BUILT } from "@/lib/setup/tracker";
 import type { TenantTx } from "@/lib/tenant";
 
+import { readPracticeBookingFacts } from "./booking";
 import { PRACTICE_CASES_VERSION } from "./cases";
 import type { ClinicTexts } from "./checks";
 import type { ChannelOutcome, PracticeChannelInput, PracticeKnowledge } from "./runner";
@@ -167,6 +168,14 @@ export type PracticeInputs = {
   channelVersions: Partial<Record<Channel, string>>;
 };
 
+/**
+ * How a run reads the clinic. `directBookingOpen` is the seam for the
+ * owner's direct-booking switch (lib/booking/direct-switch.ts): absent, the
+ * real switch is read, as every channel reads it; a test passes its own to
+ * ask the booking cases of the tools without setting any environment.
+ */
+export type PracticeReadOptions = { directBookingOpen?: () => boolean };
+
 /** The clinic's own never-say phrases, without the built-in defaults, which are ours. */
 function ownNeverSay(stored: readonly string[]): string[] {
   const defaults = new Set(NEVER_SAY_DEFAULTS.map((p) => p.trim().toLowerCase()));
@@ -181,16 +190,20 @@ function ownNeverSay(stored: readonly string[]): string[] {
 export async function readPracticeInputs(
   tx: TenantTx,
   now: Date = new Date(),
+  options: PracticeReadOptions = {},
 ): Promise<PracticeInputs | null> {
   const state = await readSetupState(tx, { userId: null, now });
   if (!state || state.clinic.offboardingStartedAt) return null;
   const bought = state.channels.map((c) => c.channel);
   const channels: PracticeChannelInput[] = [];
+  // The booking cases' settings: part of each channel's input version, so a
+  // change to the mode, the deposits or the switch asks the questions again.
+  const booking = await readPracticeBookingFacts(tx, options);
   if (bought.includes("web") || bought.includes("voice")) {
     const facts = await assistantFacts(tx, { asApproved: true });
     if (facts) {
-      if (bought.includes("web")) channels.push({ channel: "web", facts });
-      if (bought.includes("voice")) channels.push({ channel: "voice", facts });
+      if (bought.includes("web")) channels.push({ channel: "web", facts, booking });
+      if (bought.includes("voice")) channels.push({ channel: "voice", facts, booking });
     }
   }
   if (bought.includes("meta")) {
@@ -200,6 +213,7 @@ export async function readPracticeInputs(
         channel: "meta",
         facts,
         languages: state.settings.languages.length ? state.settings.languages : ["en"],
+        booking,
       });
   }
   const [agent] = await tx.db
@@ -416,6 +430,8 @@ export async function recordPracticeRun(
     now: Date;
     /** Tests only: whether Talk to your AYA exists, for O8. */
     talkToAyaBuilt?: boolean;
+    /** How the run read the clinic, so the re-read below reads it the same way. */
+    readOptions?: PracticeReadOptions;
   },
 ): Promise<RecordedOutcome> {
   const { run, read, now } = input;
@@ -497,7 +513,7 @@ export async function recordPracticeRun(
   }
 
   // What the cases read now, against what they read when the run started.
-  const now2 = await readPracticeInputs(tx, now);
+  const now2 = await readPracticeInputs(tx, now, input.readOptions);
   if (!now2 || now2.inputVersion !== read.inputVersion) {
     await finish({ status: "superseded" });
     // The change that moved the inputs asked for a run, which already waits
@@ -795,9 +811,10 @@ export type PracticeGate =
  * channel"). A channel already live is never held back, whatever the latest
  * run says. One that is not live needs the latest run passed, with its own
  * result passed, and nothing changed since: the questions' pass or a
- * review's, never an approval without a run. For the go-live event's writer
- * (WP1, WP2), which asks it per channel. drizzle/0097's
- * app_practice_gate_open is the SQL.
+ * review's, never an approval without a run, and never one whose cases
+ * record a case the runtime could not ask (recordsAnUnaskedCase). For the
+ * go-live event's writer (WP1, WP2), which asks it per channel.
+ * drizzle/0137's app_practice_gate_open is the SQL.
  */
 export async function practiceQuestionsGate(
   tx: Pick<TenantTx, "db" | "clinicId">,
@@ -814,7 +831,7 @@ export async function practiceQuestionsGate(
   if (!state.latest) return { open: false, why: "not_run" };
   if (state.latest.status !== "passed") return { open: false, why: state.latest.status };
   const [result] = await tx.db
-    .select({ status: practiceQuestionResults.status })
+    .select({ status: practiceQuestionResults.status, cases: practiceQuestionResults.cases })
     .from(practiceQuestionResults)
     .where(
       and(
@@ -823,9 +840,22 @@ export async function practiceQuestionsGate(
       ),
     )
     .limit(1);
-  return result?.status === "passed"
+  return result?.status === "passed" && !recordsAnUnaskedCase(result.cases)
     ? { open: true, why: "passed" }
     : { open: false, why: "channel_not_passed" };
+}
+
+/**
+ * A result that records a case the runtime could not ask
+ * (runtime_has_no_tools): every pass from before 29 October 2026, when the
+ * booking and deposit cases had no checks. "Pass means every case" (the
+ * spec), so such a pass, an operator's decision on it included, opens no
+ * channel: the next run asks every case (PRACTICE_CASES_VERSION changed, so
+ * nothing earlier is reused). drizzle/0137 reads app_practice_gate_open the
+ * same way.
+ */
+export function recordsAnUnaskedCase(cases: readonly PracticeCaseResult[] | null | undefined): boolean {
+  return (cases ?? []).some((c) => c.notApplicable === "runtime_has_no_tools");
 }
 
 // -----------------------------------------------------------------------------

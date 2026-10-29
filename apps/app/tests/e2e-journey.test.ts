@@ -106,6 +106,11 @@ vi.mock("@/lib/compliance/gate-b", async (importOriginal) => {
  *   console's sign-in or the HMAC hop from apps/web.
  * - Gate B in code is mocked built from step 6 on (see the mock below): on
  *   main it is not, and no clinic can go live. Step 6 shows that hold first.
+ *   Its practice-questions item is built for real since 29 October 2026
+ *   (every case askable, lib/engine/practice/booking.ts), so the mock stands
+ *   in only for the routed/answered counter and the live emails; the
+ *   fixture's pass (tests/setup/practice.ts) records no case the runtime
+ *   could not ask, so the gate opens on it without the mock's help.
  *
  * DB-1's switch (HEALDESK_DIRECT_BOOKING_ENABLED and
  * HEALDESK_DIRECT_BOOKING_ADDENDUM) is set in THIS PROCESS ONLY, for the last
@@ -123,7 +128,9 @@ import { bookedLine, detailsBeforeHoldLine } from "@/lib/booking/lines";
 import { readToken, sendWebChatMessage, startWebChat, webChatClinic, type WebChatClinic } from "@/lib/chat/web-chat";
 import { welcomeState } from "@/lib/checkout/welcome";
 import { beginGoogleSignIn, completeGoogleSignIn } from "@/lib/connections/google-oauth";
+import { gateBInCode } from "@/lib/compliance/gate-b";
 import { recordSesTranscriptEvent } from "@/lib/conversations/transcript-outbox";
+import { practiceQuestionsGate } from "@/lib/engine/practice/store";
 import { runBillingNoticesJob } from "@/lib/email/outbox";
 import {
   finishPasskeyAuthentication,
@@ -629,8 +636,15 @@ describeDb("E2E: a synthetic clinic from checkout to a booked appointment", () =
       [J.clinicId],
     );
     expect(alerts.map((a) => a.fields.code)).toContain("gate_b_not_built");
+    // The practice questions' part of Gate B is not mocked: built for real,
+    // and its gate open on this pass, which recorded no case it could not ask.
+    expect(gateBInCode().find((i) => i.id === "practice_questions")?.built).toBe(true);
+    expect(await withTenant({ clinicId: J.clinicId, actor: SERVICE }, (tx) => practiceQuestionsGate(tx, "web"))).toEqual({
+      open: true,
+      why: "passed",
+    });
 
-    // Stand in for the commit that builds Gate B (see the mock's note).
+    // Stand in for the commit that builds the rest of Gate B (see the mock's note).
     gate.built = true;
     await setGateBCodeBuilt(true);
     await withTenant({ clinicId: J.clinicId, actor: SERVICE }, (tx) => evaluateChannels(tx, { only: "web", actor: "ops" }));

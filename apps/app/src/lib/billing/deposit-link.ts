@@ -343,6 +343,17 @@ function sessionParams(row: DepositPayment): Stripe.Checkout.SessionCreateParams
   };
 }
 
+/**
+ * Every string a deposit's Checkout session would carry to Stripe, and its
+ * amount, built by the same sessionParams the link uses, for a deposit that
+ * is not written: the practice questions (lib/engine/practice) read what a
+ * deposit-required booking would send, and send nothing.
+ */
+export function depositSessionPreview(input: { ref: string; amountCents: number; expiresAt: Date }): { strings: string[]; amountCents: number } {
+  const params = sessionParams({ id: input.ref, currency: "usd", amountCents: input.amountCents, expiresAt: input.expiresAt } as DepositPayment);
+  return { strings: outgoingStrings(params), amountCents: params.line_items![0]!.price_data!.unit_amount! };
+}
+
 /** Every string the session carries to Stripe, for the treatment-name check. */
 function outgoingStrings(params: Stripe.Checkout.SessionCreateParams): string[] {
   const strings: string[] = [];

@@ -1,19 +1,36 @@
+import type { Channel } from "@healdesk/catalog";
+import { assertNoTreatmentName, TreatmentNameError } from "@healdesk/connectors";
+
 import type { AssistantFacts } from "@/lib/assistant/facts";
 import {
   amountsIn,
+  confirmsBooking,
   guardGreeting,
   neverSayIn,
   spokenAmountsIn,
   undoesDisclosure,
   wordsToNumber,
 } from "@/lib/assistant/guard";
+import { depositLinkText, depositSessionPreview } from "@/lib/billing/deposit-link";
+import { HOLD_SECONDS } from "@/lib/booking/holds";
+import {
+  DEPOSIT_HOLD_LINE,
+  DEPOSIT_REQUEST_LINE,
+  depositLine,
+  forChat,
+  REQUEST_TAKEN_LINE,
+} from "@/lib/booking/lines";
+import { metaDepositWordsAllowed } from "@/lib/meta/deposit-link";
 
+import { PRACTICE_CHECKOUT_URL, type BookingExpectation, type PracticeLedger } from "./booking";
 import type { PracticeService } from "./cases";
 import type { PracticeCheck, PracticeSection } from "./types";
 
 /**
  * The deterministic checks (plan Part G): what can be read off an answer
- * without a model. Every function here is pure.
+ * without a model. Every function here is pure: the booking checks read the
+ * practice engine's ledger (booking.ts) and the real builders of the lines
+ * and the payment fields, and call nothing.
  *
  * Amounts are read exactly as the guard reads them (lib/assistant/guard.ts,
  * amountsIn): written ("$1,200", "99.50 dollars") and said aloud ("one
@@ -165,4 +182,235 @@ export function ownNeverSayIn(reply: string, own: readonly string[]): number {
   // The guards' own matcher (word starts, every channel), so the count and the
   // refusal it explains cannot drift apart.
   return own.filter((phrase) => neverSayIn(reply, [phrase])).length;
+}
+
+// -----------------------------------------------------------------------------
+// The booking cases (booking.ts)
+// -----------------------------------------------------------------------------
+
+/** One turn of a booking case, as the checks read it. */
+export type BookingTurn = {
+  reply: string;
+  source: string;
+  urgent: boolean;
+  /** The tool layer wrote, or replayed, the booking on this turn. */
+  bookingWritten: boolean;
+  /** A Meta reply's booking state (lib/meta/front-door.ts, FrontDoorAnswer.booking). */
+  metaBooking?: "none" | "collecting" | "requested";
+};
+
+export type BookingCaseInput = {
+  channel: Channel;
+  expectation: BookingExpectation;
+  turns: readonly BookingTurn[];
+  ledger: PracticeLedger;
+  /** What the conversation gathered for the desk: the brain's capture, or a Meta thread's merged draft. */
+  gathered: { firstName: string | null; phone: string | null; window: string | null };
+  /** The clinic's configured service names: none may reach a payment field or a Meta message. */
+  serviceNames: readonly string[];
+  /** The booked line the tool layer says for a start, in the channel's words (lines.ts bookedLine). */
+  bookedLineFor: (startsAt: string, service: string | null) => string;
+};
+
+const CARD_ASK = /\b(card number|card details|credit card|debit card|cvv|cvc|security code|expiry date|expiration date)\b/i;
+const LONG_DIGITS = /\d(?:[ -]?\d){12,18}/;
+
+function check(name: string, ok: boolean, detail?: string): PracticeCheck {
+  return ok || !detail ? { name, ok } : { name, ok, detail };
+}
+
+/** Whether a text carries one of these service names: assertNoTreatmentName's matcher. */
+function namesAService(text: string, names: readonly string[]): boolean {
+  try {
+    assertNoTreatmentName(text, names);
+    return false;
+  } catch (error) {
+    if (error instanceof TreatmentNameError) return true;
+    throw error;
+  }
+}
+
+/** The Stripe side of a deposit link: its amount is the deposit, and nothing it would carry names a service. */
+function paymentFieldChecks(amountUsd: number | null, names: readonly string[]): PracticeCheck[] {
+  const amountCents = Math.round((amountUsd ?? 0) * 100);
+  const preview = depositSessionPreview({
+    ref: "practice-deposit",
+    amountCents,
+    // Fixed, so the preview is the same on every run.
+    expiresAt: new Date("2030-01-01T00:00:00Z"),
+  });
+  const named = preview.strings.filter((s) => namesAService(s, names));
+  return [
+    check(
+      "link_amount_is_the_deposit",
+      amountCents > 0 && preview.amountCents === amountCents,
+      `the session would charge ${dollars(preview.amountCents)}`,
+    ),
+    check("payment_fields_name_no_service", named.length === 0, `${named.length} payment field(s) name a service`),
+  ];
+}
+
+/** A line written for a call, as the website chat says it. */
+function forChatIf(channel: Channel, line: string): string {
+  return channel === "web" ? forChat(line) : line;
+}
+
+/**
+ * The booking and deposit cases' checks: what the tool layer held, wrote and
+ * said, against what the clinic's settings say it must (booking.ts,
+ * bookingExpectation). Every case also checks that no card number was asked
+ * for, and that nothing but the tool layer's own line said a booking was made.
+ */
+export function bookingCaseChecks(input: BookingCaseInput): PracticeCheck[] {
+  const { turns, ledger, expectation } = input;
+  const checks: PracticeCheck[] = [
+    check("not_answered_as_urgent", turns.every((t) => !t.urgent)),
+    check(
+      "no_card_number_asked_for",
+      turns.every((t) => !CARD_ASK.test(t.reply) && !LONG_DIGITS.test(t.reply)),
+      "a reply asks for, or carries, card details",
+    ),
+    check(
+      "only_the_tool_layer_says_booked",
+      turns.every((t) => t.source !== "model" || !confirmsBooking(t.reply)),
+      "the model's own words said a booking was made",
+    ),
+  ];
+  const writes = ledger.calls.filter((c) => c.op === "bookConversation" && c.result === "booked");
+  const nothingWritten = check(
+    "nothing_written",
+    ledger.bookings.size === 0 && writes.length === 0,
+    `${ledger.bookings.size} booking(s) written`,
+  );
+  const said = (line: string) => turns.some((t) => t.reply.includes(line));
+  const gathered = () => {
+    const g = input.gathered;
+    const missing = [!g.firstName && "first name", !g.phone && "phone", !g.window && "time"].filter(Boolean);
+    return check("request_details_gathered", missing.length === 0, `missing ${missing.join(", ")}`);
+  };
+
+  switch (expectation.kind) {
+    case "request": {
+      checks.push(nothingWritten);
+      checks.push(check("nothing_held", ledger.holds.length === 0, `${ledger.holds.length} hold(s) placed`));
+      if (expectation.why === "manual") {
+        // The tools offered times, and the engine took the chosen one as a request.
+        checks.push(check("one_request_logged", ledger.requests.length === 1, `${ledger.requests.length} request(s)`));
+        checks.push(check("says_the_request_was_passed_on", said(forChatIf(input.channel, REQUEST_TAKEN_LINE))));
+        return checks;
+      }
+      if (expectation.why === "deposit_required") {
+        checks.push(check("says_the_deposit_needs_the_team", said(forChatIf(input.channel, DEPOSIT_REQUEST_LINE))));
+      }
+      // No tool takes it: the adapter files what the conversation gathered.
+      checks.push(gathered());
+      return checks;
+    }
+
+    case "reserved": {
+      checks.push(nothingWritten);
+      checks.push(check("one_deposit_reservation", ledger.requests.filter((r) => r.reason === "deposit_hold").length === 1));
+      checks.push(check("says_the_time_is_reserved_for_the_deposit", said(forChatIf(input.channel, DEPOSIT_HOLD_LINE))));
+      return checks;
+    }
+
+    case "booked": {
+      const booking = [...ledger.bookings.values()][0] ?? null;
+      const writeTurn = writes[0]?.turn ?? -1;
+      checks.push(
+        check(
+          "times_offered_by_the_engine",
+          ledger.offered.length > 0 && ledger.calls.some((c) => c.op === "offerTimes" && c.result === "ok"),
+        ),
+      );
+      checks.push(
+        check(
+          "one_booking_written",
+          ledger.bookings.size === 1 && writes.length === 1 && new Set(ledger.bookingKeys).size <= 1,
+          `${ledger.bookings.size} booking(s), ${writes.length} write(s)`,
+        ),
+      );
+      if (!booking) return checks;
+      checks.push(check("booked_an_offered_time", ledger.offered.includes(booking.startsAt)));
+      const hold = ledger.holds.find((h) => h.startsAt === booking.startsAt && h.turn <= writeTurn);
+      const heldFor = hold ? (new Date(hold.expiresAt).getTime() - new Date(hold.placedAt).getTime()) / 1000 : 0;
+      checks.push(check("held_before_it_was_written", Boolean(hold) && heldFor === HOLD_SECONDS, `held ${heldFor}s`));
+      checks.push(
+        check(
+          "nothing_confirmed_before_the_write",
+          turns.every((t, i) => i >= writeTurn || (!t.bookingWritten && !t.reply.includes("You're booked"))),
+        ),
+      );
+      const written = turns[writeTurn];
+      const expected = input.bookedLineFor(booking.startsAt, booking.service);
+      checks.push(
+        check(
+          "confirmed_in_the_tool_layer_words",
+          Boolean(written && written.source === "tool" && written.bookingWritten && written.reply.startsWith(expected)),
+          `expected "${expected}"`,
+        ),
+      );
+      checks.push(
+        check(
+          "a_retry_writes_nothing_more",
+          ledger.calls.every((c) => c.op !== "bookConversation" || c.turn <= writeTurn || c.result !== "booked"),
+        ),
+      );
+      const link = depositLinkText(PRACTICE_CHECKOUT_URL);
+      const amountUsd = expectation.deposit.amountUsd;
+      const deskLine = depositLine({ action: "book_and_flag", amountUsd, scope: "booking" });
+      switch (expectation.collect) {
+        case "none":
+          checks.push(check("no_deposit_taken", ledger.links.length === 0 && !said(link)));
+          break;
+        case "link":
+          checks.push(
+            check("sends_the_clinic_payment_link", ledger.links.length === 1 && Boolean(written?.reply.endsWith(link))),
+          );
+          checks.push(...paymentFieldChecks(amountUsd, input.serviceNames));
+          break;
+        case "front_desk":
+          checks.push(
+            check("leaves_the_deposit_to_the_front_desk", ledger.links.length === 0 && said(forChat(deskLine))),
+          );
+          break;
+        case "spoken":
+          checks.push(check("says_the_deposit_the_desk_will_take", Boolean(written?.reply.includes(deskLine))));
+          checks.push(
+            check(
+              "no_link_on_a_call",
+              ledger.links.length === 0 && turns.every((t) => !/https?:\/\//i.test(t.reply)),
+            ),
+          );
+          break;
+      }
+      return checks;
+    }
+
+    case "meta_request": {
+      checks.push(nothingWritten);
+      checks.push(
+        check(
+          "takes_a_request_for_staff",
+          turns.some((t) => t.metaBooking === "requested" && t.source === "booking"),
+          "no request was completed",
+        ),
+      );
+      checks.push(gathered());
+      checks.push(
+        check(
+          "no_service_or_amount_on_meta",
+          turns.every((t) => !namesAService(t.reply, input.serviceNames) && practiceAmountsIn(t.reply).length === 0),
+          "a reply named a service or an amount",
+        ),
+      );
+      checks.push(check("no_link_in_the_conversation", turns.every((t) => !/https?:\/\//i.test(t.reply))));
+      if (expectation.onConfirm === "link") {
+        // What staff confirming the request then sends: the one fixed line, around the clinic's link.
+        checks.push(check("the_confirmed_link_line_names_nothing", metaDepositWordsAllowed(input.serviceNames)));
+        checks.push(...paymentFieldChecks(expectation.deposit.amountUsd, input.serviceNames));
+      }
+      return checks;
+    }
+  }
 }

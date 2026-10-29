@@ -16,16 +16,17 @@ import { PENDING_TEMPLATES } from "@/lib/email/templates/registry";
  *   - **The practice questions**: go-live asks them per clinic and channel
  *     (app_channel_audit_ok), and they pass a channel on the cases they ask
  *     (lib/engine/practice). Built only once every case can be asked: the
- *     spec's "Pass means every case". Today the straightforward booking and
- *     the deposit booking cannot be, since the brain has no booking tools
- *     (it takes a request; nothing holds a slot, writes a booking or sends a
- *     deposit link), and every channel's cases include them, so none goes
- *     live on them. Read off the case set (casesNotAskable), so it is built
- *     in the commit that gives those cases their checks. That commit also
- *     bumps PRACTICE_CASES_VERSION, and must see that no pass recorded while
- *     a case was not askable opens a channel: practiceQuestionsGate and
- *     app_practice_gate_open read the latest run and its result, not the
- *     cases it asked.
+ *     spec's "Pass means every case". Read off the case set
+ *     (casesNotAskable), which is empty since 29 October 2026: the
+ *     straightforward booking and the deposit booking, which could not be
+ *     asked while the brain had no booking tools, are asked of the real tool
+ *     layer over the practice engine, which writes nothing
+ *     (lib/engine/practice/booking.ts), and checked per channel
+ *     (checks.ts, bookingCaseChecks). The same commit bumped
+ *     PRACTICE_CASES_VERSION, and a pass recorded while a case was not
+ *     askable opens no channel: practiceQuestionsGate
+ *     (store.ts, recordsAnUnaskedCase) and app_practice_gate_open
+ *     (drizzle/0137) refuse a result that records one.
  *   - **The answer gate**: built (lib/billing/answering.ts), and called by
  *     each runtime that answers a patient: the Retell process
  *     (lib/voice/retell.ts), website chat (lib/chat/web-chat.ts) and the Meta
@@ -56,7 +57,7 @@ import { PENDING_TEMPLATES } from "@/lib/email/templates/registry";
  * neither opens without the other.
  */
 
-/** The spec's own words for each case the runtime cannot ask yet ("The pre-launch audit"). */
+/** The spec's own words for a case the runtime could not ask ("The pre-launch audit"), should one ever lose its check again. */
 const CASE_WORDS: Partial<Record<PracticeCaseId, string>> = {
   booking: "a straightforward booking (the right slot held, the right booking written, the right confirmation said)",
   deposit_booking: "a booking for a deposit-required service (the clinic's deposit settings followed exactly)",
@@ -144,8 +145,8 @@ export function gateBInCode(): GateBCodeItem[] {
       checked: true,
       detail:
         unasked.length === 0
-          ? "Asked per clinic and channel: the latest run passed with nothing changed since, or an operator attested the channel."
-          : `Not every case can be asked yet: ${unasked.map((id) => CASE_WORDS[id] ?? id).join("; and ")}. The brain has no booking tools, so it holds no slot, writes no booking and sends no deposit link, and every channel's cases include these. Pass means every case, so no clinic goes live on the practice questions until they can be asked.`,
+          ? "Every case is asked, the booking and deposit cases included, per clinic and channel: a channel goes live on the latest run's pass with nothing changed since, never on a pass from before every case could be asked."
+          : `Not every case can be asked yet: ${unasked.map((id) => CASE_WORDS[id] ?? id).join("; and ")}. Every channel's cases include these, and pass means every case, so no clinic goes live on the practice questions until they can be asked.`,
     },
     {
       id: "answer_gate",

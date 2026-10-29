@@ -391,12 +391,15 @@ describe("Gate B in code", () => {
     );
   });
 
-  // The 19 October audit: the booking and deposit cases are hard-coded not
-  // applicable while the brain has no tools, the channel's result passed
+  // The 19 October audit: the booking and deposit cases were hard-coded not
+  // applicable while the brain had no tools, the channel's result passed
   // without them, and Gate B marked the practice questions built, so go-live
   // could proceed on a pass that never asked them. Pass means every case.
-  test("the practice questions are not built while a case cannot be asked: the booking and deposit cases, on every channel, until the brain has booking tools", () => {
-    expect(casesNotAskable()).toEqual(["booking", "deposit_booking"]);
+  // Since 29 October 2026 both are asked of the tool layer on every channel
+  // (lib/engine/practice/booking.ts), so the item is built, and a pass from
+  // before then opens nothing (store.ts recordsAnUnaskedCase, drizzle/0137).
+  test("the practice questions are built only because every case can be asked: the booking and deposit cases, on every channel", () => {
+    expect(casesNotAskable()).toEqual([]);
     const profile = {
       clinicName: "Glow",
       specialty: "med-spa",
@@ -405,18 +408,19 @@ describe("Gate B in code", () => {
       languages: ["en"] as const,
     };
     for (const channel of ["web", "voice", "meta"] as const) {
-      const unasked = practiceCases({ ...profile, languages: [...profile.languages] }, channel)
-        .filter((c) => c.notApplicable === "runtime_has_no_tools")
-        .map((c) => c.id);
-      expect(unasked, channel).toEqual(["booking", "deposit_booking"]);
+      const cases = practiceCases({ ...profile, languages: [...profile.languages] }, channel);
+      for (const id of ["booking", "deposit_booking"]) {
+        const kase = cases.find((c) => c.id === id)!;
+        expect(kase, `${channel} ${id}`).toBeDefined();
+        expect(kase.notApplicable, `${channel} ${id}`).toBeUndefined();
+        expect(kase.turns.length, `${channel} ${id}`).toBeGreaterThan(1);
+      }
     }
     const item = gateBInCode().find((i) => i.id === "practice_questions")!;
-    expect(item).toMatchObject({ built: false, checked: true });
-    expect(item.detail).toMatch(/a straightforward booking/);
-    expect(item.detail).toMatch(/a booking for a deposit-required service/);
-    expect(item.detail).toMatch(/Pass means every case/);
-    // Named where go-live names what is not built, so it holds every clinic.
-    expect(gateBNotBuilt()).toContain(`${item.label}: ${item.detail}`);
+    expect(item).toMatchObject({ built: true, checked: true });
+    expect(item.detail).toMatch(/booking and deposit cases included/);
+    expect(item.detail).not.toMatch(/no booking tools/);
+    expect(gateBNotBuilt().some((line) => line.startsWith(item.label))).toBe(false);
   });
 
   test("the routed/answered counter and the live set are built; what is not built is still named and asked", () => {

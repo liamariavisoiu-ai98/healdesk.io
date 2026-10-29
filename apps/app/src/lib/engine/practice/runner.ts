@@ -7,8 +7,18 @@ import {
   type Channel,
 } from "@healdesk/catalog";
 
+import {
+  bookingTools,
+  EMPTY_TOOL_STATE,
+  type BookingTools,
+  type BookingToolState,
+} from "@/lib/assistant/booking-tools";
 import type { AssistantFacts } from "@/lib/assistant/facts";
 import { openingLine } from "@/lib/assistant/opening";
+import type { assistantMayAnswer } from "@/lib/billing/answering";
+import { slotLabel } from "@/lib/booking/calendar";
+import { bookedLine, forChat } from "@/lib/booking/lines";
+import { EMPTY_BOOKING_FIELDS, mergeBookingFields, type BookingFields } from "@/lib/meta/booking-requests";
 import { closureLines, priceText } from "@/lib/assistant/prompt";
 import {
   answerTurn,
@@ -22,7 +32,9 @@ import {
 import { disclosureFor, metaChannelGreeting } from "@/lib/compliance/disclosure";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import {
+  bookingStepAnswer,
   draftFrontDoorAnswer,
+  gatheredBooking,
   META_NEVER_SAY_REASON,
   openWithGreeting,
   parseModelReply,
@@ -33,6 +45,15 @@ import {
 } from "@/lib/meta/front-door";
 
 import {
+  bookingExpectation,
+  emptyLedger,
+  NO_DIRECT_BOOKING,
+  practiceEngine,
+  practiceToolsLive,
+  type PracticeBookingFacts,
+  type PracticeLedger,
+} from "./booking";
+import {
   isVeterinary,
   LANGUAGE_NAMES_IN_ENGLISH,
   PRACTICE_CASES_VERSION,
@@ -41,6 +62,7 @@ import {
   type PracticeProfile,
 } from "./cases";
 import {
+  bookingCaseChecks,
   greetingKeepsDisclosure,
   greetingPassesTheGuard,
   handsOff,
@@ -75,6 +97,11 @@ import type {
  * Nothing is recorded: no conversation, no usage, no transcript, no alert,
  * no booking request. Those are the adapters' writes, and the practice
  * questions call the brain beneath them. Each case is its own conversation.
+ * The phone and the website chat are given the real booking tool layer
+ * (lib/assistant/booking-tools.ts) wherever the clinic's settings offer it,
+ * over the practice engine (booking.ts), which holds, writes and links
+ * nothing anywhere; Meta's booking cases merge the request as
+ * answerFrontDoor does, and create none.
  * The model is wrapped only to keep what it wrote, so a reply the guard
  * refused can be traced to the clinic's own data (its never-say list, a
  * price its own answers contradict) or to us.
@@ -83,9 +110,17 @@ import type {
  * tests pass fakes, and never reach Anthropic.
  */
 
-export type PracticeChannelInput =
+export type PracticeChannelInput = (
   | { channel: "web" | "voice"; facts: AssistantFacts }
-  | { channel: "meta"; facts: FrontDoorFacts; languages: readonly AssistantLanguage[] };
+  | { channel: "meta"; facts: FrontDoorFacts; languages: readonly AssistantLanguage[] }
+) & {
+  /**
+   * The clinic's booking settings, as the booking cases read them
+   * (booking.ts, readPracticeBookingFacts); absent is NO_DIRECT_BOOKING, a
+   * clinic that books by request and takes no deposits.
+   */
+  booking?: PracticeBookingFacts;
+};
 
 /** The clinic's own knowledge, for telling a failure that is its data from one that is ours. */
 export type PracticeKnowledge = {
@@ -125,6 +160,7 @@ export function practiceInputVersion(input: PracticeChannelInput): string {
     channel: input.channel,
     facts: input.facts,
     ...(input.channel === "meta" ? { languages: input.languages } : {}),
+    booking: input.booking ?? NO_DIRECT_BOOKING,
   });
   return createHash("sha256").update(body).digest("hex");
 }
@@ -147,6 +183,32 @@ type Answer = {
   failed: boolean;
   /** What a booking request has gathered so far, carried to the conversation's next turn. */
   capture: BookingCapture;
+  /** The tool layer wrote, or replayed, the conversation's booking on this turn. */
+  bookingWritten: boolean;
+  /** On Meta, the reply's booking state: collecting a request, or the request completed. */
+  metaBooking?: "none" | "collecting" | "requested";
+};
+
+/**
+ * One conversation's booking state: the tool layer over the practice engine
+ * (web and voice, while the clinic's settings offer the tools), its state
+ * between turns and the engine's ledger; on Meta, the request's draft as
+ * answerFrontDoor would merge it. Each case is its own conversation.
+ */
+type Session = {
+  tools: BookingTools | null;
+  toolState: BookingToolState;
+  ledger: PracticeLedger;
+  /** Meta: the request's fields so far, and everything the conversation gathered. */
+  metaDraft: BookingFields | null;
+  metaGathered: BookingFields | null;
+};
+
+const PRACTICE_ACTOR = { type: "service", serviceName: "practice-questions" } as const;
+
+/** The answer gate is the engine's to ask before a write, and the practice engine writes nothing: never asked. */
+const NEVER_ASKED: typeof assistantMayAnswer = async () => {
+  throw new Error("The practice questions never ask the answer gate: nothing is written.");
 };
 
 type Brain = {
@@ -165,7 +227,16 @@ type Brain = {
     text: string,
     first: boolean,
     capture: BookingCapture,
+    session: Session,
   ): Promise<Answer>;
+  /** A fresh conversation's booking state, for one case. */
+  session(caseId: string): Session;
+  /** The clinic's booking settings, as this run read them. */
+  booking: PracticeBookingFacts;
+  /** The booked line the tool layer says for a start, in this channel's words. */
+  bookedLineFor(startsAt: string, service: string | null): string;
+  /** Every configured service name: none may reach a payment field or a Meta message. */
+  serviceNames: string[];
   /** The fixed urgent line this text should get on this channel, or null when the matcher does not fire. */
   urgentExpected(text: string): string | null;
   /** The number the urgent line gives, or null when there is none to give. */
@@ -189,11 +260,13 @@ function figuresOf(
 }
 
 function assistantBrain(
-  input: { channel: "web" | "voice"; facts: AssistantFacts },
+  input: { channel: "web" | "voice"; facts: AssistantFacts; booking?: PracticeBookingFacts },
   deps: PracticeRunDeps,
 ): Brain {
   const { facts } = input;
   const channel = input.channel === "voice" ? "voice" : "web_chat";
+  const booking = input.booking ?? NO_DIRECT_BOOKING;
+  const live = practiceToolsLive(booking);
   const vet = isVeterinary(facts.specialty);
   const known = [
     ...facts.policies,
@@ -242,6 +315,37 @@ function assistantBrain(
       languages: facts.languages,
     },
     factsSummary: summary,
+    booking,
+    serviceNames: allServiceNames(booking, facts.services),
+    bookedLineFor: (startsAt, service) => {
+      const line = bookedLine(slotLabel(new Date(startsAt), facts.timeZone), service);
+      return channel === "web_chat" ? forChat(line) : line;
+    },
+    session(caseId) {
+      const ledger = emptyLedger();
+      const holderKey = `practice:${channel}:${caseId}`;
+      // The real tool layer, exactly as the adapters wire it, over the
+      // practice engine; offered while the clinic's settings offer it
+      // (booking-tools.ts available(): the switch, and real times).
+      const real = live
+        ? bookingTools(
+            {
+              clinicId: facts.clinicId,
+              channel,
+              holderKey,
+              bookingKey: `${holderKey}:1`,
+              conversationId: null,
+              timeZone: facts.timeZone,
+              actor: PRACTICE_ACTOR,
+              budgetMs: 5_000,
+            },
+            practiceEngine(booking, ledger),
+            NEVER_ASKED,
+          )
+        : null;
+      const tools: BookingTools | null = real ? { ...real, available: async () => true } : null;
+      return { tools, toolState: EMPTY_TOOL_STATE, ledger, metaDraft: null, metaGathered: null };
+    },
     urgentExpected(text) {
       const finding = findUrgentContent(text, facts.specialty, { clinicName: facts.clinicName });
       if (!finding) return null;
@@ -251,7 +355,7 @@ function assistantBrain(
       // The owner's default until answered (H4, 21 October 2026): yes.
       return finding.otherLanguage ? languageLine(facts, channel) : urgentReply(facts, channel, finding, deps.now);
     },
-    async ask(history, text, _first, capture) {
+    async ask(history, text, _first, capture, session) {
       let wrote: string | null = null;
       const responder: AssistantResponder | null = deps.responder
         ? async (request) => {
@@ -268,12 +372,16 @@ function assistantBrain(
         capture,
         responder,
         now: deps.now,
+        tools: session.tools,
+        toolState: session.toolState,
       });
+      session.toolState = turn.toolState;
       const modelText = wrote === null ? null : parseModelAnswer(wrote).reply;
       return {
         reply: turn.reply,
         body: turn.reply,
         capture: turn.capture,
+        bookingWritten: turn.tool?.bookingWritten === true,
         source: turn.source,
         urgent: turn.urgent,
         guard: turn.guard ?? null,
@@ -285,10 +393,16 @@ function assistantBrain(
 }
 
 function metaBrain(
-  input: { channel: "meta"; facts: FrontDoorFacts; languages: readonly AssistantLanguage[] },
+  input: {
+    channel: "meta";
+    facts: FrontDoorFacts;
+    languages: readonly AssistantLanguage[];
+    booking?: PracticeBookingFacts;
+  },
   deps: PracticeRunDeps,
 ): Brain {
   const { facts } = input;
+  const booking = input.booking ?? NO_DIRECT_BOOKING;
   const greeting = metaChannelGreeting({ clinicName: facts.clinicName, channel: "messenger" });
   const vet = isVeterinary(facts.specialty);
   const summary = [
@@ -316,11 +430,22 @@ function metaBrain(
       languages: input.languages,
     },
     factsSummary: summary,
+    booking,
+    serviceNames: allServiceNames(booking, facts.services, facts.serviceNames),
+    // A Meta thread books nothing: no booked line is ever its to say.
+    bookedLineFor: () => "",
+    session: () => ({
+      tools: null,
+      toolState: EMPTY_TOOL_STATE,
+      ledger: emptyLedger(),
+      metaDraft: null,
+      metaGathered: null,
+    }),
     urgentExpected(text) {
       const finding = findUrgentContent(text, facts.specialty, { clinicName: facts.clinicName });
       return finding ? urgentLine(facts, finding, deps.now) : null;
     },
-    async ask(_history, text, first, capture) {
+    async ask(_history, text, first, capture, session) {
       let wrote: string | null = null;
       const responder: FrontDoorResponder | null = deps.metaResponder
         ? async (system, message) => {
@@ -330,15 +455,25 @@ function metaBrain(
           }
         : null;
       const draft = await draftFrontDoorAnswer(facts, { text, responder, now: deps.now });
-      const reply = first
-        ? openWithGreeting(greeting, draft.answer, facts.clinicName)
-        : draft.answer.text;
+      // The request, as answerFrontDoor collects it: merged over the turns,
+      // and the fixed request-received line once it is complete. Nothing is
+      // created and no alert queued.
+      let answer = draft.answer;
+      if (gatheredBooking(draft)) {
+        const merged = mergeBookingFields(session.metaDraft, draft.extracted ?? EMPTY_BOOKING_FIELDS);
+        answer = bookingStepAnswer(facts, answer, merged);
+        session.metaGathered = merged;
+        session.metaDraft = answer.booking === "requested" ? null : merged;
+      }
+      const reply = first ? openWithGreeting(greeting, answer, facts.clinicName) : answer.text;
       return {
         reply,
-        body: draft.answer.text,
+        body: answer.text,
         capture,
-        source: draft.answer.source,
-        urgent: draft.answer.source === "urgent",
+        bookingWritten: false,
+        metaBooking: answer.booking,
+        source: answer.source,
+        urgent: answer.source === "urgent",
         guard: draft.answer.guard,
         modelText: wrote === null ? null : parseModelReply(wrote).reply,
         failed:
@@ -353,22 +488,50 @@ function metaBrain(
 // The cases
 // -----------------------------------------------------------------------------
 
-type Asked = { asked: string[]; answers: Answer[] };
+type Asked = { asked: string[]; answers: Answer[]; session: Session };
 
-async function converse(brain: Brain, turns: readonly string[]): Promise<Asked> {
+async function converse(brain: Brain, turns: readonly string[], caseId: string): Promise<Asked> {
   const history: TranscriptTurn[] = brain.opening
     ? [{ speaker: "assistant", text: brain.opening }]
     : [];
   const answers: Answer[] = [];
+  const session = brain.session(caseId);
   let capture = EMPTY_CAPTURE;
   for (const [i, text] of turns.entries()) {
-    const answer = await brain.ask([...history], text, i === 0, capture);
+    session.ledger.turn = i;
+    const answer = await brain.ask([...history], text, i === 0, capture, session);
     capture = answer.capture;
     answers.push(answer);
     history.push({ speaker: "person", text }, { speaker: "assistant", text: answer.reply });
     if (answer.failed) break;
   }
-  return { asked: [...turns], answers };
+  return { asked: [...turns], answers, session };
+}
+
+/** Every service name the clinic configured, approved or not, deduplicated. */
+function allServiceNames(
+  booking: PracticeBookingFacts,
+  services: readonly { name: string }[],
+  more: readonly string[] = [],
+): string[] {
+  return [...new Set([...services.map((s) => s.name), ...booking.deposits.services.map((s) => s.name), ...more])].filter(
+    (n) => typeof n === "string" && n.trim().length > 0,
+  );
+}
+
+/**
+ * The service a booking case's expectation is read for: the one it asked
+ * about; on Meta, where the thread names none and staff choose the service
+ * when they confirm, the clinic's first service that takes a deposit for the
+ * deposit case, so its settings are what the case checks.
+ */
+function bookingServiceOf(kase: PracticeCase, brain: Brain): string | null {
+  if (kase.id === "deposit_booking") {
+    const own = kase.service && (kase.service.depositUsd ?? 0) > 0 ? kase.service.name : null;
+    const any = brain.booking.deposits.services.find((s) => (s.depositUsd ?? 0) > 0)?.name ?? null;
+    return own ?? any ?? kase.service?.name ?? null;
+  }
+  return kase.service?.name ?? null;
 }
 
 function result(
@@ -483,7 +646,7 @@ async function evaluate(
   knowledge: PracticeKnowledge,
   deps: PracticeRunDeps,
 ): Promise<PracticeCaseResult> {
-  const none: Asked = { asked: [...kase.turns], answers: [] };
+  const none: Asked = { asked: [...kase.turns], answers: [], session: brain.session(kase.id) };
   if (kase.notApplicable) {
     return { ...result(kase, none, "not_applicable", []), notApplicable: kase.notApplicable };
   }
@@ -491,7 +654,7 @@ async function evaluate(
   if (kase.id === "disclosure") {
     // The phone's and the chat's opening line; Meta's is checked on every
     // first reply once the other cases have run (evaluateChannel).
-    const opened: Asked = { asked: [], answers: [] };
+    const opened: Asked = { asked: [], answers: [], session: none.session };
     const base = {
       ...result(kase, opened, "passed", []),
       answered: [brain.opening ?? ""],
@@ -523,7 +686,7 @@ async function evaluate(
     });
   }
 
-  const asked = await converse(brain, kase.turns);
+  const asked = await converse(brain, kase.turns, kase.id);
   if (asked.answers.some((a) => a.failed) || asked.answers.length < kase.turns.length) {
     return result(kase, asked, "error", [{ name: "model_answered", ok: false }]);
   }
@@ -623,17 +786,50 @@ async function evaluate(
       return judged(kase, asked, [notUrgent, ...figures], brain, channel, deps);
     }
 
-    default:
-      return result(kase, asked, "not_applicable", []);
+    case "booking":
+    case "deposit_booking": {
+      // What the clinic's own settings say the booking must come to on this
+      // channel, and what the tool layer and the engine did (booking.ts).
+      const expectation = bookingExpectation(brain.booking, channel, bookingServiceOf(kase, brain));
+      const { session } = asked;
+      const capture = asked.answers[asked.answers.length - 1]?.capture ?? EMPTY_CAPTURE;
+      const meta = session.metaGathered;
+      const checks = bookingCaseChecks({
+        channel,
+        expectation,
+        turns: asked.answers.map((a) => ({
+          reply: a.body,
+          source: a.source,
+          urgent: a.urgent,
+          bookingWritten: a.bookingWritten,
+          ...(a.metaBooking ? { metaBooking: a.metaBooking } : {}),
+        })),
+        ledger: session.ledger,
+        gathered:
+          channel === "meta"
+            ? { firstName: meta?.firstName ?? null, phone: meta?.phone ?? null, window: meta?.preferredWindow ?? null }
+            : { firstName: capture.firstName, phone: capture.phone, window: capture.window },
+        serviceNames: brain.serviceNames,
+        bookedLineFor: brain.bookedLineFor,
+      });
+      return checks.every((c) => c.ok) ? result(kase, asked, "passed", checks) : failed(kase, asked, checks);
+    }
+
+    default: {
+      // Every case has its checks: a new case id fails to compile here until it does.
+      const unchecked: never = kase.id;
+      return result({ ...kase, id: unchecked }, asked, "not_applicable", []);
+    }
   }
 }
 
 /**
  * The channel's result: error over failed over review over passed. Passed
- * means every case asked passed; a case not applicable is not asked. One the
- * runtime cannot ask yet (the booking cases) still holds go-live, through
- * Gate B (lib/compliance/gate-b.ts, casesNotAskable), rather than here: the
- * cases that were asked still approve the script the channel would read.
+ * means every case asked passed; a case not applicable is not asked (the
+ * language case for an English-only clinic). One the runtime could not ask
+ * would hold go-live through Gate B (lib/compliance/gate-b.ts,
+ * casesNotAskable) rather than here, and a result recording one opens no
+ * channel (store.ts, practiceQuestionsGate; drizzle/0137).
  */
 export function channelStatus(cases: readonly PracticeCaseResult[]): PracticeResultStatus {
   if (cases.some((c) => c.status === "error")) return "error";

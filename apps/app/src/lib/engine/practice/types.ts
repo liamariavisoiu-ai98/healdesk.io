@@ -34,14 +34,14 @@ export type PracticeCaseId = (typeof PRACTICE_CASE_IDS)[number];
  *   - passed: every check held (and the judge, where it reads the case, passed it);
  *   - failed: a deterministic check failed;
  *   - review: only the judge failed it, or could not say: a person decides;
- *   - not_applicable: the case cannot be checked against this runtime (the
- *     booking cases, until the brain has tools), or does not apply to the
- *     clinic (a second language it does not serve); never counted as a pass.
- *     One the clinic does not need is simply not asked. One the runtime
- *     cannot ask is a case the spec's "Pass means every case" still needs:
- *     while any is, Gate B names the practice questions as not built
- *     (lib/compliance/gate-b.ts, casesNotAskable) and no clinic goes live on
- *     them, whatever its run passed;
+ *   - not_applicable: the case does not apply to the clinic (a second
+ *     language it does not serve) or the channel (Meta answers in English
+ *     only); never counted as a pass. One the clinic does not need is simply
+ *     not asked. One the runtime could not ask (the booking cases until
+ *     29 October 2026) is a case the spec's "Pass means every case" still
+ *     needs: while any is, Gate B names the practice questions as not built
+ *     (lib/compliance/gate-b.ts, casesNotAskable), and a result recording one
+ *     opens no channel (store.ts, recordsAnUnaskedCase);
  *   - error: the model or the judge could not be reached, so nothing was learnt.
  */
 export const PRACTICE_CASE_STATUSES = [
@@ -55,7 +55,12 @@ export type PracticeCaseStatus = (typeof PRACTICE_CASE_STATUSES)[number];
 
 /** Why a case was not checked. */
 export const PRACTICE_NOT_APPLICABLE = [
-  /** The booking and deposit cases: the brain has no tools yet, so it holds and writes nothing to check. */
+  /**
+   * The booking and deposit cases until 29 October 2026, when the brain had
+   * no booking tools. No case set writes it now; kept so the results that
+   * carry it still read, and so the go-live gate can refuse them
+   * (store.ts, recordsAnUnaskedCase; drizzle/0137).
+   */
   "runtime_has_no_tools",
   /** The language case: the clinic answers in English only. */
   "serves_english_only",

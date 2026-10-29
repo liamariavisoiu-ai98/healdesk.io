@@ -13,7 +13,9 @@ details, and never type into a real clinic's chat.
 > Gate B in code (`apps/app/src/lib/compliance/gate-b.ts`) is fail-closed and three of its
 > items are unbuilt: the practice questions cannot yet ask the booking and deposit cases,
 > the routed/answered counter does not exist, and the L17, L18 and L21 emails have no
-> template. So Phase 5 ends with website chat **held** and an ops alert `go_live_held`
+> template. (The first is built by Gate B piece 1, 29 October 2026, on `gateb/practice`,
+> not on `main` yet: both cases asked of the tool layer, and a pass recorded before then
+> opens nothing, drizzle/0137.) So Phase 5 ends with website chat **held** and an ops alert `go_live_held`
 > (`gate_b_not_built`). Phases 6 to 10 cannot run in production until that is built and
 > deployed. The local test gets past it only by standing in for that commit.
 

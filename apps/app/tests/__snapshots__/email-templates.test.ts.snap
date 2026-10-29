@@ -4204,6 +4204,92 @@ Replies reach the healdesk team. Please leave out patient details.
 }
 `;
 
+exports[`each template's output > guarantee_miss, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>We missed a call</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">AYA didn&#39;t answer a call on your phone.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">A call on your phone on Monday 5 October was routed to AYA and she didn&#39;t answer it. That&#39;s our miss, and we&#39;re sorry.</p>
+<p style="margin:0 0 16px;">If this happened in your first month, our guarantee covers it. Reply to this email from your account address and we&#39;ll check our records and tell you what we found.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out your clients&#39; details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "AYA didn't answer a call on your phone.",
+  "subject": "We missed a call",
+  "text": "A call on your phone on Monday 5 October was routed to AYA and she didn't answer it. That's our miss, and we're sorry.
+
+If this happened in your first month, our guarantee covers it. Reply to this email from your account address and we'll check our records and tell you what we found.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out your clients' details.
+800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > guarantee_miss, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>We missed a call</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">AYA didn&#39;t answer a call on your phone.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">A call on your phone on Monday 5 October was routed to AYA and she didn&#39;t answer it. That&#39;s our miss, and we&#39;re sorry.</p>
+<p style="margin:0 0 16px;">If this happened in your first month, our guarantee covers it. Reply to this email from your account address and we&#39;ll check our records and tell you what we found.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "AYA didn't answer a call on your phone.",
+  "subject": "We missed a call",
+  "text": "A call on your phone on Monday 5 October was routed to AYA and she didn't answer it. That's our miss, and we're sorry.
+
+If this happened in your first month, our guarantee covers it. Reply to this email from your account address and we'll check our records and tell you what we found.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
 exports[`each template's output > handover, for clients: the snapshot 1`] = `
 {
   "html": "<!doctype html>
@@ -5064,6 +5150,208 @@ If you have a question in the meantime, reply to this email and a person will an
 
 —
 You're receiving this because this address placed an order with healdesk.
+Replies reach the healdesk team. Please leave out patient details.
+800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > outage_ended, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>AYA is answering again</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Here&#39;s what reached your team meanwhile.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">AYA has been answering again since 9:52 am EDT on Tuesday 6 October. She wasn&#39;t answering from 9:04 am EDT on Tuesday 6 October.</p>
+<p style="margin:0 0 4px;"><strong>Calls sent to your direct line:</strong> 4 calls</p>
+<p style="margin:0 0 4px;"><strong>Chats sent to your team:</strong> 2 chats</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Open Home</a></p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out your clients&#39; details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "Here's what reached your team meanwhile.",
+  "subject": "AYA is answering again",
+  "text": "AYA has been answering again since 9:52 am EDT on Tuesday 6 October. She wasn't answering from 9:04 am EDT on Tuesday 6 October.
+
+Calls sent to your direct line: 4 calls
+Chats sent to your team: 2 chats
+
+Open Home: https://app.healdesk.test/c/radiance-med-spa
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out your clients' details.
+800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > outage_ended, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>AYA is answering again</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Here&#39;s what reached your team meanwhile.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">AYA has been answering again since 9:52 am EDT on Tuesday 6 October. She wasn&#39;t answering from 9:04 am EDT on Tuesday 6 October.</p>
+<p style="margin:0 0 4px;"><strong>Calls sent to your direct line:</strong> 4 calls</p>
+<p style="margin:0 0 4px;"><strong>Chats sent to your team:</strong> 2 chats</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Open Home</a></p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "Here's what reached your team meanwhile.",
+  "subject": "AYA is answering again",
+  "text": "AYA has been answering again since 9:52 am EDT on Tuesday 6 October. She wasn't answering from 9:04 am EDT on Tuesday 6 October.
+
+Calls sent to your direct line: 4 calls
+Chats sent to your team: 2 chats
+
+Open Home: https://app.healdesk.test/c/radiance-med-spa
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > outage_started, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Calls are going to your direct line</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">A fault on our side. We&#39;ll email you again when she&#39;s back.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Since 9:04 am EDT on Tuesday 6 October, AYA hasn&#39;t been answering, because of a fault at healdesk or one of our suppliers.</p>
+<p style="margin:0 0 16px;">Meanwhile:</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Phone: calls go to your direct line ((415) 555-0100)</li><li>Website chat: shows a contact form</li></ul>
+<p style="margin:0 0 16px;">We&#39;ll email you again as soon as she&#39;s answering.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Open Home</a></p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out your clients&#39; details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "A fault on our side. We'll email you again when she's back.",
+  "subject": "Calls are going to your direct line",
+  "text": "Since 9:04 am EDT on Tuesday 6 October, AYA hasn't been answering, because of a fault at healdesk or one of our suppliers.
+
+Meanwhile:
+
+- Phone: calls go to your direct line ((415) 555-0100)
+- Website chat: shows a contact form
+
+We'll email you again as soon as she's answering.
+
+Open Home: https://app.healdesk.test/c/radiance-med-spa
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out your clients' details.
+800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > outage_started, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Calls are going to your direct line</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">A fault on our side. We&#39;ll email you again when she&#39;s back.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Since 9:04 am EDT on Tuesday 6 October, AYA hasn&#39;t been answering, because of a fault at healdesk or one of our suppliers.</p>
+<p style="margin:0 0 16px;">Meanwhile:</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Phone: calls go to your direct line ((415) 555-0100)</li><li>Website chat: shows a contact form</li></ul>
+<p style="margin:0 0 16px;">We&#39;ll email you again as soon as she&#39;s answering.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Open Home</a></p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "A fault on our side. We'll email you again when she's back.",
+  "subject": "Calls are going to your direct line",
+  "text": "Since 9:04 am EDT on Tuesday 6 October, AYA hasn't been answering, because of a fault at healdesk or one of our suppliers.
+
+Meanwhile:
+
+- Phone: calls go to your direct line ((415) 555-0100)
+- Website chat: shows a contact form
+
+We'll email you again as soon as she's answering.
+
+Open Home: https://app.healdesk.test/c/radiance-med-spa
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
 Replies reach the healdesk team. Please leave out patient details.
 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
 ",

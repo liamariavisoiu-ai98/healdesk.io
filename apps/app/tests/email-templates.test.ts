@@ -50,7 +50,7 @@ import {
 } from "@/lib/email/templates/address_changing";
 import { renderOpsAlert } from "@/lib/email/templates/ops_alert";
 import { SIGN_IN_HELP_REASON } from "@/lib/email/templates/sign_in_help_link";
-import { PENDING_TEMPLATES, TEMPLATES, templateFor } from "@/lib/email/templates/registry";
+import { PENDING_TEMPLATES, TEMPLATES, templateFor, type PendingTemplate } from "@/lib/email/templates/registry";
 import {
   CHANNEL_READY_ENTRY,
   channelReadyWebFixture,
@@ -174,7 +174,7 @@ describe("the template registry", () => {
   });
 
   test("a pending kind's owner is the owner its registry names", () => {
-    for (const [kind, pending] of Object.entries(PENDING_TEMPLATES)) {
+    for (const [kind, pending] of (Object.entries(PENDING_TEMPLATES) as [string, PendingTemplate][])) {
       const owner =
         kind in NOTICE_KIND_REGISTRY
           ? NOTICE_KIND_REGISTRY[kind as keyof typeof NOTICE_KIND_REGISTRY].owner
@@ -186,12 +186,10 @@ describe("the template registry", () => {
 
   test("every pending kind names the package that owes it", () => {
     const byPackage: Record<string, string[]> = {};
-    for (const [kind, pending] of Object.entries(PENDING_TEMPLATES)) {
+    for (const [kind, pending] of (Object.entries(PENDING_TEMPLATES) as [string, PendingTemplate][])) {
       (byPackage[pending.package] ??= []).push(kind);
     }
-    expect(byPackage).toEqual({
-      runtime: ["outage_started", "outage_ended", "guarantee_miss"],
-    });
+    expect(byPackage).toEqual({});
   });
 
   test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the live alerts, the operator's notices, O6 and O5's two, the support chat's L25 and I3, the practice questions' O8 and O9, I2, after cancellation E3 to E6, the claims function's L13 and L14, the DPA re-sign's L22, the drift list's L23, Flag this answer's I4, a patient's request, L32, the human route's O16, P6's resend and I3's access request", () => {
@@ -283,6 +281,10 @@ describe("the template registry", () => {
       "support_reply",
       // Lane P7g: L38, the acknowledgement of a practice's email to support.
       "support_received",
+      // Gate B piece 3: L17, L18 and L21.
+      "outage_started",
+      "outage_ended",
+      "guarantee_miss",
     ]);
   });
 

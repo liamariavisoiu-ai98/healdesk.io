@@ -157,7 +157,7 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  *     prompt forbids deposits and links, and nothing calls
  *     depositLinkMessage (lib/booking/deposit-gate.ts). Section 2's deposit
  *     link is "in website chat", not "in chat". (Superseded for Meta by
- *     LEGAL_VERSION 2026-10-29.3, below: the desk-confirmed deposit link.)
+ *     LEGAL_VERSION 2026-10-29.4, below: the desk-confirmed deposit link.)
  *
  * Revised on 13 October 2026 as LEGAL_VERSION 2026-10-13.3, for BAA 1.4.0
  * (docs/counsel/agreement-changes.md § 14): the owner decided that day that
@@ -330,7 +330,8 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * exception, in a new BAA version clinics accept, before the first text is
  * sent. That is the owner's call and a separate version.
  *
- * Revised on 29 October 2026 as LEGAL_VERSION 2026-10-29.3 (DEP-META slice 1,
+ * Revised on 29 October 2026, numbered 2026-10-29.3 and released as
+ * LEGAL_VERSION 2026-10-29.4 (DEP-META slice 1,
  * owner-approved on 28 and 29 October 2026, docs/design/launch-readiness-
  * 2026-10-27/dep-meta-deposit-links.md § 7): on Instagram, Messenger and
  * WhatsApp, where the practice takes deposits and its staff confirm a booking
@@ -343,6 +344,13 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * `deposit-link-meta` stays open. BAA 1.5.1 clause c already lets healdesk
  * send a payment link in an Instagram, Messenger or WhatsApp conversation,
  * so no agreement template changes.
+ *
+ * Released on 29 October 2026 as LEGAL_VERSION 2026-10-29.4, the version
+ * that goes out (2026-10-29.2 and .3 never did: BAA 1.6.0 and DEP-META slice
+ * 1 land together, replacing 2026-10-29.1): the text above with BAA 1.6.0's
+ * release sentences, and section 2's Meta payment-link sentence phrased as
+ * design ("is designed to send"), since no clinic can connect a gateway until
+ * Stripe Connect is configured in production (copy first, then the switch).
  */
 export default function TermsPage() {
   const products = productsForTerms();
@@ -391,8 +399,8 @@ export default function TermsPage() {
           caller your Practice&apos;s payment link. On Instagram,
           Messenger and WhatsApp it books nothing: it takes booking requests for your staff to
           confirm, and where you take deposits and your staff confirm a request while that
-          conversation is still open, it sends your own hosted payment link there, with no
-          amount, treatment or time in the message. Card numbers are never taken on any channel.
+          conversation is still open, it is designed to send your own hosted payment link there,
+          with no amount, treatment or time in the message. Card numbers are never taken on any channel.
         </p>
         <ul className="list-disc space-y-2 pl-6">
           <li>

@@ -54,8 +54,8 @@ const PINNED_BEFORE_1_6_0 = {
    */
   replaces: "2026-10-29.1",
   sha256: {
-    "/terms": "3faaf4df3e79fb30327cc27ae4051c536fd516505e8aa0152c34611a0c13c641",
-    "/privacy": "24d9677276d2be284957f834c5761db9bfa14212449bfadbe0d3bf6764eb81f4",
+    "/terms": "5549e737e5aa44ec1ae1d2d71e646ef8fd6815827636cb2cc4b1ff476e8dd4a1",
+    "/privacy": "ad8e8fe77a564afb4326ef9d03f869be8aef4909657a8270ade50076d6653372",
     "/data-deletion": "d77557279849e427006387afa3c427ee976e10be5afd29cbba04a7356afd1042",
   },
 } as const;
@@ -70,9 +70,8 @@ const PINNED_BEFORE_1_6_0 = {
  * and the deletion page are word for word the same.
  * Pinned now so the flip is not also a hash edit; if it goes out on a later
  * day, move lastUpdated here and LEGAL_LAST_UPDATED in src/lib/legal.ts
- * together and re-pin /terms. The release replaces 2026-10-29.3 only if that
- * went out, which `replaces` records as the live text (if 2026-10-29.3 never
- * went out, `replaces` stays at the last version that did).
+ * together and re-pin /terms. `replaces` records the live text the release
+ * replaces: 2026-10-29.3 never went out, so it is 2026-10-29.1.
  */
 const PINNED_WITH_1_6_0 = {
   version: "2026-10-29.4",
@@ -84,9 +83,14 @@ const PINNED_WITH_1_6_0 = {
    * moves both again.
    */
   lastUpdated: "29 October 2026",
-  /** 2026-10-29.3 is the live text this release replaces, once it has gone out. */
-  replaces: "2026-10-29.3",
-  sha256: { ...PINNED_BEFORE_1_6_0.sha256, "/terms": "820ded013fef346bfbb2c582b961ac014ec88bc8cf7bd77214829a6ae012935f" },
+  /**
+   * 2026-10-29.1 is the live text this release replaces (production printed it
+   * on 29 October 2026): BAA 1.6.0 and DEP-META slice 1 land together, so
+   * 2026-10-29.2 and 2026-10-29.3 never go out, and a note citing either
+   * fails the last test in this file.
+   */
+  replaces: "2026-10-29.1",
+  sha256: { ...PINNED_BEFORE_1_6_0.sha256, "/terms": "4ac638372f90bc5d52d7a4cb705043ade7f9d8d3ccbdd2635c997fcdf4977506" },
 } as const;
 
 const PINNED = BAA_1_6_0_RELEASED ? PINNED_WITH_1_6_0 : PINNED_BEFORE_1_6_0;

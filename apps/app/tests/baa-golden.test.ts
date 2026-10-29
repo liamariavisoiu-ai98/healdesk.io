@@ -2063,7 +2063,7 @@ describe("1.6.0: Anthropic's retention as Anthropic documents it (released 29 Oc
     // draft's: the release moved no hash.
     expect(BAA_TEMPLATES[0]).toBe(v160());
     expect(v160().approvedByCounsel).toBe(true);
-    expect(v160().publishedOn).toBe("2026-10-19");
+    expect(v160().publishedOn).toBe("2026-10-29");
     expect(CURRENT_BAA_VERSION).toBe(V160);
     expect(MIN_ACCEPTABLE_BAA_VERSION).toBe(V160);
     expect(isBaaVersionAcceptable(V160)).toBe(true);

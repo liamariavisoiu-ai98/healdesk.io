@@ -4937,7 +4937,8 @@ const TEMPLATE_1_5_1: BaaTemplate = {
 
 const TEMPLATE_1_6_0_DRAFT: BaaTemplate = {
   version: "1.6.0",
-  publishedOn: "2026-10-19",
+  // The release day (owner, 29 October 2026), as past releases carry theirs.
+  publishedOn: "2026-10-29",
   approvedByCounsel: false,
   preamble: preamble160,
   clauses: CLAUSES_1_6,

@@ -601,7 +601,7 @@ describe("the Meta assistant takes booking requests, and sends the payment link 
 
   test("sections 2 and 9 say so", () => {
     expect(text).toContain(
-      "On Instagram, Messenger and WhatsApp it books nothing: it takes booking requests for your staff to confirm, and where you take deposits and your staff confirm a request while that conversation is still open, it sends your own hosted payment link there, with no amount, treatment or time in the message.",
+      "On Instagram, Messenger and WhatsApp it books nothing: it takes booking requests for your staff to confirm, and where you take deposits and your staff confirm a request while that conversation is still open, it is designed to send your own hosted payment link there, with no amount, treatment or time in the message.",
     );
     expect(text).toContain(
       "and takes booking requests for your staff to confirm, and where you take deposits it may send your own hosted payment link there once your staff confirm one, inside that window only.",

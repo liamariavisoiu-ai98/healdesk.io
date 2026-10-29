@@ -7,6 +7,7 @@ import {
   nextActionLine,
   requestStatusBadge,
 } from "@/lib/portal/bookings-view";
+import { isDepositToCollect } from "@/lib/portal/bookings";
 
 const NOW = new Date("2026-03-10T12:00:00Z");
 const LATER = new Date("2026-03-11T12:00:00Z");
@@ -26,15 +27,25 @@ describe("appointment status words", () => {
 });
 
 describe("deposit flag", () => {
+  const ahead = { scheduledFor: LATER };
   test("front desk deposits are an action, links out are waiting", () => {
-    expect(depositBadge({ depositStatus: "pending_front_desk", status: "confirmed" })?.tone).toBe("action");
-    expect(depositBadge({ depositStatus: "pending_link", status: "confirmed" })?.tone).toBe("waiting");
+    expect(depositBadge({ depositStatus: "pending_front_desk", status: "confirmed", ...ahead }, NOW)?.tone).toBe("action");
+    expect(depositBadge({ depositStatus: "pending_link", status: "confirmed", ...ahead }, NOW)?.tone).toBe("waiting");
   });
   test("paid, waived, none and cancelled bookings are not flagged", () => {
     for (const depositStatus of ["paid", "waived", "none"] as const) {
-      expect(depositBadge({ depositStatus, status: "confirmed" })).toBeNull();
+      expect(depositBadge({ depositStatus, status: "confirmed", ...ahead }, NOW)).toBeNull();
     }
-    expect(depositBadge({ depositStatus: "pending_front_desk", status: "cancelled" })).toBeNull();
+    expect(depositBadge({ depositStatus: "pending_front_desk", status: "cancelled", ...ahead }, NOW)).toBeNull();
+  });
+  test("'Deposit to collect' agrees with the chip: only ahead and live", () => {
+    for (const status of ["scheduled", "confirmed", "showed", "no_show"] as const) {
+      for (const scheduledFor of [LATER, EARLIER]) {
+        const a = { depositStatus: "pending_front_desk" as const, status, scheduledFor };
+        const badge = depositBadge(a, NOW);
+        expect(badge?.label === "Deposit to collect").toBe(isDepositToCollect(a, NOW));
+      }
+    }
   });
 });
 

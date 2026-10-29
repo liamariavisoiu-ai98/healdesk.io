@@ -53,11 +53,20 @@ export function requestStatusBadge(status: BookingRequestView["status"]): Badge 
  * front desk must take is an action; one with a link out is waiting on the
  * person.
  */
-export function depositBadge(a: Pick<BookedAppointment, "depositStatus" | "status">): Badge | null {
+export function depositBadge(
+  a: Pick<BookedAppointment, "depositStatus" | "status" | "scheduledFor">,
+  now: Date,
+): Badge | null {
   if (a.status === "cancelled" || a.status === "rescheduled") return null;
   switch (a.depositStatus) {
     case "pending_front_desk":
-      return { label: "Deposit to collect", tone: "action" };
+      // The same rule as isDepositToCollect (bookings.ts), which the chip and
+      // Needs you count by: an action only while the appointment is ahead and
+      // live. After it started, the deposit line alone says what is owed.
+      return (a.status === "scheduled" || a.status === "confirmed") &&
+        a.scheduledFor.getTime() > now.getTime()
+        ? { label: "Deposit to collect", tone: "action" }
+        : null;
     case "pending_link":
       return { label: "Deposit not paid yet", tone: "waiting" };
     default:

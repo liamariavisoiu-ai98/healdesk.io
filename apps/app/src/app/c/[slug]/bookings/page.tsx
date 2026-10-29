@@ -547,6 +547,7 @@ function BookedRow(props: {
 }) {
   const { appointment: a, zone, now } = props;
   const calendar = calendarLine(a);
+  const deposit = depositBadge(a, now);
   return (
     // The request's anchor too, as on every request's card. Links from
     // elsewhere open a request by its `?request=` focus (bookingRequestPath),
@@ -559,7 +560,7 @@ function BookedRow(props: {
         <StatusBadge
           badge={appointmentStatusBadge(a.status, a.scheduledFor.getTime() <= now.getTime())}
         />
-        {depositBadge(a) ? <StatusBadge badge={depositBadge(a)!} /> : null}
+        {deposit ? <StatusBadge badge={deposit} /> : null}
       </p>
       <p className="text-muted mt-1 text-sm">
         {a.treatment ? `${a.treatment}. ` : ""}

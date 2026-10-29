@@ -178,6 +178,7 @@ From `docs/design/launch-readiness-2026-10-27/status.md` sections 1 and 8 and th
 - Spanish voice: opener by caller language (English line first, Spanish disclosure said once when Spanish is detected), Retell locale `["en-US","es-419"]`.
 
 - **DB-1 lane C (web/docs, branch `db1/web`, 28 Oct, local, not pushed to main):** ops client parses `bookingSwitch` `{directBooking, env, released, versionMatches}` defensively; booking card in a clinic's Setup shows three live ticks (no button); system map, launch register and `docs/handover.md` runbook rewritten. Depends on lanes A (Terraform) and B (app) landing.
+- **STATES (portal empty/loading/error states, branch `lane/portal-states`, 29 Oct, local, not pushed):** `apps/app/src/app/c/[slug]/states.tsx` (`EmptyState`, `ErrorState`, `LoadingState`) plus route-level `error.tsx`, `loading.tsx`, `not-found.tsx` and per-screen `loading.tsx` for Conversations, Knowledge, Billing; those three screens' empty cases use it. Other screens can adopt it later.
 
 ### Hard stops
 No merge, push, production deploy, Terraform apply, live vendor changes, real patient traffic, compliance attestation or final go-live without specific Owner approval. Preserve existing code and report any dirty worktree.

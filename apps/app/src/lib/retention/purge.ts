@@ -286,6 +286,8 @@ export const PURGE_COVERAGE: Readonly<{
     billing_requests: "a billing record, kept",
     billing_notices: "the notices given, no patient: kept",
     report_deliveries: "the ledger of the notices, no patient: kept",
+    routed_interactions:
+      "the routed/answered counter (drizzle/0137), a hashed reference, closed words and times, no patient: the guarantee's record, kept (KEPT_FOR_GOOD)",
     lifecycle_waves: "the reminder ledger (drizzle/0115), no patient: kept",
     clinic_lifecycle: "the account's setup stage and our decision (drizzle/0115), no patient: kept",
     lifecycle_ignored_clinics: "our mark that the account is an internal test account (drizzle/0118), no patient: kept",

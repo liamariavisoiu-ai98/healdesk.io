@@ -117,6 +117,9 @@ export const KEPT_FOR_GOOD: Readonly<Record<string, string>> = {
     "a billing record: the channels bought, from which the price was set; no DELETE for the runtime role",
   overage_invoices: "a billing record: each overage invoice",
   usage_events: "a billing record: the usage ledger the clinic was charged from",
+  // The routed/answered counter (drizzle/0137).
+  routed_interactions:
+    "the record the first-month guarantee is checked against (Terms §5, which survives termination): each call or conversation routed to AYA and whether she answered it; a claim may come up to 30 days after the first month, so after the account has closed; the channel, a hashed reference, closed words and times, no patient",
 
   // The notices given.
   billing_notices:

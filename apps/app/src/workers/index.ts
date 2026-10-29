@@ -1,6 +1,7 @@
 import { reconcilePeriod } from "@/lib/sync/reconcile-store";
 import { monthContaining, previousMonth } from "@/lib/attribution/period";
 import { sweepUnlinkedDeposits } from "@/lib/billing/deposit-sweep";
+import { runAnswerNoticesSweep } from "@/lib/channels/answer-notices";
 import { runBillingRequestsJob } from "@/lib/billing/requests";
 import { runUsageMeterReportJob } from "@/lib/billing/usage-report";
 import { runTranscriptEmailsJob } from "@/lib/conversations/transcript-outbox";
@@ -196,6 +197,18 @@ async function main(): Promise<void> {
       [
         "redial-sweep",
         async () => ({ status: "ok" as const, note: `${await sweepRedialContexts()} deleted` }),
+      ],
+      // The routed/answered counter (Gate B, lib/channels/answer-notices.ts):
+      // a call or conversation left pending ten minutes counted missed, and
+      // the outage notices (L17, L18) and the guarantee's miss notice (L21)
+      // queued once each. Unswitched: the miss notice is a promise of the
+      // Terms (§5, seven days), and what reaches a clinic is the outbox's.
+      [
+        "answer-notices",
+        async () => {
+          const r = await runAnswerNoticesSweep();
+          return { status: r.status, note: r.note };
+        },
       ],
       // A chat deposit whose link was never made, handed to the front desk
       // once its grace has passed (lib/billing/deposit-sweep.ts). Unswitched.

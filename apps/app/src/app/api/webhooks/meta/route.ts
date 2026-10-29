@@ -4,6 +4,15 @@ import { clinicAcceptsPhi } from "@/lib/agreements/phi-gate";
 import { assistantMayAnswer } from "@/lib/billing/answering";
 import { recordUsage } from "@/lib/billing/usage";
 import { recordFirstAnswer } from "@/lib/channels/events";
+import {
+  noteResolved,
+  noteRouted,
+  passThroughResolution,
+  resolveRouted,
+  timedAnswer,
+  type RoutedKey,
+} from "@/lib/channels/routed-answered";
+import { MESSAGE_ANSWER_WITHIN_MS } from "@/lib/channels/routed-words";
 import { touchChatThread } from "@/lib/chat/threads";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { hostCoversPatientData } from "@/lib/compliance/vendor-coverage";
@@ -127,6 +136,7 @@ export async function POST(request: Request): Promise<Response> {
   let skipped = 0;
   for (const message of parseMetaEvents(body, now)) {
     let clinicId: string | undefined;
+    let routedKey: { clinicId: string; key: RoutedKey } | null = null;
     try {
       const owner = await resolveMetaChannel(message.externalId);
       // The operator's front door, then the clinic's own switch for this
@@ -181,6 +191,15 @@ export async function POST(request: Request): Promise<Response> {
           clinicId: owner.clinicId,
           channel: message.platform,
         });
+        // The counter (Gate B): ours to keep in force, so a miss. Counted by
+        // the message's own id, hashed, since no conversation is kept.
+        if (message.messageId) {
+          await noteResolved(
+            owner.clinicId,
+            { channel: "meta", ref: `message:${message.platform}:${message.messageId}`, routedAt: now },
+            { outcome: "missed", reason: "host_agreement_lapsed" },
+          );
+        }
         skipped += 1;
         continue;
       }
@@ -188,6 +207,16 @@ export async function POST(request: Request): Promise<Response> {
         skipped += 1;
         continue;
       }
+
+      // The routed/answered counter (Gate B): the conversation reached AYA
+      // when this message reached us (Terms §5 times the reply from then,
+      // not from Meta's own sent time). Pending first, so a process that
+      // stops mid-answer still leaves it to be counted missed.
+      const receivedMs = Date.now();
+      const routed: RoutedKey = { channel: "meta", ref: thread.conversationId, routedAt: now };
+      const repliedAt = () => new Date(now.getTime() + (Date.now() - receivedMs));
+      await noteRouted(owner.clinicId, routed);
+      routedKey = { clinicId: owner.clinicId, key: routed };
 
       // 3: the gate, outside any transaction (it reads the location, then
       // its billing clinic). The conversation's reference is what the hard
@@ -205,6 +234,7 @@ export async function POST(request: Request): Promise<Response> {
             resourceId: tx.clinicId,
             metadata: { platform: message.platform, source: "withheld", reason: decision.reason },
           });
+          await resolveRouted(tx.db, tx.clinicId, routed, passThroughResolution(decision.reason), now);
         });
         skipped += 1;
         continue;
@@ -260,6 +290,8 @@ export async function POST(request: Request): Promise<Response> {
         throw error;
       }
       if (!answer) {
+        // The clinic left, or switched the app off, between the gate and the answer.
+        await noteResolved(owner.clinicId, routed, { outcome: "excluded", reason: "withheld" });
         skipped += 1;
         continue;
       }
@@ -291,10 +323,31 @@ export async function POST(request: Request): Promise<Response> {
             conversationId: thread.conversationId,
           });
         }
+        // The counter, in the send's own transaction (a savepoint, so it
+        // never undoes the send's record): a reply sent within the minute is
+        // an answer, unless it is the fixed line sent only because the model
+        // failed (Terms §5); one dropped outside the window Meta's late
+        // delivery left, or withheld by a switch, does not count.
+        await resolveRouted(
+          tx.db,
+          tx.clinicId,
+          routed,
+          outcome.status === "sent"
+            ? answer.guard === "model error"
+              ? { outcome: "missed", reason: "failure_line" }
+              : timedAnswer(now, repliedAt(), MESSAGE_ANSWER_WITHIN_MS)
+            : outcome.status === "outside_window"
+              ? { outcome: "excluded", reason: "outside_window" }
+              : { outcome: "excluded", reason: "withheld" },
+          now,
+        );
       });
       answered += 1;
     } catch (error) {
       skipped += 1;
+      // Reached us and went unanswered because something on our side threw:
+      // a miss (the row was written pending above, or is written now).
+      if (routedKey) await noteResolved(routedKey.clinicId, routedKey.key, { outcome: "missed", reason: "error" });
       // `channel`, never `platform`: lib/log.ts throws on a key off its
       // allowlist, which inside this catch escaped the loop as a 500.
       log.error("meta message not answered", { clinicId, channel: message.platform, error: describeError(error) });

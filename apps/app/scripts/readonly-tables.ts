@@ -162,6 +162,10 @@ export const READONLY_WITHHELD: Record<string, "patient" | "credential" | "unrev
   practice_question_runs: "unreviewed",
   report_deliveries: "unreviewed",
   report_recipients: "unreviewed",
+  // The routed/answered counter (drizzle/0137): a hashed reference, closed
+  // words and the times calls and messages reached each clinic. No patient,
+  // but withheld until the owner reviews it column by column.
+  routed_interactions: "unreviewed",
   scheduled_jobs: "unreviewed",
   security_events: "unreviewed",
   site_rereads: "unreviewed",

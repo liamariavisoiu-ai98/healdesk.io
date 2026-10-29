@@ -38,6 +38,11 @@ import type { AgreementQuestionPayload } from "@/lib/email/templates/agreement_q
 import type { SetupExtendedPayload } from "@/lib/email/templates/setup_extended";
 import type { SetupHelpOfferPayload } from "@/lib/email/templates/setup_help_offer";
 import type { SetupWaitingOnUsPayload } from "@/lib/email/templates/setup_waiting_on_us";
+import type {
+  GuaranteeMissPayload,
+  OutageEndedPayload,
+  OutageStartedPayload,
+} from "@/lib/email/templates/registry";
 
 /**
  * The plan's own outbox kinds (lib/email/kinds.ts, owner "plan"): their
@@ -55,14 +60,6 @@ import type { SetupWaitingOnUsPayload } from "@/lib/email/templates/setup_waitin
  * `tx.clinicId`. RLS checks the row against the transaction's tenant either
  * way.
  */
-
-/**
- * A kind registered before its package builds it (14 October 2026): the
- * CHECK already takes it, but nothing can queue one until the package named
- * in PENDING_TEMPLATES (lib/email/templates/registry.ts) replaces this with
- * its payload type, beside its template.
- */
-type OwedPayload = never;
 
 /** What each plan kind carries. No PHI: counts, ISO dates, channel ids, our own URLs. */
 export type PlanNoticePayloads = {
@@ -135,9 +132,14 @@ export type PlanNoticePayloads = {
   daily_summary: DailySummaryPayload;
   /** Dedupe `weekly_recap:<ISO week of last week's Monday>`: once per week (lib/scheduler/weekly-recap.ts). */
   weekly_recap: WeeklyRecapPayload;
-  outage_started: OwedPayload;
-  outage_ended: OwedPayload;
-  guarantee_miss: OwedPayload;
+  // The routed/answered counter's notices (lib/channels/answer-notices.ts),
+  // whose payloads are declared beside their pending templates (registry.ts).
+  /** Dedupe `outage_started:<startedAt>`: once per incident. */
+  outage_started: OutageStartedPayload;
+  /** Dedupe `outage_ended:<startedAt>`: once per incident L17 told of. */
+  outage_ended: OutageEndedPayload;
+  /** Dedupe `guarantee_miss:<missedOn>`: once per practice-local day with a miss, on the billing clinic. */
+  guarantee_miss: GuaranteeMissPayload;
   /** Dedupe `website_changes:<site_rereads id>`: once per drift check that raised changes (lib/website). */
   website_changes: WebsiteChangesPayload;
   /** Dedupe `support_request:<escalation id>`: once per escalation (lib/support/escalate.ts). */

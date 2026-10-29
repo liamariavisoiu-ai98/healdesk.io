@@ -85,6 +85,13 @@ import {
 } from "../lib/engine/practice/types";
 import { DEVICE_LABEL_MAX } from "../lib/factors/device";
 import {
+  ROUTED_CHANNELS,
+  ROUTED_OUTCOMES,
+  ROUTED_REASONS,
+  type RoutedOutcome,
+  type RoutedReason,
+} from "../lib/channels/routed-words";
+import {
   CHANNEL_NAMES,
   CONVERSATION_OUTCOMES,
   type ConversationChannel,
@@ -6680,6 +6687,8 @@ export const TENANT_SCOPED_TABLES = [
   "rights_intakes",
   // Ops automation lane P6i (drizzle/0124).
   "incident_checklist_ticks",
+  // Gate B, the routed/answered counter (drizzle/0137).
+  "routed_interactions",
 ] as const;
 
 // -----------------------------------------------------------------------------
@@ -8498,3 +8507,67 @@ export const supportSlackMessages = pgTable(
   ],
 );
 export type SupportSlackMessage = typeof supportSlackMessages.$inferSelect;
+
+// -----------------------------------------------------------------------------
+// Gate B: the routed/answered counter (drizzle/0137)
+// -----------------------------------------------------------------------------
+
+/**
+ * One row per call or conversation routed to AYA for a clinic, and what
+ * became of it (lib/channels/routed-answered.ts; the words in
+ * lib/channels/routed-words.ts): the runtime's count of what was routed
+ * against what she answered, which the outage notices (L17, L18) and the
+ * first-month guarantee's miss notice (L21) read.
+ *
+ * Counts, not records: the channel, an opaque reference (the SHA-256 of the
+ * runtime's own id for the call or conversation, never the id itself, so the
+ * row joins to nothing that names a person), closed words and times. Written
+ * `pending` when the call or message reaches us, then resolved by the runtime
+ * that took it, only ever towards the worse outcome (pending, excluded,
+ * answered, missed; the trigger refuses any other move), so a retry, a
+ * redelivery or a later message never turns a miss back into an answer.
+ * Unique per clinic, channel and reference, so a retried write is the same
+ * row. Kept for good beside usage_events (KEPT_FOR_GOOD): it is the record a
+ * guarantee claim is checked against, and a claim may come after the account
+ * has closed.
+ */
+export const routedInteractions = pgTable(
+  "routed_interactions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    channel: text("channel").$type<(typeof ROUTED_CHANNELS)[number]>().notNull(),
+    /** SHA-256, hex, of the runtime's own reference for the call or conversation (routedRefHash). */
+    refHash: text("ref_hash").notNull(),
+    /** When the call, or the conversation's first message, reached us. */
+    routedAt: timestamp("routed_at", { withTimezone: true }).notNull(),
+    outcome: text("outcome").$type<RoutedOutcome>().notNull().default("pending"),
+    reason: text("reason").$type<RoutedReason>(),
+    /** When AYA first answered it, if she did. */
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    /** When the outcome last moved. */
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  },
+  (t) => [
+    unique("routed_interactions_ref_key").on(t.clinicId, t.channel, t.refHash),
+    index("routed_interactions_clinic_routed_idx").on(t.clinicId, t.routedAt),
+    index("routed_interactions_pending_idx")
+      .on(t.routedAt)
+      .where(sql`${t.outcome} = 'pending'`),
+    check("routed_interactions_channel_check", sql`${t.channel} in (${sqlList(ROUTED_CHANNELS)})`),
+    check("routed_interactions_outcome_check", sql`${t.outcome} in (${sqlList(ROUTED_OUTCOMES)})`),
+    check(
+      "routed_interactions_reason_check",
+      sql`${t.reason} is null or ${t.reason} in (${sqlList(ROUTED_REASONS)})`,
+    ),
+    check("routed_interactions_ref_check", sql`${t.refHash} ~ '^[0-9a-f]{64}$'`),
+    // Pending and answered carry no reason; an exclusion or a miss always does.
+    check(
+      "routed_interactions_reason_shape_check",
+      sql`(${t.outcome} in ('pending', 'answered')) = (${t.reason} is null)`,
+    ),
+  ],
+);
+export type RoutedInteraction = typeof routedInteractions.$inferSelect;

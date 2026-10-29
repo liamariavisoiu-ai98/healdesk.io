@@ -32,12 +32,14 @@ import { PENDING_TEMPLATES } from "@/lib/email/templates/registry";
  *     webhook (app/api/webhooks/meta/route.ts, lib/meta/channels.ts);
  *     tests/go-live.test.ts reads each file for the call. A channel missing
  *     from ANSWER_GATE_CHANNELS could never meet Gate B.
- *   - **The routed/answered counter and its miss notice**: not built. The
- *     runtime's count of what was routed to AYA against what she answered,
- *     which L17, L18 and L21 wait on and no package builds yet
- *     (lib/email/templates/registry.ts, package `runtime`). Built once
+ *   - **The routed/answered counter and its miss notice**: the counter is
+ *     built (lib/channels/routed-answered.ts, drizzle/0137): each runtime
+ *     records every call or conversation routed to AYA and what became of
+ *     it, and the minute sweep (lib/channels/answer-notices.ts) queues the
+ *     outage notices and the guarantee's miss notice (L17, L18, L21) with
+ *     the payloads lib/email/templates/registry.ts declares. Built once
  *     ROUTED_ANSWERED_COUNTER_BUILT says so and no template waits on the
- *     runtime.
+ *     runtime: the three templates are still owed (package `runtime`).
  *   - **Annex X9's live set** (L1, L3, L4, L7 to L15, L17 to L21, L32, L34,
  *     E3 to E6): built once each of their kinds has a template; its kinds'
  *     own packages ship them.
@@ -115,10 +117,11 @@ export function pendingLiveSet(): { kind: string; annex: string; package: string
 }
 
 /**
- * The runtime's routed/answered counter exists: false until the commit that
- * builds it, which sets this beside its templates (see the header).
+ * The runtime's routed/answered counter exists, with the sweep that queues
+ * its notices (29 October 2026; see the header). The Gate B item is built
+ * only once their templates have shipped too (routedAnsweredCounterBuilt).
  */
-export const ROUTED_ANSWERED_COUNTER_BUILT = false;
+export const ROUTED_ANSWERED_COUNTER_BUILT = true;
 
 /** Whether the routed/answered counter exists: built, and no template still waits on the runtime for it. */
 export function routedAnsweredCounterBuilt(): boolean {
@@ -160,7 +163,7 @@ export function gateBInCode(): GateBCodeItem[] {
       checked: true,
       detail: counter
         ? "Built, with its outage and miss notices."
-        : "Not built: no package builds the runtime's count of what was routed to AYA against what she answered, which the outage notices and the guarantee's miss notice (L17, L18, L21) wait on. Gate B is fail-closed, so no clinic goes live until it is.",
+        : "Not built yet: the runtime counts what was routed to AYA against what she answered and queues the outage notices and the guarantee's miss notice (L17, L18, L21), but their templates have not shipped, so the outbox holds them. Gate B is fail-closed, so no clinic goes live until they have.",
     },
     {
       id: "live_email_set",

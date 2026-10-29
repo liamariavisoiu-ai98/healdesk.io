@@ -249,8 +249,9 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
 /**
  * The package that owes a pending template: one of the packages that finish
  * the funnel and portal plan (14 October 2026). `runtime` is the voice and
- * chat runtime's own work: L17, L18 and L21 wait for its routed/answered
- * counter, which no package here builds.
+ * chat runtime's own work: L17, L18 and L21, which its routed/answered
+ * counter queues (lib/channels/answer-notices.ts) with the payloads declared
+ * below, and whose templates are still owed.
  */
 export type OwingPackage =
   | "B"
@@ -327,6 +328,83 @@ type ContactTemplatedKind =
   | "agreement_question"
   | "baa_resign_chase";
 
+/**
+ * The payloads of the runtime's three notices, declared here beside their
+ * pending entries so their templates are written against them: the
+ * routed/answered counter (lib/channels/routed-answered.ts) and its sweep
+ * (lib/channels/answer-notices.ts) build them. Counts, dates, channel ids,
+ * the clinic's own direct line and a portal pointer only (Annex X3's
+ * allowlist, lib/email/lint.ts): never a caller, a number of theirs, a time
+ * of a call, a service or any words of a conversation.
+ *
+ * Chosen by the counter's builder on 29 October 2026, since Annex X5 names
+ * only each email's subject and trigger (plan, "Live"; "L17 and L18: one
+ * pair per incident, critical. L18 gives how many calls and chats went to
+ * the clinic meanwhile"; "L21: within the Terms' notice days", which Terms
+ * §5 sets at 7 days of recording the miss, telling the channel and date).
+ */
+
+/**
+ * L17, "Calls are going to your direct line": our system or a supplier has
+ * failed to answer for 10 minutes. Queued on the clinic the calls and
+ * messages reached, once per incident: dedupe `outage_started:<startedAt>`.
+ */
+export type OutageStartedPayload = {
+  /** When the incident began: the first unanswered call or message after the last one answered (ISO). */
+  startedAt: string;
+  /** The channels that went unanswered in it so far. */
+  channels: ("voice" | "web" | "meta")[];
+  /** The clinic's own direct line, where its forwarded calls now go; null when none is set. */
+  directLineE164: string | null;
+  /** publicUrl("/c/<slug>"): the clinic's Home. */
+  homeUrl: string;
+};
+
+/**
+ * L18, "AYA is answering again": the incident L17 told of has ended (she
+ * answered again). Dedupe `outage_ended:<startedAt>`, the same incident's
+ * start, so it pairs with its L17 and goes once.
+ */
+export type OutageEndedPayload = {
+  /** The incident's start, as L17 gave it (ISO). */
+  startedAt: string;
+  /** When AYA answered again (ISO). */
+  endedAt: string;
+  /** Calls that went to the clinic's own line meanwhile (unanswered by AYA). */
+  callCount: number;
+  /** Website and Meta conversations AYA did not answer meanwhile. */
+  chatCount: number;
+  /** The channels that went unanswered in it. */
+  channels: ("voice" | "web" | "meta")[];
+  /** publicUrl("/c/<slug>"): the clinic's Home. */
+  homeUrl: string;
+};
+
+/**
+ * L21, "We missed a {call or message}": our own records show a miss under
+ * the first-month guarantee (Terms §5: "If our own records show a miss, we
+ * tell the account owner by email within 7 days of recording it, whether or
+ * not you have claimed"). Queued on the practice's billing clinic, once per
+ * clinic-local day with a miss, after that day has ended: dedupe
+ * `guarantee_miss:<missedOn>`.
+ */
+export type GuaranteeMissPayload = {
+  /** The day of the misses, in the practice's time zone (YYYY-MM-DD). */
+  missedOn: string;
+  /** The channels missed that day. */
+  channels: ("voice" | "web" | "meta")[];
+  /** Calls missed that day. */
+  callCount: number;
+  /** Website and Meta conversations missed that day. */
+  messageCount: number;
+  /** The last day of the practice's first month (YYYY-MM-DD). */
+  firstMonthEndsOn: string;
+  /** The last day a claim may be made: 30 days after the first month ends (YYYY-MM-DD). */
+  claimByOn: string;
+  /** publicUrl("/c/<slug>"): the clinic's Home. */
+  homeUrl: string;
+};
+
 /** Every kind still waiting for its template, with the session that owes it. */
 export const PENDING_TEMPLATES: Record<
   Exclude<
@@ -378,7 +456,8 @@ export const PENDING_TEMPLATES: Record<
   >,
   PendingTemplate
 > = {
-  // The runtime's routed/answered counter: blocked, owned by no package yet.
+  // The runtime's routed/answered counter is built (lib/channels/routed-answered.ts,
+  // drizzle/0137) and queues these with the payloads above; their templates are owed.
   outage_started: { owner: "plan", package: "runtime", ships: "M6 (L17)" },
   outage_ended: { owner: "plan", package: "runtime", ships: "M6 (L18)" },
   guarantee_miss: { owner: "plan", package: "runtime", ships: "M6 (L21)" },

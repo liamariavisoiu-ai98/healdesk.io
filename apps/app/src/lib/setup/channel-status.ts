@@ -98,6 +98,28 @@ export function actionButtonLabel(step: ChannelActionStep): string {
   }
 }
 
+/**
+ * One Meta platform's own pill. Off is the platform's; a dropped login is
+ * only the login that platform rides on (Facebook's for Instagram and
+ * Messenger, WhatsApp's for WhatsApp); a live channel says only "Live"
+ * (the channel's live date is the first platform's, and one connected later
+ * did not go live then); anything else is the channel's reading
+ * (`channel`, which the caller computes WITHOUT the channel-wide reconnect
+ * flag, so another platform's dropped login does not mark this one).
+ */
+export function metaPlatformStatus(input: {
+  platform: "instagram" | "messenger" | "whatsapp";
+  on: boolean;
+  channel: Pick<ChannelPresentation, "kind" | "label">;
+  connect: Pick<MetaConnectView, "facebook" | "whatsapp"> | null;
+}): { kind: ChannelStatusKind; label: string } {
+  if (!input.on) return { kind: "off", label: "Off" };
+  const login = input.platform === "whatsapp" ? input.connect?.whatsapp : input.connect?.facebook;
+  if (login?.state === "needs_reconnect") return { kind: "waiting", label: "Waiting for you to reconnect" };
+  if (input.channel.kind === "live") return { kind: "live", label: "Live" };
+  return { kind: input.channel.kind, label: input.channel.label };
+}
+
 const RECONNECT_DETAIL = "Meta dropped the connection, so AYA can't reply there until you reconnect.";
 
 export function channelPresentation(

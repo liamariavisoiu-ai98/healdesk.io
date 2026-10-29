@@ -133,7 +133,7 @@ export function ChannelsCard({
                   applies={c.applies}
                   initial={p.on}
                 />
-                <StatusLine label={p.statusLabel} kind={c.presentation.kind} />
+                <StatusLine label={p.statusLabel} kind={p.statusKind} />
               </div>
             ))}
             {c.platforms.length === 0 ? (
@@ -213,7 +213,7 @@ export function ChannelsCard({
 /**
  * A channel's status pill, its one line and its one button. Given a whole
  * presentation it draws all three; the Meta platforms pass their own label
- * (and the channel's kind, for the glyph) and the channel's line below them.
+ * (and their own kind, for the glyph) and the channel's line below them.
  */
 function StatusLine({
   presentation,

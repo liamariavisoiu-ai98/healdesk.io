@@ -8,6 +8,7 @@ import {
   channelActionHref,
   channelPresentation,
   metaNeedsReconnect,
+  metaPlatformStatus,
   waitingLabel,
 } from "@/lib/setup/channel-status";
 
@@ -163,5 +164,27 @@ describe("channelActionHref", () => {
     expect(channelActionHref("settings", "c1", act("direct_line"))).toBe("/c/c1/settings#safety-net");
     expect(channelActionHref("settings", "c1", act("finish_setup"))).toBe("/c/c1/setup");
     expect(channelActionHref("settings", "c1", act("whatsapp_payment_method"))).toBeNull();
+  });
+});
+
+describe("a Meta platform's own pill", () => {
+  const live = { kind: "live" as const, label: "Live since 14 October" };
+  const ok = { facebook: { state: "connected" as const, names: [] }, whatsapp: { state: "connected" as const } };
+  const broken = { ...ok, whatsapp: { state: "needs_reconnect" as const } };
+  test("off is the platform's, live says only Live, other kinds follow the channel", () => {
+    expect(metaPlatformStatus({ platform: "instagram", on: false, channel: live, connect: ok })).toEqual({ kind: "off", label: "Off" });
+    expect(metaPlatformStatus({ platform: "instagram", on: true, channel: live, connect: ok })).toEqual({ kind: "live", label: "Live" });
+    const waiting = { kind: "waiting" as const, label: "Waiting for call forwarding" };
+    expect(metaPlatformStatus({ platform: "messenger", on: true, channel: waiting, connect: null })).toEqual(waiting);
+  });
+  test("a dropped WhatsApp login marks WhatsApp only", () => {
+    expect(metaPlatformStatus({ platform: "whatsapp", on: true, channel: live, connect: broken })).toEqual({
+      kind: "waiting",
+      label: "Waiting for you to reconnect",
+    });
+    expect(metaPlatformStatus({ platform: "instagram", on: true, channel: live, connect: broken }).kind).toBe("live");
+  });
+  test("a platform switched off stays Off even when its login dropped", () => {
+    expect(metaPlatformStatus({ platform: "whatsapp", on: false, channel: live, connect: broken }).kind).toBe("off");
   });
 });

@@ -34,8 +34,13 @@ import { disclosureFor } from "@/lib/compliance/disclosure";
 import type { MetaPlatform } from "@/lib/meta/front-door";
 import { readMetaConnectView, type MetaConnectView } from "@/lib/meta/reconnect";
 import { urgentAlertReadiness } from "@/lib/notices/urgent-readiness";
-import { channelStatusWord } from "@/lib/setup/channels";
-import { channelPresentation, metaNeedsReconnect, type ChannelPresentation } from "@/lib/setup/channel-status";
+import {
+  channelPresentation,
+  metaNeedsReconnect,
+  metaPlatformStatus,
+  type ChannelPresentation,
+  type ChannelStatusKind,
+} from "@/lib/setup/channel-status";
 import { defaultChatGreeting, defaultPhoneGreeting } from "@/lib/setup/greetings";
 import { formatPhone } from "@/lib/setup/help";
 import { channelSetupFinished } from "@/lib/setup/screens";
@@ -84,6 +89,8 @@ export type SettingsView = {
       name: string;
       on: boolean;
       statusLabel: string;
+      /** This platform's own kind (metaPlatformStatus), for its glyph and data-channel-status. */
+      statusKind: ChannelStatusKind;
       switchLine: string;
     }[];
   }[];
@@ -237,10 +244,13 @@ export async function readSettingsView(input: {
     metaConnect: tenant.meta.connect,
     applies,
     channels: state.channels.map((c) => {
-      const presentation = channelPresentation(c, {
+      const presentationOptions = {
         setupFinished: channelSetupFinished(state.screens, state.progress),
         timeZone: clinic.timezone,
         now,
+      };
+      const presentation = channelPresentation(c, {
+        ...presentationOptions,
         needsReconnect: c.channel === "meta" && metaNeedsReconnect(tenant.meta.connect),
       });
       const statusLabel = presentation.label;
@@ -257,20 +267,20 @@ export async function readSettingsView(input: {
           applies: applies.channel_instagram ?? null,
           platforms: tenant.meta.connected.map((platform) => {
             const on = tenant.meta.switches[platform];
+            const platformStatus = metaPlatformStatus({
+              platform,
+              on,
+              // Without the channel-wide reconnect flag: only this platform's own login counts.
+              channel: channelPresentation(c, { ...presentationOptions, needsReconnect: false }),
+              connect: tenant.meta.connect,
+            });
             return {
               platform,
               key: `channel_${platform}` as SettingKey,
               name: META_PLATFORM_NAMES[platform],
               on,
-              // Off is the platform's own. A pause is clinic-wide, so it is true of
-              // every platform; but the Meta channel's live date is the first
-              // platform's, and one connected later did not go live then, so a
-              // live platform says only that it is live.
-              statusLabel: !on
-                ? channelStatusWord("off")
-                : presentation.kind === "live"
-                  ? channelStatusWord("live")
-                  : statusLabel,
+              statusLabel: platformStatus.label,
+              statusKind: platformStatus.kind,
               switchLine: `Off leaves ${META_PLATFORM_NAMES[platform]} messages for your team to answer in ${META_PLATFORM_NAMES[platform]}.`,
             };
           }),

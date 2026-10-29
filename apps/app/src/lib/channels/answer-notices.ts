@@ -79,8 +79,10 @@ import { OUTAGE_MISSED_REASONS } from "./routed-words";
  *      of the day and step 1's settled ones with it: within a day of the
  *      miss, inside Terms §5's seven. The transaction that opens the case
  *      queues L21 under `guarantee_miss:<case id>`, naming the day's first
- *      miss and the case's ref, which the email's subject carries so the
- *      clinic's reply joins one support case (lib/support/inbound/match.ts);
+ *      miss; the email's subject carries the channel's noun and the day, by
+ *      which, with the clinic's own address, the clinic's reply joins one
+ *      support case (lib/channels/miss-cases.ts, missReplyOf;
+ *      lib/support/inbound/handle.ts);
  *      after it commits, ops is alerted (`aya_miss_case_opened`, once per
  *      case) with the case's reply-by day.
  *

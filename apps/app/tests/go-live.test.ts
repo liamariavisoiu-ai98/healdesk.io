@@ -26,7 +26,7 @@ import {
   pendingLiveSet,
   routedAnsweredCounterBuilt,
 } from "@/lib/compliance/gate-b";
-import { casesNotAskable, practiceCases } from "@/lib/engine/practice/cases";
+import { casesNotAskable, PRACTICE_CASES_VERSION, practiceCases } from "@/lib/engine/practice/cases";
 import {
   decidePlatform,
   platformMissing,
@@ -549,8 +549,8 @@ async function passedRun(
   await inTenant(clinicId, async (c) => {
     await c.query(
       `insert into practice_question_runs (id, clinic_id, status, reason, requested_at, run_after, started_at, finished_at, cases_version, input_version)
-       values ($1, $2, $3, 'knowledge', now(), now(), now(), clock_timestamp(), '1.0.0', $4)`,
-      [runId, clinicId, status, version],
+       values ($1, $2, $3, 'knowledge', now(), now(), now(), clock_timestamp(), $5, $4)`,
+      [runId, clinicId, status, version, PRACTICE_CASES_VERSION],
     );
     await c.query(
       `insert into practice_question_results (clinic_id, run_id, channel, input_version, status, cases)

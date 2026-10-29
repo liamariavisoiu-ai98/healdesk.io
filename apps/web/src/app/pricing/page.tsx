@@ -98,7 +98,7 @@ const HOW_IT_WORKS = [
 const INCLUDED = [
   "Bookings written straight into your Google Calendar during the conversation (turn auto-confirm off to approve each one first)",
   "Deposits taken in chat through your own checkout link; phone bookings flagged for your desk to collect",
-  "Inbound only: she answers, and never calls or texts anyone on your behalf",
+  "Inbound only: she answers, never calls anyone and never texts first",
   "Conversations handled, appointments booked, deposits collected and booked value, in your portal and a weekly email",
   "We sign a business associate agreement and handle patient data under it",
 ] as const;

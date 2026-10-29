@@ -69,8 +69,10 @@ export const site = {
 
   /**
    * The site-wide meta description, the Open Graph and Twitter description,
-   * and the text on the rendered share image. No texting (v1 has no SMS) and
-   * no revenue claim (attribution is phase two).
+   * and the text on the rendered share image. No texting as a channel (SMS
+   * is not one; the one optional payment-link text after a call is designed,
+   * not built, and too small for a one-line description) and no revenue claim
+   * (attribution is phase two).
    *
    * It said "answers every call" until 19 October 2026. AYA answers the calls
    * a clinic forwards to it, in the mode the clinic picks, and the default

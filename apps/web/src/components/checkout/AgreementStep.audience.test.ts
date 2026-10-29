@@ -62,14 +62,14 @@ function inboundBox(words: string): string {
 describe("the Inbound only box, in the practice's own word", () => {
   test("a vet's says clients, and never patients", () => {
     const box = inboundBox(said("veterinary"));
-    expect(box).toContain("It never calls or texts your clients");
+    expect(box).toContain("It never calls your clients or texts them first");
     expect(box).toContain("every conversation it has is one a client started");
     expect(box).not.toMatch(/\bpatients?\b/i);
   });
 
   test("a practice whose patients are people still says patients", () => {
     const box = inboundBox(said("med-spa"));
-    expect(box).toContain("It never calls or texts your patients");
+    expect(box).toContain("It never calls your patients or texts them first");
     expect(box).toContain("every conversation it has is one a patient started");
   });
 });

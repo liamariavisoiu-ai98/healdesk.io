@@ -6,17 +6,17 @@ import type { TemplateEntry } from "./registry";
 import type { EmailTemplate } from "./types";
 
 /**
- * L21, "We missed a call" or "We missed a message" (Annex X5): a guarantee
- * miss is recorded, a call or message routed to AYA that she did not answer.
- * Normal priority, daytime, to the clinic's one address, within the Terms'
- * notice days (whatever records the miss decides when; this only words it).
+ * L21, "A call AYA didn't answer" or "A message AYA didn't answer" (Annex
+ * X5): a call or message routed to AYA was not answered. Normal priority,
+ * daytime, to the clinic's one address.
  *
- * One sentence of what happened, on which channel and which day, owning it,
- * and the one thing to do: reply if the clinic wants the first-month
- * guarantee checked (Terms § 5 and L30 take the claim from the account
- * owner's reply). No link: a miss has no screen of its own and nothing about
- * the call or message is stored to show. The plan did not declare the
- * payload, so it is the minimal set: the channel id and the day.
+ * Kind and plain (owner's revision, 29 October 2026): what happened, that we
+ * are looking into why, and that a reply reaches us. It does not name the
+ * first-month guarantee: the Terms (section 5) promise a refund of the first
+ * month's subscription fee only for a miss in the first month, and only on
+ * the account owner's emailed claim, and this email cannot know the month,
+ * so it neither promises nor denies. Minimal payload: the channel id and the
+ * day. No link: a miss has no screen of its own.
  */
 
 export type GuaranteeMissPayload = {
@@ -30,26 +30,20 @@ export const renderGuaranteeMiss: EmailTemplate<GuaranteeMissPayload> = (payload
   if (!(CHANNELS as readonly string[]).includes(payload.channel)) {
     throw new EmailCompositionError(`"${String(payload.channel)}" is not a channel.`);
   }
-  const call = payload.channel === "voice";
-  const noun = call ? "call" : "message";
-  const where = call
-    ? "your phone"
-    : payload.channel === "web"
-      ? "your website chat"
-      : "Instagram, Messenger or WhatsApp";
+  const noun = payload.channel === "voice" ? "call" : "message";
   const day = dayLong(payload.missedOn, ctx);
   return compose(
     {
-      subject: `We missed a ${noun}`,
-      preheader: `AYA didn't answer a ${noun} on ${where}.`,
+      subject: `A ${noun} AYA didn't answer`,
+      preheader: "We're sorry, and we're looking into why.",
       blocks: [
         {
           type: "paragraph",
-          text: `A ${noun} on ${where} on ${day} was routed to AYA and she didn't answer it. That's our miss, and we're sorry.`,
+          text: `A ${noun} to ${ctx.clinicName ?? "your practice"} on ${day} reached AYA, and she didn't answer it. We're sorry. We're looking into why it happened.`,
         },
         {
           type: "paragraph",
-          text: "If this happened in your first month, our guarantee covers it. Reply to this email from your account address and we'll check our records and tell you what we found.",
+          text: "If you'd like to talk it through, just reply to this email.",
         },
       ],
     },

@@ -16,7 +16,9 @@ import {
   repairFeedback,
   type AuditReport,
 } from "./audit";
-import { fetchGoogleHours, type GoogleHours } from "./google-hours";
+import { AUDIT_BY_MS, EXTRACT_BY_MS, READ_BY_MS, REPAIR_NEEDS_MS } from "./budget";
+import { fetchGoogleListing, type GoogleListing } from "./google-listing";
+import { groundProfile } from "./ground";
 import { isUsableProfile, normalizeProfile, type ClinicProfile } from "./profile";
 import { parseWebsiteUrl, scrapeClinicSite, ScrapeError, type ScrapedPage } from "./scrape";
 import {
@@ -37,13 +39,18 @@ import { structureProfile } from "./structure";
  *      It returns at once with the slug and the link, so the operator (or the
  *      webhook's caller) is not left holding a request open for two minutes.
  *   2. `runDemoBuild()` runs after the response (`after()` in the caller):
- *      scrape the site, structure it into a profile, write it to the row as
- *      `auditing`, or mark it `failed` with a reason the console shows.
+ *      read the site and the Google listing, structure them into a profile,
+ *      check it against the pages (lib/demo/ground.ts), write it to the row
+ *      as `auditing`, or mark it `failed` with a reason the console shows.
  *   3. The handoff audit (lib/demo/audit.ts) grades the demo with Claude
- *      Opus 5.5. A pass turns it `ready`; a near miss gets one repair round;
- *      anything broken or misleading is `held` for an operator, with an alert.
- *      Only `ready` is served, so the gate holds the link and not just the
- *      email.
+ *      Opus 5.5. A pass turns it `ready`; a near miss gets one repair round
+ *      when the clock allows; anything broken or misleading is `held` for an
+ *      operator, with an alert. Only `ready` is served, so the gate holds the
+ *      link and not just the email.
+ *
+ * All of it inside one minute (lib/demo/budget.ts, owner, 29 October 2026):
+ * each step has a point on the clock it must be done by, and the waiting
+ * screens count down to the same minute.
  *   4. With `sendEmail`, the link goes to the prospect once the audit has
  *      passed it, never before: a link that opens on "being prepared" is a
  *      worse first impression than a link that arrives two minutes later.
@@ -63,22 +70,14 @@ export type DemoRequest = {
   createdBy?: string | null;
 };
 
+/** The Google lookup stops this long before the profile is due, so merging it never makes the extraction late. */
+const LISTING_MARGIN_MS = 1_500;
+
 export type DemoRequestResult =
   | { ok: true; session: DemoSession; url: string }
   | { ok: false; field: "clinicName" | "websiteUrl" | "leadEmail" | "phone"; error: string };
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-
-/**
- * The repair round runs only if the first audit finished this soon after the
- * build started: a second extraction and audit take about two minutes, and
- * the routes that run the build stop at 300 s. Later than this, the first
- * round's verdict stands (ship and flag, or hold).
- */
-const REPAIR_CUTOFF_MS = 150_000;
-
-/** Every audit must be over by then: the routes that run the build stop at 300 s. */
-const AUDIT_DEADLINE_MS = 285_000;
 
 export async function requestDemo(input: DemoRequest): Promise<DemoRequestResult> {
   const clinicName = input.clinicName.trim();
@@ -118,12 +117,20 @@ export async function requestDemo(input: DemoRequest): Promise<DemoRequestResult
   return { ok: true, session, url: demoUrl(session.slug) };
 }
 
-/** The Google listing's hours win over the website's (lib/demo/google-hours.ts). Normalised, so it hashes as it will be stored. */
-function withHours(extracted: ClinicProfile, google: GoogleHours | null, fallbackName: string): ClinicProfile {
-  const merged = google
-    ? { ...extracted, hours: google.hours, hoursSource: "google" as const, hoursPlace: google.place || null }
-    : { ...extracted, hoursSource: extracted.hours.length > 0 ? ("website" as const) : null, hoursPlace: null };
-  return normalizeProfile(merged, fallbackName);
+/**
+ * The Google listing on top of the website's profile (lib/demo/google-listing.ts):
+ * its hours win over the website's; its phone and address fill in only where
+ * the website gave none; its "about" details are added. Normalised, so it
+ * hashes as it will be stored. Exported for the test.
+ */
+export function withListing(extracted: ClinicProfile, google: GoogleListing | null, fallbackName: string): ClinicProfile {
+  const hours =
+    google && google.hours.length > 0
+      ? { hours: google.hours, hoursSource: "google" as const, hoursPlace: google.place || null }
+      : { hoursSource: extracted.hours.length > 0 ? ("website" as const) : null, hoursPlace: null };
+  const phone = extracted.phone ? {} : google?.phone ? { phone: google.phone, phoneSource: "google" as const } : {};
+  const address = extracted.address ? {} : google?.address ? { address: google.address, addressSource: "google" as const } : {};
+  return normalizeProfile({ ...extracted, ...hours, ...phone, ...address, listingFacts: google?.about ?? [] }, fallbackName);
 }
 
 /**
@@ -140,28 +147,38 @@ export async function runDemoBuild(slug: string, options: { sendEmail?: boolean 
   const session = await getDemoSession(slug, { fresh: true });
   if (!session) return null;
 
+  // The brand reaches the row as soon as the homepage has been read, so the
+  // waiting screen shows the clinic's own logo and colour while the rest is built.
+  let brandWrite: Promise<unknown> = Promise.resolve();
   try {
-    // The Google listing runs beside the scrape: it needs only the name and
-    // the domain, and its hours beat the website's (lib/demo/google-hours.ts).
-    // A failed lookup costs the demo nothing but the better baseline.
-    const [scraped, google] = await Promise.all([
-      scrapeClinicSite(session.websiteUrl),
-      fetchGoogleHours(session.clinicName, session.websiteUrl).catch((error: unknown): GoogleHours | null => {
-        console.warn("[healdesk] google hours lookup failed", {
+    // The Google listing needs only the name and the domain, and is merged in
+    // only after the extraction, so it runs beside both, until just before the
+    // profile is due (lib/demo/google-listing.ts). A failed lookup costs the
+    // demo nothing but what the listing would have added.
+    const listing = fetchGoogleListing(session.clinicName, session.websiteUrl, started + EXTRACT_BY_MS - LISTING_MARGIN_MS).catch(
+      (error: unknown): GoogleListing | null => {
+        console.warn("[healdesk] google listing lookup failed", {
           slug,
           error: error instanceof Error ? error.message : String(error),
         });
         return null;
-      }),
-    ]);
-    const extract = async (feedback?: readonly string[]): Promise<ClinicProfile> =>
-      withHours(
-        await structureProfile(scraped.pages, { clinicName: session.clinicName, niche: session.niche, feedback }),
-        google,
-        session.clinicName,
-      );
+      },
+    );
+    const scraped = await scrapeClinicSite(session.websiteUrl, {
+      deadline: started + READ_BY_MS,
+      onBrand: (brand) => {
+        brandWrite = updateDemoSession(slug, { brandName: brand.name, logoUrl: brand.logoUrl, brandColor: brand.color }).catch(() => null);
+      },
+    });
+    const extract = async (feedback?: readonly string[], deadline: number = started + EXTRACT_BY_MS): Promise<ClinicProfile> => {
+      const raw = await structureProfile(scraped.pages, { clinicName: session.clinicName, niche: session.niche, feedback, deadline });
+      const grounded = groundProfile(raw, scraped.pages);
+      if (grounded.dropped.length > 0) console.info("[healdesk] demo facts dropped, not on the pages", { slug, dropped: grounded.dropped });
+      return withListing(grounded.profile, await listing, session.clinicName);
+    };
 
     const profile = await extract();
+    await brandWrite;
     if (!isUsableProfile(profile)) {
       // Every end of a run, this one included, resets the stall count: the
       // count is about the run that is on, not the demo's history
@@ -198,12 +215,14 @@ export async function runDemoBuild(slug: string, options: { sendEmail?: boolean 
       services: profile.services.length,
     });
 
-    const gated = await auditWithRepair(session, scraped.pages, profile, extract, started);
+    const gated = await auditWithRepair(session, scraped.pages, profile, extract, started + AUDIT_BY_MS);
     const done = await recordVerdict(slug, gated);
     const emailWanted = options.sendEmail || session.emailRequested;
     if (done?.status === "ready" && emailWanted && !done.emailSentAt) await sendDemoEmail(done);
     return done;
   } catch (error) {
+    // Its write reads and rewrites the whole row: let it land before this one, never after.
+    await brandWrite;
     const reason =
       error instanceof ScrapeError || (error instanceof Error && error.name === "StructureError")
         ? error.message
@@ -222,18 +241,19 @@ export type Gated =
 
 /**
  * The first audit, and the repair round when `decide()` asks for one and
- * there is time. The round kept is the better of the two (a repair can make
- * things worse), and its decision is taken again with no repair left.
- * Exported for scripts/demo-audit-calibrate.ts, which measures this exact path.
+ * there is time for it (REPAIR_NEEDS_MS before `deadline`). The round kept is
+ * the better of the two (a repair can make things worse), and its decision is
+ * taken again with no repair left. Exported for
+ * scripts/demo-audit-calibrate.ts, which measures this exact path.
  */
 export async function auditWithRepair(
   session: Pick<DemoSession, "slug" | "clinicName">,
   pages: readonly ScrapedPage[],
   profile: ClinicProfile,
-  extract: (feedback?: readonly string[]) => Promise<ClinicProfile>,
-  started: number,
+  extract: (feedback?: readonly string[], deadline?: number) => Promise<ClinicProfile>,
+  deadline: number,
 ): Promise<Gated> {
-  const base = { operatorName: session.clinicName, pages, deadline: started + AUDIT_DEADLINE_MS };
+  const base = { operatorName: session.clinicName, pages, deadline };
   let first: AuditReport;
   try {
     first = await auditDemo({ ...base, profile, round: 0, canRepair: true });
@@ -243,14 +263,15 @@ export async function auditWithRepair(
   }
 
   if (first.decision !== "repair") return { kind: "audited", profile, report: first };
-  if (Date.now() - started > REPAIR_CUTOFF_MS) {
+  if (deadline - Date.now() < REPAIR_NEEDS_MS) {
     return { kind: "audited", profile, report: { ...first, decision: decide(first, { canRepair: false }) } };
   }
 
   let repairedProfile: ClinicProfile;
   let second: AuditReport;
   try {
-    repairedProfile = await extract(repairFeedback(first));
+    // Half of what is left re-extracts; the audit keeps the rest.
+    repairedProfile = await extract(repairFeedback(first), Date.now() + Math.floor((deadline - Date.now()) / 2));
     if (!isUsableProfile(repairedProfile)) throw new Error("the repaired profile came back empty");
     second = await auditDemo({ ...base, profile: repairedProfile, round: 1, canRepair: false, previous: first });
   } catch (error) {

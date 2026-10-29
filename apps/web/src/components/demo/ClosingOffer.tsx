@@ -54,7 +54,7 @@ export function objections(clinicName: string, agent: string, audience: Audience
 }
 
 const NEXT_STEPS = [
-  { title: "About 15 minutes of your time", body: "Confirm the services, prices and hours she already knows, and how she should sound." },
+  { title: "About 15 minutes of your time", body: "Confirm what she learned from your website, add what she couldn't find, and choose how she should sound." },
   { title: "Connect your Google Calendar", body: "A sign-in, not a password. She books only into open slots." },
   { title: "Turn on call forwarding", body: "On your own line, so you keep your number. Each chat channel connects with a sign-in." },
 ] as const;

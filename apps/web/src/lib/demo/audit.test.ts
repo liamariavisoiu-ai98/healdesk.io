@@ -181,16 +181,28 @@ describe("the fingerprint", () => {
 describe("one audit round", () => {
   type Grade = { scores: Record<AuditDimension, number>; blockers: unknown[]; findings: unknown[]; summary: string };
 
-  function fakeClient(grade: Grade | Error, answer = "We're open Mon–Fri, 8am–5pm.") {
+  /**
+   * The chat answers every test question with `answer`; the two grades come
+   * back from one `grade`, split the way the audit asks for them: the answers'
+   * grade gets the conversation score, the profile's grade everything else.
+   */
+  function fakeClient(grade: Grade | Error, answer = "We're open Mon–Fri, 8am–5pm.", answersGrade?: Partial<Grade>) {
     const text = (t: string) => ({ content: [{ type: "text", text: t }], stop_reason: "end_turn" });
     return {
       beta: {
         messages: {
           create: async () => text(answer),
-          stream: () => ({
+          stream: (params: { system?: unknown }) => ({
             finalMessage: async () => {
               if (grade instanceof Error) throw grade;
-              return text(JSON.stringify(grade));
+              const forAnswers = String(params.system).includes("scripted test questions");
+              return text(
+                JSON.stringify(
+                  forAnswers
+                    ? { scores: { conversation: grade.scores.conversation }, blockers: [], findings: [], summary: "", ...answersGrade }
+                    : grade,
+                ),
+              );
             },
           }),
         },

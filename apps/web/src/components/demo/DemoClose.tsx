@@ -340,7 +340,7 @@ export function CloseCard({ channel }: { channel: Channel }) {
         <ClinicMark size={40} />
         <div className="min-w-0">
           <p className="font-display text-[22px] leading-tight font-medium">That was your {site.agent}.</p>
-          <p className="text-[14.4px] text-white/65">She already knows {clinicName}&rsquo;s services, prices and hours.</p>
+          <p className="text-[14.4px] text-white/65">She has already read {clinicName}&rsquo;s website.</p>
         </div>
       </div>
       <div className="mt-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-t border-white/[0.08] pt-4 tabular-nums">

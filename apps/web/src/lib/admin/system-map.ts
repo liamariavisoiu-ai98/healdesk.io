@@ -504,7 +504,7 @@ export const KEYS: readonly KeyDef[] = [
       kind: "every",
       days: 365,
       how: `Apify console, Settings, Integrations. ${VERCEL_HOW}`,
-      impact: "Demos read only plain HTML, and take opening hours from the website instead of Google, in between.",
+      impact: "Demos read only plain HTML, and get no opening hours, phone, address or parking details from Google, in between.",
     },
   },
   {
@@ -1292,7 +1292,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     title: "Apify reads clinic websites and their Google listing",
     carries: "A clinic's public website address, and its name to find its Google Maps listing",
     example:
-      "A clinic's site is built on Wix and shows nothing until it loads in a browser; Apify opens it in a real one so the demo can read its prices, and reads the clinic's opening hours off its Google listing.",
+      "A clinic's site is built on Wix and shows nothing until it loads in a browser; Apify opens it in a real one so the demo can read its prices, and reads the clinic's opening hours, phone, address and parking details off its Google listing, all inside the build's one minute.",
     keys: ["vercel.APIFY_TOKEN"],
     phi: false,
     build: "built",

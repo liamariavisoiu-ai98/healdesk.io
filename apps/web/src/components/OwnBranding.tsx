@@ -148,7 +148,7 @@ function cleanPreview(data: unknown, host: string): Preview {
 type Read = { refused: string } | { preview: Preview };
 
 /** How often the window asks how the build is going: the demo page's own refresh. */
-const STATUS_EVERY_MS = 6_000;
+const STATUS_EVERY_MS = 4_000;
 
 /** The demo link api/own-demo answers with: a page of ours under /demo/, and nothing else is opened. */
 const DEMO_LINK = /^https?:\/\/[^/\s]+\/demo\/[a-z0-9-]{1,80}$/;
@@ -482,7 +482,7 @@ export function OwnBranding() {
           : "";
 
   return (
-    <div ref={stage} data-reveal className="own-stage relative mt-16 overflow-hidden rounded-lg border border-black/[0.06] px-5 pt-12 sm:mt-24 sm:px-10 sm:pt-16">
+    <div ref={stage} id="own-branding" data-reveal className="own-stage relative mt-16 scroll-mt-24overflow-hidden rounded-lg border border-black/[0.06] px-5 pt-12 sm:mt-24 sm:px-10 sm:pt-16">
       <div className="mx-auto max-w-[760px] text-center">
         <h3 className="heading-sub text-ink mx-auto">
           See it in your own branding

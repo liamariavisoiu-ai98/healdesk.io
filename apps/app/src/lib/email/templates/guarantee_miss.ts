@@ -68,7 +68,7 @@ export const GUARANTEE_MISS_ENTRY: TemplateEntry<GuaranteeMissPayload> = {
       channel: "voice",
       missedAt: "2026-10-05T18:10:00Z",
       wasRoutedToDirectLine: true,
-      missedUrl: publicUrl("/c/radiance-med-spa/conversations"),
+      missedUrl: publicUrl("/c/radiance-med-spa/missed/6b1f2c3d-4e5a-4b6c-8d7e-9f0a1b2c3d4e"),
     };
   },
 };

@@ -50,6 +50,6 @@ Fields: `endedAt`, `callCount` (calls that reached the direct line during the fa
 
 "It rang through to your direct line." appears only when `wasRoutedToDirectLine` is true. For website chat it reads "Your contact form was shown instead."; for Instagram, Messenger and WhatsApp it says nothing about where the message went. No guarantee, no "sorry", no reply line. Fields: `channel`, `missedAt`, `wasRoutedToDirectLine`, `missedUrl`.
 
-## For the counter lane
+## The links
 
-`missedUrl` is the portal page the counter lane defines. The fixtures use `/c/<slug>/conversations` as a stand-in; the sender should pass the real path built with `publicUrl`.
+`missedUrl` is built upstream with `publicUrl` by the routed/answered counter (`lib/channels/answer-notices.ts`, `missedPath`): for L18 the portal's missed list, `/c/<slug>/missed`; for L21 that one missed contact, `/c/<slug>/missed/<missed contact id>` (the list only when the contact's 30-day record is already gone). The fixtures use the same paths.

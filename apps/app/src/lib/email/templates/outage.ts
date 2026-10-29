@@ -139,7 +139,7 @@ export const OUTAGE_ENDED_ENTRY: TemplateEntry<OutageEndedPayload> = {
       callCount: 4,
       chatCount: 2,
       homeUrl: publicUrl("/c/radiance-med-spa"),
-      missedUrl: publicUrl("/c/radiance-med-spa/conversations"),
+      missedUrl: publicUrl("/c/radiance-med-spa/missed"),
     };
   },
 };

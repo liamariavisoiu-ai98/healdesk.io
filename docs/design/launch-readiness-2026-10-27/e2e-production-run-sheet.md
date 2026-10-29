@@ -9,15 +9,16 @@ Only synthetic details go in: your own test clinic, your own email and Google ac
 made-up patient name ("Sam Test") and a 555-01xx number. Never type a real patient's
 details, and never type into a real clinic's chat.
 
-> **Read first: what the local test found.** On `main` today **no clinic can go live**.
-> Gate B in code (`apps/app/src/lib/compliance/gate-b.ts`) is fail-closed and three of its
-> items are unbuilt: the practice questions cannot yet ask the booking and deposit cases,
-> the routed/answered counter does not exist, and the L17, L18 and L21 emails have no
-> template. (The first is built by Gate B piece 1, 29 October 2026, on `gateb/practice`,
-> not on `main` yet: both cases asked of the tool layer, and a pass recorded before then
-> opens nothing, drizzle/0137.) So Phase 5 ends with website chat **held** and an ops alert `go_live_held`
-> (`gate_b_not_built`). Phases 6 to 10 cannot run in production until that is built and
-> deployed. The local test gets past it only by standing in for that commit.
+> **Read first: what the local test found.** Gate B in code
+> (`apps/app/src/lib/compliance/gate-b.ts`) is fail-closed. Since the merge of 29 October
+> 2026 (`check/final-2`, not on `main` or deployed yet) every item is built: the practice
+> questions ask the booking and deposit cases of the tool layer (a pass recorded before
+> then opens nothing, drizzle/0137), the routed/answered counter records every call and
+> conversation routed to AYA (drizzle/0139), and the L17, L18 and L21 emails have their
+> templates. The local test goes live on the real gate, with no stand-in. Until that tree
+> is landed and deployed (migrations 0137 to 0139), production still holds every clinic:
+> Phase 5 ends with website chat **held** and an ops alert `go_live_held`
+> (`gate_b_not_built`), and Phases 6 to 10 cannot run in production.
 
 ## What the local test stubs, so what this walk proves that it cannot
 
@@ -27,7 +28,7 @@ details, and never type into a real clinic's chat.
 | SES | The real SesTransport and AWS SDK against an SES stand-in; the delivery event applied directly | SES, the SNS subscription, TLS to your mail server, the email arriving |
 | Resend | A recording transport | The welcome email, sign-in links, L7 and L12 arriving |
 | Model (Anthropic) | Scripted replies; a recorded pass of the practice questions, and the script approval it gives | Claude's real answers and a real practice-questions run |
-| Gate B in code | Mocked built from Phase 5 on (it is not built on `main`) | Nothing until it is built: see the box above |
+| Gate B in code | Read as it is: built, not mocked | That the deployed code reads built: see the box above |
 | Google Calendar | In-memory fake for OAuth, free/busy and insert | Google's consent screen, the real calendar, the event appearing |
 | WebAuthn | A software authenticator against the real verifiers | Face ID or Touch ID in a real browser |
 | Retell, Meta | Not exercised | Everything on voice and Meta |
@@ -39,7 +40,7 @@ details, and never type into a real clinic's chat.
 
 | Pending action | Blocks | Without it |
 | --- | --- | --- |
-| Gate B built and deployed (Claude Code work, not yours) | 5 (going live) and everything after | Website chat stays held |
+| Gate B's merged tree landed and deployed, with migrations 0137 to 0139 (your yes to land and deploy) | 5 (going live) and everything after | Website chat stays held |
 | `billing-notices` job on (`/admin/system/jobs`) | 6, 7, 9 | L12 (urgent) and L7 (booking request) are queued, never sent; the urgent reply leaves out "I've told the team" |
 | `RESEND_API_KEY` on the host | 2, 6, 7, 9 | No welcome email, no sign-in link by email (only the `/welcome` hand-off in the paying browser works), no L7 or L12 |
 | Stripe Connect client id (`stripe_connect_client_id`) and its webhook secret | 4's deposits screen, if you answer Yes | Answer **No** to deposits; the gateway step cannot connect |
@@ -123,7 +124,9 @@ welcome email's link resumes on the first unanswered screen.
 ## Phase 5: website chat goes live
 
 1. Paste the snippet from Setup into your test page; load the page once.
-2. In `/admin/clinics/<id>/setup`, Channels card, press **The line is on their website**.
+2. Load the page again at least five minutes later: two opens from the clinic's own site
+   confirm the line by themselves (WEBCHAT-2, drizzle/0138). Or, in
+   `/admin/clinics/<id>/setup`, Channels card, press **The line is on their website**.
 3. Let the practice questions run (two minutes after the last change; needs the
    `practice-questions` job on and the Anthropic key set). Their pass is what approves the
    script; there is no approve button (retired 19 October 2026).
@@ -131,8 +134,8 @@ welcome email's link resumes on the first unanswered screen.
 **Look in /admin:** the Setup tab's Channels card (what website chat still needs);
 `/admin/inbox` and Home for `go_live_held`.
 
-**Expect today:** website chat **held**, `go_live_held` with `gate_b_not_built`. Stop
-here until Gate B is built and deployed. **Expect once it is:** the channel live, the
+**Expect until the Gate B tree is deployed:** website chat **held**, `go_live_held` with
+`gate_b_not_built`. Stop there until it is. **Expect once it is:** the channel live, the
 channel-live email queued to the clinic address (`channel_live`), the clinic shown as
 live.
 

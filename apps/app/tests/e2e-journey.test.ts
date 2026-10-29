@@ -11,20 +11,7 @@ import {
   sign,
 } from "@healdesk/catalog";
 import type { FakeGoogleCalendar } from "@healdesk/connectors";
-import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
-
-/**
- * Gate B in code (lib/compliance/gate-b.ts) is fail-closed, and built since
- * migration 0139 (the routed/answered counter and its notices), so step 6
- * goes live on the real list; the mock is kept so a later item coming undone
- * can be stood in for, and afterAll leaves app_gate_b_code_built() true, the
- * migrations' own definition. tests/go-live.test.ts holds the refusal.
- */
-const gate = vi.hoisted(() => ({ built: false }));
-vi.mock("@/lib/compliance/gate-b", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/compliance/gate-b")>();
-  return { ...actual, gateBNotBuilt: () => (gate.built ? [] : actual.gateBNotBuilt()) };
-});
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 /**
  * E2E (launch readiness, 27 October 2026): one synthetic clinic, end to end,
@@ -103,13 +90,13 @@ vi.mock("@/lib/compliance/gate-b", async (importOriginal) => {
  * - The operator's actions (toggleJob, confirmWebWidget, the projections
  *   /admin reads) go through the ops envelope's runOperation, without the
  *   console's sign-in or the HMAC hop from apps/web.
- * - Gate B in code is mocked built from step 6 on (see the mock below): on
- *   main it is not, and no clinic can go live. Step 6 shows that hold first.
- *   Its practice-questions item is built for real since 29 October 2026
- *   (every case askable, lib/engine/practice/booking.ts), so the mock stands
- *   in only for the routed/answered counter and the live emails; the
+ * - Gate B in code (lib/compliance/gate-b.ts) is read as it is, never
+ *   mocked: every item is built since 29 October 2026 (the practice
+ *   questions ask every case, lib/engine/practice/booking.ts; the
+ *   routed/answered counter and its notices, migration 0139), and the
  *   fixture's pass (tests/setup/practice.ts) records no case the runtime
- *   could not ask, so the gate opens on it without the mock's help.
+ *   could not ask, so step 6 goes live on the real gate.
+ *   tests/go-live.test.ts holds the refusal while an item is not built.
  *
  * DB-1's switch (HEALDESK_DIRECT_BOOKING_ENABLED and
  * HEALDESK_DIRECT_BOOKING_ADDENDUM) is set in THIS PROCESS ONLY, for the last
@@ -154,7 +141,7 @@ import { agreementRecord, intentRecord, nonce, records } from "./setup/checkout-
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { DESK_TZ, deskTime, freshGoogle, installGoogleEnv, restoreGoogleEnv } from "./setup/desk-calendar";
 import { inTenant, queuedNotices } from "./setup/factories";
-import { attestPlatform, setGateBCodeBuilt } from "./setup/platform";
+import { attestPlatform } from "./setup/platform";
 import { passPracticeQuestions } from "./setup/practice";
 import { SoftAuthenticator } from "./setup/soft-authenticator";
 import { createStripeFake } from "./setup/stripe-fake";
@@ -406,8 +393,6 @@ describeDb("E2E: a synthetic clinic from checkout to a booked appointment", () =
   }, 180_000);
 
   afterAll(async () => {
-    gate.built = false;
-    await setGateBCodeBuilt(true);
     __setStripeForTests(null);
     restoreGoogleEnv();
     J.ses?.server.closeAllConnections();

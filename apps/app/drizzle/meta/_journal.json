@@ -960,13 +960,6 @@
       "when": 1793267775098,
       "tag": "0136_baa_release_1_6_0",
       "breakpoints": true
-    },
-    {
-      "idx": 137,
-      "version": "7",
-      "when": 1793274716691,
-      "tag": "0137_routed_answered",
-      "breakpoints": true
     }
   ]
 }

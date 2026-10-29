@@ -184,3 +184,4 @@ No merge, push, production deploy, Terraform apply, live vendor changes, real pa
 
 ## End-of-session update contract
 Before stopping, replace stale values above with **actual** task ID/status, UTC time, branch/HEAD, dirty paths, changed files, exact tests/results (including skips), evidence links, blockers, Owner decisions and **one next executable step**. Keep stable architectural guidance at the top unchanged. If interrupted, reconstruct state from Git and CI; do not invent a checkpoint.
+- **PORTAL-BOOKINGS (29 Oct 2026), CODE and TESTED LOCALLY on `lane/portal-bookings`, not pushed or deployed:** Bookings screen gets a next-action line, at-a-glance counts, plain status and deposit badges (`apps/app/src/lib/portal/bookings-view.ts`, test `tests/bookings-view.test.ts`) and an error state (`bookings/error.tsx`); no new actions, no new patient data.

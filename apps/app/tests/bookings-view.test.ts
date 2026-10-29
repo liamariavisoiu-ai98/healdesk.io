@@ -43,9 +43,9 @@ describe("glance and next action", () => {
     deposits: [{}],
     openHandoverCount: 0,
     booked: [
-      { status: "confirmed" as const, scheduledFor: LATER },
-      { status: "cancelled" as const, scheduledFor: LATER },
-      { status: "confirmed" as const, scheduledFor: EARLIER },
+      { status: "confirmed" as const, scheduledFor: LATER, bookedBy: "assistant" as const },
+      { status: "cancelled" as const, scheduledFor: LATER, bookedBy: "assistant" as const },
+      { status: "confirmed" as const, scheduledFor: EARLIER, bookedBy: "assistant" as const },
     ],
   };
   test("counts only what is ahead and live", () => {
@@ -55,6 +55,13 @@ describe("glance and next action", () => {
       askedForPerson: 0,
       upcoming: 1,
     });
+  });
+  test("team-confirmed bookings are not counted as booked by AYA", () => {
+    const booked = [
+      { status: "confirmed" as const, scheduledFor: LATER, bookedBy: "assistant" as const },
+      ...[1, 2, 3].map(() => ({ status: "confirmed" as const, scheduledFor: LATER, bookedBy: "team" as const })),
+    ];
+    expect(bookingsGlance({ ...screen, booked }, NOW).upcoming).toBe(1);
   });
   test("requests come first in the next-action sentence", () => {
     expect(nextActionLine(bookingsGlance(screen, NOW))).toMatch(/^2 requests are waiting/);

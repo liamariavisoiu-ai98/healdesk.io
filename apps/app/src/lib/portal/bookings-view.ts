@@ -57,7 +57,7 @@ export type BookingsGlance = {
   awaitingStaff: number;
   depositsToCollect: number;
   askedForPerson: number;
-  /** Appointments AYA booked that are still ahead. */
+  /** Appointments AYA herself booked (not team-confirmed requests) that are still ahead. */
   upcoming: number;
 };
 
@@ -66,7 +66,7 @@ export function bookingsGlance(
     open: readonly unknown[];
     deposits: readonly unknown[];
     openHandoverCount: number;
-    booked: readonly Pick<BookedAppointment, "status" | "scheduledFor">[];
+    booked: readonly Pick<BookedAppointment, "status" | "scheduledFor" | "bookedBy">[];
   },
   now: Date,
 ): BookingsGlance {
@@ -76,6 +76,9 @@ export function bookingsGlance(
     askedForPerson: screen.openHandoverCount,
     upcoming: screen.booked.filter(
       (b) =>
+        // "Booked by AYA" is her own bookings; a request the team confirmed is
+        // in the list below but is not hers to claim.
+        b.bookedBy === "assistant" &&
         (b.status === "scheduled" || b.status === "confirmed") &&
         b.scheduledFor.getTime() > now.getTime(),
     ).length,

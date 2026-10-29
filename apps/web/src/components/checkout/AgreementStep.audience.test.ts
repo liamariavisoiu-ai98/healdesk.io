@@ -56,7 +56,7 @@ function said(specialty: "veterinary" | "med-spa"): string {
 function inboundBox(words: string): string {
   const start = words.indexOf("Inbound only");
   expect(start, words).toBeGreaterThanOrEqual(0);
-  return words.slice(start, words.indexOf("placed in your name", start));
+  return words.slice(start, words.indexOf("consent warranty", start));
 }
 
 describe("the Inbound only box, in the practice's own word", () => {

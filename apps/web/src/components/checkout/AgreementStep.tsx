@@ -581,7 +581,7 @@ export function AgreementStep({
             has is one a {asks ? "patient" : "client"} started. One optional text is the exception:
             after a booking call, it is designed to text the caller your payment link once, only if
             they agree. It says it is an AI assistant first, on
-            every channel. You give no consent warranty, because nothing is ever placed in your name.
+            every channel. You give no consent warranty.
           </p>
         </div>
 

@@ -688,7 +688,7 @@ describe("the agreement step", () => {
 
   test("the Inbound only box names a practice's patients (AgreementStep.audience.test.ts: a vet's clients)", () => {
     const said = text(agreementStep(answered()));
-    const box = said.slice(said.indexOf("Inbound only"), said.indexOf("placed in your name"));
+    const box = said.slice(said.indexOf("Inbound only"), said.indexOf("consent warranty"));
     expect(box).toContain("It never calls your patients or texts them first");
     // Owner, 29 October 2026: never "no texts" as an absolute, and the one
     // optional payment-link text is described as designed, not live.

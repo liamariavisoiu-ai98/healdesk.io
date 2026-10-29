@@ -16,7 +16,7 @@ Payload keys are named to pass the allowlist in `lib/email/lint.ts`: its boolean
 >
 > [Open Home]
 
-When `isConnectivityFault` is false, the first sentence ends "due to a technical fault on our side." The "In the meantime" sentence appears only when `canReachDirectLine` is true. When `isChatAffected` is true, "Website chat visitors are being shown your contact form." is added (alone, it has no "In the meantime"). Fields: `startedAt`, `isConnectivityFault`, `canReachDirectLine`, `isChatAffected`, `homeUrl`.
+The cause always reads "a connectivity error", whatever the underlying cause (owner). The "In the meantime" sentence appears only when `canReachDirectLine` is true. When `isChatAffected` is true, "Website chat visitors are being shown your contact form." is added (alone, it has no "In the meantime"). Fields: `startedAt`, `canReachDirectLine`, `isChatAffected`, `homeUrl`.
 
 ## L18, AYA is back (critical, any hour)
 

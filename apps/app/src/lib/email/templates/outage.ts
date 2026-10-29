@@ -11,9 +11,9 @@ import type { EmailTemplate } from "./types";
  * mechanics, one Open Home button (owner, 29 October 2026).
  *
  *   - L17 is the owner's own text: AYA has not been able to answer since
- *     {when}, due to a connectivity error (or, when that is not what it is,
- *     a technical fault on our side); we are working on it and will email
- *     the moment it is fixed.
+ *     {when}, due to a connectivity error (always, whatever the underlying
+ *     cause: AYA disconnects; owner, 29 October 2026); we are working on it
+ *     and will email the moment it is fixed.
  *   - L18: AYA is answering again as of {when}, everything working normally;
  *     then, only when something reached the clinic meanwhile, one sentence
  *     with the two counts.
@@ -26,8 +26,6 @@ export type OutageStartedPayload = {
   startedAt: string;
   /** Calls are ringing through to a usable direct line. */
   canReachDirectLine: boolean;
-  /** The cause is a connectivity error; false is any other technical fault on our side. */
-  isConnectivityFault: boolean;
   /** Website chat is among what stopped: visitors see the contact form. */
   isChatAffected: boolean;
   /** publicUrl("/c/<slug>"): Home. */
@@ -48,13 +46,10 @@ export type OutageEndedPayload = {
 };
 
 export const renderOutageStarted: EmailTemplate<OutageStartedPayload> = (payload, ctx) => {
-  const cause = payload.isConnectivityFault
-    ? "a connectivity error"
-    : "a technical fault on our side";
   const blocks: Block[] = [
     {
       type: "paragraph",
-      text: `AYA hasn't been able to answer since ${momentLong(payload.startedAt, ctx)} due to ${cause}. We're working on it now.`,
+      text: `AYA hasn't been able to answer since ${momentLong(payload.startedAt, ctx)} due to a connectivity error. We're working on it now.`,
     },
   ];
   if (payload.canReachDirectLine) {
@@ -129,7 +124,6 @@ export const OUTAGE_STARTED_ENTRY: TemplateEntry<OutageStartedPayload> = {
   get fixture(): OutageStartedPayload {
     return {
       startedAt: "2026-10-06T13:04:00Z",
-      isConnectivityFault: true,
       canReachDirectLine: true,
       isChatAffected: false,
       homeUrl: publicUrl("/c/radiance-med-spa"),

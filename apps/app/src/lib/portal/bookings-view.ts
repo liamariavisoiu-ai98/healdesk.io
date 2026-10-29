@@ -1,3 +1,4 @@
+import type { BookingRequestView } from "@/lib/meta/booking-requests";
 import type { AppointmentStatus, BookedAppointment } from "./bookings";
 
 /**
@@ -35,6 +36,18 @@ export function appointmentStatusBadge(status: AppointmentStatus, started: boole
 }
 
 /**
+ * What an open request asks of the desk. Only a request still "requested" is
+ * confirmed, proposed against or declined here; once accepted, or once times
+ * were proposed, the desk phones the person to arrange it (v1 places no
+ * calls, lib/booking/reschedule.ts), so neither is a wait on the person.
+ */
+export function requestStatusBadge(status: BookingRequestView["status"]): Badge {
+  return status === "requested"
+    ? { label: "Waiting for you: confirm, propose or decline", tone: "action" }
+    : { label: "Call to arrange a time", tone: "action" };
+}
+
+/**
  * The deposit flag on a booking, or null when there is nothing to flag (no
  * deposit, waived or paid are said by the deposit line alone). A deposit the
  * front desk must take is an action; one with a link out is waiting on the
@@ -55,6 +68,10 @@ export function depositBadge(a: Pick<BookedAppointment, "depositStatus" | "statu
 /** The numbers at the top of the screen. */
 export type BookingsGlance = {
   awaitingStaff: number;
+  /** Of those, requests still to confirm, propose against or decline. */
+  toDecide: number;
+  /** Of those, accepted or rescheduling requests: the desk phones to arrange a time. */
+  toArrange: number;
   depositsToCollect: number;
   askedForPerson: number;
   /** Appointments AYA herself booked (not team-confirmed requests) that are still ahead. */
@@ -63,7 +80,7 @@ export type BookingsGlance = {
 
 export function bookingsGlance(
   screen: {
-    open: readonly unknown[];
+    open: readonly Pick<BookingRequestView, "status">[];
     deposits: readonly unknown[];
     openHandoverCount: number;
     booked: readonly Pick<BookedAppointment, "status" | "scheduledFor" | "bookedBy">[];
@@ -72,6 +89,8 @@ export function bookingsGlance(
 ): BookingsGlance {
   return {
     awaitingStaff: screen.open.length,
+    toDecide: screen.open.filter((r) => r.status === "requested").length,
+    toArrange: screen.open.filter((r) => r.status !== "requested").length,
     depositsToCollect: screen.deposits.length,
     askedForPerson: screen.openHandoverCount,
     upcoming: screen.booked.filter(
@@ -89,8 +108,12 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 
 /** One sentence naming what to do first, or the all-clear. */
 export function nextActionLine(g: BookingsGlance): string {
-  if (g.awaitingStaff > 0) {
-    return `${plural(g.awaitingStaff, "request is", "requests are")} waiting for you to confirm, propose another time or decline.`;
+  if (g.toDecide > 0) {
+    const rest = g.toArrange > 0 ? ` ${plural(g.toArrange, "more needs", "more need")} a call to arrange a time.` : "";
+    return `${plural(g.toDecide, "request is", "requests are")} waiting for you to confirm, propose another time or decline.${rest}`;
+  }
+  if (g.toArrange > 0) {
+    return `${plural(g.toArrange, "request needs", "requests need")} a call to arrange a time.`;
   }
   if (g.depositsToCollect > 0) {
     return `${plural(g.depositsToCollect, "deposit is", "deposits are")} waiting for you to collect.`;

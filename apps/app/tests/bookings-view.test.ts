@@ -5,6 +5,7 @@ import {
   bookingsGlance,
   depositBadge,
   nextActionLine,
+  requestStatusBadge,
 } from "@/lib/portal/bookings-view";
 
 const NOW = new Date("2026-03-10T12:00:00Z");
@@ -39,7 +40,7 @@ describe("deposit flag", () => {
 
 describe("glance and next action", () => {
   const screen = {
-    open: [{}, {}],
+    open: [{ status: "requested" as const }, { status: "requested" as const }],
     deposits: [{}],
     openHandoverCount: 0,
     booked: [
@@ -51,6 +52,8 @@ describe("glance and next action", () => {
   test("counts only what is ahead and live", () => {
     expect(bookingsGlance(screen, NOW)).toEqual({
       awaitingStaff: 2,
+      toDecide: 2,
+      toArrange: 0,
       depositsToCollect: 1,
       askedForPerson: 0,
       upcoming: 1,
@@ -65,21 +68,42 @@ describe("glance and next action", () => {
   });
   test("requests come first in the next-action sentence", () => {
     expect(nextActionLine(bookingsGlance(screen, NOW))).toMatch(/^2 requests are waiting/);
-    expect(nextActionLine({ awaitingStaff: 1, depositsToCollect: 0, askedForPerson: 0, upcoming: 0 })).toMatch(
+    expect(nextActionLine({ awaitingStaff: 1, toDecide: 1, toArrange: 0, depositsToCollect: 0, askedForPerson: 0, upcoming: 0 })).toMatch(
       /^1 request is waiting/,
     );
-    expect(nextActionLine({ awaitingStaff: 0, depositsToCollect: 2, askedForPerson: 1, upcoming: 0 })).toMatch(
+    expect(nextActionLine({ awaitingStaff: 0, toDecide: 0, toArrange: 0, depositsToCollect: 2, askedForPerson: 1, upcoming: 0 })).toMatch(
       /^2 deposits are waiting/,
     );
-    expect(nextActionLine({ awaitingStaff: 0, depositsToCollect: 0, askedForPerson: 1, upcoming: 0 })).toMatch(
+    expect(nextActionLine({ awaitingStaff: 0, toDecide: 0, toArrange: 0, depositsToCollect: 0, askedForPerson: 1, upcoming: 0 })).toMatch(
       /^1 person has asked/,
     );
   });
+  test("accepted and rescheduling requests are a call to make, not a decision", () => {
+    const g = bookingsGlance(
+      { ...screen, open: [{ status: "accepted" as const }, { status: "rescheduling" as const }] },
+      NOW,
+    );
+    expect(g).toMatchObject({ awaitingStaff: 2, toDecide: 0, toArrange: 2 });
+    const line = nextActionLine(g);
+    expect(line).toBe("2 requests need a call to arrange a time.");
+    expect(line).not.toMatch(/confirm|decline|propose/);
+    const mixed = bookingsGlance(
+      { ...screen, open: [{ status: "requested" as const }, { status: "accepted" as const }] },
+      NOW,
+    );
+    expect(nextActionLine(mixed)).toMatch(/^1 request is waiting for you to confirm.*1 more needs a call/);
+  });
+  test("request badges: rescheduling is an action, never a wait on the person", () => {
+    expect(requestStatusBadge("requested").label).toMatch(/confirm, propose or decline/);
+    for (const status of ["accepted", "rescheduling"] as const) {
+      expect(requestStatusBadge(status)).toEqual({ label: "Call to arrange a time", tone: "action" });
+    }
+  });
   test("all clear, and no sentence claims revenue", () => {
-    expect(nextActionLine({ awaitingStaff: 0, depositsToCollect: 0, askedForPerson: 0, upcoming: 3 })).toBe(
+    expect(nextActionLine({ awaitingStaff: 0, toDecide: 0, toArrange: 0, depositsToCollect: 0, askedForPerson: 0, upcoming: 3 })).toBe(
       "Nothing needs you right now.",
     );
-    expect(nextActionLine({ awaitingStaff: 3, depositsToCollect: 3, askedForPerson: 3, upcoming: 3 })).not.toMatch(
+    expect(nextActionLine({ awaitingStaff: 3, toDecide: 3, toArrange: 0, depositsToCollect: 3, askedForPerson: 3, upcoming: 3 })).not.toMatch(
       /revenue/i,
     );
   });

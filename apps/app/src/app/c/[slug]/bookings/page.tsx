@@ -25,6 +25,7 @@ import {
   bookingsGlance,
   depositBadge,
   nextActionLine,
+  requestStatusBadge,
   type Badge,
 } from "@/lib/portal/bookings-view";
 import { portalMoment, portalMoney } from "@/lib/portal/format";
@@ -403,17 +404,7 @@ function RequestCard(props: {
         {r.firstName ?? "Someone"} {words.headline}
       </h3>
       <p className="mt-2">
-        <StatusBadge
-          badge={{
-            label:
-              r.status === "requested"
-                ? "Waiting for you: confirm, propose or decline"
-                : r.status === "rescheduling"
-                  ? "Waiting for them to choose a time"
-                  : "Call to arrange a time",
-            tone: r.status === "rescheduling" ? "waiting" : "action",
-          }}
-        />
+        <StatusBadge badge={requestStatusBadge(r.status)} />
       </p>
       <p className="text-muted mt-1 text-sm">
         {words.via.charAt(0).toUpperCase() + words.via.slice(1)},{" "}

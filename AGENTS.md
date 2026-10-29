@@ -138,6 +138,8 @@ Launch-readiness H0 to H8 on local branches (none pushed to `main`): `pkg/voice-
 
 - **CHECK-OPEN-ITEMS (28 Oct 2026), LOCAL on `check/open-items`, not deployed:** `apps/web/src/lib/site-read/decode.ts` decodes windows-1252 labels by the WHATWG index (Node 22 returned C1 controls for 0x80-0x9F), used by `site-read/fetch.ts`; the internal vendor register gained the owner's support mailbox provider (generic, no BAA, internal only, `scope: "product"`); no public page text or `LEGAL_VERSION` changed; `/admin/map` gets no new tool (the mailbox is already in the inbound-support story, and it is no key or connection of ours).
 
+- **Portal Home lane (branch `lane/portal-home`, 29 Oct, local only, not pushed):** Home now answers two things plainly: one "Needs you" list (waiting, calls ended early and every setup/sign-in/billing item, with an empty state) and "What AYA did this week" (a one-sentence headline from the claims function, empty state, no revenue claims); Home shows a calm error panel if its facts cannot be read. New `lib/portal/home-summary.ts`, `c/[slug]/HomeSections.tsx`, `tests/home-summary.test.ts`; `c/[slug]/page.tsx` edited. DB-backed portal-pages suites not run here (no `TEST_APP_URL`).
+
 ## Next actions — ordered
 From `docs/design/launch-readiness-2026-10-27/status.md` sections 1 and 8 and the owner's decisions of 27 Oct 2026. Owner-only and Claude Code actions are kept apart.
 

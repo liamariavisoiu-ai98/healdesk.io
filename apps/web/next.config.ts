@@ -48,6 +48,10 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       { source: "/trust", destination: "/terms#security", permanent: true },
+      // The short link for outreach to the homepage's "See it in your own
+      // branding" box (owner, 29 October 2026). Temporary (307) so the
+      // address can be pointed elsewhere later without a cached 308 in the way.
+      { source: "/demo-yours", destination: "/#own-branding", permanent: false },
     ];
   },
 

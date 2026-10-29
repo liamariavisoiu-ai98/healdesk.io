@@ -569,8 +569,10 @@ export function AgreementStep({
         </div>
 
         {/* Interface copy beside the agreement, not part of it: v1 only
-            answers, so nothing is placed in the clinic's name and there is
-            nothing for it to warrant. */}
+            answers. The one optional payment-link text is designed, not
+            built, and the agreement offered here (1.5.1) says healdesk sends
+            no SMS, so the box says the text waits for an agreement that
+            covers it. */}
         <div className="border-line bg-paper-2/50 mt-6 rounded-sm border p-4">
           <p className="text-[15.6px] font-bold">Inbound only</p>
           <p className="text-muted mt-1.5 text-[15.6px] leading-relaxed">
@@ -578,10 +580,10 @@ export function AgreementStep({
                 skipped exactly where HIPAA cannot reach, a vet's, whose people are clients. */}
             healdesk only answers. It never calls your {asks ? "patients" : "clients"} or texts them
             first, and sends no reminders, follow-ups, win-backs or call-backs: every conversation it
-            has is one a {asks ? "patient" : "client"} started. One optional text is the exception:
-            after a booking call, it is designed to text the caller your payment link once, only if
-            they agree. It says it is an AI assistant first, on
-            every channel. You give no consent warranty.
+            has is one a {asks ? "patient" : "client"} started. One optional text, off unless you turn it on,
+            is designed for later: after a booking call, it would text the caller your payment link
+            once, only if they agree, and only once your agreement covers it. It says it is an AI
+            assistant first, on every channel. You give no consent warranty.
           </p>
         </div>
 

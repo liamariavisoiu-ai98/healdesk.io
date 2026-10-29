@@ -693,7 +693,8 @@ describe("the agreement step", () => {
     // Owner, 29 October 2026: never "no texts" as an absolute, and the one
     // optional payment-link text is described as designed, not live.
     expect(box).not.toContain("calls or texts your patients");
-    expect(box).toContain("it is designed to text the caller your payment link once, only if they agree");
+    // Beside the 1.5.1 agreement, which says healdesk sends no SMS: the text waits for one that covers it.
+    expect(box).toContain("is designed for later: after a booking call, it would text the caller your payment link once, only if they agree, and only once your agreement covers it");
     expect(box).toContain("every conversation it has is one a patient started");
   });
 

@@ -1,3 +1,5 @@
+import { publicUrl } from "@/lib/public-url";
+
 import { counted, momentLong } from "./billing-copy";
 import { compose, type Block } from "./compose";
 import type { TemplateEntry } from "./registry";
@@ -6,7 +8,7 @@ import type { EmailTemplate } from "./types";
 /**
  * L17 and L18, the outage pair (Annex X5): one pair per incident, both
  * critical, to the clinic's one address, from the outbox. Plain words, no
- * mechanics, no button (owner's revision, 29 October 2026).
+ * mechanics, one Open Home button (owner, 29 October 2026).
  *
  *   - L17 is the owner's own text: AYA has not been able to answer since
  *     {when}, because of a fault at healdesk or one of our suppliers; we are
@@ -21,6 +23,8 @@ import type { EmailTemplate } from "./types";
 export type OutageStartedPayload = {
   /** When AYA stopped answering (ISO instant). */
   startedAt: string;
+  /** publicUrl("/c/<slug>"): Home. */
+  homeUrl: string;
 };
 
 export type OutageEndedPayload = {
@@ -30,6 +34,7 @@ export type OutageEndedPayload = {
   callCount: number;
   /** People who tried to chat (website, Instagram, Messenger, WhatsApp) meanwhile. */
   chatCount: number;
+  homeUrl: string;
 };
 
 export const renderOutageStarted: EmailTemplate<OutageStartedPayload> = (payload, ctx) =>
@@ -42,6 +47,7 @@ export const renderOutageStarted: EmailTemplate<OutageStartedPayload> = (payload
           type: "paragraph",
           text: `AYA has not been able to answer since ${momentLong(payload.startedAt, ctx)}, because of a fault at healdesk or one of our suppliers. We are working on it and will keep you updated as soon as it is resolved.`,
         },
+        { type: "action", label: "Open Home", url: payload.homeUrl },
       ],
     },
     ctx,
@@ -68,6 +74,7 @@ export const renderOutageEnded: EmailTemplate<OutageEndedPayload> = (payload, ct
   if (parts.length > 0) {
     blocks.push({ type: "paragraph", text: `While she was away, ${parts.join(" and ")}.` });
   }
+  blocks.push({ type: "action", label: "Open Home", url: payload.homeUrl });
   return compose(
     {
       subject: "AYA is answering again",
@@ -80,10 +87,19 @@ export const renderOutageEnded: EmailTemplate<OutageEndedPayload> = (payload, ct
 
 export const OUTAGE_STARTED_ENTRY: TemplateEntry<OutageStartedPayload> = {
   render: renderOutageStarted,
-  fixture: { startedAt: "2026-10-06T13:04:00Z" },
+  get fixture(): OutageStartedPayload {
+    return { startedAt: "2026-10-06T13:04:00Z", homeUrl: publicUrl("/c/radiance-med-spa") };
+  },
 };
 
 export const OUTAGE_ENDED_ENTRY: TemplateEntry<OutageEndedPayload> = {
   render: renderOutageEnded,
-  fixture: { endedAt: "2026-10-06T13:52:00Z", callCount: 4, chatCount: 2 },
+  get fixture(): OutageEndedPayload {
+    return {
+      endedAt: "2026-10-06T13:52:00Z",
+      callCount: 4,
+      chatCount: 2,
+      homeUrl: publicUrl("/c/radiance-med-spa"),
+    };
+  },
 };

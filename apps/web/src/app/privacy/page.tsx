@@ -178,8 +178,8 @@ export const metadata: Metadata = {
  * website-hosting and email rows (src/lib/subprocessors.ts) name the drafted
  * and approved replies.
  *
- * Revised on 28 October 2026 as LEGAL_VERSION 2026-10-28.3 (see the terms;
- * owner-approved the same day): section 8 describes the one optional text a
+ * Revised on 29 October 2026 as LEGAL_VERSION 2026-10-29.1 (see the terms;
+ * owner-approved on 28 October 2026): section 8 describes the one optional text a
  * clinic's assistant may send a caller after a booking call, with its STOP
  * and HELP wording, in place of "if we ever add texts". No vendor category is
  * added to section 5: the proposal adds one only once a sender is chosen, and
@@ -601,8 +601,8 @@ export default function PrivacyPage() {
           The demo call in section 2 is a voice call. If a clinic that uses {site.name} turns it
           on, its assistant is designed to text a caller one message after a booking call, only if
           the caller says yes and reads their number back: a fixed line and the clinic&apos;s own
-          payment link, and nothing else, with no treatment, time or amount in it. It is sent once,
-          to the number the caller read back, and is not a reminder or a follow-up. When the text
+          payment link, and nothing else, with no treatment, time or amount in it. It is designed
+          to go once, to the number the caller read back, and is not a reminder or a follow-up. When the text
           is sent, reply <strong>STOP</strong> to opt out and <strong>HELP</strong> for help;
           message and data rates may apply. Marketing texts would need a separate, explicit opt-in,
           and we send none.

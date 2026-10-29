@@ -312,8 +312,8 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * changing nothing in the Data Agreement (BAA or DPA), whose own clauses (minimum necessary,
  * subcontractors) stand. No agreement template changes.
  *
- * Revised on 28 October 2026 as LEGAL_VERSION 2026-10-28.3 (owner-approved
- * the same day, docs/design/launch-readiness-2026-10-27/
+ * Revised on 29 October 2026 as LEGAL_VERSION 2026-10-29.1 (owner-approved
+ * on 28 October 2026, docs/design/launch-readiness-2026-10-27/
  * legal-wording-proposal-payment-text.md): the clinic may turn on one
  * optional text after a booking call carrying its own payment link
  * (docs/v1-product-spec.md, "Payment by text after a call, and full

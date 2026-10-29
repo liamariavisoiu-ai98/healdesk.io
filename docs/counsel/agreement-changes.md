@@ -3356,7 +3356,7 @@ The Safeguards clause, 1.3.0's object, which 1.4.0, 1.5.0, 1.5.1 and the
 1.6.0 draft carried, ends its telephone exception with "healdesk places no
 calls to patients and sends no SMS." The owner allowed one optional text
 after a call carrying the practice's own payment link (28 October 2026;
-Terms 2026-10-28.3 describe it as designed). A practice signing 1.6.0 would
+Terms 2026-10-29.1 describe it as designed). A practice signing 1.6.0 would
 have signed a promise the product is designed to break.
 
 ### 20.2 The text

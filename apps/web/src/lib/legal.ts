@@ -37,12 +37,15 @@ import {
 // is the same one that moves the agreement (packages/catalog/src/baa.ts).
 // 2026-10-28.1 (lane LEGAL-1b) names the support mailbox, which no business
 // associate agreement covers, and the clinic's part in keeping patient
-// information out of support correspondence. 2026-10-28.3 (owner-approved
-// payment-text wording) describes the one optional payment-link text after a
-// booking call, as designed; 1.6.0's release text is 2026-10-28.4 on the same
-// terms (2026-10-28.2, its earlier number, never went out).
-export const LEGAL_VERSION = BAA_1_6_0_RELEASED ? "2026-10-28.4" : "2026-10-28.3";
-export const LEGAL_LAST_UPDATED = "28 October 2026";
+// information out of support correspondence. 2026-10-29.1 (payment-text
+// wording, owner-approved on 28 October 2026) describes the one optional
+// payment-link text after a booking call, as designed; it publishes on
+// 29 October, a day after 2026-10-28.1 went live, so the two texts do not
+// share a "last updated" date. 1.6.0's release text is 2026-10-29.2 on the
+// same terms (numbered 2026-10-28.2, then 2026-10-28.4, before; neither went
+// out).
+export const LEGAL_VERSION = BAA_1_6_0_RELEASED ? "2026-10-29.2" : "2026-10-29.1";
+export const LEGAL_LAST_UPDATED = "29 October 2026";
 
 export const ENTITY = {
   /** Full legal name, e.g. "Healdesk, Inc." Empty until the founder supplies it. */

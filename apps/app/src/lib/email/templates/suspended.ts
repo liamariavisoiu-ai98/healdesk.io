@@ -57,7 +57,7 @@ export const renderSuspended: EmailTemplate<SuspendedPayload> = (payload, ctx) =
     },
     {
       type: "paragraph",
-      text: `AYA has stopped answering on every channel: ${WHEN_AYA_STOPS}. Your data is kept, and you can still sign in to healdesk.`,
+      text: `AYA has stopped answering: ${WHEN_AYA_STOPS}. Your data is kept, and you can still sign in to healdesk.`,
     },
     ...(owesInvoice && !forNotPaying
       ? [
@@ -82,7 +82,9 @@ export const renderSuspended: EmailTemplate<SuspendedPayload> = (payload, ctx) =
 
   return compose(
     {
-      subject: "AYA has stopped answering: your healdesk service is suspended",
+      subject: paymentRestores
+        ? `AYA has stopped answering because ${payload.amountDueCents === null ? "your invoice is" : `${money(payload.amountDueCents)} is`} unpaid`
+        : "AYA has stopped answering: your healdesk service is suspended",
       preheader: paymentRestores
         ? "Paying what you owe healdesk restores everything at once."
         : "Reply to this email and we'll help you restore it.",

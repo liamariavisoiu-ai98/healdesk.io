@@ -47,7 +47,7 @@ export const renderSuspendedForCause: EmailTemplate<SuspendedForCausePayload> = 
         { type: "paragraph", text: `Why: ${SUSPENSION_CAUSES[payload.code].sentence}` },
         {
           type: "paragraph",
-          text: `AYA has stopped answering on every channel: ${WHEN_AYA_STOPS}. Your data is kept, and you can still sign in to healdesk.`,
+          text: `AYA has stopped answering: ${WHEN_AYA_STOPS}. Your data is kept, and you can still sign in to healdesk.`,
         },
         {
           type: "paragraph",

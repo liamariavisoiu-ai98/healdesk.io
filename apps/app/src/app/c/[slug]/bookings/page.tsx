@@ -20,6 +20,13 @@ import {
   type BookedAppointment,
   type HandoverView,
 } from "@/lib/portal/bookings";
+import {
+  appointmentStatusBadge,
+  bookingsGlance,
+  depositBadge,
+  nextActionLine,
+  type Badge,
+} from "@/lib/portal/bookings-view";
 import { portalMoment, portalMoney } from "@/lib/portal/format";
 import { loadPortalPage, shellProps } from "@/lib/portal/page";
 import { patientGuardProps, requirePatientPage, withPatientPage } from "@/lib/portal/patient-page";
@@ -95,6 +102,7 @@ export default async function BookingsPage({
     ? [...screen.open].sort((a, b) => rank(a, focus) - rank(b, focus))
     : screen.open;
   const decided = Boolean(query.followup || query.calendar);
+  const glance = bookingsGlance(screen, now);
 
   return (
     <PortalShell {...shell}>
@@ -104,6 +112,21 @@ export default async function BookingsPage({
           What AYA booked, and what needs you. Opened on {page.stepUp.deviceLabel}; every open is
           logged.
         </p>
+
+        <p className="border-line mt-4 rounded-xl border bg-white px-4 py-3 font-medium">
+          {nextActionLine(glance)}
+        </p>
+        <ul className="mt-3 flex flex-wrap gap-2 text-sm" aria-label="At a glance">
+          <li className="border-line rounded-full border bg-white px-3 py-1">
+            <span className="font-semibold">{glance.awaitingStaff}</span> waiting for you
+          </li>
+          <li className="border-line rounded-full border bg-white px-3 py-1">
+            <span className="font-semibold">{glance.depositsToCollect}</span> deposits to collect
+          </li>
+          <li className="border-line rounded-full border bg-white px-3 py-1">
+            <span className="font-semibold">{glance.upcoming}</span> booked by AYA, coming up
+          </li>
+        </ul>
 
         <div role="status" aria-live="polite">
           {focus ? <FocusNote view={focus} query={query} decided={decided} now={now} /> : null}
@@ -258,6 +281,24 @@ export default async function BookingsPage({
   );
 }
 
+const TONE: Record<Badge["tone"], string> = {
+  action: "bg-tint-butter border-line-strong",
+  waiting: "bg-tint-peach border-line",
+  done: "bg-tint-mint border-line",
+  neutral: "bg-paper-2 border-line",
+};
+
+/** Words carry the meaning; the tint is only a hint, so it reads in any theme or with colour off. */
+function StatusBadge({ badge }: { badge: Badge }) {
+  return (
+    <span
+      className={`text-ink inline-flex items-center rounded-full border px-3 py-0.5 text-xs font-bold ${TONE[badge.tone]}`}
+    >
+      {badge.label}
+    </span>
+  );
+}
+
 function rank(view: BookingRequestView, focus: BookingRequestView): number {
   return view.id === focus.id ? 0 : 1;
 }
@@ -361,6 +402,19 @@ function RequestCard(props: {
       <h3 id={`request-${r.id}-name`} className="text-lg font-semibold">
         {r.firstName ?? "Someone"} {words.headline}
       </h3>
+      <p className="mt-2">
+        <StatusBadge
+          badge={{
+            label:
+              r.status === "requested"
+                ? "Waiting for you: confirm, propose or decline"
+                : r.status === "rescheduling"
+                  ? "Waiting for them to choose a time"
+                  : "Call to arrange a time",
+            tone: r.status === "rescheduling" ? "waiting" : "action",
+          }}
+        />
+      </p>
       <p className="text-muted mt-1 text-sm">
         {words.via.charAt(0).toUpperCase() + words.via.slice(1)},{" "}
         {portalMoment(r.createdAt, zone, now)}.{" "}
@@ -510,6 +564,12 @@ function BookedRow(props: {
       <h3 className="font-semibold">
         {a.firstName ?? "Someone"}, {portalMoment(a.scheduledFor, zone, now)}
       </h3>
+      <p className="mt-2 flex flex-wrap gap-2">
+        <StatusBadge
+          badge={appointmentStatusBadge(a.status, a.scheduledFor.getTime() <= now.getTime())}
+        />
+        {depositBadge(a) ? <StatusBadge badge={depositBadge(a)!} /> : null}
+      </p>
       <p className="text-muted mt-1 text-sm">
         {a.treatment ? `${a.treatment}. ` : ""}
         {a.bookedBy === "assistant"

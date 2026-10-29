@@ -11,8 +11,9 @@ import type { EmailTemplate } from "./types";
  * mechanics, one Open Home button (owner, 29 October 2026).
  *
  *   - L17 is the owner's own text: AYA has not been able to answer since
- *     {when}, because of a fault at healdesk or one of our suppliers; we are
- *     working on it and will keep the clinic updated.
+ *     {when}, due to a connectivity error (always, whatever the underlying
+ *     cause: AYA disconnects; owner, 29 October 2026); we are working on it
+ *     and will email the moment it is fixed.
  *   - L18: AYA is answering again as of {when}, everything working normally;
  *     then, only when something reached the clinic meanwhile, one sentence
  *     with the two counts.
@@ -48,13 +49,13 @@ export const renderOutageStarted: EmailTemplate<OutageStartedPayload> = (payload
   const blocks: Block[] = [
     {
       type: "paragraph",
-      text: `AYA hasn't been able to answer since ${momentLong(payload.startedAt, ctx)}. The cause is on our side and we're working on it now.`,
+      text: `AYA hasn't been able to answer since ${momentLong(payload.startedAt, ctx)} due to a connectivity error. We're working on it now.`,
     },
   ];
   if (payload.canReachDirectLine) {
     blocks.push({
       type: "paragraph",
-      text: "Calls are ringing through to your direct line, so please keep it staffed.",
+      text: "In the meantime, calls are ringing through to your direct line, so please keep it staffed.",
     });
   }
   if (payload.isChatAffected) {
@@ -70,7 +71,7 @@ export const renderOutageStarted: EmailTemplate<OutageStartedPayload> = (payload
   return compose(
     {
       subject: "AYA can't answer right now",
-      preheader: "The cause is on our side and we're working on it now.",
+      preheader: "We're working on it now.",
       blocks,
     },
     ctx,

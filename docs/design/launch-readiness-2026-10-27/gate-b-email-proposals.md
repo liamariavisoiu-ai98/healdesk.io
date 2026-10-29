@@ -26,15 +26,15 @@ The second sentence appears only when a count is above zero, and names only the 
 
 ## L21, a call or message AYA did not answer (normal, daytime)
 
-Recommended subject: **We're looking into a call** (a message: "We're looking into a message")
+Chosen subject (owner, 29 October 2026): **Looking into a call from Monday 5 October** (a message: "Looking into a message from Monday 5 October")
 
-> AYA wasn't able to answer a call to Radiance Med Spa at 2:10 pm EDT on Monday 5 October. We're looking into why, so it doesn't happen again.
+> AYA wasn't able to answer a call to Radiance Med Spa at 2:10 pm EDT. We're looking into why, so it doesn't happen again.
 >
 > If you'd like to know more, just reply to this email.
 
 No button (a miss has no portal screen) and no mention of the guarantee. Fields: `channel`, `missedAt`.
 
-Five other subjects, none negative (say "call" or "message" to match the channel):
+Other subjects offered, none negative (say "call" or "message" to match the channel):
 
 1. A note about a call
 2. Following up on a call
@@ -42,4 +42,4 @@ Five other subjects, none negative (say "call" or "message" to match the channel
 4. Looking into a call from Monday 5 October
 5. AYA and your call on Monday 5 October
 
-Why the recommended one: it says plainly what we are doing, it is calm, and it does not accuse anyone or repeat the failure in the inbox line. Number 4 or 5 are the choices if you want the day in the subject. Changing the subject is one line in `guarantee_miss.ts`.
+The subject carries the day, so the body gives only the clock time.

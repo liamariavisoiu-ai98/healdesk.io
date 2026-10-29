@@ -2,11 +2,13 @@
 
 import { useId, useState } from "react";
 
+import type { ChannelPresentation } from "@/lib/setup/channel-status";
 import { portalMetaOutcome } from "@/lib/meta/portal-return";
 import type { MetaConnectView } from "@/lib/meta/reconnect";
 import type { ForwardingView } from "@/lib/setup/forwarding";
 import type { ForwardingTestView } from "@/lib/setup/forwarding-test-words";
 
+import { ChannelNextButton, ChannelPill } from "../../ChannelStatus";
 import { ForwardingStepsPanel } from "../../ForwardingStepsPanel";
 import { ForwardingTestPanel } from "../../ForwardingTestPanel";
 import { CopyButton } from "../../CopyButton";
@@ -44,10 +46,8 @@ import { ScreenShell } from "../ScreenShell";
 export type ChannelRow = {
   channel: "web" | "meta" | "voice";
   name: string;
-  /** The status, with its time where it has one (lib/setup/channels.ts, channelStatusLabel). */
-  status: string;
-  /** What happens next, in one or two sentences. */
-  line: string;
+  /** Status, one sentence and the one button (lib/setup/channel-status.ts), the reading Settings draws too. */
+  presentation: ChannelPresentation;
   /** Website chat, once open: the line to paste. */
   snippet?: string | null;
   /** Instagram, Messenger & WhatsApp: what is connected, dropped or still to connect, and whether each login can start. */
@@ -94,11 +94,12 @@ export function ChannelsScreen(props: {
                 <p className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-semibold">{row.name}</span>
                   {/* Wraps rather than overflows: "Paused until …" carries a whole moment. */}
-                  <span className="bg-paper-2 max-w-full rounded-full px-3 py-1 text-xs font-semibold">
-                    {row.status}
+                  <span>
+                    <ChannelPill presentation={row.presentation} />
                   </span>
                 </p>
-                <p className="text-muted mt-1 text-sm">{row.line}</p>
+                <p className="text-muted mt-1 text-sm">{row.presentation.detail}</p>
+                <ChannelNextButton surface="wizard" slug={props.slug} action={row.presentation.action} />
                 {row.snippet ? <WebsiteLinePanel slug={props.slug} snippet={row.snippet} /> : null}
                 {row.meta ? <MetaConnectButtons slug={props.slug} from="setup" view={row.meta} /> : null}
                 {row.forwarding ? (

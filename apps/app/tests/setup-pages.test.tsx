@@ -319,7 +319,8 @@ describeDb("the setup wizard's pages", () => {
       try {
         const html = await wizard({ s: "channels" });
         const words = text(html);
-        expect(words).toContain("Website chat Waiting on you Paste one line on your website.");
+        expect(words).toContain("Waiting for the line on your website");
+        expect(words).toContain("Paste one line on your website.");
         expect(words).toContain("The line for your website");
         // Production goes live on an operator's confirmation, not on the paste
         // (LAUNCH_PROMISES, web-chat-on-paste), so the line is phrased as design.
@@ -433,7 +434,8 @@ describeDb("the setup wizard's pages", () => {
       try {
         const html = await wizard({ s: "channels" });
         const words = text(html);
-        expect(words).toContain("Phone Waiting on you Set call forwarding on your main line.");
+        expect(words).toContain("Waiting for call forwarding");
+        expect(words).toContain("Set call forwarding on your main line.");
         expect(words).not.toContain("Don't change your call forwarding");
         expect(words).toContain("Forward your main line’s calls to AYA");
         expect(words).toContain("(512) 555-0142");

@@ -34,12 +34,8 @@ import { disclosureFor } from "@/lib/compliance/disclosure";
 import type { MetaPlatform } from "@/lib/meta/front-door";
 import { readMetaConnectView, type MetaConnectView } from "@/lib/meta/reconnect";
 import { urgentAlertReadiness } from "@/lib/notices/urgent-readiness";
-import {
-  channelNextStep,
-  channelStatusLabel,
-  channelStatusWord,
-  setupSentence,
-} from "@/lib/setup/channels";
+import { channelStatusWord } from "@/lib/setup/channels";
+import { channelPresentation, metaNeedsReconnect, type ChannelPresentation } from "@/lib/setup/channel-status";
 import { defaultChatGreeting, defaultPhoneGreeting } from "@/lib/setup/greetings";
 import { formatPhone } from "@/lib/setup/help";
 import { wizardFinished } from "@/lib/setup/screens";
@@ -72,6 +68,8 @@ export type SettingsView = {
     /** Where the channel stands, with its time where it has one: the wizard's label (channelStatusLabel). */
     statusLabel: string;
     line: string;
+    /** The channel's status, detail and one button (lib/setup/channel-status.ts), the same reading the wizard draws. */
+    presentation: ChannelPresentation;
     switchLine: string;
     applies: string | null;
     /**
@@ -240,7 +238,13 @@ export async function readSettingsView(input: {
     metaConnect: tenant.meta.connect,
     applies,
     channels: state.channels.map((c) => {
-      const statusLabel = channelStatusLabel(c, clinic.timezone, now);
+      const presentation = channelPresentation(c, {
+        setupFinished: finished,
+        timeZone: clinic.timezone,
+        now,
+        needsReconnect: c.channel === "meta" && metaNeedsReconnect(tenant.meta.connect),
+      });
+      const statusLabel = presentation.label;
       if (c.channel === "meta") {
         return {
           channel: c.channel,
@@ -248,7 +252,8 @@ export async function readSettingsView(input: {
           name: CHANNEL_NAMES[c.channel],
           on: c.enabled,
           statusLabel,
-          line: setupSentence(c.channel, channelNextStep(c, finished)),
+          line: presentation.detail,
+          presentation,
           switchLine: SWITCH_LINES[c.channel],
           applies: applies.channel_instagram ?? null,
           platforms: tenant.meta.connected.map((platform) => {
@@ -264,7 +269,7 @@ export async function readSettingsView(input: {
               // live platform says only that it is live.
               statusLabel: !on
                 ? channelStatusWord("off")
-                : c.status === "live"
+                : presentation.kind === "live"
                   ? channelStatusWord("live")
                   : statusLabel,
               switchLine: `Off leaves ${META_PLATFORM_NAMES[platform]} messages for your team to answer in ${META_PLATFORM_NAMES[platform]}.`,
@@ -279,7 +284,8 @@ export async function readSettingsView(input: {
         name: CHANNEL_NAMES[c.channel],
         on: c.enabled,
         statusLabel,
-        line: setupSentence(c.channel, channelNextStep(c, finished)),
+        line: presentation.detail,
+        presentation,
         switchLine: SWITCH_LINES[c.channel],
         applies: applies[key] ?? null,
         platforms: [],

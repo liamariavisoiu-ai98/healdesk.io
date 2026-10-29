@@ -39,8 +39,14 @@ export type ContactDecision =
  * Inbound-only: decision of 21 September 2026, and a locked decision of the
  * v1 product spec ("No outbound on any product").
  *
- * healdesk places no calls and sends no texts to patients: no reminders, no
- * missed-call callbacks, no call-backs, no reactivation. The consented
+ * healdesk places no calls to patients and never texts them first: no
+ * reminders, no missed-call callbacks, no call-backs, no reactivation. The
+ * one designed exception (owner, 28 October 2026; spec "Payment by text
+ * after a call, and full payment") is a single optional text with the
+ * clinic's payment link, sent only if a caller who just booked agrees; it is
+ * not built, nothing sends it (paymentLinkTextOffered() is false), and this
+ * gate refuses it like every other contact (the copy sweep of 29 October
+ * 2026 changed this wording only, not what the gate allows). The consented
  * call-back of 23 September 2026 was removed for v1. The gate below is kept,
  * as phase-two groundwork, because it is correct and because outbound is
  * scoped for phase two; while this is false it refuses every request before
@@ -171,7 +177,7 @@ export async function canContact(
     return {
       allowed: false,
       code: "outbound_disabled",
-      reason: "healdesk is inbound-only: it places no calls and sends no texts to patients.",
+      reason: "healdesk is inbound-only: it places no calls to patients, never texts them first, and contacts no one from here.",
     };
   }
 

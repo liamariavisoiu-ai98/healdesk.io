@@ -24,7 +24,11 @@
 -- calls (docs/counsel/agreement-changes.md §17.1 and §17.2). 1.6.0 is 1.5.1
 -- with that paragraph said as Anthropic documents it (MODEL_RETENTION_AGREEMENT
 -- in packages/catalog/src/model-retention.ts), and the state-law and Term
--- clauses' cross-references to it said as it now reads (§17.3). Terms § 1
+-- clauses' cross-references to it said as it now reads (§17.3); and, since
+-- 29 October 2026, the Safeguards clause (clause 10) saying the assistant is
+-- engineered and designed to offer a caller one text with fixed wording and
+-- Practice's own payment link, where Practice has chosen that option, where
+-- 1.5.1 says healdesk "sends no SMS" (§20). Terms § 1
 -- lets the agreement win over terms § 9 on anything about patient
 -- information, so while clinics sign 1.5.1 the corrected § 9 is overridden;
 -- the launch tracker's baa-1-6-0-retention therefore says no clinic goes live

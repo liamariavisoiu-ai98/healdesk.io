@@ -2906,7 +2906,8 @@ release touches.
 > **Not legal advice. Drafted 19 October 2026 and NOT released.** BAA 1.6.0
 > is 1.5.1 with three clauses changed: the Subcontractors clause's paragraph
 > on Anthropic, and the state-law and Term clauses' sentences that point at
-> it (§ 17.3). It was first drafted that morning on 1.5.0, then the version
+> it (§ 17.3), and since 29 October 2026 a fourth, the Safeguards clause's
+> sentence on SMS (§ 20). It was first drafted that morning on 1.5.0, then the version
 > offered, and rebuilt on 1.5.1 when the owner released 1.5.1 the same day
 > (§ 16), so it carries 1.5.1's clause 11 as 1.5.1's own object and says
 > what 1.5.1 says about the website chat. It is registered after 1.5.1 with
@@ -3337,6 +3338,79 @@ the calendar elections reproduce as before.
 | dpa/1.0.0 vet_live_covered | `66a38ec1…01f9` | `866ac3a866b1c1b5c7de17b5c7c37cab5c4a030ff702b1619fdb881fbf741635` |
 | dpa/1.0.0 vet_live_personal | `19173f67…6b0a` | `98c90edbf6746026c0c9658beaa1392bf1fc105e21ae3354f4bfd27c633197d5` |
 | dpa/1.0.0 vet_notused_mindbody | `e625e788…d5f3` | `66096105d262139e06c11d35a4c0869e079fcd0ec860f80ac697a14d28dbb26e` |
+
+## 20. The one optional payment-link text: the 1.6.0 draft only (29 October 2026)
+
+> **Not legal advice, and not reviewed by counsel.** The owner instructed
+> this change on 28 and 29 October 2026, in deliberately general words
+> ("engineered and designed to"). It edits the unreleased 1.6.0 draft only:
+> 1.5.1, which checkout offers, and every earlier version keep their text and
+> their hashes. 1.6.0 stays a draft (`approvedByCounsel` false,
+> `BAA_1_6_0_RELEASED` false). The wording was drafted by an AI assistant.
+> **Recommended: counsel reads it, with the carrier rules for the text,
+> before 1.6.0 is released or the first text is sent.**
+
+### 20.1 What was wrong
+
+The Safeguards clause, 1.3.0's object, which 1.4.0, 1.5.0, 1.5.1 and the
+1.6.0 draft carried, ends its telephone exception with "healdesk places no
+calls to patients and sends no SMS." The owner allowed one optional text
+after a call carrying the practice's own payment link (28 October 2026;
+Terms 2026-10-28.3 describe it as designed). A practice signing 1.6.0 would
+have signed a promise the product is designed to break.
+
+### 20.2 The text
+
+The last two sentences of the clause's last paragraph, in 1.6.0 only
+(`SAFEGUARDS_1_6` in `packages/catalog/src/baa.ts`, which refuses to render
+if 1.3.0's sentences are not there):
+
+> Was: healdesk places no calls to patients and sends no SMS. This exception
+> does not extend to any other channel or content.
+
+> Now: healdesk places no calls to patients and sends no SMS, except that
+> the assistant is engineered and designed to offer a caller a single text
+> message that carries fixed wording and Practice's own payment link, where
+> Practice has chosen that option. This exception, that text included, does
+> not extend to any other channel or content.
+
+"That text included" puts the text inside the paragraph's one narrow
+exception to the encryption covenant: a text message cannot negotiate
+encryption either, so without it the text would sit outside the exception.
+On the owner's instruction the sentence names no sender, number, carrier
+registration, vendor or timing, and does not promise that a text is offered
+or sent. Nothing else in 1.6.0 moved.
+
+### 20.3 What was left alone
+
+- **BAA 1.0.0 to 1.5.1**: released, frozen, and what was offered or signed.
+- **DPA 1.0.0** (`packages/catalog/src/dpa.ts`) still says "healdesk places
+  no calls and sends no SMS". It is released and outside this change; a
+  practice that is not a covered entity signing it would need a new DPA
+  version before the first text.
+- **The plain-language notes** beside the agreement carry no sentence about
+  texts, so none moved. The checkout's "Inbound only" box beside the
+  agreement (`AgreementStep.tsx`, "It never calls or texts your patients")
+  is true of 1.5.1 and needs the exception when 1.6.0 is released.
+
+### 20.4 Golden hashes
+
+Regenerated in `apps/app/tests/baa-golden.test.ts` for 1.6.0 only, after a
+diff of every variant's old and new text showed this sentence and nothing
+else; `docs/baa-v1.6.0.txt` re-rendered and its header says so.
+
+| Document and variant | Was | Now |
+| --- | --- | --- |
+| 1.6.0 covered_estimated (the sample, and covered_outbound) | `2e75509a…4d07` | `21fe6c06960ee5b5bd4431d822d010b9db6c6b06bb3a1e8bb0ab7c23b7c2715d` |
+| 1.6.0 notcovered_estimated | `e3021fed…cb2e` | `7652900313635cbd79fd36d5c2f4711fe334bf86f46e19674f4f9d0261f54602` |
+| 1.6.0 unknown_estimated | `c716a6ab…dec9` | `ad26fbbdf5ee0d62c3b5793a55b0c69bd412c529e51d383c98a87c5a6599cfa6` |
+| 1.6.0 uncovered_nobaa | `f2891b61…c81e` | `166fb36ad83fcc703030932ffbc37cadc84f64c148013be03356cd23cac3ceed` |
+| 1.6.0 uncovered_personal | `efd05f71…3f48` | `ef55df334e511813e7f5ac5beb2f14153c41472c14b9a3003bad098f9f66d0c2` |
+| 1.6.0 notused_mindbody | `d4a45bcf…4d80` | `498c741e998f538e271b00d98631f4910cd1819081a973bddcac74e21634cc70` |
+| 1.6.0 notused_other | `0c8e0201…308a` | `50a449f04aa76816edb8faef10b02a3b3eaf74689f69563889e0d7b196e5b5b5` |
+| 1.6.0 live_calcom | `5fe5c29c…9195` | `487cc6e8deb479c8de50026cb1c99a38e73a4029760ab7e1b50525b76f09b5ee` |
+| 1.6.0 live_highlevel_personal | `d016bc7e…395c` | `c6472ec33af0df4b1dd749b9a164c965b112ee128ca09e666d1513b7042250e7` |
+| 1.6.0 live_calendly_nobaa | `df5cb9c7…22a6` | `8343db376f561f8259cc8fa93e20fb598d9d67cbd180f5a78f30f7a5ae3e878e` |
 
 ---
 

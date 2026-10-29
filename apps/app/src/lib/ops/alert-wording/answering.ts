@@ -26,7 +26,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   },
   // Two hours after the incident opened with no recovery, then every twelve hours.
   aya_outage_unresolved: {
-    title: "An outage a clinic was told about is still not over",
+    title: "An outage at a clinic needs a call from you",
     headline: "{clinicName}: AYA is still not answering, hours after we told the clinic",
     whatHappened:
       "AYA has still not answered again at {clinicName}[ since {windowStart}]. The clinic was told at the start that we are working on it and will email it the moment it is fixed. This is reminder[ {count}] about the same incident.",
@@ -56,7 +56,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   },
   // A notice of the counter's whose transaction failed: the next minute tries again.
   answer_notice_not_queued: {
-    title: "An email about AYA's answering could not be queued",
+    title: "An answering email could not be queued",
     headline: "{clinicName}: an email about AYA missing calls could not be queued",
     whatHappened:
       "An email to {clinicName} about AYA not answering could not be queued, so the outage or miss case it opens was not opened either. Every minute it is tried again.",

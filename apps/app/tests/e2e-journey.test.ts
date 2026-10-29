@@ -14,12 +14,11 @@ import type { FakeGoogleCalendar } from "@healdesk/connectors";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 /**
- * Gate B in code (lib/compliance/gate-b.ts) is fail-closed and, on main
- * today, NOT built: no clinic can go live (step 6 shows the hold). From the
- * second half of step 6 on, this stands in for the commit that builds it, as
- * tests/go-live.test.ts and channel-events.test.ts do: the TypeScript list is
- * mocked empty and app_gate_b_code_built() redefined true, put back false in
- * afterAll.
+ * Gate B in code (lib/compliance/gate-b.ts) is fail-closed, and built since
+ * migration 0139 (the routed/answered counter and its notices), so step 6
+ * goes live on the real list; the mock is kept so a later item coming undone
+ * can be stood in for, and afterAll leaves app_gate_b_code_built() true, the
+ * migrations' own definition. tests/go-live.test.ts holds the refusal.
  */
 const gate = vi.hoisted(() => ({ built: false }));
 vi.mock("@/lib/compliance/gate-b", async (importOriginal) => {
@@ -615,7 +614,7 @@ describeDb("E2E: a synthetic clinic from checkout to a booked appointment", () =
     SLOW,
   );
 
-  test("6. website chat goes live: held by Gate B as main ships; then, with Gate B built, live once the questions pass and the snippet is confirmed", async () => {
+  test("6. website chat goes live once the questions pass and the snippet is confirmed, Gate B's code built", async () => {
     // A pass of the practice questions, as the job records one, and the script
     // approval that pass gives (approveAgentConfigVersion in production; the
     // fixture approveAgentConfig here). Both stand in for the model's run.
@@ -626,29 +625,23 @@ describeDb("E2E: a synthetic clinic from checkout to a booked appointment", () =
         (await c.query<{ live_at: Date | null }>(`select live_at from clinic_channels where channel = $1`, [channel])).rows[0]!.live_at,
       );
 
-    // As main ships: everything the clinic and ops can do is done, and the
-    // channel is still held, with ops told why (/admin > Home, go_live_held).
-    const held = await runOperation("confirmWebWidget", { clinicId: J.clinicId }, OPERATOR);
-    expect(held.body).toEqual({ data: { status: "updated" } });
-    expect(await liveAt("web")).toBeNull();
-    const { rows: alerts } = await getMigratorPool().query<{ fields: Record<string, unknown> }>(
-      `select fields from ops_alerts where event = 'go_live_held' and fields->>'clinicId' = $1`,
-      [J.clinicId],
-    );
-    expect(alerts.map((a) => a.fields.code)).toContain("gate_b_not_built");
-    // The practice questions' part of Gate B is not mocked: built for real,
-    // and its gate open on this pass, which recorded no case it could not ask.
-    expect(gateBInCode().find((i) => i.id === "practice_questions")?.built).toBe(true);
+    // Gate B's code is built since 0139 (the counter and its notices), not
+    // mocked: with the clinic's and ops' parts done, confirming the snippet
+    // takes the channel live, and no go_live_held names Gate B.
+    expect(gateBInCode().every((i) => i.built)).toBe(true);
     expect(await withTenant({ clinicId: J.clinicId, actor: SERVICE }, (tx) => practiceQuestionsGate(tx, "web"))).toEqual({
       open: true,
       why: "passed",
     });
-
-    // Stand in for the commit that builds the rest of Gate B (see the mock's note).
-    gate.built = true;
-    await setGateBCodeBuilt(true);
+    const confirmed = await runOperation("confirmWebWidget", { clinicId: J.clinicId }, OPERATOR);
+    expect(confirmed.body).toEqual({ data: { status: "updated" } });
     await withTenant({ clinicId: J.clinicId, actor: SERVICE }, (tx) => evaluateChannels(tx, { only: "web", actor: "ops" }));
     expect(await liveAt("web")).toBeInstanceOf(Date);
+    const { rows: alerts } = await getMigratorPool().query<{ fields: Record<string, unknown> }>(
+      `select fields from ops_alerts where event = 'go_live_held' and fields->>'clinicId' = $1`,
+      [J.clinicId],
+    );
+    expect(alerts.map((a) => a.fields.code)).not.toContain("gate_b_not_built");
     // Voice is bought and not live: no Retell agent, no forwarding (not exercised).
     expect(await liveAt("voice")).toBeNull();
     const web = await webChatClinic(J.slug);

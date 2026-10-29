@@ -322,6 +322,12 @@ CREATE TRIGGER missed_contacts_baa_gate
   BEFORE INSERT OR UPDATE ON missed_contacts
   FOR EACH ROW EXECUTE FUNCTION app_enforce_baa_gate();--> statement-breakpoint
 
+-- Emptied by the destruction, so frozen once the account is closed, as every
+-- such table is (0121's rights_intakes_closed_account).
+CREATE TRIGGER missed_contacts_closed_account
+  BEFORE INSERT OR UPDATE ON missed_contacts
+  FOR EACH ROW EXECUTE FUNCTION app_refuse_after_account_closure();--> statement-breakpoint
+
 -- 0121's app_mark_clinic_destroyed, copied whole, with missed_contacts added
 -- to what it checks destroyClinicData deleted first.
 CREATE OR REPLACE FUNCTION app_mark_clinic_destroyed(target_clinic uuid)

@@ -40,7 +40,7 @@ off, because the emails and the 30-day deletion are promises.
 - **Where you see it.** /admin › Queues › Misses and outages: each outage,
   open or closed, its channels, when it started, when you will be reminded.
 - **If it is still not fixed.** Two hours after it opened you get a second
-  alert ("An outage a clinic was told about is still not over"), then one every
+  alert ("An outage at a clinic needs a call from you"), then one every
   twelve hours while it stays open. That is your cue to phone or email the
   clinic yourself.
 
@@ -60,8 +60,8 @@ off, because the emails and the 30-day deletion are promises.
 - **If an email fails to send.** The outbox tries again on its usual
   schedule, and alerts ops if a critical email (L17, L18) is still unsent. If
   the email could not even be queued, the outage is not opened (or closed),
-  the sweep tries again the next minute, and you get one alert ("An email about
-  AYA's answering could not be queued").
+  the sweep tries again the next minute, and you get one alert ("An answering
+  email could not be queued").
 
 ## 3. "Looking into a call from <day>" (L21) and the miss case
 

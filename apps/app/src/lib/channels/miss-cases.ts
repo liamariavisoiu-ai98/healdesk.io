@@ -181,7 +181,7 @@ export async function setMissCaseStatus(
       .update(missCases)
       .set({ status, statusAt: now, closedAt: status === "closed" ? now : null })
       .where(and(eq(missCases.id, caseId), eq(missCases.clinicId, tx.clinicId), ne(missCases.status, "closed")));
-    tx.audit.record({ action: "update", resourceType: "miss_case", resourceId: caseId, metadata: { status, note: note ? "set" : "none" } });
+    tx.audit.record({ action: "update", resourceType: "miss_case", resourceId: caseId, metadata: { status, hasClosingNote: note !== null } });
     return { status: "moved" };
   });
   if (moved.status === "moved" && note) {

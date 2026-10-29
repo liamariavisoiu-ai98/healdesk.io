@@ -43,8 +43,11 @@ import {
 // 29 October, a day after 2026-10-28.1 went live, so the two texts do not
 // share a "last updated" date. 1.6.0's release text is 2026-10-29.2 on the
 // same terms (numbered 2026-10-28.2, then 2026-10-28.4, before; neither went
-// out).
-export const LEGAL_VERSION = BAA_1_6_0_RELEASED ? "2026-10-29.2" : "2026-10-29.1";
+// out). 2026-10-29.3 (DEP-META slice 1, owner-approved) says the Meta channels
+// send the clinic's own payment link after staff confirm a request inside the
+// conversation's window, where 2026-10-29.1 said they send none; 1.6.0's
+// release text on those terms is 2026-10-29.4 (2026-10-29.2 never went out).
+export const LEGAL_VERSION = BAA_1_6_0_RELEASED ? "2026-10-29.4" : "2026-10-29.3";
 export const LEGAL_LAST_UPDATED = "29 October 2026";
 
 export const ENTITY = {

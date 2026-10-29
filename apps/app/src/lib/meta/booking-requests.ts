@@ -38,7 +38,8 @@ import { listClinics } from "@/lib/ops/clinics";
 import { amendmentsFor } from "@/lib/patient-rights/amendments";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
-import { META_WINDOW_MS, resolveFollowUpOwner, sendMetaReply, type MetaChannelOwner, type MetaSender } from "./channels";
+import { META_WINDOW_MS, metaThreadLastInbound, resolveFollowUpOwner, sendMetaReply, type MetaChannelOwner, type MetaSender } from "./channels";
+import { metaDepositWindowOpen, ownerSendable, sendMetaDepositLink, type MetaDepositLinkOutcome } from "./deposit-link";
 import { isTimeWindow } from "./time-window";
 import type { MetaPlatform } from "./front-door";
 
@@ -884,6 +885,18 @@ export type DecisionOutcome = {
   takenBy?: "live_call" | "booking";
   /** For `already_in_calendar`: when the assistant booked them. */
   bookedFor?: Date;
+  /**
+   * A Meta confirmation whose service needs a deposit (DEP-META slice 1):
+   * `sent`, the clinic's payment link went on the thread
+   * (lib/meta/deposit-link.ts); `front_desk`, staff collect it by phone.
+   * Absent for everything else.
+   */
+  depositLink?: Exclude<MetaDepositLinkOutcome, null>;
+};
+
+/** decideWithin's answer, with what the post-commit step needs about a Meta deposit. */
+type DecidedWithin = DecisionOutcome & {
+  metaDeposit?: { action: "collect" | "front_desk"; thread: { platform: MetaPlatform; externalId: string; senderId: string; connectionId: string } | null };
 };
 
 export type DecisionInput = {
@@ -1094,7 +1107,7 @@ export async function decideBookingRequest(
       : null;
 
   // 3. The decision.
-  let decided: DecisionOutcome;
+  let decided: DecidedWithin;
   try {
     decided = await withTenant(actor, (tx) =>
       decideWithin(tx, { requestId, decision, input, proposed, from, now, service, deskCalendar, send, followUpOwner, who }),
@@ -1117,10 +1130,28 @@ export async function decideBookingRequest(
   }
 
   // §B.4: after the commit, and never inside it.
-  if (decided.outcome === "decided" && decided.appointmentId) {
-    return { ...decided, calendarWrite: await writeToCalendar(clinicId, decided.appointmentId, { now }) };
+  const { metaDeposit, ...outcome } = decided;
+  if (outcome.outcome === "decided" && outcome.appointmentId) {
+    const calendarWrite = await writeToCalendar(clinicId, outcome.appointmentId, { now });
+    // DEP-META slice 1: the deposit link on the thread, after the commit and
+    // beside the calendar write, in transactions of its own.
+    if (metaDeposit?.action === "collect" && metaDeposit.thread) {
+      let link: MetaDepositLinkOutcome;
+      try {
+        // The send reads its own clock, so the window is judged when it goes
+        // (a pinned `input.now` is for the tests).
+        link = await sendMetaDepositLink(clinicId, outcome.appointmentId, metaDeposit.thread, { actor: as, now: input.now, send });
+      } catch (error) {
+        // A fault of our own: the appointment still owes `pending_link`, and
+        // the deposit sweep hands it to the front desk after its grace.
+        log.error("meta deposit link step failed", { clinicId, requestId, error: describeError(error) });
+        link = "front_desk";
+      }
+      return { ...outcome, calendarWrite, ...(link ? { depositLink: link } : {}) };
+    }
+    return { ...outcome, calendarWrite, ...(metaDeposit?.action === "front_desk" ? { depositLink: "front_desk" as const } : {}) };
   }
-  return decided;
+  return outcome;
 }
 
 /** The desk's decision refused, audited as the decision's own transaction audits one, with the passkey behind it. */
@@ -1388,7 +1419,7 @@ export function followUpOwnerFor(
 }
 
 /** Step 3 of the desk path: the decision itself, in the caller's transaction. */
-async function decideWithin(tx: TenantTx, d: DecideWithinInput): Promise<DecisionOutcome> {
+async function decideWithin(tx: TenantTx, d: DecideWithinInput): Promise<DecidedWithin> {
   const none: DecisionOutcome = { outcome: "invalid", followUp: null, appointmentId: null, calendarWrite: null };
   const { decision, input, from, now, who } = d;
   // The calendar lock first, then the request's row lock: two confirmations
@@ -1404,6 +1435,11 @@ async function decideWithin(tx: TenantTx, d: DecideWithinInput): Promise<Decisio
       collectedFields: bookingRequests.collectedFields,
       expiresAt: bookingRequests.expiresAt,
       expired: sql<boolean>`${bookingRequests.expiresAt} <= now()`,
+      channel: bookingRequests.channel,
+      platform: bookingRequests.platform,
+      externalId: bookingRequests.externalId,
+      senderId: bookingRequests.senderId,
+      connectionId: bookingRequests.connectionId,
     })
     .from(bookingRequests)
     .where(and(eq(bookingRequests.id, d.requestId), eq(bookingRequests.clinicId, tx.clinicId)))
@@ -1450,6 +1486,7 @@ async function decideWithin(tx: TenantTx, d: DecideWithinInput): Promise<Decisio
   // appointment id land in one statement: the table's shape check says a
   // confirmed row always has both, and a check is judged per statement.
   let appointmentId: string | null = null;
+  let metaDeposit: DecidedWithin["metaDeposit"];
   if (decision === "confirmed") {
     // Where the assistant held time for this request, the booking takes the
     // hold's key and the hold's calendar together: Google's event ids are
@@ -1463,9 +1500,25 @@ async function decideWithin(tx: TenantTx, d: DecideWithinInput): Promise<Decisio
     // A deposit reservation becoming the booking carries the engine's
     // deposit for its service (D's per-service amounts), as the booking
     // would have had the assistant made it, not the clinic-wide rule.
-    const deposit = reserved
+    let deposit = reserved
       ? bookedDepositOutcome((await depositGateFor(tx, { channel: reserved.channel === "web_chat" ? "web" : reserved.channel, service: treatment })).outcome)
       : undefined;
+    // DEP-META slice 1: a Meta request staff confirm is priced by the engine
+    // for its service, not by the clinic-wide rule, and its deposit is
+    // `collect` (the link is sent after the commit) only while the practice's
+    // switches would send on the thread and at least five minutes of its
+    // window are left. Anything else that is due is the front desk's, with
+    // the L10 alert; a desk confirmation is never declined for its deposit.
+    if (!reserved && candidate.channel === "meta") {
+      const thread =
+        candidate.platform && candidate.externalId && candidate.senderId && candidate.connectionId
+          ? { platform: candidate.platform, externalId: candidate.externalId, senderId: candidate.senderId, connectionId: candidate.connectionId }
+          : null;
+      const owner = thread ? followUpOwnerFor(tx.clinicId, { connectionId: thread.connectionId, platform: thread.platform }, d.followUpOwner) : null;
+      const canCollectNow = thread !== null && ownerSendable(owner) && metaDepositWindowOpen(await metaThreadLastInbound(tx, thread.platform, thread.senderId), now);
+      deposit = bookedDepositOutcome((await depositGateFor(tx, { channel: "meta", service: treatment, canCollectNow })).outcome);
+      if (deposit.isRequired) metaDeposit = { action: deposit.action === "collect" ? "collect" : "front_desk", thread };
+    }
     appointmentId = await insertAppointment(tx, {
       contactId: candidate.contactId,
       conversationId: candidate.conversationId,
@@ -1478,7 +1531,7 @@ async function decideWithin(tx: TenantTx, d: DecideWithinInput): Promise<Decisio
       bookingOrigin: writes ? "desk" : null,
       calendarEventKey: assistantHold ? `hold:${assistantHold.id}` : candidate.id,
       calendarId: writes ? (assistantHold?.calendarId ?? d.deskCalendar?.calendarId ?? target?.calendarId ?? connection?.calendarId ?? "primary") : null,
-      ...(deposit ? { deposit, depositAlerted: true } : {}),
+      ...(deposit ? { deposit, depositAlerted: reserved !== undefined } : {}),
     });
     if (reserved) {
       await tx.db.update(slotHolds).set({ appointmentId, updatedAt: sql`now()` }).where(eq(slotHolds.id, reserved.id));
@@ -1538,21 +1591,21 @@ async function decideWithin(tx: TenantTx, d: DecideWithinInput): Promise<Decisio
     return { outcome: "decided", followUp: outreach.meta, appointmentId: null, calendarWrite: null };
   }
 
-  if (row.channel !== "meta") return { outcome: "decided", followUp: null, appointmentId, calendarWrite: null };
-  if (!row.connectionId || !row.platform || !row.externalId || !row.senderId) return { outcome: "decided", followUp: "no-channel", appointmentId, calendarWrite: null };
+  if (row.channel !== "meta") return { outcome: "decided", followUp: null, appointmentId, calendarWrite: null, ...(metaDeposit ? { metaDeposit } : {}) };
+  if (!row.connectionId || !row.platform || !row.externalId || !row.senderId) return { outcome: "decided", followUp: "no-channel", appointmentId, calendarWrite: null, ...(metaDeposit ? { metaDeposit } : {}) };
   const owner = followUpOwnerFor(tx.clinicId, row, d.followUpOwner);
   try {
     // Outside Meta's 24-hour window sendMetaReply sends nothing: v1 has no
     // message tag and no template, so the desk calls instead. Nor does it
     // send for an owner the practice's switches refused.
     const sent = await sendMetaReply(tx, owner, row.externalId, row.senderId, followUpLine(clinic.clinicName, decision), d.send, { now });
-    if (sent.status === "withheld") return { outcome: "decided", followUp: "withheld", appointmentId, calendarWrite: null };
-    if (sent.status !== "sent") return { outcome: "decided", followUp: "outside_window", appointmentId, calendarWrite: null };
+    if (sent.status === "withheld") return { outcome: "decided", followUp: "withheld", appointmentId, calendarWrite: null, ...(metaDeposit ? { metaDeposit } : {}) };
+    if (sent.status !== "sent") return { outcome: "decided", followUp: "outside_window", appointmentId, calendarWrite: null, ...(metaDeposit ? { metaDeposit } : {}) };
     tx.audit.record({ action: "create", resourceType: "meta_front_door_reply", resourceId: tx.clinicId, metadata: { platform: row.platform, source: "booking_follow_up" } });
-    return { outcome: "decided", followUp: "sent", appointmentId, calendarWrite: null };
+    return { outcome: "decided", followUp: "sent", appointmentId, calendarWrite: null, ...(metaDeposit ? { metaDeposit } : {}) };
   } catch (error) {
     log.error("booking follow-up not sent", { clinicId: tx.clinicId, requestId: row.id, error: describeError(error) });
-    return { outcome: "decided", followUp: "failed", appointmentId, calendarWrite: null };
+    return { outcome: "decided", followUp: "failed", appointmentId, calendarWrite: null, ...(metaDeposit ? { metaDeposit } : {}) };
   }
 }
 

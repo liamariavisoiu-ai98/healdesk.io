@@ -39,8 +39,11 @@ import { withTenant, type TenantTx } from "@/lib/tenant";
  * recordDepositOutcome, the one deposit writer for the engine's bookings
  * (lib/meta/booking-requests.ts insertAppointment calls it). Staff
  * confirming a deposit reservation get the same decision for its service,
- * its L10 alert already sent when the time was reserved; other staff
- * confirmations still apply the clinic-level rule there.
+ * its L10 alert already sent when the time was reserved; staff confirming
+ * a Meta request get the decision for its service on channel `meta`, whose
+ * `collect` link lib/meta/deposit-link.ts sends after the commit (DEP-META
+ * slice 1); other staff confirmations (a call's request) still apply the
+ * clinic-level rule there.
  *
  * Voice never collects: a call hears depositLine (lib/booking/lines.ts) and is
  * never sent a link. The chat channels send one only through
@@ -123,8 +126,12 @@ export type DepositLineFacts = { action: DepositAction; amountUsd: number | null
 export type ChatDeposit =
   /** Nothing to say: no deposit, already paid or waived, or a link another request is opening. */
   | { kind: "none" }
-  /** The clinic's own payment link, inside depositLinkText's fixed words. */
-  | { kind: "link"; text: string; reused: boolean }
+  /**
+   * The clinic's own payment link, inside depositLinkText's fixed words.
+   * `url` and `depositId` are for an adapter with fixed words of its own (the
+   * Meta desk-confirmed link, lib/meta/deposit-link.ts); the URL is never stored.
+   */
+  | { kind: "link"; text: string; reused: boolean; url: string; depositId: string }
   /** Left to the front desk, with the L10 alert: the chat says so, never a link. */
   | { kind: "flagged"; amountUsd: number | null };
 
@@ -180,7 +187,9 @@ export async function chatDepositFor(
     log.error("deposit link failed", { clinicId, error: describeError(error) });
     link = { status: "unavailable", reason: "stripe_error" };
   }
-  if (link.status === "open") return { kind: "link", text: depositLinkText(link.url), reused: link.reused };
+  if (link.status === "open") {
+    return { kind: "link", text: depositLinkText(link.url), reused: link.reused, url: link.url, depositId: link.depositId };
+  }
   if (link.reason === "already_paid" || link.reason === "in_progress") return { kind: "none" };
   const flagged = await withTenant({ clinicId, actor: options.actor }, async (tx) => {
     const moved = await tx.db

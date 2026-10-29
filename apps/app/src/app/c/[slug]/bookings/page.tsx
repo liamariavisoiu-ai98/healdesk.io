@@ -4,7 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { MAX_WRITE_ATTEMPTS } from "@/lib/booking/calendar";
-import { channelLabel, DECIDABLE_FROM, type BookingRequestView } from "@/lib/meta/booking-requests";
+import { channelLabel, DECIDABLE_FROM, PLATFORM_LABEL, type BookingRequestView } from "@/lib/meta/booking-requests";
 import {
   BOOKED_LOOKBACK_DAYS,
   bookingDepositLine,
@@ -60,7 +60,7 @@ export const dynamic = "force-dynamic";
  * it. The query carries an id and status words, never anything of the
  * person.
  */
-type Query = { request?: string; followup?: string; calendar?: string; handled?: string; h?: string };
+type Query = { request?: string; followup?: string; calendar?: string; deposit?: string; handled?: string; h?: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const E164 = /^\+[1-9]\d{6,14}$/;
@@ -593,6 +593,15 @@ function FocusNote(props: { view: BookingRequestView; query: Query; decided: boo
           : query.followup === "withheld"
             ? "Your Instagram, Messenger and WhatsApp replies are off or paused, so nothing was sent there. Call them."
             : null;
+  // DEP-META slice 1: a Meta confirmation's deposit, from the decision just made.
+  const depositLine =
+    r.channel !== "meta"
+      ? null
+      : query.deposit === "sent"
+        ? `Deposit link sent on ${r.platform ? PLATFORM_LABEL[r.platform] : "their message thread"}.`
+        : query.deposit === "front_desk"
+          ? "Collect the deposit by phone: no payment link could be sent on their message thread."
+          : null;
   return (
     <div className={box}>
       <p className="font-semibold">{heading}.</p>
@@ -604,6 +613,7 @@ function FocusNote(props: { view: BookingRequestView; query: Query; decided: boo
       ) : null}
       {calendar ? <p className="mt-1 font-medium">{calendar}</p> : null}
       {relayed ? <p className="text-muted mt-1">{relayed}</p> : null}
+      {depositLine ? <p className="mt-1 font-medium">{depositLine}</p> : null}
     </div>
   );
 }

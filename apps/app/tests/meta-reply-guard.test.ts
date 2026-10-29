@@ -627,3 +627,21 @@ describe("the reply guard: honest hand-offs pass, and what each relaxation must 
     expect(performance.now() - started).toBeLessThan(5000);
   });
 });
+
+describe("the reply guard: deposits stay out of the model's words (DEP-META slice 1)", () => {
+  // The clinic's deposit link is sent only by the fixed tool layer after
+  // staff confirm a request (lib/meta/deposit-link.ts), never by the model:
+  // a reply that talks about a deposit, or copies the fixed line, is refused.
+  test.each([
+    "Sure, you can pay your deposit here: https://checkout.stripe.com/c/pay/cs_test_x",
+    "Your deposit is all set once you pay the link I sent.",
+    "To hold your request, please pay the deposit through this secure link: https://checkout.stripe.com/c/pay/cs_test_x",
+    "I can take the deposit for you now.",
+  ])("refuses: %s", (reply) => {
+    expect(guardReply(reply, CLINIC).ok).toBe(false);
+  });
+
+  test("the hand-off to the phone still passes", () => {
+    expect(guardReply("The team can help with that on the phone.", CLINIC)).toEqual({ ok: true });
+  });
+});

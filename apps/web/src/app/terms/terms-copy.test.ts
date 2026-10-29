@@ -589,21 +589,24 @@ describe("the Meta channels are described as the agreement describes them", () =
 /**
  * On Instagram, Messenger and WhatsApp the assistant takes booking requests
  * and books nothing (lib/meta/front-door.ts calls createBookingRequest and no
- * calendar writer), and it sends no payment link there: its prompt forbids
- * deposits and links, and nothing calls depositLinkMessage
- * (lib/booking/deposit-gate.ts). Section 9 said it "can book and can send your
- * own payment link".
+ * calendar writer). Since LEGAL_VERSION 2026-10-29.3 (DEP-META slice 1) it
+ * sends the practice's own payment link there only after staff confirm a
+ * request inside the conversation's window, as one fixed line with no amount,
+ * treatment or time (apps/app/src/lib/meta/deposit-link.ts); the model itself
+ * still refuses deposits and links. Section 9 once said it "can book and can
+ * send your own payment link", and 2026-10-29.1 said it "sends no payment link".
  */
-describe("the Meta assistant takes booking requests and sends no payment link", () => {
+describe("the Meta assistant takes booking requests, and sends the payment link only after staff confirm one", () => {
   const text = pageText();
 
   test("sections 2 and 9 say so", () => {
     expect(text).toContain(
-      "On Instagram, Messenger and WhatsApp it books nothing: it takes booking requests for your staff to confirm, and sends no payment link.",
+      "On Instagram, Messenger and WhatsApp it books nothing: it takes booking requests for your staff to confirm, and where you take deposits and your staff confirm a request while that conversation is still open, it sends your own hosted payment link there, with no amount, treatment or time in the message.",
     );
     expect(text).toContain(
-      "and takes booking requests for your staff to confirm, and it sends no payment link there.",
+      "and takes booking requests for your staff to confirm, and where you take deposits it may send your own hosted payment link there once your staff confirm one, inside that window only.",
     );
+    expect(text).not.toMatch(/sends no payment link/);
     expect(text).toContain("sends a hosted deposit link in website chat");
     expect(text).not.toMatch(/can book and (?:can )?send your own payment link/);
   });

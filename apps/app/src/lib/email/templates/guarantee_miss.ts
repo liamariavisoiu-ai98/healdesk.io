@@ -1,6 +1,6 @@
 import { CHANNELS, type Channel } from "@healdesk/catalog";
 
-import { momentLong } from "./billing-copy";
+import { dayLong, momentLong } from "./billing-copy";
 import { compose, EmailCompositionError } from "./compose";
 import type { TemplateEntry } from "./registry";
 import type { EmailTemplate } from "./types";
@@ -31,15 +31,16 @@ export const renderGuaranteeMiss: EmailTemplate<GuaranteeMissPayload> = (payload
     throw new EmailCompositionError(`"${String(payload.channel)}" is not a channel.`);
   }
   const noun = payload.channel === "voice" ? "call" : "message";
-  const when = momentLong(payload.missedAt, ctx);
+  // The subject names the day, so the body gives only the clock time.
+  const clock = momentLong(payload.missedAt, ctx).replace(/ on .*$/, "");
   return compose(
     {
-      subject: `We're looking into a ${noun}`,
+      subject: `Looking into a ${noun} from ${dayLong(payload.missedAt, ctx)}`,
       preheader: "Nothing for you to do. Reply if you'd like to know more.",
       blocks: [
         {
           type: "paragraph",
-          text: `AYA wasn't able to answer a ${noun} to ${ctx.clinicName ?? "your practice"} at ${when}. We're looking into why, so it doesn't happen again.`,
+          text: `AYA wasn't able to answer a ${noun} to ${ctx.clinicName ?? "your practice"} at ${clock}. We're looking into why, so it doesn't happen again.`,
         },
         {
           type: "paragraph",

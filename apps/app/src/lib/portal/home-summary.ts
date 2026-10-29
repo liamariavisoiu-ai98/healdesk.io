@@ -85,3 +85,15 @@ export function needItems(input: {
   }
   return items;
 }
+
+/**
+ * The line under "Needs you" when nothing does. "AYA is answering" is said
+ * only while the header's status is answering: not before go-live, and not
+ * while she is paused or every live channel is switched off, when the line
+ * would contradict the banner above it.
+ */
+export function needsYouEmptyLine(answering: boolean): string {
+  return answering
+    ? "Nothing needs you right now. AYA is answering, and anything that does will show up here."
+    : "Nothing needs you right now.";
+}

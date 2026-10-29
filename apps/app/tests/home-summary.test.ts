@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import type { AttentionItem } from "@/lib/portal/attention";
-import { needItems, weekHeadline } from "@/lib/portal/home-summary";
+import { needItems, needsYouEmptyLine, weekHeadline } from "@/lib/portal/home-summary";
 import type { ClaimsPayload } from "@/lib/reporting/claim-words";
 
 const NOW = new Date("2026-03-10T12:00:00Z");
@@ -96,5 +96,12 @@ describe("needItems", () => {
   });
   test("empty when there is nothing", () => {
     expect(needItems({ ...input, attention: [] })).toEqual([]);
+  });
+});
+
+describe("needsYouEmptyLine", () => {
+  test("says AYA is answering only when she is", () => {
+    expect(needsYouEmptyLine(true)).toMatch(/AYA is answering/);
+    expect(needsYouEmptyLine(false)).toBe("Nothing needs you right now.");
   });
 });

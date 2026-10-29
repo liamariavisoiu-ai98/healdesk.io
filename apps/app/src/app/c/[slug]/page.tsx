@@ -183,7 +183,7 @@ export default async function ClinicHome({
         now={now}
       />
 
-      <NeedsYou items={needs} live={live} />
+      <NeedsYou items={needs} answering={shell.status.kind === "answering"} />
 
       {live ? null : (
         <section

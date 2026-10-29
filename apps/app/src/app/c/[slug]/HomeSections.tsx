@@ -1,4 +1,4 @@
-import type { NeedItem } from "@/lib/portal/home-summary";
+import { needsYouEmptyLine, type NeedItem } from "@/lib/portal/home-summary";
 import type { ClaimLine } from "@/lib/reporting/claim-words";
 
 /**
@@ -8,7 +8,7 @@ import type { ClaimLine } from "@/lib/reporting/claim-words";
  * (light) theme, so these use the portal's tokens like every other screen.
  */
 
-export function NeedsYou({ items, live }: { items: readonly NeedItem[]; live: boolean }) {
+export function NeedsYou({ items, answering }: { items: readonly NeedItem[]; answering: boolean }) {
   return (
     <section aria-labelledby="attention-heading" className="mt-6">
       <h2 id="attention-heading" className="text-lg font-semibold">
@@ -16,9 +16,7 @@ export function NeedsYou({ items, live }: { items: readonly NeedItem[]; live: bo
       </h2>
       {items.length === 0 ? (
         <p className="border-line text-muted mt-3 rounded-xl border bg-white px-4 py-3">
-          {live
-            ? "Nothing needs you right now. AYA is answering, and anything that does will show up here."
-            : "Nothing needs you right now."}
+          {needsYouEmptyLine(answering)}
         </p>
       ) : (
         <ul className="mt-3 grid gap-2">

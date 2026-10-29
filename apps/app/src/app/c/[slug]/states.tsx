@@ -49,10 +49,13 @@ export function ErrorState(props: {
   children?: ReactNode;
   action?: ReactNode;
   reference?: string | null;
+  /** The heading's level: h1 where the state is the whole screen, else h2. */
+  as?: "h1" | "h2";
 }) {
+  const Heading = props.as ?? "h2";
   return (
     <div className={BOX} role="alert" data-state="error">
-      <h2 className="text-lg font-semibold">{props.title ?? "This page didn’t load"}</h2>
+      <Heading className="text-lg font-semibold">{props.title ?? "This page didn’t load"}</Heading>
       <p className="text-muted mt-1 text-sm">
         {props.children ??
           "Something went wrong on our side. Nothing you entered was lost. Try again in a moment."}

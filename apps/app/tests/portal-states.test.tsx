@@ -27,6 +27,11 @@ describe("portal states", () => {
     expect(renderToStaticMarkup(<ErrorState />)).not.toContain("Reference");
   });
 
+  test("error state can be the page's h1", () => {
+    expect(renderToStaticMarkup(<ErrorState as="h1" />)).toMatch(/<h1 /);
+    expect(renderToStaticMarkup(<ErrorState />)).toMatch(/<h2 /);
+  });
+
   test("loading state: spoken label, decorative blocks, pulse only when motion is allowed", () => {
     const html = renderToStaticMarkup(<LoadingState label="Loading billing" rows={2} />);
     expect(html).toContain("Loading billing");

@@ -953,6 +953,13 @@
       "when": 1793177150296,
       "tag": "0135_clinic_change_system_origin",
       "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "7",
+      "when": 1793267775098,
+      "tag": "0136_baa_release_1_6_0",
+      "breakpoints": true
     }
   ]
 }

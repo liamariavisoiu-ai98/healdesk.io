@@ -78,20 +78,27 @@ import { wrap } from "./wrap";
  * server-side, and the client sends back a hash of what it displayed so a
  * mismatch is refused rather than recorded.
  *
- * ⚖️ Version 1.5.1 is the current template and is what clinics now sign. It
- * is 1.5.0 with the optional booking details (a last name, the service,
+ * ⚖️ Version 1.6.0 is the current template and is what clinics now sign. The
+ * owner released it on 2026-10-29, on his own word ("Release.") and without
+ * external counsel, as he released 1.5.1 and dpa/1.0.0: it is 1.5.1 with
+ * Anthropic's retention said as Anthropic's documentation says it for the
+ * models the product calls (above SUBCONTRACTORS_1_6; agreement-changes.md
+ * §17) and the Safeguards clause carrying the one optional payment-link text
+ * (§20). It replaced 1.5.1 outright, with no overlap: the go-live floor
+ * (MIN_ACCEPTABLE_BAA_VERSION) is 1.6.0, mirrored by the
+ * baa_release_1_6_0 migration, on the owner's word that no real buyer holds
+ * a 1.5.1 signature.
+ *
+ * Version 1.5.1, offered until then and frozen below the floor since, is
+ * 1.5.0 with the optional booking details (a last name, the service,
  * new or returning, consultation or treatment, a practitioner) said to be
  * asked in a website chat as well as on a call, as the website chat does
  * (owner, 19 October 2026). It was released on 2026-10-19 by the owner, on
  * the owner's own instruction and without external counsel; the doc comment
  * on `approvedByCounsel` records exactly what that flag now means, and
  * docs/counsel/agreement-changes.md §16 recommends counsel review it. It
- * replaced 1.5.0 outright: no clinic had signed 1.5.0, so it is no longer
- * signable and the go-live floor (MIN_ACCEPTABLE_BAA_VERSION) is 1.5.1.
- * 1.6.0, drafted on 2026-10-19 and not released, is 1.5.1 with Anthropic's
- * retention said as Anthropic's documentation says it for the models the
- * product calls (above SUBCONTRACTORS_1_6; agreement-changes.md §17): it sits
- * after 1.5.1 with approvedByCounsel false until the owner releases it.
+ * replaced 1.5.0 outright: no clinic had signed 1.5.0, so it was no longer
+ * signable and the go-live floor was 1.5.1 until 1.6.0's release.
  * 1.5.0, released on 2026-10-14, which is 1.4.0 with the transcript's one
  * encrypted copy held only until the practice's mail server confirms
  * delivery (§15), 1.4.0, released on 2026-10-13, which is 1.3.0, the
@@ -250,8 +257,10 @@ export type BaaTemplate = {
    * The name predates the decision it now records. 1.0.0 was approved by
    * counsel; versions 1.2.0 and 1.2.1 were released on 2026-10-01, 1.2.2 on
    * 2026-10-09, 1.3.0 on 2026-10-12, 1.4.0 on 2026-10-13, 1.5.0 on
-   * 2026-10-14 and 1.5.1 on 2026-10-19, each by the owner without external
-   * counsel, and this flag is what records each release.
+   * 2026-10-14, 1.5.1 on 2026-10-19 and 1.6.0 on 2026-10-29, each by the
+   * owner without external counsel, and this flag is what records each
+   * release: for 1.6.0, `approvedByCounsel` keeps the BAA's flag name for
+   * the owner's release, as it does for the DPA (dpa.ts).
    * Not renamed, because provisioning, agreements, AgreementStep and the
    * tests all read it by this name.
    */
@@ -4681,7 +4690,8 @@ function validate151(v: BaaVariables): void {
 // -----------------------------------------------------------------------------
 
 /**
- * ⚖️ 1.6.0, DRAFTED 19 October 2026 and NOT RELEASED: 1.5.1 with the
+ * ⚖️ 1.6.0, drafted 19 October 2026 and RELEASED BY THE OWNER on 29 October
+ * 2026 (BAA_1_6_0_RELEASED, below): 1.5.1 with the
  * Subcontractors clause's paragraph on Anthropic said as Anthropic's own
  * documentation says it for the models the product calls
  * (docs/counsel/agreement-changes.md §17; packages/catalog
@@ -4744,14 +4754,13 @@ function validate151(v: BaaVariables): void {
  *                    into the telephone exception (owner, 28-29 October
  *                    2026; the wording kept general on his instruction).
  *
- * Not at BAA_TEMPLATES[0] and approvedByCounsel false, so checkout does not
- * offer it, signing refuses it (signableTemplate), provisioning refuses it,
- * and isBaaVersionAcceptable and app_baa_version_acceptable refuse it at
- * go-live. Releasing it is the owner's decision (§17): move it to [0] with
- * the flag true, decide the floor and the overlap, and mirror both in a
- * migration, as 0081 did for 1.5.1. Its text and golden hashes
- * (apps/app/tests/baa-golden.test.ts) may still change until then; from the
- * release on, never.
+ * Until the release it sat after 1.5.1 with approvedByCounsel false, so
+ * nothing could offer, sign, provision or accept it. The owner released it
+ * on 29 October 2026 (§17): baaTemplatesFor(true) moves it to [0] with the
+ * flag true, the floor is 1.6.0 with no overlap, and the baa_release_1_6_0
+ * migration mirrors both, as 0081 did for 1.5.1. Someone may now sign it:
+ * its text and golden hashes (apps/app/tests/baa-golden.test.ts) never
+ * change again.
  */
 const SUBCONTRACTORS_1_6: BaaClause = {
   id: "subcontractors",
@@ -4889,6 +4898,15 @@ function validate160(v: BaaVariables): void {
 /**
  * ⚖️ THE ONE SWITCH for releasing BAA 1.6.0 (owner's word only; see
  * docs/design/launch-readiness-2026-10-27/baa-1-6-0-owner-checklist.md).
+ *
+ * Released by the owner: on 29 October 2026 he said "Release." in chat and
+ * released 1.6.0 himself, without external counsel, as he released 1.5.1 on
+ * 19 October and dpa/1.0.0 on 20 October. `approvedByCounsel` keeps the
+ * BAA's flag name for his release (see the field's doc comment on
+ * BaaTemplate); docs/counsel/agreement-changes.md §17 still recommends
+ * counsel review it. He stated there are no clients yet (synthetic data
+ * only), so no unprovisioned 1.5.1 signer is held by the floor's move.
+ *
  * False: checkout offers 1.5.1, the floor is 1.5.1 and 1.6.0 is a draft after
  * it, exactly as before the switch existed. True: 1.6.0 is BAA_TEMPLATES[0]
  * with approvedByCounsel true, the floor is 1.6.0 with no overlap, 1.5.1 stays
@@ -4898,7 +4916,7 @@ function validate160(v: BaaVariables): void {
  * must land in the same commit: tests/baa-release-1-6-0.test.ts fails on a
  * flip without it and on it without a flip.
  */
-export const BAA_1_6_0_RELEASED: boolean = false;
+export const BAA_1_6_0_RELEASED: boolean = true;
 
 const TEMPLATE_1_5_1: BaaTemplate = {
   version: "1.5.1",
@@ -5078,15 +5096,13 @@ export function baaTemplatesFor(released: boolean): readonly BaaTemplate[] {
 // Newest RELEASED first — CURRENT_BAA_VERSION and currentBaaTemplate() both
 // read [0], so a version stays at [0] until its successor is approved for
 // release too.
-// ⚖️ Drafted on 2026-10-19 and NOT released: 1.5.1 with Anthropic's
-// retention said as Anthropic's documentation says it for the models the
-// product calls (above SUBCONTRACTORS_1_6; agreement-changes.md §17).
-// After the release it follows, as a draft is (isBaaVersionAcceptable), and
-// never offered, signed or accepted at go-live while approvedByCounsel is
-// false. Releasing it is the owner's call: it then moves to [0]. Until it
-// does, checkout offers 1.5.1's retention clause, so apps/web's launch
-// tracker (lib/admin/seo/launch.ts, baa-1-6-0-retention) holds the release
-// as an item that blocks go-live.
+// ⚖️ 1.6.0, drafted on 2026-10-19, was released by the owner on 2026-10-29
+// (BAA_1_6_0_RELEASED): it is at [0], and 1.5.1 follows it, released but
+// below the floor, so never offered, signed or accepted at go-live again.
+// Before the release it followed 1.5.1 as a draft, and apps/web's launch
+// tracker (lib/admin/seo/launch.ts, baa-1-6-0-retention) held it as an item
+// that blocks go-live; that item closes once production runs the release
+// migration.
 export const BAA_TEMPLATES: readonly BaaTemplate[] = baaTemplatesFor(BAA_1_6_0_RELEASED);
 
 export const CURRENT_BAA_VERSION = BAA_TEMPLATES[0]!.version;

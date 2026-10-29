@@ -156,8 +156,14 @@ describe("the subcontractors note", () => {
       citation: "164.504(e)(2)(ii)(D), 164.308(b)(2)",
     });
     expect(clauseExplainer("1.2.2", "subcontractors")).toBe(BAA_CLAUSE_EXPLAINERS.subcontractors);
-    expect(clauseExplainer(currentBaaTemplate().version, "subcontractors")).toBe(
+    // 1.5.1 renders 1.3.0's note; 1.6.0, current since its release on
+    // 29 October 2026, renders its own, as its Subcontractors clause is its own.
+    expect(clauseExplainer("1.5.1", "subcontractors")).toBe(
       BAA_CLAUSE_EXPLAINERS_BY_VERSION["1.3.0"]!.subcontractors,
+    );
+    expect(currentBaaTemplate().version).toBe("1.6.0");
+    expect(clauseExplainer(currentBaaTemplate().version, "subcontractors")).toBe(
+      BAA_CLAUSE_EXPLAINERS_BY_VERSION["1.6.0"]!.subcontractors,
     );
   });
 });
@@ -377,8 +383,10 @@ describe("the explainer for one version (gate 11)", () => {
     expect(baaExplainerFor("1.2.2")).toBe(BAA_EXPLAINER);
     expect(baaExplainerFor("1.2.1")).toBe(BAA_EXPLAINER);
     expect(baaExplainerFor("1.2.1").terms).toBe(BAA_EXPLAINER.terms);
-    // The current template is 1.5.1, which shows 1.3.0's own bullets (the next test).
-    expect(currentBaaTemplate().version).toBe("1.5.1");
+    // The current template is 1.6.0 (released 29 October 2026), which shows
+    // 1.3.0's own bullets (the next test), as 1.5.1 did.
+    expect(currentBaaTemplate().version).toBe("1.6.0");
+    expect(baaExplainerFor("1.5.1").terms).toBe(baaExplainerFor("1.3.0").terms);
     expect(baaExplainerFor(currentBaaTemplate().version).terms).toBe(
       baaExplainerFor("1.3.0").terms,
     );

@@ -1125,9 +1125,9 @@ describeDb("drizzle/0057: the Google Calendar schema", () => {
       expect(await permitted(clinic.clinicId)).toBe(true);
 
       // A supersede (0051) binds a new agreement; no election is anchored to it,
-      // so the location writes nothing until it records one. Under 1.5.1, the
-      // go-live floor, which is all a supersede binds since 1.5.1 replaced
-      // 1.5.0 (19 October 2026), as 1.5.0 had replaced 1.4.0, 1.4.0 1.3.0 and 1.3.0 1.2.2; its calendar
+      // so the location writes nothing until it records one. Under 1.6.0, the
+      // go-live floor, which is all a supersede binds since 1.6.0 replaced
+      // 1.5.1 (29 October 2026), as 1.5.1 had replaced 1.5.0, 1.5.0 1.4.0, 1.4.0 1.3.0 and 1.3.0 1.2.2; its calendar
       // clause (1.3.0's) governs only the location set up at signing, so this
       // one still records an election.
       await getMigratorPool().query(
@@ -1139,7 +1139,7 @@ describeDb("drizzle/0057: the Google Calendar schema", () => {
         `insert into baa_acceptances
          (id, organization_id, document_version, document_hash, rendered_text, variables,
           assent_label, accepted_by_name, accepted_by_email, accepted_at)
-       values ($1, null, '1.5.1', repeat('e', 64), 'BAA (synthetic)',
+       values ($1, null, '1.6.0', repeat('e', 64), 'BAA (synthetic)',
                '{"clinicLegalName":"Radiance","bookingSystem":"google_calendar","calendarAccount":"workspace_baa","appliedClauses":["google-calendar-covered"]}'::jsonb,
                'I agree', 'Alex Chen', 'alex@radiance.test', now() + interval '1 second')`,
         [superseding],

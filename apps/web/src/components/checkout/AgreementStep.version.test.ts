@@ -150,22 +150,25 @@ describe("the agreement step renders the version it signs (gate 11)", () => {
     await vi.waitFor(() => expect(onSigned).toHaveBeenCalled());
   });
 
-  test("1.5.1, the current version: 1.3.0's bullets above its own text, and the request names 1.5.1", async () => {
+  test("1.6.0, the current version: 1.3.0's bullets above its own text, and the request names 1.6.0", async () => {
     // The funnel's own entry, not one handed to the step.
     const onSigned = vi.fn();
     await renderStep(onSigned);
 
     const page = container.textContent ?? "";
-    expect(page).toContain("Version 1.5.1");
-    // 1.5.1 shows 1.3.0's bullets, as 1.4.0 and 1.5.0 did: its Term clause is 1.3.0's own.
-    for (const term of baaExplainerTerms("1.5.1")) expect(page).toContain(term.plain);
+    expect(page).toContain("Version 1.6.0");
+    expect(page).not.toContain("Version 1.5.1");
+    // 1.6.0 shows 1.3.0's bullets, as 1.4.0, 1.5.0 and 1.5.1 did: its Term
+    // clause differs from 1.3.0's by one phrase no bullet words.
+    for (const term of baaExplainerTerms("1.6.0")) expect(page).toContain(term.plain);
+    expect(baaExplainerTerms("1.6.0")).toBe(baaExplainerTerms("1.5.1"));
     expect(page).toContain("limit its use and disclosure");
     expect(page).toContain("if you determine that we have violated a material term of it");
     expect(page).not.toContain("use it only");
     expect(page).not.toContain("if we materially breach it");
     const text = documentText();
-    expect(text).toContain("Version 1.5.1 — executed electronically");
-    expect(text).not.toContain("Version 1.5.0");
+    expect(text).toContain("Version 1.6.0 — executed electronically");
+    expect(text).not.toContain("Version 1.5.1");
     // The transcript is emailed, not kept (owner, 13 October 2026), and its
     // copy goes once delivery is confirmed (owner, 14 October 2026).
     expect(text.replace(/\s+/g, " ")).toContain("healdesk does not keep transcripts.");
@@ -173,14 +176,20 @@ describe("the agreement step renders the version it signs (gate 11)", () => {
       "only until Practice's mail server confirms that it has received the email",
     );
     // The optional booking details are asked in a website chat as on a call
-    // (owner, 19 October 2026).
+    // (owner, 19 October 2026), as 1.5.1 says.
     expect(text.replace(/\s+/g, " ")).toContain(
       "b. on a call or in a website chat, where Practice's settings or its specialty's defaults ask for them",
     );
+    // What 1.6.0 changes: the model's retention as its provider documents it,
+    // and the one optional payment-link text (owner, 29 October 2026).
+    expect(text.replace(/\s+/g, " ")).not.toContain("for abuse detection and security");
+    expect(text.replace(/\s+/g, " ")).toContain(
+      "engineered and designed to offer a caller a single text message",
+    );
 
     const request = await sign();
-    expect(request.templateVersion).toBe("1.5.1");
-    // Both answers 1.5.1's calendar clause (1.3.0's) is chosen by, as the step was given them.
+    expect(request.templateVersion).toBe("1.6.0");
+    // Both answers 1.6.0's calendar clause (1.3.0's) is chosen by, as the step was given them.
     expect(request).toMatchObject({
       bookingSystem: "google_calendar",
       calendarAccount: "workspace_baa",

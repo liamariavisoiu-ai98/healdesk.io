@@ -106,7 +106,7 @@ const PURCHASE = {
 
 describe("a Business Associate Agreement", () => {
   test("the document as signed, under the version being signed, passes", () => {
-    expect(CURRENT_BAA_VERSION).toBe("1.5.1");
+    expect(CURRENT_BAA_VERSION).toBe("1.6.0");
     expect(agreementMismatch(CURRENT_BAA_VERSION, BAA, PURCHASE)).toBeNull();
     // 1.2.2 too, while the floor admits it (below, it no longer does).
     floor.restored = ["1.2.2"];

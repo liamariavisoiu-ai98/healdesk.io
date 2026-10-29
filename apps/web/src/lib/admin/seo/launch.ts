@@ -187,10 +187,10 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
       "The AI model provider's retention is as terms section 9 states it: no more than 30 days, flagged content up to two years, what the law requires for as long as it requires",
     where:
       "Terms section 9 and its annex, data deletion page, homepage FAQ, the business associate agreement signed at checkout",
-    status: "owner",
-    left: "Checkout still offers BAA 1.5.1, whose Subcontractors clause gives the 30 days a purpose, keeps law-required content two years and says the service cannot run with shorter retention, and terms section 1 lets the BAA win. Release BAA 1.6.0 (or send it to counsel first): move it to BAA_TEMPLATES[0] with approvedByCounsel true, decide the floor and any overlap after reading the marketing Sheet for anyone who signed 1.5.1, add the release migration as 0081 did, then restore terms section 9's \"The Business Associate Agreement states the same\" under a new LEGAL_VERSION. No clinic goes live under 1.5.1's retention clause.",
+    status: "building",
+    left: "The owner released BAA 1.6.0 on 29 October 2026, without external counsel: BAA_1_6_0_RELEASED is true, so checkout offers 1.6.0, the floor is 1.6.0 with no overlap, and terms section 9 says \"The Business Associate Agreement states the same\" under LEGAL_VERSION 2026-10-29.2. Production does not do it yet: the release migration (apps/app/drizzle/0136_baa_release_1_6_0.sql) moves the database's go-live check to 1.6.0 only when deploy-app.yml runs it, and until then the running apps/app image still holds 1.6.0 as a draft and refuses to provision it. It moves to On in the commit that records that deploy. No clinic goes live under 1.5.1's retention clause.",
     evidence:
-      "packages/catalog/src/baa.ts (template 1.6.0), docs/baa-v1.6.0.txt, docs/counsel/agreement-changes.md section 17",
+      "packages/catalog/src/baa.ts (BAA_1_6_0_RELEASED, template 1.6.0), apps/app/drizzle/0136_baa_release_1_6_0.sql, docs/baa-v1.6.0.txt, docs/counsel/agreement-changes.md section 17",
     blocksGoLive: true,
   },
   {

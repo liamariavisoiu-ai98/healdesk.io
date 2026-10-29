@@ -55,8 +55,9 @@ import { describe, expect, test } from "vitest";
  * (§19, not reviewed by counsel), and its hashes and 1.6.0's were
  * regenerated (1.5.1 / covered_estimated was e5b849c7…af69, 1.6.0's
  * 93bb381e…f73c). No other version's hash moved. 1.6.0
- * was drafted on 2026-10-19 and is not released (§17): its hashes below move
- * with the draft until the owner releases it, and never after. 1.5.0
+ * was drafted on 2026-10-19 and released by the owner on 2026-10-29 (§17):
+ * its hashes below moved with the draft until then, and never move again.
+ * 1.5.0
  * was released on 2026-10-14 and replaced outright by 1.5.1 on 2026-10-19,
  * before any clinic signed it; its hashes have been the record since its own
  * release (§15) and never move. 1.4.0
@@ -113,11 +114,12 @@ const VARIANTS: Record<string, Partial<BaaVariables>> = {
 
 /** version → variant → sha256 of the assembled text. Append-only. */
 const GOLDEN: Record<string, Record<string, string>> = {
-  // Drafted on 2026-10-19, NOT released (agreement-changes.md §17): 1.5.1
+  // Drafted on 2026-10-19, released by the owner on 2026-10-29 without
+  // external counsel (agreement-changes.md §17): 1.5.1
   // with Anthropic's retention as Anthropic's documentation states it for
   // the models the product calls, and the state-law and Term clauses'
-  // references to it naming no purpose. A draft's hashes may move until its
-  // release; from then on they are the record. No covered_verified_boulevard,
+  // references to it naming no purpose. Its hashes moved with the draft
+  // until the release; from then on they are the record. No covered_verified_boulevard,
   // as in 1.3.0 to 1.5.1: it refuses verified reporting.
   "1.6.0": {
     covered_estimated: "21fe6c06960ee5b5bd4431d822d010b9db6c6b06bb3a1e8bb0ab7c23b7c2715d",
@@ -446,10 +448,10 @@ describe("1.2.2: the agreement offered until 1.3.0's release", () => {
 
   test("was released, is replaced outright by 1.3.0, and is no longer signable", () => {
     // 1.3.0 was replaced in turn by 1.4.0 (13 October 2026), 1.4.0 by 1.5.0
-    // (14 October 2026), and 1.5.0 by 1.5.1 (19 October 2026), and the 1.6.0
-    // draft follows 1.5.1 (19 October 2026), so 1.2.2 sits sixth.
-    expect(CURRENT_BAA_VERSION).toBe("1.5.1");
-    expect(BAA_TEMPLATES[1]!.version).toBe("1.6.0");
+    // (14 October 2026), 1.5.0 by 1.5.1 (19 October 2026), and 1.5.1 by
+    // 1.6.0 (29 October 2026), so 1.2.2 sits sixth.
+    expect(CURRENT_BAA_VERSION).toBe("1.6.0");
+    expect(BAA_TEMPLATES[1]!.version).toBe("1.5.1");
     expect(BAA_TEMPLATES[2]!.version).toBe("1.5.0");
     expect(BAA_TEMPLATES[3]!.version).toBe("1.4.0");
     expect(BAA_TEMPLATES[4]!.version).toBe("1.3.0");
@@ -717,7 +719,7 @@ describe("1.2.2 against 1.2.1: exactly the owner's three changes", () => {
     expect(v121().approvedByCounsel).toBe(true);
     expect(v121().publishedOn).toBe("2026-10-01");
     expect(BAA_TEMPLATES.indexOf(v121())).toBeGreaterThan(BAA_TEMPLATES.indexOf(v122()));
-    expect(CURRENT_BAA_VERSION).toBe("1.5.1");
+    expect(CURRENT_BAA_VERSION).toBe("1.6.0");
     expect(BAA_RELEASE_OVERLAP).not.toHaveProperty("1.2.1");
     const text = unwrap(prepareBaa(v121(), BASE).text);
     expect(text).toContain("Version 1.2.1 — executed electronically");
@@ -797,7 +799,7 @@ describe("1.3.0: the calendar-dependent agreement", () => {
   }
 
   test("was released by the owner, replaced 1.2.2 outright, and was replaced outright by 1.4.0", () => {
-    // Behind 1.5.1, the 1.6.0 draft, 1.5.0 and 1.4.0.
+    // Behind 1.6.0, 1.5.1, 1.5.0 and 1.4.0.
     expect(BAA_TEMPLATES[4]!.version).toBe(V130);
     expect(BAA_TEMPLATES[5]!.version).toBe("1.2.2");
     expect(v130().approvedByCounsel).toBe(true);
@@ -806,11 +808,11 @@ describe("1.3.0: the calendar-dependent agreement", () => {
     // clinic had signed it, and it describes a stored transcript (owner, 13
     // October 2026; agreement-changes.md §14), as 1.2.2 was passed when no
     // clinic had signed it (owner, 12 October 2026; plan C19). 1.5.0 has
-    // replaced 1.4.0 since (14 October 2026; §15), and 1.5.1 1.5.0 (19
-    // October 2026; §16).
-    expect(CURRENT_BAA_VERSION).toBe("1.5.1");
+    // replaced 1.4.0 since (14 October 2026; §15), 1.5.1 1.5.0 (19
+    // October 2026; §16), and 1.6.0 1.5.1 (29 October 2026; §17).
+    expect(CURRENT_BAA_VERSION).toBe("1.6.0");
     expect(BAA_RELEASE_OVERLAP).toEqual({});
-    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe("1.5.1");
+    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe("1.6.0");
     // Nothing in the text marks it a draft, so the release itself moved no
     // hash; the release audit's two text fixes did, and the owner's Meta and
     // 14(b) wording after the second read (§12.15).
@@ -1384,8 +1386,7 @@ describe("1.4.0: the transcript emailed, not kept", () => {
   }
 
   test("was released by the owner, replaced 1.3.0 outright, and was replaced outright by 1.5.0", () => {
-    // Behind 1.5.1, the 1.6.0 draft, which follows the release it revises,
-    // and 1.5.0.
+    // Behind 1.6.0, 1.5.1, which 1.6.0 replaced, and 1.5.0.
     expect(BAA_TEMPLATES[3]!.version).toBe(V140);
     expect(BAA_TEMPLATES[4]).toBe(v130());
     expect(v140().approvedByCounsel).toBe(true);
@@ -1394,10 +1395,11 @@ describe("1.4.0: the transcript emailed, not kept", () => {
     // clinic had signed it, and it promises a copy kept seven days after the
     // email first goes (owner, 14 October 2026; agreement-changes.md §15),
     // as 1.3.0 was passed when no clinic had signed it (13 October 2026).
-    // 1.5.1 has replaced 1.5.0 since (19 October 2026; §16).
-    expect(CURRENT_BAA_VERSION).toBe("1.5.1");
+    // 1.5.1 has replaced 1.5.0 since (19 October 2026; §16), and 1.6.0
+    // 1.5.1 (29 October 2026; §17).
+    expect(CURRENT_BAA_VERSION).toBe("1.6.0");
     expect(BAA_RELEASE_OVERLAP).toEqual({});
-    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe("1.5.1");
+    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe("1.6.0");
     const text = render({}).text;
     expect(text).toContain("Version 1.4.0 — executed electronically");
     expect(text).not.toMatch(/DRAFT|NOT FOR EXECUTION|\[NAME, TITLE\]/);
@@ -1615,7 +1617,7 @@ describe("1.5.0: the transcript's copy deleted once delivery is confirmed", () =
   }
 
   test("was released by the owner, replaced 1.4.0 outright, and was replaced outright by 1.5.1", () => {
-    // Behind 1.5.1 and the 1.6.0 draft, which follows the release it revises.
+    // Behind 1.6.0 and 1.5.1, which 1.6.0 replaced.
     expect(BAA_TEMPLATES[2]!.version).toBe(V150);
     expect(BAA_TEMPLATES[3]).toBe(v140());
     expect(v150().approvedByCounsel).toBe(true);
@@ -1624,10 +1626,11 @@ describe("1.5.0: the transcript's copy deleted once delivery is confirmed", () =
     // 2026: no clinic had signed it, and it says the optional booking details
     // are asked only on a call, while the website chat asks for them and
     // keeps them (owner, 19 October 2026; agreement-changes.md §16), as 1.4.0
-    // was passed when no clinic had signed it (14 October 2026).
-    expect(CURRENT_BAA_VERSION).toBe("1.5.1");
+    // was passed when no clinic had signed it (14 October 2026). 1.6.0 has
+    // replaced 1.5.1 since (29 October 2026; §17).
+    expect(CURRENT_BAA_VERSION).toBe("1.6.0");
     expect(BAA_RELEASE_OVERLAP).toEqual({});
-    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe("1.5.1");
+    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe("1.6.0");
     const text = render({}).text;
     expect(text).toContain("Version 1.5.0 — executed electronically");
     expect(text).not.toMatch(/DRAFT|NOT FOR EXECUTION|\[NAME, TITLE\]/);
@@ -1835,19 +1838,22 @@ describe("1.5.1: the optional booking details asked in a website chat too", () =
     });
   }
 
-  test("is the current template, released by the owner, and replaced 1.5.0 outright", () => {
+  test("was released by the owner, replaced 1.5.0 outright, and was replaced outright by 1.6.0", () => {
+    // Behind 1.6.0, released by the owner on 29 October 2026 (§17).
     expect(BAA_TEMPLATES[0]!.version).toBe(CURRENT_BAA_VERSION);
-    expect(CURRENT_BAA_VERSION).toBe(V151);
-    // The 1.6.0 draft follows it until the owner releases the draft.
-    expect(BAA_TEMPLATES[1]!.version).toBe("1.6.0");
+    expect(CURRENT_BAA_VERSION).toBe("1.6.0");
+    expect(BAA_TEMPLATES[1]).toBe(v151());
     expect(BAA_TEMPLATES[2]).toBe(v150());
     expect(v151().approvedByCounsel).toBe(true);
     expect(v151().publishedOn).toBe("2026-10-19");
-    // No overlap, and the go-live floor is 1.5.1: no clinic had signed 1.5.0,
-    // and 1.5.0 says the optional details are asked only on a call (owner, 19
-    // October 2026).
+    // No overlap, and the go-live floor passed it to 1.6.0: no clinic had
+    // signed it, and its Subcontractors clause says Anthropic's retention as
+    // Anthropic does not (owner, 29 October 2026), as 1.5.0 was passed when
+    // no clinic had signed it (19 October 2026).
     expect(BAA_RELEASE_OVERLAP).toEqual({});
-    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe(V151);
+    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe("1.6.0");
+    expect(isBaaVersionAcceptable(V151)).toBe(false);
+    expect(() => signableTemplate(V151)).toThrow(AgreementError);
     const text = render({}).text;
     expect(text).toContain("Version 1.5.1 — executed electronically");
     expect(text).not.toMatch(/DRAFT|NOT FOR EXECUTION|\[NAME, TITLE\]/);
@@ -1985,7 +1991,8 @@ describe("1.5.1: the optional booking details asked in a website chat too", () =
 });
 
 /**
- * 1.6.0, DRAFTED on 19 October 2026 and not released: 1.5.1 with the
+ * 1.6.0, drafted on 19 October 2026 and released by the owner on 29 October
+ * 2026, without external counsel: 1.5.1 with the
  * Subcontractors clause's paragraph on Anthropic said as Anthropic's own
  * documentation says it for claude-opus-5-5 and claude-sonnet-5-5, the
  * models the product calls (packages/catalog model-retention.ts; baa.ts,
@@ -1998,8 +2005,8 @@ describe("1.5.1: the optional booking details asked in a website chat too", () =
  * states, so they change with it. Since 29 October 2026 the Safeguards
  * clause also carries the one optional payment-link text (§20). These pin
  * that 1.6.0 changes those four clauses and nothing else, that no sentence of any 1.6.0 document gives
- * Anthropic's retention a purpose, and that it cannot be signed or go live
- * until the owner releases it. The draft was first written on 1.5.0, the
+ * Anthropic's retention a purpose, and that, released, it is the one version
+ * offered, signed and accepted at go-live. The draft was first written on 1.5.0, the
  * version current that morning, and rebuilt on 1.5.1 when 1.5.1 was released
  * the same day, so it says what 1.5.1 says about the website chat.
  */
@@ -2021,7 +2028,7 @@ const GOLDEN_1_6: Record<string, string> = {
   live_calendly_nobaa: "8343db376f561f8259cc8fa93e20fb598d9d67cbd180f5a78f30f7a5ae3e878e",
 };
 
-describe("1.6.0: Anthropic's retention as Anthropic documents it (a draft)", () => {
+describe("1.6.0: Anthropic's retention as Anthropic documents it (released 29 October 2026)", () => {
   const v151 = () => getBaaTemplate(V151)!;
   const v160 = () => getBaaTemplate(V160)!;
   const render = (overrides: Partial<BaaVariables>) =>
@@ -2050,17 +2057,21 @@ describe("1.6.0: Anthropic's retention as Anthropic documents it (a draft)", () 
     });
   }
 
-  test("is a draft: registered after 1.5.1, not offered, not signable and refused at go-live", () => {
-    expect(BAA_TEMPLATES[1]).toBe(v160());
-    expect(v160().approvedByCounsel).toBe(false);
+  test("is the current template, released by the owner, and replaced 1.5.1 outright", () => {
+    // Released by the owner on 29 October 2026, without external counsel
+    // (BAA_1_6_0_RELEASED; §17). Its words, and so every hash above, are the
+    // draft's: the release moved no hash.
+    expect(BAA_TEMPLATES[0]).toBe(v160());
+    expect(v160().approvedByCounsel).toBe(true);
     expect(v160().publishedOn).toBe("2026-10-19");
-    expect(CURRENT_BAA_VERSION).toBe(V151);
-    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe(V151);
-    expect(isBaaVersionAcceptable(V160)).toBe(false);
-    expect(BAA_RELEASE_OVERLAP).not.toHaveProperty(V160);
-    expect(() => signableTemplate(V160)).toThrow(AgreementError);
+    expect(CURRENT_BAA_VERSION).toBe(V160);
+    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe(V160);
+    expect(isBaaVersionAcceptable(V160)).toBe(true);
+    expect(BAA_RELEASE_OVERLAP).toEqual({});
+    expect(signableTemplate(V160)).toBe(v160());
     const text = render({}).text;
     expect(text).toContain("Version 1.6.0 — executed electronically");
+    expect(text).not.toMatch(/DRAFT|NOT FOR EXECUTION|\[NAME, TITLE\]/);
   });
 
   /**

@@ -200,7 +200,7 @@ describe("the agreement the buyer reads is the one apps/app stores", () => {
       }) as const;
     const render = (bookingSystem: (typeof BOOKING_SYSTEMS)[number]["id"]) =>
       AGREEMENT_COPY.baa.render(input(bookingSystem)).text;
-    expect(AGREEMENT_COPY.baa.version).toBe("1.5.1");
+    expect(AGREEMENT_COPY.baa.version).toBe("1.6.0");
     expect(render("mindbody")).toContain("Mindbody");
     expect(render("calendly")).toContain("Calendly");
     // A 1.2.2 screen, loaded before the release, rendered the platform the
@@ -341,7 +341,7 @@ describe("AGREEMENT_COPY", () => {
   });
 
   test("1.2.2, the version signed until 1.3.0's release, shows exactly BAA_EXPLAINER's bullets", () => {
-    expect(AGREEMENT_COPY.baa.version).toBe("1.5.1");
+    expect(AGREEMENT_COPY.baa.version).toBe("1.6.0");
     expect(AGREEMENT_COPY.baa.released).toBe(true);
     const v122 = baaAgreementCopy(getBaaTemplate("1.2.2")!);
     expect(v122.explainer).toBe(BAA_EXPLAINER);
@@ -393,9 +393,12 @@ describe("AGREEMENT_COPY", () => {
         return note ? [[clause.id, note.plain]] : [];
       }),
     );
-    // The current entry, 1.5.1's since its release, is the same explainer, and
-    // building another leaves it untouched.
-    expect(AGREEMENT_COPY.baa.explainer).toBe(copy.explainer);
+    // The current entry is 1.6.0's since its release on 29 October 2026, and
+    // 1.6.0 shows 1.3.0's bullets as 1.5.1 does; building another leaves it
+    // untouched.
+    expect(AGREEMENT_COPY.baa.version).toBe("1.6.0");
+    expect(AGREEMENT_COPY.baa.explainer).toBe(baaAgreementCopy(getBaaTemplate("1.6.0")!).explainer);
+    expect(AGREEMENT_COPY.baa.explainer.terms).toBe(copy.explainer.terms);
     expect(baaAgreementCopy(getBaaTemplate("1.2.2")!).explainer).toBe(BAA_EXPLAINER);
   });
 

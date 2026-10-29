@@ -1,4 +1,5 @@
 import {
+  BAA_1_6_0_RELEASED,
   isDpaReleased,
   MODEL_RETENTION_EXCEPTIONS,
   MODEL_RETENTION_PUBLIC,
@@ -119,10 +120,12 @@ describe("the terms describe v1 as the spec defines it", () => {
     expect(text).not.toMatch(/covered models? require/i);
     expect(text).not.toMatch(/law requires it to keep[^.]*two years/);
     expect(text).not.toMatch(/never trains/);
-    // BAA 1.5.1, the version signed today, still carries the old clause, so
-    // the terms do not say the agreement states the same until the 1.6.0
-    // draft is released.
-    expect(text).not.toContain("The Business Associate Agreement states the same");
+    // BAA 1.6.0, released by the owner on 29 October 2026 and the version
+    // signed since, states Anthropic's retention as section 9 does
+    // (MODEL_RETENTION_AGREEMENT), so the terms say so again; 1.5.1, offered
+    // until then, carried the old clause and the sentence was held back.
+    expect(BAA_1_6_0_RELEASED).toBe(true);
+    expect(text).toContain("The Business Associate Agreement states the same.");
     expect(text).toContain("consistently with sections 13 and 14");
     expect(text).toContain("consistently with this section and section 13");
     expect(text).toContain("These limits do not apply to our wilful misconduct or gross negligence");
@@ -638,6 +641,7 @@ describe('"Business Associate Agreement" only where the BAA is meant', () => {
     { text: "Patient information and the Business Associate Agreement", why: "section 9's title: HIPAA's agreement" },
     { text: "Where your Practice is a covered entity under HIPAA, the Business Associate Agreement you sign at checkout is the agreement required by 45 CFR 164.502(e)", why: "section 9: HIPAA's own requirement" },
     { text: "is given to you on request, under the Business Associate Agreement.", why: "section 9: the BAA's subcontractor clause" },
+    { text: "The Business Associate Agreement states the same.", why: "section 9: BAA 1.6.0's Subcontractors clause states the model's retention (the DPA states it word for word too, and section 9 carries over to it)" },
     { text: "which is the exception the Business Associate Agreement makes", why: "the annex: the BAA's telephone exception" },
     { text: "ours are in the Business Associate Agreement.", why: "the annex: HIPAA's obligations" },
     { text: "the way to check ours is to read the Business Associate Agreement", why: "the annex: HIPAA's obligations" },

@@ -24,6 +24,13 @@ import { describe, expect, test } from "vitest";
  * holds the prepared one to what the catalogue will say once released, so
  * the release cannot be a flip with a migration that disagrees with it, or a
  * flip with no migration at all.
+ *
+ * Released by the owner on 29 October 2026 (BAA_1_6_0_RELEASED true): the
+ * migration is drizzle/0136_baa_release_1_6_0.sql, and the staged copy stays
+ * beside the checklist as the record. With the switch on, the drizzle test
+ * requires exactly one release migration, journaled, accepting what the
+ * released catalogue accepts; a revert of the switch alone fails it, because
+ * an applied migration cannot be taken back (checklist, "Rollback").
  */
 
 const DRIZZLE = fileURLToPath(new URL("../drizzle/", import.meta.url));
@@ -104,6 +111,12 @@ describe("the switch", () => {
 describe("the release migration", () => {
   test("the prepared migration accepts what the released catalogue accepts, and nothing else", () => {
     expect(acceptableList(readFileSync(STAGED, "utf8"))).toEqual(acceptableUnder(true));
+  });
+
+  test("the switch is on: the owner released 1.6.0 on 29 October 2026", () => {
+    expect(BAA_1_6_0_RELEASED).toBe(true);
+    expect(CURRENT_BAA_VERSION).toBe("1.6.0");
+    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe("1.6.0");
   });
 
   test("it is in drizzle/ exactly when the switch is on", () => {

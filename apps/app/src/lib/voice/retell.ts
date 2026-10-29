@@ -468,6 +468,8 @@ const START_DEADLINE_MS = 3_000;
 const LATE_START_GRACE_MS = 5_000;
 /** The direct line read alone, for a start that failed rather than hung. */
 const LINE_ALONE_DEADLINE_MS = 1_500;
+/** How long the call's record waits for the routed/answered counter's write (Gate B). */
+const COUNTER_DEADLINE_MS = 1_500;
 /** The urgent and handover alerts' writes; past it the reply is said without them. */
 const ALERT_DEADLINE_MS = 2_000;
 /** How long the first reply waits for the redial lookup before answering as an ordinary call. */
@@ -1951,9 +1953,17 @@ export class RetellCallSession {
     // The counter (Gate B): what became of the call, once, before anything
     // else is decided about keeping it. Counts and closed words only, so it
     // is written even for a call of which nothing else may be kept.
+    // Bounded: a database that hangs must not hold the call's record, or the
+    // process's drain; a row left pending is counted missed by the sweep.
     try {
-      await this.routedNoted;
-      await (this.deps.routed?.resolve ?? noteResolved)(this.clinicId, this.routedKey(), this.routedResolution(this.now()));
+      const resolution = this.routedResolution(this.now());
+      await withDeadline(
+        (async () => {
+          await this.routedNoted;
+          await (this.deps.routed?.resolve ?? noteResolved)(this.clinicId, this.routedKey(), resolution);
+        })(),
+        COUNTER_DEADLINE_MS,
+      );
     } catch (error) {
       log.error("retell call not counted", { clinicId: this.clinicId, error: describeError(error) });
     }

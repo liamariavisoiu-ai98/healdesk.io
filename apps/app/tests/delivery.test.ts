@@ -354,6 +354,10 @@ describeDb("delivery", () => {
       expect(Object.keys(jobs).sort()).toEqual(
         [
           "billing-sweep",
+          // The routed/answered counter's sweep (drizzle/0137): every minute
+          // from the billing-minute clock, and hourly here as its backstop.
+          // Unswitched: L21 is a promise of the Terms.
+          "answer-notices",
           "booking-request-expiry",
           "booking-requirements-defaults",
           "connection-health",

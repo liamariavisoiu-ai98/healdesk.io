@@ -1,6 +1,8 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
+import { runActorUntil } from "./apify";
+
 /**
  * Read a clinic's public website: its pages as text, and its brand.
  *
@@ -19,6 +21,14 @@ import { isIP } from "node:net";
  * clinic themes ship with hours and address in it, and a fallback when Apify
  * is down, slow or out of credit. Without the token the plain fetch is all
  * there is, and the demo is only as good as the site's server-side HTML.
+ *
+ * ## Inside the build's minute
+ *
+ * A build reads for at most READ_BY_MS (lib/demo/budget.ts): the plain fetch
+ * gives each page a few seconds, and the rendering crawl keeps whatever pages
+ * it had finished when the deadline came (lib/demo/apify.ts). The two are
+ * merged as before, so a page the renderer did not reach still comes from
+ * the plain fetch.
  *
  * ## It fetches a URL somebody typed, so it is careful about where
  *
@@ -66,6 +76,16 @@ export class ScrapeError extends Error {
   }
 }
 
+/** What a build passes: when reading must stop, and who wants the brand as soon as the homepage is read. */
+export type ScrapeOptions = {
+  /** Epoch ms. Without one, the crawl runs on its old limits (the calibration script, the tests). */
+  deadline?: number;
+  onBrand?: (brand: ClinicBrand) => void;
+};
+
+/** A page gets at most this on a build's clock; less when the deadline is nearer. */
+const BUILD_PAGE_TIMEOUT_MS = 6_000;
+
 const USER_AGENT =
   "Mozilla/5.0 (compatible; healdesk-demo-builder/1.0; +https://healdesk.io/contact)";
 const PAGE_TIMEOUT_MS = 10_000;
@@ -75,7 +95,7 @@ const MAX_REDIRECTS = 5;
 /** Homepage plus this many prioritised internal pages on the plain-fetch path. */
 const FETCH_PAGE_BUDGET = 10;
 const APIFY_PAGE_BUDGET = 15;
-/** Apify's run-sync endpoint gives up at 300 s; leave the structuring call room. */
+/** Without a build's deadline (the calibration script), how long reading may run. */
 const APIFY_TIMEOUT_SECS = 180;
 /** Characters of page text per page and in total handed to the structuring call. */
 const MAX_PAGE_TEXT = 20_000;
@@ -613,8 +633,8 @@ export async function brandOf(html: string, base: URL, blocks: string[] = jsonLd
 /** `targets` are the internal pages chosen by `prioritiseLinks`, best first. */
 type PlainCrawl = { pages: ScrapedPage[]; brand: ClinicBrand; home: URL; targets: URL[] };
 
-async function plainCrawl(start: URL): Promise<PlainCrawl> {
-  const home = await safeFetch(start, "html");
+async function plainCrawl(start: URL, pageTimeout: () => number = () => PAGE_TIMEOUT_MS, onBrand?: (brand: ClinicBrand) => void): Promise<PlainCrawl> {
+  const home = await safeFetch(start, "html", pageTimeout());
   if (!home) throw new ScrapeError(`The homepage at ${start.host} could not be fetched.`);
 
   const blocks = jsonLd(home.body);
@@ -630,7 +650,12 @@ async function plainCrawl(start: URL): Promise<PlainCrawl> {
   ];
 
   const targets = prioritiseLinks(linksOf(home.body, home.url), home.url, FETCH_PAGE_BUDGET);
-  const fetched = await Promise.all(targets.map((url) => safeFetch(url, "html").catch(() => null)));
+  // The brand beside the pages, not after them: it needs only the homepage.
+  const branded = brandOf(home.body, home.url, blocks, pageTimeout()).then((brand) => {
+    onBrand?.(brand);
+    return brand;
+  });
+  const fetched = await Promise.all(targets.map((url) => safeFetch(url, "html", pageTimeout()).catch(() => null)));
   for (const page of fetched) {
     if (!page) continue;
     const ld = jsonLd(page.body);
@@ -643,7 +668,7 @@ async function plainCrawl(start: URL): Promise<PlainCrawl> {
     });
   }
 
-  const brand = await brandOf(home.body, home.url, blocks);
+  const brand = await branded;
   return { pages, brand, home: home.url, targets };
 }
 
@@ -660,14 +685,10 @@ type ApifyItem = { url?: string; text?: string; markdown?: string; metadata?: { 
  * `pages`, because the plain fetch found too few links to choose from (a
  * site whose menu is built in the browser), it crawls from the homepage.
  */
-async function apifyCrawl(start: URL, token: string, pages?: URL[]): Promise<ScrapedPage[]> {
-  const endpoint =
-    "https://api.apify.com/v2/acts/apify~website-content-crawler/run-sync-get-dataset-items" +
-    `?timeout=${APIFY_TIMEOUT_SECS}&clean=true&format=json`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
+async function apifyCrawl(start: URL, token: string, pages: URL[] | undefined, deadline: number): Promise<ScrapedPage[]> {
+  const { items } = await runActorUntil<ApifyItem>(
+    "apify~website-content-crawler",
+    {
       startUrls: (pages ?? [start]).map((url) => ({ url: url.href })),
       // Adaptive renders only the pages that need a browser, which is most of
       // a Wix site and almost none of a WordPress one.
@@ -678,17 +699,10 @@ async function apifyCrawl(start: URL, token: string, pages?: URL[]): Promise<Scr
       saveMarkdown: true,
       removeCookieWarnings: true,
       excludeUrlGlobs: [{ glob: "**/blog/**" }, { glob: "**/*.pdf" }, { glob: "**/cart**" }],
-    }),
-    signal: AbortSignal.timeout((APIFY_TIMEOUT_SECS + 20) * 1000),
-  });
-  if (!response.ok) {
-    // Apify's own words, for the operator's build note: "Apify HTTP 400" alone
-    // cost a debugging session the first time.
-    const detail = ((await response.json().catch(() => null)) as { error?: { message?: string } } | null)?.error?.message;
-    throw new Error(`Apify HTTP ${response.status}${detail ? `: ${detail.slice(0, 200)}` : ""}`);
-  }
-  const items = (await response.json()) as ApifyItem[];
-  return (Array.isArray(items) ? items : [])
+    },
+    { token, deadline, what: "Rendering crawl" },
+  );
+  return items
     .map((item) => ({
       url: item.url ?? start.href,
       title: item.metadata?.title ?? "",
@@ -750,20 +764,24 @@ function merge(primary: ScrapedPage[], secondary: ScrapedPage[]): ScrapedPage[] 
   return out;
 }
 
-export async function scrapeClinicSite(input: string): Promise<ScrapeResult> {
+export async function scrapeClinicSite(input: string, options: ScrapeOptions = {}): Promise<ScrapeResult> {
   const start = parseWebsiteUrl(input);
   await assertPublicUrl(start);
 
+  const deadline = options.deadline ?? Date.now() + APIFY_TIMEOUT_SECS * 1000;
+  const pageTimeout = options.deadline
+    ? () => Math.max(1_000, Math.min(BUILD_PAGE_TIMEOUT_MS, deadline - Date.now()))
+    : () => PAGE_TIMEOUT_MS;
   const token = process.env.APIFY_TOKEN;
   // The plain fetch first (a second or two): it chooses the pages the
   // rendering crawler then renders, and finds the brand either way.
-  const [plain] = await Promise.allSettled([plainCrawl(start)]);
+  const [plain] = await Promise.allSettled([plainCrawl(start, pageTimeout, options.onBrand)]);
   const chosen =
     plain.status === "fulfilled" && plain.value.targets.length >= 3
       ? [plain.value.home, ...plain.value.targets]
       : undefined;
   const [rendered] = await Promise.allSettled([
-    token ? apifyCrawl(start, token, chosen) : Promise.reject(new Error("APIFY_TOKEN not set")),
+    token ? apifyCrawl(start, token, chosen, deadline) : Promise.reject(new Error("APIFY_TOKEN not set")),
   ]);
 
   // Rendered pages in the order they were chosen, best first, so the text

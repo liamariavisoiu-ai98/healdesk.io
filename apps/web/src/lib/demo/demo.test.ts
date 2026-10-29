@@ -433,9 +433,9 @@ describe("opening hours, for reachable-now vs with AYA", () => {
   });
 });
 
-describe("Google hours", () => {
+describe("the Google listing", () => {
   it("takes only a listing on the clinic's own domain, and drops holiday notes", async () => {
-    const { pickListing } = await import("./google-hours");
+    const { pickListing } = await import("./google-listing");
     const items = [
       { title: "Peachy Bakery", website: "https://peachybakes.com", openingHours: [{ day: "Monday", hours: "6 AM to 2 PM" }] },
       {
@@ -453,8 +453,43 @@ describe("Google hours", () => {
         { days: "Monday", hours: "9 AM to 7 PM" },
         { days: "Saturday", hours: "9 AM to 5 PM" },
       ],
+      phone: null,
+      address: null,
+      about: [],
     });
     expect(pickListing(items.slice(0, 1), "https://peachystudio.com/")).toBeNull();
+  });
+
+  it("keeps the phone, the address and the about details a caller asks for, only what Google marks true", async () => {
+    const { pickListing } = await import("./google-listing");
+    const listing = pickListing(
+      [
+        {
+          title: "Glow Med Spa",
+          website: "https://glowmedspa.com/",
+          phone: "(512) 555-0142",
+          address: "100 Congress Ave, Austin, TX 78701",
+          additionalInfo: {
+            Parking: [{ "Free parking lot": true }, { "Paid street parking": true }, { "Valet parking": false }],
+            Payments: [{ "Credit cards": true }],
+            Crowd: [{ "LGBTQ+ friendly": true }],
+          },
+        },
+      ],
+      "https://www.glowmedspa.com",
+    );
+    expect(listing).toEqual({
+      place: "Glow Med Spa",
+      hours: [],
+      phone: "(512) 555-0142",
+      address: "100 Congress Ave, Austin, TX 78701",
+      about: ["Parking: free parking lot, paid street parking", "Payments: credit cards"],
+    });
+  });
+
+  it("gives up nothing when the listing has nothing to give", async () => {
+    const { pickListing } = await import("./google-listing");
+    expect(pickListing([{ title: "Glow", website: "https://glowmedspa.com/" }], "https://glowmedspa.com")).toBeNull();
   });
 
   it("reads Google's hours as a weekly total", async () => {

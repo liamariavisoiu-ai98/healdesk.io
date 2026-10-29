@@ -28,7 +28,7 @@ vi.mock("@/lib/email", async (importOriginal) => ({
 const alert = vi.fn(async (_text: string) => undefined);
 vi.mock("./alert", () => ({ postInternalAlert: (text: string) => alert(text) }));
 
-vi.mock("./google-hours", () => ({ fetchGoogleHours: async () => null }));
+vi.mock("./google-listing", () => ({ fetchGoogleListing: async () => null }));
 
 vi.mock("./scrape", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./scrape")>()),

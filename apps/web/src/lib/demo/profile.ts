@@ -1,5 +1,7 @@
 import { isSpecialtyId, type SpecialtyId } from "@healdesk/catalog";
 
+import { demoGaps, gapTopic } from "./gaps";
+
 /**
  * A clinic's public website, structured: what the personalised demo knows.
  *
@@ -44,7 +46,11 @@ export type ClinicProfile = {
   specialty: SpecialtyId | null;
   /** The clinic's published front-desk number. Display only; never dialled. */
   phone: string | null;
+  /** Where `phone` came from: the website (preferred), the clinic's Google listing when the site gives none, or nowhere. */
+  phoneSource: "website" | "google" | null;
   address: string | null;
+  /** Where `address` came from, as `phoneSource`. */
+  addressSource: "website" | "google" | null;
   hours: { days: string; hours: string }[];
   /** Where `hours` came from: the clinic's Google listing (preferred), its website, or nowhere. */
   hoursSource: "google" | "website" | null;
@@ -59,6 +65,11 @@ export type ClinicProfile = {
   booking: string | null;
   /** Memberships, current offers, awards: what a receptionist would mention. */
   highlights: string[];
+  /**
+   * The Google listing's "about" details, as lines ("Parking: free parking
+   * lot"): parking, payment methods, accessibility (lib/demo/google-listing.ts).
+   */
+  listingFacts: string[];
 };
 
 const LIMITS = {
@@ -68,6 +79,7 @@ const LIMITS = {
   policies: 12,
   highlights: 8,
   hours: 10,
+  listingFacts: 8,
   /** Per free-text field. */
   text: 600,
 } as const;
@@ -167,6 +179,10 @@ function list(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
+function source(value: unknown): "website" | "google" | null {
+  return value === "google" || value === "website" ? value : null;
+}
+
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
@@ -184,7 +200,9 @@ export function normalizeProfile(raw: unknown, fallbackName: string): ClinicProf
     summary: text(r.summary, 300),
     specialty: isSpecialtyId(specialty) ? specialty : null,
     phone: text(r.phone, 40),
+    phoneSource: text(r.phone, 40) ? (source(r.phoneSource) ?? "website") : null,
     address: text(r.address, 200),
+    addressSource: text(r.address, 200) ? (source(r.addressSource) ?? "website") : null,
     hours: list(r.hours)
       .map(record)
       .map((h) => ({ days: text(h.days, 60), hours: text(h.hours, 80) }))
@@ -221,6 +239,10 @@ export function normalizeProfile(raw: unknown, fallbackName: string): ClinicProf
       .map((h) => text(h, 200))
       .filter((h): h is string => Boolean(h))
       .slice(0, LIMITS.highlights),
+    listingFacts: list(r.listingFacts)
+      .map((h) => text(h, 200))
+      .filter((h): h is string => Boolean(h))
+      .slice(0, LIMITS.listingFacts),
   };
 }
 
@@ -244,14 +266,23 @@ export function profileToKnowledge(profile: ClinicProfile, maxChars = 12_000): s
     if (lines.length > 0) sections.push(`${title}:\n${lines.join("\n")}`);
   };
 
+  // Facts from the Google listing say so, so neither the assistant nor the
+  // audit looks for them on the website (lib/demo/google-listing.ts).
+  const fromGoogle = (from: "website" | "google" | null) => (from === "google" ? " (from the clinic's Google listing)" : "");
   const basics = [
     `Clinic: ${profile.clinicName}`,
     profile.summary ? `About: ${profile.summary}` : "",
-    profile.address ? `Address: ${profile.address}` : "",
-    profile.phone ? `Front-desk phone: ${profile.phone}` : "",
+    profile.address ? `Address${fromGoogle(profile.addressSource)}: ${profile.address}` : "",
+    profile.phone ? `Front-desk phone${fromGoogle(profile.phoneSource)}: ${profile.phone}` : "",
     profile.booking ? `How booking works today: ${profile.booking}` : "",
   ].filter(Boolean);
   sections.push(basics.join("\n"));
+
+  // Short, and second, so a tight budget (the voice agent's) keeps it.
+  const gaps = demoGaps(profile);
+  if (gaps.length > 0) {
+    sections.push(`Not found on the clinic's website or Google listing (this demo does not know them): ${gaps.map(gapTopic).join("; ")}.`);
+  }
 
   push(
     "Services (prices exactly as the website lists them; no price means the site lists none)",
@@ -264,14 +295,16 @@ export function profileToKnowledge(profile: ClinicProfile, maxChars = 12_000): s
       ].join(""),
     ),
   );
-  push("Opening hours", profile.hours.map((h) => `- ${h.days}: ${h.hours}`));
+  push(`Opening hours${fromGoogle(profile.hoursSource)}`, profile.hours.map((h) => `- ${h.days}: ${h.hours}`));
+  push("From the clinic's Google listing", (profile.listingFacts ?? []).map((f) => `- ${f}`));
   push("Providers", profile.providers.map((p) => `- ${p.name}${p.title ? `, ${p.title}` : ""}`));
   push("Policies", profile.policies.map((p) => `- ${p}`));
   push("FAQs from the website", profile.faqs.map((f) => `- Q: ${f.question}\n  A: ${f.answer}`));
   push("Worth mentioning", profile.highlights.map((h) => `- ${h}`));
 
-  // Drop from the end until it fits; the basics and services are first.
-  while (sections.length > 2 && sections.join("\n\n").length > maxChars) sections.pop();
+  // Drop from the end until it fits; the basics, what is not known and the services are first.
+  const keep = gaps.length > 0 ? 3 : 2;
+  while (sections.length > keep && sections.join("\n\n").length > maxChars) sections.pop();
   const joined = sections.join("\n\n");
   return joined.length > maxChars ? `${joined.slice(0, maxChars - 1)}…` : joined;
 }

@@ -112,7 +112,7 @@ describe("the sweep", () => {
     expect(given.status).toBe("failed");
     expect(given.retryCount).toBe(1);
     expect(given.buildNote).toContain("stalled twice");
-    expect(given.buildNote).toContain("8 minutes");
+    expect(given.buildNote).toContain("6 minutes");
     expect(postInternalAlert).toHaveBeenCalledTimes(1);
     expect(postInternalAlert.mock.calls[0]![0]).toMatch(/^Demo build needs you: Glow Spa stalled twice\. /);
 
@@ -141,9 +141,9 @@ describe("the sweep", () => {
     expect(await fresh(running.slug)).toEqual(running);
 
     // Minutes later the retried build is running on its fresh clock, and the
-    // other is still inside its eight: nothing is stalled.
+    // other is still inside its six: nothing is stalled.
     const before = writes();
-    const second = await sweepStalledDemos(new Date(NOW.getTime() + 5 * MINUTE));
+    const second = await sweepStalledDemos(new Date(NOW.getTime() + 3 * MINUTE));
     expect(second).toEqual({ retried: [], gaveUp: [], failures: [], waiting: 0 });
     expect(writes()).toBe(before);
     expect((await fresh(stalled.slug)).retryCount).toBe(1);

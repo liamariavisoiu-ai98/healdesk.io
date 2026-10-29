@@ -148,7 +148,7 @@ function cleanPreview(data: unknown, host: string): Preview {
 type Read = { refused: string } | { preview: Preview };
 
 /** How often the window asks how the build is going: the demo page's own refresh. */
-const STATUS_EVERY_MS = 6_000;
+const STATUS_EVERY_MS = 4_000;
 
 /** The demo link api/own-demo answers with: a page of ours under /demo/, and nothing else is opened. */
 const DEMO_LINK = /^https?:\/\/[^/\s]+\/demo\/[a-z0-9-]{1,80}$/;

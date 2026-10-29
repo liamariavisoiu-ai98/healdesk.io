@@ -1,4 +1,5 @@
 import { AUDIT_THRESHOLDS, auditDemo, AuditUnavailableError, type AuditReport } from "../src/lib/demo/audit";
+import { AUDIT_BY_MS, EXTRACT_BY_MS } from "../src/lib/demo/budget";
 import { auditWithRepair } from "../src/lib/demo/build";
 import { normalizeProfile, type ClinicProfile } from "../src/lib/demo/profile";
 import { scrapeClinicSite, type ScrapedPage } from "../src/lib/demo/scrape";
@@ -88,7 +89,8 @@ async function main(): Promise<void> {
 
     const extract = async (feedback?: readonly string[]) =>
       normalizeProfile(await structureProfile(pages, { clinicName: demo.clinicName, niche: demo.niche, feedback }), demo.clinicName);
-    const gated = await auditWithRepair(demo, pages, profile, extract, Date.now());
+    // The audit's own window in a build (lib/demo/budget.ts), so one that would run out of time there runs out here too.
+    const gated = await auditWithRepair(demo, pages, profile, extract, Date.now() + AUDIT_BY_MS - EXTRACT_BY_MS);
     const row: Row =
       gated.kind === "unavailable"
         ? { name: demo.clinicName, outcome: `unavailable: ${gated.reason}`, report: null, repaired: false }

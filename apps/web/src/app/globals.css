@@ -5113,3 +5113,129 @@
     opacity: 0;
   }
 }
+
+/* =============================================================================
+   The personalised demo's waiting screen (components/demo/DemoBuildWait.tsx)
+   =============================================================================
+   - `.dw-beam`   the line from the clinic's logo to healdesk's, with light
+                  running along it: the site being read.
+   - `.dw-halo`   a soft ring breathing behind the countdown.
+   - `.dw-ring`   the countdown's arc, which empties as the seconds fall;
+                  `[data-done]` once they are out, a slow turning arc instead.
+   - `.dw-step`   the step line, rising in when it changes.
+   With reduced motion: no running light, no breathing, no turning; the arc
+   still empties with the seconds, without easing.
+   ============================================================================= */
+
+.dw-beam {
+  position: relative;
+  height: 3px;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--clinic) 55%, transparent), rgb(0 0 0 / 0.12));
+  overflow: hidden;
+}
+
+.dw-beam-dot {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 18px;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 9999px;
+  background: var(--clinic);
+  opacity: 0;
+}
+
+.dw-halo {
+  position: absolute;
+  inset: -14px;
+  border-radius: 9999px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--clinic) 22%, transparent) 0%, transparent 70%);
+}
+
+.dw-ring {
+  transition: stroke-dashoffset var(--duration-slow) linear;
+}
+
+.dw-step {
+  animation: own-rise var(--duration-slow) var(--ease-out) both;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .dw-beam-dot {
+    animation: dw-flow 1.8s var(--ease-standard) infinite;
+  }
+  .dw-beam-dot:nth-child(2) {
+    animation-delay: 0.6s;
+  }
+  .dw-beam-dot:nth-child(3) {
+    animation-delay: 1.2s;
+  }
+  .dw-halo {
+    animation: dw-breathe 2.8s var(--ease-standard) infinite;
+  }
+  .dw-ring-wrap[data-done] {
+    animation: dw-turn 1.6s linear infinite;
+  }
+  .dw-logo {
+    animation: dw-float 3.2s var(--ease-standard) infinite;
+  }
+  .dw-logo:last-child {
+    animation-delay: 1.6s;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dw-ring {
+    transition: none;
+  }
+  .dw-step {
+    animation: none;
+  }
+}
+
+@keyframes dw-flow {
+  0% {
+    transform: translateX(-20px);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(calc(var(--beam, 120px) + 4px));
+    opacity: 0;
+  }
+}
+
+@keyframes dw-breathe {
+  0%,
+  100% {
+    transform: scale(0.94);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+}
+
+@keyframes dw-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes dw-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}

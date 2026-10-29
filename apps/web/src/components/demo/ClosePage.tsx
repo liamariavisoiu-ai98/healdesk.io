@@ -4,6 +4,7 @@ import { ClinicChatPanel } from "@/components/demo/ClinicChatPanel";
 import { ClosingOffer } from "@/components/demo/ClosingOffer";
 import { CoverageModes } from "@/components/demo/CoverageModes";
 import { ActivateButton, DemoCloseProvider, TopOfferBar } from "@/components/demo/DemoClose";
+import { DemoNotFound } from "@/components/demo/DemoNotFound";
 import { DemoPanels, MobileBarAfterHere } from "@/components/demo/DemoPanels";
 import { Archived, avatarLogo, chipsFor, Shell } from "@/components/demo/DemoShell";
 import { CopyDemoLink, DemoCountdown } from "@/components/demo/DemoTimers";
@@ -103,7 +104,7 @@ export function ClosePage({
               {name}, answering every call and chat.
             </h1>
             <p className="text-muted mt-3 max-w-[56ch] text-[18px] leading-[1.5] font-medium">
-              Your {site.agent} already knows {name}&rsquo;s services, prices and hours. Call her or message her the way a{" "}
+              Your {site.agent} has already read {name}&rsquo;s website. Call her or message her the way a{" "}
               {one} would.
             </p>
           </div>
@@ -138,6 +139,8 @@ export function ClosePage({
               ringNote={ringNote}
             />
           )}
+
+          <DemoNotFound profile={profile} audience={audience} />
 
           <aside className="border-line mt-6 rounded-md border bg-white px-5 py-4 text-center">
             <p className="text-[15.6px] leading-[1.5] font-medium">&ldquo;{demoModeLine(name)}&rdquo;</p>

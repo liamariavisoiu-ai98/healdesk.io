@@ -10,7 +10,9 @@ const PROFILE: ClinicProfile = {
   summary: "A med spa in SoHo.",
   specialty: "med-spa",
   phone: "(212) 555-0142",
+  phoneSource: "website",
   address: "12 Spring St, New York, NY 10012",
+  addressSource: "website",
   hours: [
     { days: "Mon–Fri", hours: "10am–7pm" },
     { days: "Sat", hours: "10am–4pm" },
@@ -28,6 +30,7 @@ const PROFILE: ClinicProfile = {
   faqs: [{ question: "Do you offer payment plans?", answer: "Yes, through Cherry." }],
   policies: ["A $50 deposit holds your appointment."],
   booking: "Online booking",
+  listingFacts: [],
   highlights: [],
 };
 

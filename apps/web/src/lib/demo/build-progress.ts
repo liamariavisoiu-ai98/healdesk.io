@@ -1,3 +1,5 @@
+import { AUDIT_BY_MS, BUILD_BUDGET_MS, EXTRACT_BY_MS } from "./budget";
+
 /**
  * How far a personalised demo's build has got, as a percentage and a time
  * left, for the people waiting on it: the demo's own holding screen
@@ -16,15 +18,18 @@
  * The stage is the server's word, so the bar never shows checking before the
  * row says so, and jumps forward when it does.
  *
- * Within a stage the bar runs on the clock, against the estimates below. No
- * real build has been timed yet (the crawl alone may take three minutes, and
- * the audit's repair round adds about two more), so they are worked from the
- * pipeline's own budgets: change them here once builds have been timed. Up
- * to its estimate a stage fills evenly, so the percentage and the time left
- * agree; past it, it slows and never fills, because only the server can say a
- * stage is over. The display never shows 100 before the demo is ready, and
- * never runs backwards (`BuildProgress` in components/demo keeps the
- * highest value it has shown).
+ * Within a stage the bar runs on the clock, against the build's own budget
+ * (lib/demo/budget.ts, one minute in all): `building` is due to end when the
+ * profile must be written, `auditing` when the verdict must be in. Up to its
+ * estimate a stage fills evenly; past it, it slows and never fills, because
+ * only the server can say a stage is over. The display never shows 100
+ * before the demo is ready, and never runs backwards (`BuildProgress` in
+ * components/demo keeps the highest value it has shown).
+ *
+ * The time left is one countdown from the minute the build is held to,
+ * whatever the stage, so the seconds only ever fall and a fast site simply
+ * opens before they reach zero (owner, 29 October 2026: "a little countdown
+ * of seconds left").
  *
  * A build past its route's 300 s never lands; the page stops showing this and
  * hands over to the team once it is stalled (`isDemoBuildStalled`).
@@ -33,10 +38,10 @@
 export type BuildStage = "building" | "auditing";
 
 /** Reading the site and writing the profile: the stage the row calls `building`. */
-export const READ_ESTIMATE_MS = 100_000;
+export const READ_ESTIMATE_MS = EXTRACT_BY_MS;
 
 /** The handoff audit: the stage the row calls `auditing`. */
-export const CHECK_ESTIMATE_MS = 80_000;
+export const CHECK_ESTIMATE_MS = AUDIT_BY_MS - EXTRACT_BY_MS;
 
 /** Within `building`, the share of the estimate spent reading before the profile is written. */
 const READ_SHARE = 0.6;
@@ -57,7 +62,7 @@ export type BuildEstimate = {
   percent: number;
   /** The step to show as under way. Reading and learning are split on the clock; checking is the server's word. */
   step: BuildStep;
-  /** Estimated milliseconds left, 0 once past the estimate. */
+  /** Milliseconds left of the build's minute, 0 once it has run out. */
   leftMs: number;
 };
 
@@ -79,9 +84,10 @@ export function estimateBuild(stage: BuildStage, elapsedMs: number, auditingSinc
   if (stage === "building") {
     const share = stageShare(elapsed, READ_ESTIMATE_MS);
     return {
-      percent: Math.floor(BUILDING.from + (BUILDING.to - BUILDING.from) * share),
+      // One short of where checking starts, however long the reading runs.
+      percent: Math.min(BUILDING.to - 1, Math.floor(BUILDING.from + (BUILDING.to - BUILDING.from) * share)),
       step: elapsed < READ_ESTIMATE_MS * READ_SHARE ? "read" : "learn",
-      leftMs: Math.max(0, READ_ESTIMATE_MS - elapsed) + CHECK_ESTIMATE_MS,
+      leftMs: countdownMs(elapsed),
     };
   }
   const since = Math.min(auditingSinceMs ?? Math.min(elapsed, READ_ESTIMATE_MS), elapsed);
@@ -90,14 +96,23 @@ export function estimateBuild(stage: BuildStage, elapsedMs: number, auditingSinc
   return {
     percent: Math.floor(AUDITING.from + (AUDITING.to - AUDITING.from) * share),
     step: "check",
-    leftMs: Math.max(0, CHECK_ESTIMATE_MS - inAudit),
+    leftMs: countdownMs(elapsed),
   };
 }
 
-/** The time left in words: minutes while there are some, then "less than a minute", then "nearly there". */
+/** What is left of the build's minute after `elapsedMs`. */
+export function countdownMs(elapsedMs: number): number {
+  return Math.max(0, BUILD_BUDGET_MS - Math.max(0, elapsedMs));
+}
+
+/** Whole seconds left, rounded up, so the display reads 60 at the start and 1 in its last second. */
+export function secondsLeft(leftMs: number): number {
+  return Math.ceil(Math.max(0, leftMs) / 1000);
+}
+
+/** The time left in words: the seconds, then "nearly there" once they have run out. */
 export function timeLeftText(leftMs: number): string {
-  if (leftMs <= 0) return "Nearly there";
-  if (leftMs <= 45_000) return "Less than a minute left";
-  if (leftMs <= 90_000) return "About a minute left";
-  return `About ${Math.round(leftMs / 60_000)} minutes left`;
+  const seconds = secondsLeft(leftMs);
+  if (seconds <= 0) return "Nearly there";
+  return seconds === 1 ? "1 second left" : `${seconds} seconds left`;
 }

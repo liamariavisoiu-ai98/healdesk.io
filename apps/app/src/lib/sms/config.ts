@@ -1,3 +1,5 @@
+import { voiceRealCallsAllowed } from "@/lib/voice/real-calls";
+
 /**
  * Whether healdesk's one texting number is ready (owner, 30 October 2026;
  * docs/design/launch-readiness-2026-10-27/payment-link-text-route-scope.md).
@@ -35,4 +37,15 @@ export function smsOriginationIdentity(
 /** Whether healdesk's texting number is ready: the one fact of the text that is healdesk's, not the clinic's. */
 export function smsSenderConfigured(env: Readonly<Record<string, string | undefined>> = process.env): boolean {
   return smsOriginationIdentity(env) !== null;
+}
+
+/**
+ * Healdesk's side of the text, as the clinic's checklist shows it ("Our
+ * texting number is ready"): the number is set AND the voice endpoint is out
+ * of its test-calls-only mode (HEALDESK_VOICE_REAL_CALLS=1), since no text
+ * is offered on a test call. One check for the clinic, never the flags'
+ * names.
+ */
+export function healdeskTextReady(env: Readonly<Record<string, string | undefined>> = process.env): boolean {
+  return smsSenderConfigured(env) && voiceRealCallsAllowed(env);
 }

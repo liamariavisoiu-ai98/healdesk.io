@@ -1,4 +1,4 @@
-import { smsSenderConfigured } from "@/lib/sms/config";
+import { healdeskTextReady } from "@/lib/sms/config";
 
 /**
  * Which Settings switches can be used right now, and why not (owner,
@@ -11,10 +11,10 @@ import { smsSenderConfigured } from "@/lib/sms/config";
  * except that switchRules reads healdesk's texting number from config when
  * the caller does not pass it (one environment variable, no I/O).
  *
- * The text switch stays locked while healdesk's texting number is not ready
- * (smsSenderConfigured, lib/sms/config.ts: the owner pastes the approved
- * toll-free number's identity into config, and nothing else turns it on;
- * CLAUDE.md, "Inbound only"). The sender needs no business associate
+ * The text switch stays locked while healdesk's side is not ready
+ * (healdeskTextReady, lib/sms/config.ts: the owner pastes the approved
+ * toll-free number's identity into config, and real calls are on; nothing
+ * else turns it on; CLAUDE.md, "Inbound only"). The sender needs no business associate
  * agreement (owner, 30 October 2026): the text is fixed words and a link, no
  * treatment, time or amount. Until 29 October 2026 a voice clinic with Stripe could turn it
  * on, which made BAA 1.6.0's "where Practice has chosen that option" a
@@ -23,14 +23,16 @@ import { smsSenderConfigured } from "@/lib/sms/config";
  * wizard. resetsAfter still resets only for a lost fact (the number is not
  * the clinic's), so the lock sends no clinic a reset email.
  *
- * The text's rule also carries its four checks, in order (owner, 30 October
- * 2026): phone in the plan, the payment account connected, the switch
- * itself, and healdesk's texting number. The switch can be turned on when
- * every check but its own is met; the assistant offers the text only when
- * all four are (textChecksMet; switch-resets.ts paymentLinkTextOffered adds
- * the call-time conditions). Settings, the wizard and the writers all read
- * this one list, so the checklist the clinic sees cannot disagree with what
- * the server allows.
+ * The text's rule also carries its five checks, in order (owner, 30 October
+ * 2026): phone in the plan, the payment account connected, the clinic's
+ * signed agreement covering the text (BAA 1.6.0 or DPA 1.1.0 and later,
+ * lib/sms/agreement.ts; spec, "Only under an agreement that covers it"), the
+ * switch itself, and healdesk's side (the texting number, and real calls
+ * on). The switch can be turned on when every check but its own is met; the
+ * assistant offers the text only when all five are (textChecksMet;
+ * switch-resets.ts paymentLinkTextOffered reads the same rule). Settings,
+ * the wizard and the writers all read this one list, so the checklist the
+ * clinic sees cannot disagree with what the server allows.
  *
  * Every `reason` is what the clinic reads: what is missing, in plain words,
  * with no mention of how the thing works inside.
@@ -52,6 +54,12 @@ export type SwitchFacts = {
    * it (its "switched on" check). No switch's availability depends on it.
    */
   textPaymentLinkOn?: boolean;
+  /**
+   * The clinic's accepted agreement carries the text's exception
+   * (agreementCoversText, lib/sms/agreement.ts). Only the text reads it;
+   * absent is "not covered".
+   */
+  agreementCoversText?: boolean;
 };
 
 export type RuledSwitch = "deposits" | "text_payment_link" | "full_payment";
@@ -77,8 +85,11 @@ export const TEXT_NOT_READY_REASON = "Texting the payment link is not available 
 /** The text's line for a clinic without phone. */
 export const TEXT_PHONE_ONLY_REASON = "Texting a payment link is for phone calls.";
 
-/** One of the four things that must hold before the text can go, in the order the clinic reads them. */
-export type TextCheckId = "phone" | "payments" | "switch" | "healdesk";
+/** The text's line for a clinic whose signed agreement does not cover it. */
+export const TEXT_AGREEMENT_REASON = "Your signed agreement with us does not cover texting callers.";
+
+/** One of the five things that must hold before the text can go, in the order the clinic reads them. */
+export type TextCheckId = "phone" | "payments" | "agreement" | "switch" | "healdesk";
 
 export type TextCheck = {
   id: TextCheckId;
@@ -93,17 +104,29 @@ export type TextCheck = {
   waiting: string | null;
 };
 
-/** The line under healdesk's own check while it is not met. Never how it works inside. */
-export const HEALDESK_SETTING_UP = "We are setting this up and will tell you when it is ready.";
+/**
+ * The line under healdesk's own check while it is not met. Never how it
+ * works inside, and no promise of a notice: nothing sends one.
+ */
+export const HEALDESK_SETTING_UP = "We are setting this up. This step turns on by itself when it is ready.";
+
+/**
+ * The line under the agreement check while it is not met: the version the
+ * clinic signed is older than the one that covers the text, and nothing in
+ * the portal can change that by a button.
+ */
+export const AGREEMENT_NOT_COVERING =
+  "The agreement you signed is an earlier version that does not include texting callers, so this step stays off.";
 
 export const TEXT_CHECK_LABELS: Readonly<Record<TextCheckId, string>> = {
   phone: "Phone is part of your plan",
   payments: "Your payment account is connected",
+  agreement: "Your agreement covers texting",
   switch: "Texting after a call is switched on",
   healdesk: "Our texting number is ready",
 };
 
-/** The text's rule: the switch's answer, and the four checks it is read from. */
+/** The text's rule: the switch's answer, and the five checks it is read from. */
 export type TextSwitchRule = SwitchRule & { checks: TextCheck[] };
 
 /** Every check met: the switch is on and everything it needs holds. */
@@ -159,11 +182,12 @@ export type SwitchRules = {
 };
 
 /**
- * Every payment switch's answer. `senderReady` is healdesk's texting number
- * (lib/sms/config.ts), read from config unless a caller passes it; it is
- * the only fact here that is not the clinic's.
+ * Every payment switch's answer. `senderReady` is healdesk's side of the
+ * text (healdeskTextReady, lib/sms/config.ts: the texting number and real
+ * calls), read from config unless a caller passes it; it is the only fact
+ * here that is not the clinic's.
  */
-export function switchRules(facts: SwitchFacts, senderReady: boolean = smsSenderConfigured()): SwitchRules {
+export function switchRules(facts: SwitchFacts, senderReady: boolean = healdeskTextReady()): SwitchRules {
   return rulesFor(facts, senderReady);
 }
 
@@ -173,11 +197,13 @@ export function switchRules(facts: SwitchFacts, senderReady: boolean = smsSender
  * applySwitchResets in switch-resets.ts). Never for showing or setting a switch.
  */
 export function factRules(facts: SwitchFacts): SwitchRules {
-  return rulesFor(facts, true);
+  // Neither healdesk's side nor the agreement is a fact a writer can lose,
+  // so neither is a reason to reset a switch or email the clinic.
+  return rulesFor({ ...facts, agreementCoversText: true }, true);
 }
 
 /**
- * The text's four checks, in order. `switch` reads the clinic's stored
+ * The text's five checks, in order. `switch` reads the clinic's stored
  * choice (`facts.textPaymentLinkOn`) in effect: a choice the other checks
  * lock reads as off, as the toggle above it does (settings-view.ts). The
  * switch's own availability never depends on it.
@@ -189,12 +215,14 @@ export function textChecks(facts: SwitchFacts, senderReady: boolean): TextCheck[
     met,
     who,
     unlock: met ? null : unlock,
-    waiting: !met && id === "healdesk" ? HEALDESK_SETTING_UP : null,
+    waiting: met ? null : id === "healdesk" ? HEALDESK_SETTING_UP : id === "agreement" ? AGREEMENT_NOT_COVERING : null,
   });
-  const others = facts.hasVoice && facts.gatewayConnected && senderReady;
+  const covered = facts.agreementCoversText === true;
+  const others = facts.hasVoice && facts.gatewayConnected && covered && senderReady;
   return [
     check("phone", facts.hasVoice, "you", null),
     check("payments", facts.gatewayConnected, "you", "connect_stripe"),
+    check("agreement", covered, "you", null),
     check("switch", facts.textPaymentLinkOn === true && others, "you", null),
     check("healdesk", senderReady, "healdesk", null),
   ];
@@ -210,6 +238,8 @@ function textRule(checks: readonly TextCheck[]): TextSwitchRule {
       return { enabled: false, reason: TEXT_PHONE_ONLY_REASON, unlock: null, checks: all };
     case "payments":
       return { ...locked("connect_stripe"), checks: all };
+    case "agreement":
+      return { enabled: false, reason: TEXT_AGREEMENT_REASON, unlock: null, checks: all };
     default:
       return { enabled: false, reason: TEXT_NOT_READY_REASON, unlock: null, checks: all };
   }

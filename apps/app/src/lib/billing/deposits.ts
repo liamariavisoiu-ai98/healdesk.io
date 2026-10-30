@@ -25,6 +25,7 @@ import {
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import { readCalendarConnected, readHasVoice } from "@/lib/portal/switch-facts";
 import { switchRules, type RuledSwitch, type SwitchFacts } from "@/lib/portal/switch-rules";
+import { agreementCoversText } from "@/lib/sms/agreement";
 import type { SettingsHistoryField } from "@/lib/setup/screen-ids";
 import type { TenantTx } from "@/lib/tenant";
 
@@ -354,6 +355,8 @@ export type DepositSettings = {
   calendarConnected: boolean;
   /** The clinic bought phone. */
   hasVoice: boolean;
+  /** The clinic's accepted agreement covers the payment-link text (lib/sms/agreement.ts). */
+  agreementCoversText: boolean;
   isConnected: boolean;
   connectedAt: Date | null;
   disconnectedAt: Date | null;
@@ -395,6 +398,7 @@ export async function getDepositSettings(tx: TenantTx): Promise<DepositSettings>
     autoConfirm: settings.autoConfirmBookings,
     calendarConnected: await readCalendarConnected(tx),
     hasVoice: await readHasVoice(tx),
+    agreementCoversText: await agreementCoversText(tx),
     isConnected,
     connectedAt: isConnected ? (clinic?.connectedAt ?? null) : null,
     disconnectedAt: clinic?.disconnectedAt ?? null,
@@ -423,6 +427,7 @@ export function switchFactsOf(settings: DepositSettings): SwitchFacts {
     autoConfirm: settings.autoConfirm,
     hasVoice: settings.hasVoice,
     textPaymentLinkOn: settings.textPaymentLink,
+    agreementCoversText: settings.agreementCoversText,
   };
 }
 

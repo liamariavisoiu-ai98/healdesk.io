@@ -153,6 +153,8 @@ describeDb("payment switches", () => {
       autoConfirm: true,
       hasVoice: true,
       textPaymentLinkOn: false,
+      // Provisioning signs the current BAA, which covers the text.
+      agreementCoversText: true,
     });
   });
 
@@ -216,7 +218,10 @@ describeDb("payment switches", () => {
 
   test("with healdesk's texting number configured, the text can be switched on and is offered once every check holds", async () => {
     const saved = process.env.HEALDESK_SMS_ORIGINATION_IDENTITY;
+    const savedCalls = process.env.HEALDESK_VOICE_REAL_CALLS;
     process.env.HEALDESK_SMS_ORIGINATION_IDENTITY = "phone-0123456789abcdef0123456789abcdef";
+    // Healdesk's side is the number and real calls (healdeskTextReady).
+    process.env.HEALDESK_VOICE_REAL_CALLS = "1";
     try {
       const ctx = ctxFor(clinic);
       const offered = () =>
@@ -237,9 +242,24 @@ describeDb("payment switches", () => {
       delete process.env.HEALDESK_SMS_ORIGINATION_IDENTITY;
       expect(await offered()).toBe(false);
       expect((await switches(clinic.clinicId)).text_payment_link).toBe(true);
+      // An agreement older than the one that covers the text keeps it off too,
+      // whatever the clinic chose: BAA 1.5.1 in effect (spec, "Only under an
+      // agreement that covers it").
+      process.env.HEALDESK_SMS_ORIGINATION_IDENTITY = "phone-0123456789abcdef0123456789abcdef";
+      expect(await offered()).toBe(true);
+      await migrator(
+        `update baa_acceptances set document_version = '1.5.1'
+          where organization_id = (select organization_id from clinics where id = $1)`,
+        [clinic.clinicId],
+      );
+      expect(await offered()).toBe(false);
+      const facts = await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, readPaymentFacts);
+      expect(facts.agreementCoversText).toBe(false);
     } finally {
       if (saved === undefined) delete process.env.HEALDESK_SMS_ORIGINATION_IDENTITY;
       else process.env.HEALDESK_SMS_ORIGINATION_IDENTITY = saved;
+      if (savedCalls === undefined) delete process.env.HEALDESK_VOICE_REAL_CALLS;
+      else process.env.HEALDESK_VOICE_REAL_CALLS = savedCalls;
     }
   });
 
@@ -566,6 +586,7 @@ describeDb("payment switches", () => {
           checks: [
             { id: "phone", met: true },
             { id: "payments", met: true },
+            { id: "agreement", met: true },
             { id: "switch", met: false },
             { id: "healdesk", met: false, waiting: HEALDESK_SETTING_UP },
           ],

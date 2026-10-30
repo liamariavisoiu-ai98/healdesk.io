@@ -15,6 +15,7 @@ import {
 } from "@/app/c/[slug]/settings/payment-explainers";
 import { SwitchExplainer, UnlockLink, type UnlockTargets } from "@/app/c/[slug]/settings/SwitchExplainer";
 import { ToggleRow } from "@/app/c/[slug]/settings/ToggleRow";
+import { TextChecklist } from "@/app/c/[slug]/settings/TextChecklist";
 
 /** Fixtures only: the rules are the real ones; nothing here re-encodes them. */
 const facts: SwitchFacts = {
@@ -192,5 +193,32 @@ describe("motion honesty", () => {
   test("a needs picture sits dark when still, and the loop runs a few cycles only", () => {
     expect(css).not.toMatch(/\.sx-needs \.sx-glow,\s*\.sx-needs \.sx-wire-lit \{\s*opacity: 1/);
     expect(css).not.toMatch(/animation:[^;]*infinite/);
+  });
+});
+
+describe("TextChecklist", () => {
+  const all = { gatewayConnected: true, hasDepositAmount: true, calendarConnected: true, autoConfirm: true, hasVoice: true, textPaymentLinkOn: true };
+  const words = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+
+  test("says 'Texting is ready' only when every check passes, the agreement and healdesk's side included", () => {
+    const ready = switchRules({ ...all, agreementCoversText: true }, true).text_payment_link.checks;
+    expect(words(renderToStaticMarkup(<TextChecklist id="t" checks={ready} targets={targets} />))).toContain("Texting is ready");
+    for (const [f, senderReady] of [
+      [{ ...all, agreementCoversText: false }, true],
+      [{ ...all, agreementCoversText: true }, false],
+    ] as const) {
+      const checks = switchRules(f, senderReady).text_payment_link.checks;
+      const html = words(renderToStaticMarkup(<TextChecklist id="t" checks={checks} targets={targets} />));
+      expect(html).not.toContain("Texting is ready");
+      expect(html).toMatch(/[34] of 5 steps done/);
+    }
+    const old = words(
+      renderToStaticMarkup(
+        <TextChecklist id="t" checks={switchRules({ ...all, agreementCoversText: false }, true).text_payment_link.checks} targets={targets} />,
+      ),
+    );
+    expect(old).toContain("Your agreement covers texting · Not yet · You");
+    expect(old).toContain("does not include texting callers");
+    expect(old).not.toMatch(/BAA|DPA|\d\.\d|REAL_CALLS/);
   });
 });

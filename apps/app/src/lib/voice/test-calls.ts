@@ -36,10 +36,9 @@ import { usableLine } from "./fallback-line";
 
 const ACTOR: ActorContext = { type: "agent", serviceName: "retell-voice" };
 
-/** Whether real patients' calls may be answered: only HEALDESK_VOICE_REAL_CALLS=1. */
-export function voiceRealCallsAllowed(env: Readonly<Record<string, string | undefined>> = process.env): boolean {
-  return env.HEALDESK_VOICE_REAL_CALLS?.trim() === "1";
-}
+// Pure, in its own module, so the portal's switch rules can read it without
+// the database (lib/sms/config.ts, healdeskTextReady).
+export { voiceRealCallsAllowed } from "./real-calls";
 
 export type TestCallScreen = { madeUp: boolean; directLine: string | null };
 

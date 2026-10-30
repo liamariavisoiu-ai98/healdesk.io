@@ -68,7 +68,7 @@ const FACTS: SwitchFactsRead = {
   },
   bought: ["web", "meta", "voice"],
   connectedMeta: ["instagram"],
-  facts: { gatewayConnected: false, hasDepositAmount: false, calendarConnected: false, autoConfirm: true, hasVoice: true },
+  facts: { gatewayConnected: false, hasDepositAmount: false, calendarConnected: false, autoConfirm: true, hasVoice: true, agreementCoversText: true },
 };
 
 describe("the switches an operator sees", () => {
@@ -123,7 +123,8 @@ describe("the switches an operator sees", () => {
     "text_payment_link and payment_ask, each governed by its rule",
     () => {
       const by = Object.fromEntries(switchViews({ ...FACTS, facts: { ...FACTS.facts, gatewayConnected: true } }).map((v) => [v.key, v]));
-      // Locked while no sender exists (switch-rules.ts), Stripe or not.
+      // Locked while healdesk's side is not ready (switch-rules.ts), Stripe or not;
+      // the agreement covers the text here, so that is the reason given.
       expect(by.text_payment_link).toMatchObject({ kind: "switch", value: false, enabled: false, reason: "Texting the payment link is not available yet." });
       expect(by.payment_ask).toMatchObject({
         kind: "choice",

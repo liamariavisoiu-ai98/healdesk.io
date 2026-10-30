@@ -269,44 +269,50 @@ describeDb("the setup wizard's pages", () => {
     test("the payment-link text's checklist sits under its switch, in words, and passes axe", async () => {
       as(voiceWeb);
       const saved = process.env.HEALDESK_SMS_ORIGINATION_IDENTITY;
+      const savedCalls = process.env.HEALDESK_VOICE_REAL_CALLS;
       delete process.env.HEALDESK_SMS_ORIGINATION_IDENTITY;
       try {
         const html = await wizard({ s: "deposits" });
         const words = text(html);
-        // The four steps in order, each in words beside its glyph, and who it is for.
+        // The five steps in order, each in words beside its glyph, and who it is for.
         const at = (label: string) => words.indexOf(label);
         const labels = [
           "Phone is part of your plan",
           "Your payment account is connected",
+          "Your agreement covers texting",
           "Texting after a call is switched on",
           "Our texting number is ready",
         ];
         expect(labels.map(at).every((i, n, all) => i > 0 && (n === 0 || i > all[n - 1]!))).toBe(true);
-        expect(words).toContain("1 of 4 steps done");
+        expect(words).toContain("2 of 5 steps done");
         expect(words).toContain("Phone is part of your plan · Done · You");
         expect(words).toContain("Your payment account is connected · Not yet · You");
+        expect(words).toContain("Your agreement covers texting · Done · You");
         expect(words).toContain("Our texting number is ready · Not yet · Healdesk");
-        expect(words).toContain("We are setting this up and will tell you when it is ready.");
+        expect(words).toContain("We are setting this up. This step turns on by itself when it is ready.");
         // Directly under the switch's own line, before its explainer.
-        expect(at("1 of 4 steps done")).toBeGreaterThan(at("Text the payment link after a call"));
+        expect(at("2 of 5 steps done")).toBeGreaterThan(at("Text the payment link after a call"));
         // Never how it works inside.
         const list = html.slice(html.indexOf('data-text-checklist=""'), html.indexOf("</ul>", html.indexOf('data-text-checklist=""')));
         expect(text(list)).not.toMatch(/AWS|Parameter|toll|carrier|regist|SMS/i);
         expect(await axeViolations(html)).toEqual([]);
 
-        // Stripe connected and our number ready: three of four, the switch the one left.
+        // Stripe connected and our side ready: four of five, the switch the one left.
         process.env.HEALDESK_SMS_ORIGINATION_IDENTITY = "phone-0123456789abcdef0123456789abcdef";
+        process.env.HEALDESK_VOICE_REAL_CALLS = "1";
         await getMigratorPool().query(
           `update clinics set stripe_connect_account_id = 'acct_1WizardText', stripe_connect_connected_at = now() where id = $1`,
           [voiceWeb.clinicId],
         );
         const ready = text(await wizard({ s: "deposits" }));
-        expect(ready).toContain("3 of 4 steps done");
+        expect(ready).toContain("4 of 5 steps done");
         expect(ready).toContain("Our texting number is ready · Done · Healdesk");
         expect(ready).toContain("Texting after a call is switched on · Not yet · You");
       } finally {
         if (saved === undefined) delete process.env.HEALDESK_SMS_ORIGINATION_IDENTITY;
         else process.env.HEALDESK_SMS_ORIGINATION_IDENTITY = saved;
+        if (savedCalls === undefined) delete process.env.HEALDESK_VOICE_REAL_CALLS;
+        else process.env.HEALDESK_VOICE_REAL_CALLS = savedCalls;
         await getMigratorPool().query(
           `update clinics set stripe_connect_account_id = null, stripe_connect_connected_at = null where id = $1`,
           [voiceWeb.clinicId],

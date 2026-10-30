@@ -8,7 +8,6 @@ import { lockAutoConfirm } from "@/lib/billing/settings";
 import { SYSTEM_ORIGIN } from "@/lib/clinic/change-events";
 import { recordSettingChange } from "@/lib/clinic/setting-changes";
 import { notifySwitchesReset } from "@/lib/notices/setting-changed";
-import { agreementCoversText } from "@/lib/sms/agreement";
 import { smsSenderConfigured } from "@/lib/sms/config";
 import type { TenantTx } from "@/lib/tenant";
 import { voiceRealCallsAllowed } from "@/lib/voice/test-calls";
@@ -198,38 +197,37 @@ export async function fullPaymentActive(tx: TenantTx): Promise<boolean> {
 
 /**
  * Whether the assistant may offer to text a payment link on this call, now
- * (owner, 28 and 30 October 2026). Every one of these, read fresh:
+ * (owner, 28 and 30 October 2026): the text's five checks in
+ * switch-rules.ts, read fresh, all met. They are the checklist the clinic
+ * sees, and nothing more is asked here, so the two cannot disagree:
  *
- *   - the text's four checks in switch-rules.ts, all met: phone bought, the
- *     clinic's Stripe connected, the clinic's switch on, and healdesk's
- *     texting number ready (HEALDESK_SMS_ORIGINATION_IDENTITY, which only
- *     the owner sets, once the toll-free registration is approved);
- *   - the voice endpoint is out of its test-calls-only mode
- *     (HEALDESK_VOICE_REAL_CALLS=1, lib/voice/test-calls.ts): a test call
- *     on the made-up clinic is never offered a text, so no real number is
- *     texted before every agreement in the chain is signed;
- *   - the clinic's accepted agreement carries the text's exception: BAA
- *     1.6.0 or later ("except that the assistant is engineered and designed
- *     to offer a caller a single text message ..."), or DPA 1.1.0 or later
- *     (agreementCoversText, lib/sms/agreement.ts). A clinic still on BAA
- *     1.5.x, or on DPA 1.0.0, which says "sends no SMS"
- *     (docs/counsel/agreement-changes.md § 20.3), is never offered one; the
- *     kind alone is not enough (spec, "Only under an agreement that covers
- *     it").
+ *   - phone bought and the clinic's Stripe connected;
+ *   - the clinic's accepted agreement carries the text's exception, BAA
+ *     1.6.0 or DPA 1.1.0 and later (agreementCoversText,
+ *     lib/sms/agreement.ts; spec, "Only under an agreement that covers
+ *     it"); a clinic on BAA 1.5.x or DPA 1.0.0, which says "sends no SMS"
+ *     (docs/counsel/agreement-changes.md § 20.3), is never offered one;
+ *   - the clinic's switch on;
+ *   - healdesk's side: the texting number ready
+ *     (HEALDESK_SMS_ORIGINATION_IDENTITY, which only the owner sets, once
+ *     the toll-free registration is approved) and the voice endpoint out of
+ *     its test-calls-only mode (HEALDESK_VOICE_REAL_CALLS=1,
+ *     lib/voice/test-calls.ts), so no real number is texted before every
+ *     agreement in the chain is signed.
  *
  * The answer gate already decided the call may be answered (the vendor
  * chain, pause, suspension), and the deposit link's own refusals still run
  * when the link is made (createDepositLink). The tool layer asks this, never
- * the stored switch alone (lib/sms/payment-text.ts).
+ * the stored switch alone, and asks the agreement once more itself at send
+ * time (lib/sms/payment-text.ts).
  */
 export async function paymentLinkTextOffered(
   tx: TenantTx,
   options: { senderReady?: boolean; realCalls?: boolean } = {},
 ): Promise<boolean> {
-  if (!(options.realCalls ?? voiceRealCallsAllowed())) return false;
+  const realCalls = options.realCalls ?? voiceRealCallsAllowed();
   const senderReady = options.senderReady ?? smsSenderConfigured();
-  if (!senderReady) return false;
-  const rule = switchRules(await readPaymentFacts(tx), senderReady).text_payment_link;
-  if (!rule.enabled || !textChecksMet(rule.checks)) return false;
-  return agreementCoversText(tx);
+  if (!realCalls || !senderReady) return false;
+  const rule = switchRules(await readPaymentFacts(tx), true).text_payment_link;
+  return rule.enabled && textChecksMet(rule.checks);
 }

@@ -59,6 +59,11 @@ The one rule to carry even if you read nothing else:
 - **From `main` (folded in at the merge of 8779b778):** SEC-01 and SEC-02 were merged to `main` on the Owner's instruction (f7df3865). The production audit went from 18 high/critical advisories to 1, `GHSA-c475-qrg2-pj4r` (basic-ftp, via the undeployed `packages/leadgen`), excepted until 2026-12-20. CI on `check/deps-security` (run 39633580010) was green except TEST-01. TEST-01 (`setup-wizard` "one on day 5") was a test bug: the queued notice's `send_after` took the database's `now()` while the test delivered at a fixed date; `fix/setup-wizard-day5` takes the test's noon from the database clock (on `main`). The Resend email footers print only the bare mailing address since 22 Oct (`main`, not deployed then); the transcript email (SES) and the Terms, Privacy and `/about` pages still carry the entity line.
 
 ## Last completed work package
+- **SMS-SEND FIFTH REVIEW FIXES (30 Oct 2026), CODE and TESTED LOCALLY on `sms/land`, not pushed, merged, deployed or migrated:**
+  - After a send timeout, the plain deposit email is closed only once the possibly-paid alert is confirmed queued. Otherwise the plain email is released at once and ops get `payment_text_not_sent`/`unannounced`.
+  - The outbox's queued-text rule raises the same ops notice, once, when it falls back to the plain email.
+  - The sweep's checks run from one list, each on its own; this is now tested.
+  - Pattern audit of every alert call in apps/app/src: only these two paths close one email after queuing another, and both are now gated. Every other `notifyBookingAlert`/`flagForFrontDesk` caller closes nothing; their ignored `false` is the module's existing never-throw contract.
 - **SMS-SEND FOURTH REVIEW FIXES (30 Oct 2026), CODE and TESTED LOCALLY on `sms/land`, not pushed, merged, deployed or migrated:**
   - The plain deposit email over a queued text is closed only once the possibly-paid alert is confirmed queued (`flagForFrontDeskReporting`); the new test `tests/payment-text-alert-failure.test.ts` injects the failure.
   - The possibly-paid email is never closed by that rule.

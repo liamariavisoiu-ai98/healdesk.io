@@ -100,6 +100,8 @@ export const READONLY_WITHHELD: Record<string, "patient" | "credential" | "unrev
   handovers: "patient",
   incident_affected_contacts: "patient",
   meta_booking_drafts: "patient",
+  // The 30-day missed-contact record (drizzle/0139): a caller's number next to the clinic.
+  missed_contacts: "patient",
   meta_inbound_messages: "patient",
   patient_requests: "patient",
   reconciliation_exceptions: "patient",
@@ -162,6 +164,12 @@ export const READONLY_WITHHELD: Record<string, "patient" | "credential" | "unrev
   practice_question_runs: "unreviewed",
   report_deliveries: "unreviewed",
   report_recipients: "unreviewed",
+  // The routed/answered counter (drizzle/0139): a hashed reference, closed
+  // words and the times calls and messages reached each clinic. No patient,
+  // but withheld until the owner reviews it column by column.
+  routed_interactions: "unreviewed",
+  answer_outages: "unreviewed",
+  miss_cases: "unreviewed",
   scheduled_jobs: "unreviewed",
   security_events: "unreviewed",
   site_rereads: "unreviewed",

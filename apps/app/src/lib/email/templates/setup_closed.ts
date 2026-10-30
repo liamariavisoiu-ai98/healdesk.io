@@ -2,6 +2,8 @@ import { audienceSingular } from "@healdesk/catalog";
 
 import { formatReplyBy } from "@/lib/reply-by";
 
+import { publicUrl } from "@/lib/public-url";
+
 import { compose } from "./compose";
 import type { TemplateEntry } from "./registry";
 import type { EmailTemplate } from "./types";
@@ -19,7 +21,8 @@ import { helpLine } from "./welcome";
  * It says what happened and what it means: no more charges, AYA answers no
  * one, and nothing changes for the clinic's callers, because nothing was ever
  * forwarded to an assistant that was never live. No link: there is nothing
- * left to sign in to that would help, and a reply reaches a person.
+ * left to sign in to that would help. One button, Talk to us (/help/call,
+ * which needs no sign-in), is the way back; a reply still reaches a person.
  */
 
 export type SetupClosedPayload = {
@@ -33,25 +36,28 @@ export const renderSetupClosed: EmailTemplate<SetupClosedPayload> = (payload, ct
   const audience = audienceSingular(ctx.audience);
   return compose(
     {
-      subject: "Your healdesk account has closed",
+      subject: "We've closed your healdesk account: setup wasn't finished",
       preheader: "Setup wasn't finished within 30 days. Nothing more will be charged.",
       blocks: [
         {
           type: "paragraph",
-          text: `The 30-day setup window for ${clinic} ended on ${formatReplyBy(payload.closedOn)} with nothing answering ${audience}s, so the account has closed.`,
+          text: `We closed ${clinic}'s account because the 30-day setup window ended on ${formatReplyBy(payload.closedOn)} with nothing answering ${audience}s.`,
         },
         {
           type: "list",
           items: [
             "Nothing more will be charged. The setup fee is not refunded, as the terms say.",
-            `AYA answers no one for ${clinic}. Calls and messages reach you exactly as they did before.`,
+            `AYA answers no one for ${clinic}, so calls and messages reach you exactly as they did before.`,
             "We keep the signed agreement and the billing records the law requires us to keep.",
           ],
         },
         {
           type: "paragraph",
-          text: "If you'd like to set AYA up after all, reply to this email and we'll help you start again.",
+          text: "If you'd like to set AYA up after all, tell us and we'll help you start again.",
         },
+        // /help/call needs no sign-in (there is nothing left to sign in to):
+        // the scheduling page while one is set, else how to reach us.
+        { type: "action", label: "Talk to us", url: publicUrl("/help/call") },
         { type: "paragraph", text: helpLine(payload, audience) },
       ],
     },

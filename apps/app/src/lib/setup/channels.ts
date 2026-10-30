@@ -137,8 +137,9 @@ export function setupLine(channel: Channel, step: ChannelNextStep): string {
     case "finish_setup":
       switch (channel) {
         case "web":
-          // Phrased as design: website chat goes live only once an operator
-          // confirms the line is on the site (LAUNCH_PROMISES, web-chat-on-paste).
+          // Phrased as design: the line is confirmed by two opens of the chat
+          // on the site, or by an operator, and live still waits on every
+          // other input (LAUNCH_PROMISES, web-chat-on-paste).
           return `${name}: after setup, you paste one line on your website, and AYA is designed to start answering there.`;
         case "voice":
           return `${name}: after setup, we show you exactly what to dial to forward calls from your main line. Don't change your call forwarding until then.`;

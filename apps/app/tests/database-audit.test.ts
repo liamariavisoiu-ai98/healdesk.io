@@ -119,7 +119,7 @@ describeDb("database audit (0031)", () => {
   }, 60_000);
 
   afterAll(async () => {
-    await setGateBCodeBuilt(false);
+    await setGateBCodeBuilt(true);
     await closePools();
   });
 
@@ -242,7 +242,7 @@ describeDb("database audit (0031)", () => {
       c.query(`insert into clinic_channels (clinic_id, channel) values ($1, 'voice')`, [clinicId]),
     );
     await asTenant(clinicId, async (c) => {
-      for (const kind of ["ready", "live", "first_answer", "audit_passed", "runtime_seen"]) {
+      for (const kind of ["ready", "live", "first_answer", "audit_passed", "runtime_seen", "widget_seen"]) {
         await c.query("savepoint s");
         await expect(
           c.query(`insert into channel_events (clinic_id, channel, kind) values ($1, 'voice', $2)`, [clinicId, kind]),
@@ -260,7 +260,8 @@ describeDb("database audit (0031)", () => {
              has_function_privilege('public', p.oid, 'EXECUTE') as anyone
         from pg_proc p
        where p.proname in ('app_channel_record_input', 'app_channel_mark_ready', 'app_channel_mark_live',
-                           'app_channel_record_first_answer', 'app_channel_ours_ok', 'app_channel_live_ok')
+                           'app_channel_record_first_answer', 'app_channel_ours_ok', 'app_channel_live_ok',
+                           'app_web_widget_seen')
        order by p.proname
     `);
     expect(definers).toEqual([
@@ -270,6 +271,7 @@ describeDb("database audit (0031)", () => {
       { name: "app_channel_ours_ok", definer: false, app: false, anyone: false },
       { name: "app_channel_record_first_answer", definer: true, app: true, anyone: false },
       { name: "app_channel_record_input", definer: true, app: true, anyone: false },
+      { name: "app_web_widget_seen", definer: true, app: true, anyone: false },
     ]);
   });
 
@@ -817,7 +819,8 @@ describeDb("database audit (0031)", () => {
     // 0093 the flags staff put on conversations; 0094 a patient's request to
     // healdesk, passed to the practice (L32); 0098 the list of who an incident
     // affected, which names contacts; 0108 the redial records of calls that
-    // ended early, sealed turns keyed to a caller.
+    // ended early, sealed turns keyed to a caller; 0139 the 30-day record of
+    // a missed call or chat, which keeps the caller's number.
     const expected = [
       "appointments",
       "booking_requests",
@@ -832,6 +835,7 @@ describeDb("database audit (0031)", () => {
       "handovers",
       "incident_affected_contacts",
       "meta_booking_drafts",
+      "missed_contacts",
       "patient_requests",
       "record_amendments",
       "slot_holds",

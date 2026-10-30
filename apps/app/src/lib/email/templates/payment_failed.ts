@@ -26,14 +26,14 @@ export const renderPaymentFailed: EmailTemplate<PaymentFailedPayload> = (payload
     {
       type: "paragraph",
       text: payload.isFirstPlanCharge
-        ? `AYA answered her first ${person(ctx)}, which starts your healdesk plan, but the first charge of ${amount} didn't go through.`
-        : `We couldn't take your healdesk payment of ${amount}.`,
+        ? `AYA answered her first ${person(ctx)}, which starts your healdesk plan, and the first charge of ${amount} didn't go through.`
+        : `We couldn't take your ${amount} payment.`,
     },
     {
       type: "paragraph",
       text: payload.graceEndsAt
-        ? `AYA keeps answering until ${momentLong(payload.graceEndsAt, ctx)}. If the invoice is still unpaid then, she stops answering on every channel: ${WHEN_AYA_STOPS}, until it's paid.`
-        : `Please pay it as soon as you can. If it stays unpaid, AYA stops answering on every channel: ${WHEN_AYA_STOPS}.`,
+        ? `AYA keeps answering until ${momentLong(payload.graceEndsAt, ctx)}. Pay before then and nothing changes. If it's still unpaid, AYA stops answering: ${WHEN_AYA_STOPS}. Paying afterwards turns her back on at once.`
+        : `AYA is still answering. Please pay as soon as you can: if it stays unpaid, AYA stops answering: ${WHEN_AYA_STOPS}.`,
     },
     payload.hostedInvoiceUrl
       ? { type: "action", label: "Pay the invoice", url: payload.hostedInvoiceUrl }
@@ -50,9 +50,9 @@ export const renderPaymentFailed: EmailTemplate<PaymentFailedPayload> = (payload
     {
       subject: payload.isFirstPlanCharge
         ? "Your first healdesk charge didn't go through"
-        : "Your healdesk payment didn't go through",
+        : `Your ${amount} healdesk payment didn't go through`,
       preheader: payload.hostedInvoiceUrl
-        ? `Pay the ${amount} invoice to keep AYA answering.`
+        ? `Pay the ${amount} invoice and AYA keeps answering.`
         : "Update your card to keep AYA answering.",
       blocks,
     },

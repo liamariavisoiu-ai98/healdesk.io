@@ -30,6 +30,7 @@ import {
   requestPracticeQuestions,
   stalledPractice,
   type PendingAlert,
+  type PracticeReadOptions,
 } from "./store";
 
 /**
@@ -61,7 +62,19 @@ const ACTOR = { type: "service", serviceName: "practice-questions" } as const;
 /** Runs claimed per minute, at most: each can take minutes, and the next minute's fire takes the rest. */
 const RUNS_PER_FIRE = 3;
 
-export type PracticeJobDeps = Partial<PracticeRunDeps> & { talkToAyaBuilt?: boolean };
+export type PracticeJobDeps = Partial<PracticeRunDeps> & {
+  talkToAyaBuilt?: boolean;
+  /**
+   * The seam for the owner's direct-booking switch, for this run only
+   * (store.ts, PracticeReadOptions): absent, the real switch is read. A test
+   * turns booking on for its own run here, and never through the environment.
+   */
+  directBookingOpen?: () => boolean;
+};
+
+function readOptionsOf(deps: PracticeJobDeps): PracticeReadOptions {
+  return deps.directBookingOpen ? { directBookingOpen: deps.directBookingOpen } : {};
+}
 
 /** The model, the front door's model and the judge, on healdesk's key. Null where the key is not set. */
 export function realPracticeDeps(now: Date): PracticeRunDeps {
@@ -97,7 +110,9 @@ export async function runOnePracticeRun(
     claimPracticeRun(tx, runId, now),
   );
   if (!run) return null;
-  const read = await withTenant({ clinicId, actor: ACTOR }, (tx) => readPracticeInputs(tx, now));
+  const read = await withTenant({ clinicId, actor: ACTOR }, (tx) =>
+    readPracticeInputs(tx, now, readOptionsOf(deps)),
+  );
   const full: PracticeRunDeps = { ...realPracticeDeps(now), ...deps, now };
 
   const outcomes: (ChannelOutcome & { reused?: boolean })[] = [];
@@ -150,6 +165,7 @@ export async function runOnePracticeRun(
       outcomes,
       now: deps.now ?? new Date(),
       talkToAyaBuilt: deps.talkToAyaBuilt,
+      readOptions: readOptionsOf(deps),
     }),
   );
   await raise(recorded.alerts);
@@ -220,7 +236,7 @@ export async function sweepPracticeQuestions(
     try {
       const outcome = await withTenant({ clinicId: clinic.id, actor: ACTOR }, async (tx) => {
         const pastDue = await claimPastDueReviews(tx, now);
-        const read = await readPracticeInputs(tx, now);
+        const read = await readPracticeInputs(tx, now, readOptionsOf(options));
         let requested = false;
         let ready = false;
         let errors: { runId: string; count: number } | null = null;

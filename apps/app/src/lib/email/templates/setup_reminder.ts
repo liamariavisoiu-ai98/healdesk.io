@@ -159,9 +159,11 @@ export const renderSetupReminder: EmailTemplate<SetupReminderPayload> = (payload
     { type: "action", label: "Continue setup", url: payload.setupUrl },
     {
       type: "paragraph",
+      // The lost-fee fact is said once, on the last day (owner, 29 October
+      // 2026); the earlier reminders lead with the next step and the time left.
       text: last
         ? `Today is the last day to finish. If nothing is answering ${audience}s by the end of ${closes}, the account closes and the setup fee isn't refunded.`
-        : `You have until ${closes} to finish. If nothing is answering ${audience}s by the end of that day, the account closes and the setup fee isn't refunded.`,
+        : `You have until the end of ${closes} to finish.`,
     },
   ];
   if (phone && payload.callUrl) {
@@ -178,7 +180,9 @@ export const renderSetupReminder: EmailTemplate<SetupReminderPayload> = (payload
       subject: last
         ? "Last day to finish setting up AYA"
         : `AYA isn't answering ${audience}s yet: what's left`,
-      preheader: `Setup closes at the end of ${closes} if nothing is answering by then.`,
+      preheader: last
+        ? `Setup closes at the end of ${closes} if nothing is answering by then.`
+        : `You have until the end of ${closes} to finish.`,
       blocks,
     },
     ctx,

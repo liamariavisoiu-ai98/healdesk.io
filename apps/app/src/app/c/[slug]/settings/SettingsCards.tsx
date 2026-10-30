@@ -80,6 +80,7 @@ export function ChannelsCard({
   phoneSteps = null,
   forwarding = null,
   webLine = null,
+  webSighting = null,
   metaOutcome = null,
 }: {
   view: SettingsView;
@@ -91,6 +92,8 @@ export function ChannelsCard({
   forwarding?: SettingsForwarding | null;
   /** Website chat's line once the channel is open (lib/setup/snippet.ts); null until then. */
   webLine?: string | null;
+  /** Whether the chat has been seen on the site, beside the line (lib/channels/widget-sighting.ts sightingLine). */
+  webSighting?: string | null;
 }) {
   return (
     <Card id="channels" title="Channels" intro="Each channel you bought, on or off on its own.">
@@ -186,7 +189,7 @@ export function ChannelsCard({
         // The line stays here for good once it is open (spec: "available in
         // the dashboard forever"), live or not: O10 and Home link here.
         <div id="website-line" className="scroll-mt-6 pb-3">
-          <WebsiteLinePanel slug={view.slug} snippet={webLine} />
+          <WebsiteLinePanel slug={view.slug} snippet={webLine} sighting={webSighting} />
         </div>
       ) : view.bought.web ? (
         <p className="text-muted py-3 text-sm">

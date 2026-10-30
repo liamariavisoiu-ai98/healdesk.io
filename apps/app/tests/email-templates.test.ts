@@ -50,7 +50,7 @@ import {
 } from "@/lib/email/templates/address_changing";
 import { renderOpsAlert } from "@/lib/email/templates/ops_alert";
 import { SIGN_IN_HELP_REASON } from "@/lib/email/templates/sign_in_help_link";
-import { PENDING_TEMPLATES, TEMPLATES, templateFor } from "@/lib/email/templates/registry";
+import { PENDING_TEMPLATES, TEMPLATES, templateFor, type PendingTemplate } from "@/lib/email/templates/registry";
 import {
   CHANNEL_READY_ENTRY,
   channelReadyWebFixture,
@@ -174,7 +174,7 @@ describe("the template registry", () => {
   });
 
   test("a pending kind's owner is the owner its registry names", () => {
-    for (const [kind, pending] of Object.entries(PENDING_TEMPLATES)) {
+    for (const [kind, pending] of (Object.entries(PENDING_TEMPLATES) as [string, PendingTemplate][])) {
       const owner =
         kind in NOTICE_KIND_REGISTRY
           ? NOTICE_KIND_REGISTRY[kind as keyof typeof NOTICE_KIND_REGISTRY].owner
@@ -186,12 +186,10 @@ describe("the template registry", () => {
 
   test("every pending kind names the package that owes it", () => {
     const byPackage: Record<string, string[]> = {};
-    for (const [kind, pending] of Object.entries(PENDING_TEMPLATES)) {
+    for (const [kind, pending] of (Object.entries(PENDING_TEMPLATES) as [string, PendingTemplate][])) {
       (byPackage[pending.package] ??= []).push(kind);
     }
-    expect(byPackage).toEqual({
-      runtime: ["outage_started", "outage_ended", "guarantee_miss"],
-    });
+    expect(byPackage).toEqual({});
   });
 
   test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the live alerts, the operator's notices, O6 and O5's two, the support chat's L25 and I3, the practice questions' O8 and O9, I2, after cancellation E3 to E6, the claims function's L13 and L14, the DPA re-sign's L22, the drift list's L23, Flag this answer's I4, a patient's request, L32, the human route's O16, P6's resend and I3's access request", () => {
@@ -283,6 +281,10 @@ describe("the template registry", () => {
       "support_reply",
       // Lane P7g: L38, the acknowledgement of a practice's email to support.
       "support_received",
+      // Gate B piece 3: L17, L18 and L21.
+      "outage_started",
+      "outage_ended",
+      "guarantee_miss",
     ]);
   });
 
@@ -450,26 +452,29 @@ describe("O8, your AYA is ready to talk to", () => {
     vi.resetModules();
   });
 
-  test("names the questions asked and says the booking ones wait, then goes back to the plain line once every case can be asked", async () => {
+  test("says the plain line now every case can be asked (29 October 2026), and names the questions asked while any case cannot be", async () => {
+    for (const audience of ["patients", "clients"] as const) {
+      const r = ASSISTANT_READY_ENTRY.render(ASSISTANT_READY_ENTRY.fixture, contextFor("assistant_ready", audience));
+      expect(r.preheader).toBe(`She has passed her practice questions. Nothing in the preview reaches ${audience}.`);
+      expect(r.text).toContain("AYA has passed her practice questions about Radiance Med Spa:");
+      expect(r.text).not.toMatch(/booking tools/);
+      expect(copyProblems([r.subject, r.preheader, r.text].join("\n"))).toEqual([]);
+    }
+    vi.resetModules();
+    vi.doMock("@/lib/engine/practice/cases", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("@/lib/engine/practice/cases")>()),
+      casesNotAskable: () => ["booking"],
+    }));
+    const { ASSISTANT_READY_ENTRY: some } = await import("@/lib/email/templates/assistant_ready");
     for (const audience of ["patients", "clients"] as const) {
       const one = audience === "clients" ? "client" : "patient";
-      const r = ASSISTANT_READY_ENTRY.render(ASSISTANT_READY_ENTRY.fixture, contextFor("assistant_ready", audience));
+      const r = some.render(some.fixture, contextFor("assistant_ready", audience));
       expect(r.text).toContain(`an urgent message from a ${one}, an off-topic ${one} and a question your answers don't cover.`);
       expect(r.text).toContain("The ones about booking and deposits wait for her booking tools.");
       expect(r.text).not.toMatch(/among others/);
       expect(r.preheader).toBe(`She has passed the practice questions she can be asked. Nothing in the preview reaches ${audience}.`);
       expect(copyProblems([r.subject, r.preheader, r.text].join("\n"))).toEqual([]);
     }
-    vi.resetModules();
-    vi.doMock("@/lib/engine/practice/cases", async (importOriginal) => ({
-      ...(await importOriginal<typeof import("@/lib/engine/practice/cases")>()),
-      casesNotAskable: () => [],
-    }));
-    const { ASSISTANT_READY_ENTRY: every } = await import("@/lib/email/templates/assistant_ready");
-    const plain = every.render(every.fixture, contextFor("assistant_ready"));
-    expect(plain.preheader).toBe("She has passed her practice questions. Nothing in the preview reaches patients.");
-    expect(plain.text).toContain("AYA has passed her practice questions about Radiance Med Spa:");
-    expect(plain.text).not.toMatch(/booking tools/);
   });
 });
 

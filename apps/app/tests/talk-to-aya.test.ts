@@ -136,6 +136,7 @@ import {
 import { inTenant } from "./setup/factories";
 import { provisionPortalClinic, type PortalClinic } from "./setup/portal-clinic";
 import { brokenLinks } from "./setup/portal-links";
+import { practiceModel as sharedPracticeModel } from "./setup/practice";
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
 const ACTOR = { type: "service", serviceName: "talk-to-aya-test" } as const;
@@ -261,23 +262,11 @@ describe("the preview's caps", () => {
 // Against the database
 // -----------------------------------------------------------------------------
 
-/** B's practice questions, answered carefully: the fake brain that passes them. */
-function practiceModel(): AssistantResponder {
-  return async ({ messages }) => {
-    const last = messages[messages.length - 1]!.content;
-    const said = (reply: string) => JSON.stringify({ reply, booking: { wants: false } });
-    if (/How much is Signature facial/.test(last)) return said("Signature facial is $199.");
-    if (/How much does/.test(last))
-      return said(
-        "There's no price for that one, but the team can go through it at a consultation.",
-      );
-    if (/poem/.test(last))
-      return said("I can only help with questions about the practice. What can I help with?");
-    if (/validate|lift|music|charge|fountain/.test(last))
-      return said("I don't have that information, but the team can get back to you.");
-    return said("That's one for the practice's clinicians; would you like a consultation?");
-  };
-}
+/**
+ * B's practice questions, answered carefully: the shared fake brain, which
+ * also books in the booking and deposit cases asked since 29 October 2026.
+ */
+const practiceModel = (): AssistantResponder => sharedPracticeModel();
 
 const passJudge: PracticeJudge = async () => ({ verdict: "pass", reason: "Fine." });
 

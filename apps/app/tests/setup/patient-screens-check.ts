@@ -98,6 +98,7 @@ export const PATIENT_SCREEN_DIRS: ReadonlySet<string> = new Set([
   "bookings",
   "patient-requests",
   "incidents",
+  "missed",
 ]);
 
 /** Every .ts and .tsx file under a PATIENT_SCREEN_DIRS directory below `dir`. */

@@ -238,7 +238,15 @@ describeDb("the desk-confirmed deposit link on Meta, against the database", SLOW
 
     // Stripe saw an amount, the generic product, DEPOSIT and the row's id: no treatment.
     const params = stripeCalls("checkout.sessions.create")[0]!.args[0];
-    expect(JSON.stringify(params)).not.toMatch(/peel|Sam|0177|Saturday/i);
+    // The words Stripe sees, without the session's expiry (a Unix time) or
+    // the row's opaque ids: both are generated, and a run whose timestamp or
+    // uuid happened to hold "0177" used to fail with nothing of the patient
+    // in it. The patient's name, number, service and day still may not appear.
+    const { expires_at: expiresAt, ...described } = params as { expires_at: unknown } & Record<string, unknown>;
+    expect(typeof expiresAt).toBe("number");
+    const words = JSON.stringify(described).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "<id>");
+    expect(words).not.toMatch(/peel|Sam|0177|Saturday/i);
+    expect(JSON.stringify(params)).not.toContain("4155550177");
     expect(params).toMatchObject({ line_items: [{ price_data: { product_data: { name: "Appointment deposit" } } }], payment_intent_data: { statement_descriptor_suffix: "DEPOSIT" } });
 
     // The audit says a link went, by ids; nothing of the line or the URL is kept.

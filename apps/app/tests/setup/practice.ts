@@ -2,7 +2,12 @@ import type { Channel } from "@healdesk/catalog";
 
 import type { AssistantResponder } from "@/lib/assistant/turn";
 import { recordAuditPassed } from "@/lib/channels/audit-seam";
-import { PRACTICE_CASES_VERSION } from "@/lib/engine/practice/cases";
+import {
+  BOOKING_DETAILS,
+  BOOKING_RETRY,
+  CHOOSE_FIRST,
+  PRACTICE_CASES_VERSION,
+} from "@/lib/engine/practice/cases";
 import type { PracticeJudge } from "@/lib/engine/practice/judge";
 import { readPracticeInputs } from "@/lib/engine/practice/store";
 import type { PracticeCaseResult } from "@/lib/engine/practice/types";
@@ -81,15 +86,68 @@ export async function passPracticeQuestions(
 }
 
 /**
+ * A careful model's answer to the booking cases' turns (lib/engine/practice/
+ * cases.ts), or null for any other message: the request in words while the
+ * tools are off, and the tools' actions while the turn says they are live
+ * (booking-tools.ts toolTurnContext: "Live booking is available"), choosing
+ * the first time offered by its exact value. Never Anthropic.
+ */
+export function bookingAnswer(last: string, turnContext: string): Record<string, unknown> | null {
+  const live = turnContext.includes("Live booking is available");
+  const asked = /^(?:I'd like to book (.+?) next Tuesday afternoon|Can I book (.+?) for Thursday morning)/.exec(last);
+  if (asked) {
+    const named = (asked[1] ?? asked[2])!;
+    const service = /^an appointment$/i.test(named) ? null : named;
+    const window = asked[1] ? "next Tuesday afternoon" : "Thursday morning";
+    return {
+      reply: live ? "Let me look." : "I can pass a request to the clinic. Which time would suit you best?",
+      booking: { wants: true, window, service },
+      ...(live ? { action: { type: "find_times", service, day: null } } : {}),
+    };
+  }
+  if (last === CHOOSE_FIRST) {
+    const first = /^- (\S+) = /m.exec(turnContext)?.[1];
+    return live && first
+      ? { reply: "Great.", action: { type: "choose_time", at: first } }
+      : { reply: "Of course. Could I take your first name and a number the clinic can reach you on?" };
+  }
+  if (last === BOOKING_DETAILS || last === BOOKING_RETRY) {
+    return {
+      reply: "Thank you, Sam. The clinic will call you on that number to confirm a time.",
+      booking: { wants: true, first_name: "Sam", phone: "415 555 0100" },
+    };
+  }
+  return null;
+}
+
+/** The same on Instagram, Messenger and WhatsApp: the front door's JSON, a request only. */
+export function metaBookingAnswer(text: string): string | null {
+  const booking = (fields: Record<string, unknown>) =>
+    ({ wants: true, first_name: null, phone: null, window: null, alt_windows: [], fields: {}, ...fields });
+  if (/^(I'd like to book an appointment next Tuesday afternoon|Can I book an appointment for Thursday morning)/.test(text)) {
+    return JSON.stringify({
+      reply: "Happy to pass that to the practice. Could you share your first name and a phone number?",
+      booking: booking({ window: /Tuesday/.test(text) ? "next Tuesday afternoon" : "Thursday morning" }),
+    });
+  }
+  if (text === BOOKING_DETAILS) {
+    return JSON.stringify({ reply: "Thanks, Sam.", booking: booking({ first_name: "Sam", phone: "415 555 0100" }) });
+  }
+  return null;
+}
+
+/**
  * The model, faked for the practice questions: careful answers, with the
  * listed price of the clinic's "Signature facial", or a wrong one when asked
  * to. Never Anthropic. For a clinic whose answers are set up with that
  * service at `price` (tests/practice-questions-db.test.ts, setAnswers).
  */
 export function practiceModel(price = "$199"): AssistantResponder & { calls: number } {
-  const fn = (async ({ messages }) => {
+  const fn = (async ({ system, messages }) => {
     fn.calls += 1;
     const last = messages[messages.length - 1]!.content;
+    const booked = bookingAnswer(last, system.turn);
+    if (booked) return JSON.stringify(booked);
     const said = (reply: string) => JSON.stringify({ reply, booking: { wants: false } });
     if (/How much is Signature facial/.test(last)) return said(`Signature facial is ${price}.`);
     if (/How much does/.test(last))

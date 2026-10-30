@@ -74,10 +74,12 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     id: "web-chat-on-paste",
     promise: "You paste one line on your website, and AYA is designed to start answering there",
     where: "Set-up wizard and welcome email (website chat)",
-    status: "building",
-    left: "The line now loads the chat bubble, but website chat goes live only once an operator confirms on the clinic's Setup tab that the line is on the clinic's site, and the console is asked only when someone first opens the bubble there. Until then the bubble tells visitors to call the practice.",
+    // On by the owner's word of 29 October 2026, in the commit that makes
+    // production do it: it does so once migration 0138 is deployed.
+    status: "on",
+    left: "The line confirms itself: two opens of the chat bubble from the clinic's own website (the site, www or any subdomain), at least five minutes apart, count website chat's step as done, and so does an operator's tick on the clinic's Setup tab, which stays as the fallback with the console asked on the first open. The portal says which confirmed it. Live still waits on setup, the audit, the platform's attestations and go-live; until then the bubble tells visitors to call the practice. Takes effect in production with migration 0138's deploy; not yet tried on a real clinic's website.",
     evidence:
-      "apps/app/src/widget/v1.js, apps/app/src/lib/channels/events.ts (noteWidgetLoaded, confirmWidgetOnSite)",
+      "apps/app/src/widget/v1.js, apps/app/src/lib/channels/widget-sighting.ts (noteWidgetSighting, readWidgetSighting), apps/app/drizzle/0138_web_widget_sightings.sql (app_web_widget_seen), apps/app/src/lib/channels/events.ts (confirmWidgetOnSite), apps/app/tests/channel-events.test.ts (WEBCHAT-2), apps/app/tests/setup-pages.test.tsx",
     blocksGoLive: false,
   },
   {
@@ -188,7 +190,7 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     where:
       "Terms section 9 and its annex, data deletion page, homepage FAQ, the business associate agreement signed at checkout",
     status: "building",
-    left: "The owner released BAA 1.6.0 on 29 October 2026, without external counsel: BAA_1_6_0_RELEASED is true, so checkout offers 1.6.0, the floor is 1.6.0 with no overlap, and terms section 9 says \"The Business Associate Agreement states the same\" under LEGAL_VERSION 2026-10-29.4. Production does not do it yet: the release migration (apps/app/drizzle/0136_baa_release_1_6_0.sql) moves the database's go-live check to 1.6.0 only when deploy-app.yml runs it, and until then the running apps/app image still holds 1.6.0 as a draft and refuses to provision it. It moves to On in the commit that records that deploy. No clinic goes live under 1.5.1's retention clause.",
+    left: "The owner released BAA 1.6.0 on 29 October 2026, without external counsel: BAA_1_6_0_RELEASED is true, so checkout offers 1.6.0, the floor is 1.6.0 with no overlap, and terms section 9 says \"The Business Associate Agreement states the same\" under LEGAL_VERSION 2026-10-29.5. Production does not do it yet: the release migration (apps/app/drizzle/0136_baa_release_1_6_0.sql) moves the database's go-live check to 1.6.0 only when deploy-app.yml runs it, and until then the running apps/app image still holds 1.6.0 as a draft and refuses to provision it. It moves to On in the commit that records that deploy. No clinic goes live under 1.5.1's retention clause.",
     evidence:
       "packages/catalog/src/baa.ts (BAA_1_6_0_RELEASED, template 1.6.0), apps/app/drizzle/0136_baa_release_1_6_0.sql, docs/baa-v1.6.0.txt, docs/counsel/agreement-changes.md section 17",
     blocksGoLive: true,

@@ -33,6 +33,7 @@ import { channelSetupFinished } from "@/lib/setup/screens";
 import { buildTracker, joinWords } from "@/lib/setup/tracker";
 import { withTenant } from "@/lib/tenant";
 
+import { AnswerAttentionCard } from "./AnswerAttentionCard";
 import { ChannelPill } from "./ChannelStatus";
 import { HomeUnavailable, NeedsYou, WhatAyaDid } from "./HomeSections";
 import { PatientRequestsCard } from "./PatientRequestsCard";
@@ -174,6 +175,8 @@ export default async function ClinicHome({
   return (
     <PortalShell {...shell}>
       <h1 className="text-2xl font-semibold">Home</h1>
+
+      <AnswerAttentionCard slug={portal.clinicSlug} attention={facts.answering} />
 
       <PatientRequestsCard
         slug={portal.clinicSlug}

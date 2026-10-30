@@ -316,20 +316,29 @@ export async function readMetaDraft(tx: TenantTx, thread: BookingThread): Promis
   return row ?? null;
 }
 
-/** Merge what this message added into the thread's draft and return the whole. */
-export async function mergeDraft(tx: TenantTx, thread: BookingThread, fields: BookingFields): Promise<BookingFields> {
-  const existing = await readMetaDraft(tx, thread);
+/**
+ * What this message added, merged over what the thread already had, with no
+ * I/O: mergeDraft's rule, which the practice questions (lib/engine/practice)
+ * follow across a conversation's turns without keeping a draft.
+ */
+export function mergeBookingFields(existing: BookingFields | null, fields: BookingFields): BookingFields {
   // A draft's window is screened again, so one kept before the closed time
   // grammar (a draft lives a day) is dropped and asked for, never sent on.
   const kept = existing?.preferredWindow ?? null;
   const preferredWindow = fields.preferredWindow ?? (kept && windowIsClean(kept, META_WINDOW) ? kept : null);
-  const merged: BookingFields = {
+  return {
     firstName: fields.firstName ?? existing?.firstName ?? null,
     phone: fields.phone ?? existing?.phone ?? null,
     preferredWindow,
     // Existing first, then this message's, deduplicated against the primary and capped.
     alternativeWindows: cleanAlternatives([...(existing?.alternativeWindows ?? []), ...fields.alternativeWindows], preferredWindow ? [preferredWindow] : [], META_WINDOW),
   };
+}
+
+/** Merge what this message added into the thread's draft and return the whole. */
+export async function mergeDraft(tx: TenantTx, thread: BookingThread, fields: BookingFields): Promise<BookingFields> {
+  const existing = await readMetaDraft(tx, thread);
+  const merged = mergeBookingFields(existing, fields);
   await tx.db
     .insert(metaBookingDrafts)
     .values({ clinicId: tx.clinicId, platform: thread.platform, senderId: thread.senderId, externalId: thread.externalId, ...merged, updatedAt: new Date() })

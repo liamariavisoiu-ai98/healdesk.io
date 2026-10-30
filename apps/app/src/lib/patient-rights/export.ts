@@ -12,6 +12,7 @@ import {
   depositPayments,
   handovers,
   metaBookingDrafts,
+  missedContacts,
   slotHolds,
   suppressions,
   transactions,
@@ -92,6 +93,13 @@ export type PatientBundle = {
    * The clinic's bundle carries every one, Meta's by their thread's keyed reference.
    */
   handovers: HandoverRecord[];
+  /**
+   * Their calls and chats AYA could not answer, in the last 30 days
+   * (missed_contacts, drizzle/0139): when, the channel, where it went, the
+   * number when known, the clinic's call-back tick and our closing note. A
+   * person's bundle carries the ones with their number; the clinic's every one.
+   */
+  missedContacts?: (typeof missedContacts.$inferSelect)[];
   /** Times the assistant held for them on a call (plan §11.8): when, for how long, and what became of it. */
   slotHolds: { id: string; startsAt: Date; endsAt: Date; status: string; createdAt: Date }[];
   /** Every audit row that touched any of the ids above: the accounting of disclosures. */
@@ -347,6 +355,13 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
             ),
           )
       : [];
+  // Their missed calls, by their number (drizzle/0139).
+  const missed = phones.length
+    ? await tx.db
+        .select()
+        .from(missedContacts)
+        .where(and(eq(missedContacts.clinicId, tx.clinicId), inArray(missedContacts.callerPhone, phones)))
+    : [];
   // The web chat behind a call-back handover is the person's too, where no
   // one else's booking holds it (an amended one included: erasure keeps it
   // with its amendment, so access shows it). So is a chat their own booking request was made in.
@@ -459,6 +474,7 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
     bookingRequests: withAmendments(bookings, bookingAmendments),
     depositPayments: deposits,
     handovers: asked,
+    missedContacts: missed,
     slotHolds: holds,
     accountingOfDisclosures: accounting,
   };
@@ -497,6 +513,18 @@ export async function amendContact(
     .update(contacts)
     .set({ ...changes, updatedAt: new Date() })
     .where(and(eq(contacts.clinicId, tx.clinicId), eq(contacts.id, contactId)));
+  // The 30-day missed-contact record holds the number a call came from. A
+  // corrected or cleared number is corrected there too, so the clinic's
+  // "call back" list never keeps the wrong one (BAA clause 14(b)); a
+  // correction that is not a dialable E.164 number clears it instead, as the
+  // row's own check allows only that shape.
+  if (changes.phone !== undefined && before.phone && changes.phone !== before.phone) {
+    const corrected = changes.phone && /^\+[1-9][0-9]{6,14}$/.test(changes.phone) ? changes.phone : null;
+    await tx.db
+      .update(missedContacts)
+      .set({ callerPhone: corrected })
+      .where(and(eq(missedContacts.clinicId, tx.clinicId), eq(missedContacts.callerPhone, before.phone)));
+  }
   tx.audit.record({
     action: "update",
     resourceType: "contact_amendment",
@@ -555,6 +583,7 @@ export async function exportClinic(
     .where(eq(slotHolds.clinicId, c));
   const deposits = await tx.db.select(DEPOSIT_COLUMNS).from(depositPayments).where(eq(depositPayments.clinicId, c));
   const asked = await tx.db.select(HANDOVER_COLUMNS).from(handovers).where(eq(handovers.clinicId, c));
+  const missed = await tx.db.select().from(missedContacts).where(eq(missedContacts.clinicId, c));
   const accounting = await tx.db.select().from(auditLog).where(eq(auditLog.clinicId, c));
   // Clause 17's "an export of the patient information it holds": the raw
   // payloads can hold a vendor's transcript, which no other table does, and
@@ -598,6 +627,7 @@ export async function exportClinic(
     bookingRequests: withAmendments(bookings, bookingAmendments),
     depositPayments: deposits,
     handovers: asked,
+    missedContacts: missed,
     slotHolds: holds,
     accountingOfDisclosures: accounting,
     rawPayloads: payloads,

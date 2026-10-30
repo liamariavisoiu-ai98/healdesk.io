@@ -1708,9 +1708,7 @@ export async function answerFrontDoor(
 
   // Only the model extracts booking fields, so a screened message never
   // reaches the draft or a request.
-  const gathered =
-    extracted !== null && (wants || extracted.firstName !== null || extracted.phone !== null || extracted.preferredWindow !== null || extracted.alternativeWindows.length > 0);
-  if (thread && gathered) {
+  if (thread && gatheredBooking({ extracted, wants })) {
     const merged = await mergeDraft(tx, thread, extracted ?? EMPTY_BOOKING_FIELDS);
     if (isComplete(merged)) {
       // The three things are in hand: the request exists now, the desk is
@@ -1726,20 +1724,8 @@ export async function answerFrontDoor(
       // committed and never for one that rolls back: a pointer into Bookings
       // to the clinic's one address, with nothing about the person.
       await notifyBookingAlert(tx, "booking_request", { bookingRequestId: created.id, channel: "meta" });
-      // The name goes back only through the reply guard; refused, the line
-      // goes without it.
-      const named = requestReceivedLine(facts.clinicName, merged.firstName);
-      const received = guardReply(named, guardContextFor(facts)).ok ? named : requestReceivedLine(facts.clinicName, null);
-      answer = { text: received, source: "booking", guard: answer.guard, screened: null, booking: "requested", greeted: false };
-    } else {
-      answer = {
-        ...answer,
-        booking: "collecting",
-        // A refused model reply while collecting becomes the fixed ask, not
-        // the hand-off line: sending someone to the phone mid-request loses it.
-        ...(answer.source === "handoff" ? { text: collectingLine(facts, missingPieces(merged)), source: "booking" as const } : {}),
-      };
     }
+    answer = bookingStepAnswer(facts, answer, merged);
   }
 
   // The first reply of the conversation opens with the greeting, in front of
@@ -1755,6 +1741,39 @@ export async function answerFrontDoor(
 
   recordAnswer(tx, input.platform, answer);
   return { ...answer, greetingToRecord };
+}
+
+/** Whether the model's answer gathered anything for a booking request: only the model extracts, so a screened message never does. */
+export function gatheredBooking(draft: Pick<FrontDoorDraft, "extracted" | "wants">): boolean {
+  const { extracted, wants } = draft;
+  return (
+    extracted !== null &&
+    (wants || extracted.firstName !== null || extracted.phone !== null || extracted.preferredWindow !== null || extracted.alternativeWindows.length > 0)
+  );
+}
+
+/**
+ * The reply once a message gathered booking fields, with no I/O: the fixed
+ * request-received line when the merged draft is complete (answerFrontDoor
+ * creates the request and queues L7 beside it), otherwise the answer as it
+ * stands, marked collecting. The practice questions (lib/engine/practice)
+ * say exactly this, so their Meta booking cases read the words a thread gets.
+ */
+export function bookingStepAnswer(facts: FrontDoorFacts, answer: FrontDoorDraftAnswer, merged: BookingFields): FrontDoorDraftAnswer {
+  if (isComplete(merged)) {
+    // The name goes back only through the reply guard; refused, the line
+    // goes without it.
+    const named = requestReceivedLine(facts.clinicName, merged.firstName);
+    const received = guardReply(named, guardContextFor(facts)).ok ? named : requestReceivedLine(facts.clinicName, null);
+    return { text: received, source: "booking", guard: answer.guard, screened: null, booking: "requested", greeted: false };
+  }
+  return {
+    ...answer,
+    booking: "collecting",
+    // A refused model reply while collecting becomes the fixed ask, not
+    // the hand-off line: sending someone to the phone mid-request loses it.
+    ...(answer.source === "handoff" ? { text: collectingLine(facts, missingPieces(merged)), source: "booking" as const } : {}),
+  };
 }
 
 function recordAnswer(tx: TenantTx, platform: MetaPlatform, answer: Draft): void {

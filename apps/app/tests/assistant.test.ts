@@ -365,7 +365,7 @@ describe("the guard", () => {
     "Your confirmation number is 4821.",
     "Su cita está confirmada para el martes.",
     "Le he reservado el jueves a las 3.",
-  ])("a booking said to be made is refused while the brain has no booking tools: %j", (text) => {
+  ])("a booking the model says it made is refused (only the tool layer's line says booked): %j", (text) => {
     expect(guardAssistantReply(text, GLOW)).toEqual({ ok: false, reason: "booking_confirmation" });
   });
 

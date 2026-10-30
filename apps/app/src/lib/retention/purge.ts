@@ -27,6 +27,7 @@ import {
 } from "@/lib/billing/housekeeping";
 import { DRAFT_TTL_HOURS } from "@/lib/meta/booking-requests";
 import { linkCallHandovers } from "@/lib/handovers/record";
+import { purgeMissedContacts } from "@/lib/portal/missed-contacts";
 import type { TenantTx } from "@/lib/tenant";
 
 /**
@@ -238,6 +239,8 @@ export const PURGE_COVERAGE: Readonly<{
     slot_holds: "a week once it no longer blocks, or the record clock if shorter",
     handovers: "with its conversation or thread (cascade), and in any case the record clock after it was asked",
     patient_requests: "the record clock after it reached healdesk, marked received or not",
+    missed_contacts:
+      "thirty days after the miss (MISSED_CONTACT_RETENTION_DAYS), here nightly and by the routed/answered minute sweep, unswitched",
     retell_recording_alerts:
       "thirty days after it was resolved (RECORDING_ALERT_RESOLVED_RETENTION_DAYS); an open one never, since it is the only sign Retell still holds a call",
   },
@@ -286,6 +289,10 @@ export const PURGE_COVERAGE: Readonly<{
     billing_requests: "a billing record, kept",
     billing_notices: "the notices given, no patient: kept",
     report_deliveries: "the ledger of the notices, no patient: kept",
+    routed_interactions:
+      "the routed/answered counter (drizzle/0139), a hashed reference, closed words and times, no patient: the guarantee's record, kept (KEPT_FOR_GOOD)",
+    answer_outages: "the outage incidents L17 and L18 told of (drizzle/0139), counts and times, no patient: kept (KEPT_FOR_GOOD)",
+    miss_cases: "the miss cases L21 opened (drizzle/0139), counts, days and closed words, no patient: kept (KEPT_FOR_GOOD)",
     lifecycle_waves: "the reminder ledger (drizzle/0115), no patient: kept",
     clinic_lifecycle: "the account's setup stage and our decision (drizzle/0115), no patient: kept",
     lifecycle_ignored_clinics: "our mark that the account is an internal test account (drizzle/0118), no patient: kept",
@@ -325,6 +332,8 @@ export type PurgeResult = {
   patientRequestsDeleted: number;
   /** Retell call alerts resolved more than RECORDING_ALERT_RESOLVED_RETENTION_DAYS ago (drizzle/0105). */
   recordingAlertsDeleted: number;
+  /** Missed contacts past their 30 days (drizzle/0139, MISSED_CONTACT_RETENTION_DAYS). */
+  missedContactsDeleted: number;
 };
 
 const promised = new Map<string, boolean>();
@@ -395,6 +404,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     handoversDeleted: 0,
     patientRequestsDeleted: 0,
     recordingAlertsDeleted: 0,
+    missedContactsDeleted: 0,
   };
 
   const [running] = await tx.db
@@ -763,6 +773,11 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .returning({ id: retellRecordingAlerts.id });
   result.recordingAlertsDeleted = resolvedAlerts.length;
 
+  // The missed-contact record (drizzle/0139): 30 days after the miss, whatever
+  // the clinic's clocks say. The routed/answered minute sweep deletes them
+  // too, unswitched; this is the nightly backstop.
+  result.missedContactsDeleted = await purgeMissedContacts(tx, now);
+
   // The audit row says what kind and how many — never which person.
   const total =
     result.mediaCleared +
@@ -779,7 +794,8 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     result.metaMessageRefsDeleted +
     result.handoversDeleted +
     result.patientRequestsDeleted +
-    result.recordingAlertsDeleted;
+    result.recordingAlertsDeleted +
+    result.missedContactsDeleted;
   if (total > 0) {
     tx.audit.record({
       action: "delete",
@@ -801,6 +817,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
         handovers: result.handoversDeleted,
         patientRequests: result.patientRequestsDeleted,
         recordingAlerts: result.recordingAlertsDeleted,
+        missedContacts: result.missedContactsDeleted,
         mediaDays: clinic.mediaDays,
         transcriptDays,
         recordDays: clinic.recordDays,

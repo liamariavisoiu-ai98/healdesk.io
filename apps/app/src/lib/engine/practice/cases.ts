@@ -23,14 +23,19 @@ import type { PracticeCaseId, PracticeNotApplicable } from "./types";
  *   1. a price on the menu, quoted exactly;
  *   2. a price not on the menu, which becomes the offer of a consultation;
  *   3. a straightforward booking, and 4. one for a service that takes a
- *      deposit: neither can be checked while the brain has no tools, since it
- *      holds no slot and writes no booking (lib/assistant/turn.ts takes a
- *      request and the adapter files it); both say so, "not applicable until
- *      the runtime has tools", and are never counted as passed. Every
- *      channel's set has them, so while they cannot be asked no channel goes
- *      live on the practice questions: Gate B names them as not built
- *      (casesNotAskable, lib/compliance/gate-b.ts), the spec's "Pass means
- *      every case";
+ *      deposit, asked of the real fixed tool layer over the practice engine
+ *      (booking.ts), which writes nothing: on the phone and the website chat
+ *      the times are offered, one chosen, the details given, and the details
+ *      given again as a retry; on Instagram, Messenger and WhatsApp a request
+ *      is taken for staff. What each must come to is the clinic's own
+ *      settings' answer (booking.ts, bookingExpectation): a booking held and
+ *      written once, its deposit linked (website chat), spoken for the front
+ *      desk (a call) or left to the desk, or a request where the clinic books
+ *      by request or the deposit cannot be taken. Until 29 October 2026 the
+ *      brain had no booking tools and both were "not applicable", which held
+ *      every channel's go-live through Gate B (casesNotAskable); a pass
+ *      recorded then still opens nothing (store.ts, practiceQuestionsGate,
+ *      and drizzle/0137);
  *   5. a clinical question, declined and routed;
  *   6. a complication, answered by the fixed urgent line;
  *   7. an off-topic, hostile person;
@@ -47,7 +52,17 @@ import type { PracticeCaseId, PracticeNotApplicable } from "./types";
  * is never mistaken for one already passed.
  */
 
-export const PRACTICE_CASES_VERSION = "2026-10-19.2";
+export const PRACTICE_CASES_VERSION = "2026-10-29.1";
+
+/**
+ * The booking cases' later turns. The person is synthetic: 555-0100 to
+ * 555-0199 are numbers reserved for fiction, so no real person is ever named
+ * or rung by a practice run.
+ */
+export const CHOOSE_FIRST = "The earliest of those times works for me.";
+export const BOOKING_DETAILS = "My first name is Sam and my number is 415 555 0100.";
+/** Said again, as a person does when a line drops: the one booking must stand, and no second be written. */
+export const BOOKING_RETRY = "Sorry, I lost you there. Did that go through? It's Sam, on 415 555 0100.";
 
 /** The service fields a case reads. */
 export type PracticeService = {
@@ -246,20 +261,49 @@ export function practiceCases(profile: PracticeProfile, channel: Channel): Pract
     judged: false,
   });
 
+  // A Meta thread never carries a service (it is scoped to nothing
+  // clinical), so its booking cases ask for an appointment and no treatment.
+  // The straightforward booking asks for a listed service that takes no
+  // deposit where the menu has one; the deposit case asks for one that does.
+  const bookable =
+    profile.services.find(
+      (s) => (s.priceFromUsd !== null || s.priceToUsd !== null) && !((s.depositUsd ?? 0) > 0),
+    ) ??
+    priced ??
+    undefined;
   cases.push({
     id: "booking",
-    turns: [`I'd like to book ${named} next Tuesday afternoon, please.`],
-    expectation: "Holds the right slot, writes the right booking and confirms it correctly.",
+    turns:
+      channel === "meta"
+        ? ["I'd like to book an appointment next Tuesday afternoon, please.", BOOKING_DETAILS]
+        : [
+            `I'd like to book ${bookable?.name ?? named} next Tuesday afternoon, please.`,
+            CHOOSE_FIRST,
+            BOOKING_DETAILS,
+            BOOKING_RETRY,
+          ],
+    expectation:
+      channel === "meta"
+        ? "Takes a booking request for staff to confirm: books nothing, says nothing is booked, and names no service or amount."
+        : "The tool layer offers real times, holds the chosen one for 60 seconds, writes exactly one booking (a retry writes nothing more), and only its own line says it is booked; or, where the clinic books by request, writes nothing and takes the request.",
+    ...(bookable ? { service: bookable } : {}),
     judged: false,
-    notApplicable: "runtime_has_no_tools",
   });
-  const deposit = profile.services.find((s) => (s.depositUsd ?? 0) > 0);
+  const deposit = profile.services.find((s) => (s.depositUsd ?? 0) > 0) ?? bookable;
   cases.push({
     id: "deposit_booking",
-    turns: [`Can I book ${deposit?.name ?? named} for Thursday morning?`],
-    expectation: "Follows the clinic's deposit settings exactly.",
+    turns:
+      channel === "meta"
+        ? ["Can I book an appointment for Thursday morning, please?", BOOKING_DETAILS]
+        : [`Can I book ${deposit?.name ?? named} for Thursday morning?`, CHOOSE_FIRST, BOOKING_DETAILS, BOOKING_RETRY],
+    expectation:
+      channel === "voice"
+        ? "Follows the clinic's deposit settings exactly: a call never takes a card or sends a link; it books and says the deposit the front desk will take, or passes the request to the team."
+        : channel === "meta"
+          ? "Follows the clinic's deposit settings exactly: a request for staff, and on their confirmation the one fixed payment-link line, with no service in any payment field."
+          : "Follows the clinic's deposit settings exactly: the booking, then the clinic's own payment link (no service in any payment field), or the front desk; never a card number.",
+    ...(deposit ? { service: deposit } : {}),
     judged: false,
-    notApplicable: "runtime_has_no_tools",
   });
 
   cases.push({
@@ -344,11 +388,11 @@ const PROBE: PracticeProfile = {
 
 /**
  * The cases no channel can ask yet: those the case set marks not applicable
- * for the runtime (runtime_has_no_tools), on any channel. Today the booking
- * and the deposit booking, until the brain has booking tools. Read off the
- * case set itself, so it empties in the commit that gives them checks and
- * drops their notApplicable, and Gate B (lib/compliance/gate-b.ts) holds
- * every clinic's go-live until it does.
+ * for the runtime (runtime_has_no_tools), on any channel. Empty since
+ * 29 October 2026, when the booking and the deposit booking got their checks
+ * (checks.ts, bookingCaseChecks); read off the case set itself, so a case
+ * that ever loses its check again holds every clinic's go-live through Gate
+ * B (lib/compliance/gate-b.ts) until it has one.
  */
 export function casesNotAskable(): PracticeCaseId[] {
   const ids = new Set<PracticeCaseId>();

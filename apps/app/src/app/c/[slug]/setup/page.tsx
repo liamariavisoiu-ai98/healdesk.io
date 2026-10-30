@@ -59,6 +59,7 @@ import {
 } from "@/lib/setup/screens";
 import type { SetupScreenId } from "@/lib/setup/screen-ids";
 import { skipCost } from "@/lib/setup/skip-costs";
+import { readWidgetSighting, sightingLine } from "@/lib/channels/widget-sighting";
 import { snippetOpen, widgetSnippet } from "@/lib/setup/snippet";
 import { loadSetupState, type SetupState } from "@/lib/setup/state";
 import { urgentHelpField } from "@/lib/setup/urgent";
@@ -593,6 +594,10 @@ async function ChannelsStep({
   const forwardingTest = voiceForwardingReady(facts)
     ? await withTenant({ clinicId: state.clinic.id, actor }, (tx) => readForwardingTest(tx))
     : null;
+  // Whether the widget has been seen on the clinic's site, beside the line.
+  const webSighting = snippetOpen(state.channels.find((c) => c.channel === "web"))
+    ? sightingLine(await withTenant({ clinicId: state.clinic.id, actor }, (tx) => readWidgetSighting(tx)))
+    : null;
   return (
     <ChannelsScreen
       slug={slug}
@@ -627,6 +632,7 @@ async function ChannelsStep({
                   ...row,
                   presentation: present(true),
                   snippet: widgetSnippet(state.clinic.slug),
+                  sighting: webSighting,
                 }
               : row;
           case "meta":

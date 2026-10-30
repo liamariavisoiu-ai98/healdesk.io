@@ -351,6 +351,10 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * release sentences, and section 2's Meta payment-link sentence phrased as
  * design ("is designed to send"), since no clinic can connect a gateway until
  * Stripe Connect is configured in production (copy first, then the switch).
+ *
+ * LEGAL_VERSION 2026-10-29.5 (29 October 2026) changes the privacy policy
+ * only (the 30-day missed-contact record, its section 6); this page's text
+ * is word for word as released in 2026-10-29.4.
  */
 export default function TermsPage() {
   const products = productsForTerms();

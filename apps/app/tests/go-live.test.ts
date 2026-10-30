@@ -26,7 +26,7 @@ import {
   pendingLiveSet,
   routedAnsweredCounterBuilt,
 } from "@/lib/compliance/gate-b";
-import { casesNotAskable, practiceCases } from "@/lib/engine/practice/cases";
+import { casesNotAskable, PRACTICE_CASES_VERSION, practiceCases } from "@/lib/engine/practice/cases";
 import {
   decidePlatform,
   platformMissing,
@@ -149,13 +149,9 @@ describe("goLivePreconditions", () => {
       ],
       notBuilt: [counter],
     });
-    // The real list, today: the counter is on it.
+    // The real list, today: empty (the counter, its emails and every practice case are built).
     expect(gate.notBuilt).toBeNull();
-    expect(
-      gateBInCode()
-        .filter((i) => !i.built)
-        .map((i) => i.id),
-    ).toContain("routed_answered_counter");
+    expect(gateBInCode().filter((i) => !i.built)).toEqual([]);
   });
 
   test("each precondition missing alone is its own code, in the database's order", () => {
@@ -391,12 +387,15 @@ describe("Gate B in code", () => {
     );
   });
 
-  // The 19 October audit: the booking and deposit cases are hard-coded not
-  // applicable while the brain has no tools, the channel's result passed
+  // The 19 October audit: the booking and deposit cases were hard-coded not
+  // applicable while the brain had no tools, the channel's result passed
   // without them, and Gate B marked the practice questions built, so go-live
   // could proceed on a pass that never asked them. Pass means every case.
-  test("the practice questions are not built while a case cannot be asked: the booking and deposit cases, on every channel, until the brain has booking tools", () => {
-    expect(casesNotAskable()).toEqual(["booking", "deposit_booking"]);
+  // Since 29 October 2026 both are asked of the tool layer on every channel
+  // (lib/engine/practice/booking.ts), so the item is built, and a pass from
+  // before then opens nothing (store.ts recordsAnUnaskedCase, drizzle/0137).
+  test("the practice questions are built only because every case can be asked: the booking and deposit cases, on every channel", () => {
+    expect(casesNotAskable()).toEqual([]);
     const profile = {
       clinicName: "Glow",
       specialty: "med-spa",
@@ -405,21 +404,22 @@ describe("Gate B in code", () => {
       languages: ["en"] as const,
     };
     for (const channel of ["web", "voice", "meta"] as const) {
-      const unasked = practiceCases({ ...profile, languages: [...profile.languages] }, channel)
-        .filter((c) => c.notApplicable === "runtime_has_no_tools")
-        .map((c) => c.id);
-      expect(unasked, channel).toEqual(["booking", "deposit_booking"]);
+      const cases = practiceCases({ ...profile, languages: [...profile.languages] }, channel);
+      for (const id of ["booking", "deposit_booking"]) {
+        const kase = cases.find((c) => c.id === id)!;
+        expect(kase, `${channel} ${id}`).toBeDefined();
+        expect(kase.notApplicable, `${channel} ${id}`).toBeUndefined();
+        expect(kase.turns.length, `${channel} ${id}`).toBeGreaterThan(1);
+      }
     }
     const item = gateBInCode().find((i) => i.id === "practice_questions")!;
-    expect(item).toMatchObject({ built: false, checked: true });
-    expect(item.detail).toMatch(/a straightforward booking/);
-    expect(item.detail).toMatch(/a booking for a deposit-required service/);
-    expect(item.detail).toMatch(/Pass means every case/);
-    // Named where go-live names what is not built, so it holds every clinic.
-    expect(gateBNotBuilt()).toContain(`${item.label}: ${item.detail}`);
+    expect(item).toMatchObject({ built: true, checked: true });
+    expect(item.detail).toMatch(/booking and deposit cases included/);
+    expect(item.detail).not.toMatch(/no booking tools/);
+    expect(gateBNotBuilt().some((line) => line.startsWith(item.label))).toBe(false);
   });
 
-  test("what is not built is named and asked: the routed/answered counter while it and its templates wait, and each live email still without one", () => {
+  test("the routed/answered counter and the live set are built; what is not built is still named and asked", () => {
     const items = gateBInCode();
     // Gate B is fail-closed: every item is asked.
     expect(items.every((i) => i.checked)).toBe(true);
@@ -431,20 +431,17 @@ describe("Gate B in code", () => {
     ]);
     const counter = items.find((i) => i.id === "routed_answered_counter")!;
     expect(counter.built).toBe(routedAnsweredCounterBuilt());
-    // Today the outage and miss notices (L17, L18, L21) wait on the runtime's counter.
-    expect(routedAnsweredCounterBuilt()).toBe(false);
-    expect(counter.detail).toMatch(/L17, L18, L21/);
+    // The counter (drizzle/0139) queues L17, L18 and L21, whose templates have
+    // shipped, and the practice questions ask every case (0137): nothing Gate B
+    // asks of the code is unbuilt, so gateBNotBuilt is empty.
+    expect(routedAnsweredCounterBuilt()).toBe(true);
+    expect(counter.built).toBe(true);
     const live = items.find((i) => i.id === "live_email_set")!;
-    expect(live.built).toBe(pendingLiveSet().length === 0);
-    for (const pending of pendingLiveSet()) expect(live.detail).toContain(pending.annex);
-    expect(pendingLiveSet().map((p) => p.annex)).toEqual(
-      expect.arrayContaining(["L17", "L18", "L21"]),
-    );
-    // L32, a patient's request, left the list when its template shipped
-    // (drizzle/0094): what still holds Gate B's live set is the runtime's.
-    expect(pendingLiveSet().map((p) => p.annex)).not.toContain("L32");
-    expect(live.detail).not.toMatch(/L32|patient_request/);
-    expect(pendingLiveSet().every((p) => p.package === "runtime")).toBe(true);
+    expect(pendingLiveSet()).toEqual([]);
+    expect(live.built).toBe(true);
+    expect(gateBNotBuilt().some((line) => line.startsWith(counter.label))).toBe(false);
+    expect(gateBNotBuilt().some((line) => line.startsWith(live.label))).toBe(false);
+    expect(gateBNotBuilt()).toEqual([]);
   });
 });
 
@@ -552,8 +549,8 @@ async function passedRun(
   await inTenant(clinicId, async (c) => {
     await c.query(
       `insert into practice_question_runs (id, clinic_id, status, reason, requested_at, run_after, started_at, finished_at, cases_version, input_version)
-       values ($1, $2, $3, 'knowledge', now(), now(), now(), clock_timestamp(), '1.0.0', $4)`,
-      [runId, clinicId, status, version],
+       values ($1, $2, $3, 'knowledge', now(), now(), now(), clock_timestamp(), $5, $4)`,
+      [runId, clinicId, status, version, PRACTICE_CASES_VERSION],
     );
     await c.query(
       `insert into practice_question_results (clinic_id, run_id, channel, input_version, status, cases)
@@ -571,18 +568,21 @@ describeDb("Gate B's code, as the database and the TypeScript read it", DB_TEST_
     await attestPlatform();
   }, 180_000);
 
-  test("app_gate_b_code_built() is gateBNotBuilt() being empty: both say not built today", async () => {
+  test("app_gate_b_code_built() is gateBNotBuilt() being empty: both say built since 0139", async () => {
     const { rows } = await getMigratorPool().query<{ built: boolean }>(
       `select app_gate_b_code_built() as built`,
     );
     expect(rows[0]!.built).toBe(gateBInCode().every((i) => i.built));
-    expect(rows[0]!.built).toBe(false);
+    expect(rows[0]!.built).toBe(true);
   });
 
-  test("everything else holds and only the counter is missing: the clinic stays as it is, and ops, the console and the tracker say why", async () => {
+  test("if an item of Gate B's code came undone, on both sides: the clinic stays as it is, and ops, the console and the tracker say why", async () => {
+    // Built since 0139; this stands in for the counter coming undone again,
+    // so the refusal keeps a test.
     const counter = gateBInCode().find((i) => i.id === "routed_answered_counter")!;
     const line = `${counter.label}: ${counter.detail}`;
     gate.notBuilt = [line];
+    await setGateBCodeBuilt(false);
     try {
       const c = await ready("gl-not-built");
       expect(await codes(c.clinicId)).toEqual(["gate_b_not_built"]);
@@ -637,7 +637,7 @@ describeDb("Gate B's code, as the database and the TypeScript read it", DB_TEST_
       expect(await liveAt(c.clinicId, "web")).not.toBeNull();
     } finally {
       gate.notBuilt = null;
-      await setGateBCodeBuilt(false);
+      await setGateBCodeBuilt(true);
     }
   });
 });
@@ -655,7 +655,7 @@ describeDb("automatic go-live against the database", DB_TEST_OPTIONS, () => {
 
   afterAll(async () => {
     gate.notBuilt = null;
-    await setGateBCodeBuilt(false);
+    await setGateBCodeBuilt(true);
     await closePools();
   });
 

@@ -354,6 +354,10 @@ describeDb("delivery", () => {
       expect(Object.keys(jobs).sort()).toEqual(
         [
           "billing-sweep",
+          // The routed/answered counter's sweep (drizzle/0137): every minute
+          // from the billing-minute clock, and hourly here as its backstop.
+          // Unswitched: L21 is a promise of the Terms.
+          "answer-notices",
           "booking-request-expiry",
           "booking-requirements-defaults",
           "connection-health",
@@ -512,6 +516,7 @@ describeDb("delivery", () => {
         if (job === "support-slack") continue; // not switched: does nothing until the SLACK_ support settings are set
         if (job === "clinic-changes") continue; // tells ops of each recorded change unswitched; its audits stay behind clinic-audits
         if (job === "deposit-links") continue; // a sweep: flags to the front desk only a pending_link deposit with no link, past its grace
+        if (job === "answer-notices") continue; // not switched: L17, L18, L21 and the 30-day deletion are promises; its emails wait on the outbox's own switch
         expect(status, job).toBe("disabled");
       }
       expect(jobs["offboarding-destroy"]).toBe("ok");

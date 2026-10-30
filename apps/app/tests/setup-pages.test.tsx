@@ -129,8 +129,9 @@ async function voiceReady(clinic: PortalClinic, options: { directLine: boolean }
 
 describe("what the wizard and the welcome email promise about website chat", () => {
   test("pasting the line is a step, and answering after it is phrased as design until production does it on the paste", () => {
-    // CLAUDE.md, "Copy first, then the switch": website chat goes live only
-    // once an operator confirms the line is on the site (web-chat-on-paste).
+    // CLAUDE.md, "Copy first, then the switch": website chat goes live once
+    // the line is confirmed on the site (two opens, or an operator) and every
+    // other input is in (web-chat-on-paste), so answering stays design.
     expect(setupLine("web", "finish_setup")).toBe(
       "Website chat: after setup, you paste one line on your website, and AYA is designed to start answering there.",
     );
@@ -322,10 +323,36 @@ describeDb("the setup wizard's pages", () => {
         expect(words).toContain("Waiting for the line on your website");
         expect(words).toContain("Paste one line on your website.");
         expect(words).toContain("The line for your website");
-        // Production goes live on an operator's confirmation, not on the paste
+        // The line confirms itself from two opens on the site (or an
+        // operator), not on the paste, and live waits on the other inputs
         // (LAUNCH_PROMISES, web-chat-on-paste), so the line is phrased as design.
         expect(words).toContain("AYA is designed to start answering there once it’s in.");
         expect(words).not.toContain("AYA starts answering there");
+        // WEBCHAT-2's three states: waiting, seen on a host, confirmed.
+        expect(words).toContain("We haven't seen the chat on your website yet.");
+        await inTenant(voiceWeb.clinicId, (c) =>
+          c.query(
+            `insert into channel_events (clinic_id, channel, kind, actor, detail)
+             values ($1, 'web', 'widget_seen', 'system', '{"host":"www.voiceweb.test"}')`,
+            [voiceWeb.clinicId],
+          ),
+        );
+        expect(text(await wizard({ s: "channels" }))).toContain(
+          "We saw the chat on www.voiceweb.test. Click the chat bubble there once more, at least 5 minutes after the first time, to finish.",
+        );
+        await inTenant(voiceWeb.clinicId, (c) =>
+          c.query(
+            `insert into channel_events (clinic_id, channel, kind, actor, detail)
+             values ($1, 'web', 'runtime_seen', 'system', '{"via":"origin_seen","host":"www.voiceweb.test"}')`,
+            [voiceWeb.clinicId],
+          ),
+        );
+        expect(text(await wizard({ s: "channels" }))).toContain("Done: we saw the chat on www.voiceweb.test.");
+        await inTenant(voiceWeb.clinicId, (c) =>
+          c.query(`delete from channel_events where clinic_id = $1 and kind in ('widget_seen', 'runtime_seen')`, [
+            voiceWeb.clinicId,
+          ]),
+        );
         // Go-live is automatic: a chat on the live site is a real one (WP2).
         expect(words).toContain(WEB_CHAT_COUNTS_LINE);
         expect(words).toContain(

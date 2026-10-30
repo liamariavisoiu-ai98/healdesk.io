@@ -7,6 +7,12 @@ import { classifyEmail, type Classification } from "./classify";
 import { inboundMailBucket, isInboundKey, MAX_INBOUND_BYTES } from "./config";
 import { screenCounts, senderRef, type ScreenCounts } from "./facts";
 import { dropReason, isProviderConfirmation, type DropReason } from "./guards";
+import { eq } from "drizzle-orm";
+
+import { unsafeDb } from "@/db";
+import { supportCases } from "@/db/schema";
+import { linkMissCaseReply, missReplyOf, supportCaseIdForMissReply } from "@/lib/channels/miss-cases";
+
 import { matchCase, matchClinic, senderIsCaseClinic, senderSeenOnCase } from "./match";
 import type { InboundNotice } from "./notice";
 import { MailParseError, messageIds, parseMail, type ParsedMail } from "./parse";
@@ -176,6 +182,9 @@ export async function handleInboundNotice(notice: InboundNotice, deps: HandleDep
 
   // Match, screen, classify, write.
   let recorded;
+  // The subject, for a reply to L21 ("Looking into a call from ..."): read
+  // for its noun and its day, never stored (lib/channels/miss-cases.ts).
+  const missSubject = mail && missReplyOf(mail.subject) ? mail.subject : null;
   try {
     const from = mail?.from ?? null;
     const sender = senderRef(from ?? `unknown@${notice.sesMessageId.toLowerCase()}.invalid`);
@@ -190,11 +199,22 @@ export async function handleInboundNotice(notice: InboundNotice, deps: HandleDep
       const mayJoin = aboutClinic ? authenticated && (signIn === true || seen) : seen;
       if (mayJoin) caseMatch = { ...found, senderMatchesCase: signIn };
     }
-    const target: InboundTarget = {
-      caseMatch,
-      // Only an authenticated sender is matched to a clinic by address.
-      clinic: !caseMatch && from && authenticated ? await matchClinic(from, actor) : { clinicId: null, matchedBy: "none" },
-    };
+    // Only an authenticated sender is matched to a clinic by address.
+    let clinicMatch: InboundTarget["clinic"] =
+      !caseMatch && from && authenticated ? await matchClinic(from, actor) : { clinicId: null, matchedBy: "none" };
+    // A second reply to the same L21, from the clinic's own sign-in: the
+    // support case the first one opened, so one miss never opens two cases.
+    if (!caseMatch && missSubject && clinicMatch.clinicId) {
+      const linkedId = await supportCaseIdForMissReply(clinicMatch.clinicId, missSubject, now).catch(() => null);
+      const [linked] = linkedId
+        ? await unsafeDb.select().from(supportCases).where(eq(supportCases.id, linkedId)).limit(1)
+        : [];
+      if (linked && linked.state !== "closed") {
+        caseMatch = { supportCase: linked, matchedBy: "thread", senderMatchesCase: true };
+        clinicMatch = { clinicId: null, matchedBy: "none" };
+      }
+    }
+    const target: InboundTarget = { caseMatch, clinic: clinicMatch };
     const clinicId = target.caseMatch?.supportCase.subjectClinicId ?? target.clinic.clinicId;
 
     let counts = NO_COUNTS;
@@ -243,6 +263,14 @@ export async function handleInboundNotice(notice: InboundNotice, deps: HandleDep
     return { outcome: "already_recorded", caseId: recorded.caseId };
   }
   if (!recorded.kept) await remove(store, notice);
+  // A reply to L21: the case it opened or joined is the miss case's, in the
+  // clinic's own tenant, so a case about no clinic (a stranger quoting the
+  // ref) never joins a clinic's miss. Never fails the email's record.
+  if (recorded.clinicId && missSubject) {
+    await linkMissCaseReply(recorded.clinicId, missSubject, recorded.caseId, now).catch((error) =>
+      log.warn("support inbound: miss case not linked", { clinicId: recorded.clinicId, error: describeError(error) }),
+    );
+  }
   log.info("support inbound", {
     eventId: notice.sesMessageId,
     clinicId: recorded.clinicId,

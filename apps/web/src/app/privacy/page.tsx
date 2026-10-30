@@ -199,6 +199,14 @@ export const metadata: Metadata = {
  * payment-link sentence says the assistant "is designed to send" the link,
  * since no clinic can connect a gateway until Stripe Connect is configured
  * in production.
+ *
+ * Revised on 29 October 2026 as LEGAL_VERSION 2026-10-29.5, replacing the
+ * live 2026-10-29.4 (owner, 29 October 2026): section 6 lists the 30-day
+ * record of calls and chats the assistant could not answer (the time, the
+ * channel, the caller's number if given and what happened), kept so the
+ * clinic can follow up (apps/app missed_contacts, migration 0139). It is the
+ * one combined text of this batch, on 1.6.0's release sentences; the terms
+ * and the deletion page are word for word as in 2026-10-29.4.
  */
 export default function PrivacyPage() {
   return (
@@ -576,6 +584,11 @@ export default function PrivacyPage() {
             it took place. We keep no call audio: our voice provider holds a call&apos;s transcript
             and recording only until we have the transcript, and for no more than a day. The
             clinic&apos;s Business Associate Agreement with us governs the rest.
+          </li>
+          <li>
+            Inside the product, calls and chats our assistant could not answer: the time, the
+            channel, the caller&apos;s number if it was given and what happened to the call or chat,
+            kept for 30 days so the clinic can follow up, then deleted automatically.
           </li>
         </ul>
       </Section>

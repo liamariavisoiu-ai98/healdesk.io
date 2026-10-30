@@ -53,6 +53,7 @@ export const RUNBOOK_ANCHORS = [
   "incident-assistant",
   "support-replies",
   "support-cases",
+  "answering",
 ] as const;
 
 export type RunbookAnchor = (typeof RUNBOOK_ANCHORS)[number];
@@ -101,6 +102,12 @@ export const RUNBOOK_ANCHOR: Record<OpsEvent, RunbookAnchor> = {
   voice_deprovision_failed: "voice",
   voice_direct_line_loops: "voice",
   voice_test_mode_refused: "voice",
+  aya_outage_started: "answering",
+  aya_outage_unresolved: "answering",
+  aya_miss_case_opened: "answering",
+  answer_notice_not_queued: "answering",
+  aya_outage_flapping: "answering",
+  answer_notices_failing: "answering",
   plan_start_after_cancel: "billing",
   dmarc_review_due: "email-delivery",
   export_undelivered_before_destruction: "offboarding",

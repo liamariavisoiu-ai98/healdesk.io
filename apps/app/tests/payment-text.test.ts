@@ -8,6 +8,7 @@ import { updateAgentConfig } from "@/lib/onboarding/agent-config";
 import {
   callRefHash,
   PAYMENT_TEXT_LINES_EN,
+  PAYMENT_TEXT_LINES_ES,
   paymentTextAnswer,
   paymentTextTools,
   textableNumber,
@@ -558,6 +559,21 @@ describeDb("the call flow and the one send, against the database", { timeout: 30
     expect(await depositStatus(clinicId, appointmentId)).toBe("paid");
     const alerts = await inTenant(clinicId, (client) => client.query(`select 1 from billing_notices where kind = 'deposit_to_collect'`));
     expect(alerts.rows).toEqual([]);
+  });
+
+  test("in Spanish, an unknown outcome is said as unconfirmed too", async () => {
+    const { clinicId, appointmentId } = await clinicWithBooking("text-unknown-es");
+    const t = paymentTextTools(
+      { clinicId, callId: "call_es" },
+      { offered: async () => true, env: ENV, notify, realCalls: true, smsDeadlineMs: 50, transport: () => new Promise(() => undefined) },
+    );
+    const state: BookingToolState = {
+      ...EMPTY_TOOL_STATE,
+      text: { stage: "confirming", appointmentId, number: CALLER, optedInAt: LATER(5).toISOString(), unanswered: 0 },
+    };
+    const done = await t.step({ state, answer: { paymentText: { confirmed: true } }, now: LATER(15), language: "es" });
+    expect(done.reply).toBe(PAYMENT_TEXT_LINES_ES.unsure);
+    expect(PAYMENT_TEXT_LINES_ES.unsure).toMatch(/no pude confirmar/);
   });
 
   test("a definite refusal is not 'unknown': the plain front-desk path", () => {

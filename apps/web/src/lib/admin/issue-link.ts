@@ -93,6 +93,7 @@ const SETUP: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
   "voice_deprovision_failed",
   "voice_fallback_no_direct_line",
   "voice_test_mode_refused",
+  "payment_text_not_sent",
   "retell_fallback_unsynced",
   "practice_question_failed",
   "practice_question_review_past_due",

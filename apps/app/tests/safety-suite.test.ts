@@ -440,16 +440,32 @@ describe("safety suite: inbound only, statically", () => {
     });
   }
 
-  test("apps/app depends on no SMS or outbound-calling SDK", () => {
+  // The one designed exception (owner, 28 and 30 October 2026; CLAUDE.md,
+  // "Inbound only"): the payment-link text after a call, sent by AWS End
+  // User Messaging SMS from lib/sms/send.ts alone, through the contact
+  // policy's one-text gate. Its SDK, and its one command in that one file,
+  // are the only SMS allowed; every other SDK and call stays banned.
+  const THE_ONE_TEXT_SDK = "@aws-sdk/client-pinpoint-sms-voice-v2";
+  const THE_ONE_TEXT_FILE = join(SRC, "lib", "sms", "send.ts");
+
+  test("apps/app depends on no SMS or outbound-calling SDK but the one text's sender", () => {
     const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")) as { dependencies: Record<string, string> };
     const banned = /twilio|vonage|nexmo|plivo|telnyx|messagebird|sinch|bandwidth|client-sns|client-pinpoint|client-connect$/;
-    expect(Object.keys(pkg.dependencies).filter((d) => banned.test(d))).toEqual([]);
+    expect(Object.keys(pkg.dependencies).filter((d) => banned.test(d) && d !== THE_ONE_TEXT_SDK)).toEqual([]);
   });
 
-  test("no source file calls an outbound-call or SMS API", () => {
-    const outbound = /create-phone-call|create-batch-call|create-web-call|api\.twilio\.com|PublishCommand|SendTextMessageCommand|SendMessagesCommand/;
+  test("no source file calls an outbound-call or SMS API but the one text's sender, with its one command", () => {
+    const outbound = /create-phone-call|create-batch-call|create-web-call|api\.twilio\.com|PublishCommand|SendTextMessageCommand|SendMessagesCommand|SendVoiceMessageCommand|SendMediaMessageCommand|client-pinpoint/;
     const hits = files(SRC).filter((f) => outbound.test(readFileSync(f, "utf8")));
-    expect(hits).toEqual([]);
+    expect(hits).toEqual([THE_ONE_TEXT_FILE]);
+    // In that file: the SMS command alone, never a voice, media or bulk send.
+    const sender = readFileSync(THE_ONE_TEXT_FILE, "utf8");
+    expect(sender).not.toMatch(/SendVoiceMessageCommand|SendMediaMessageCommand|SendMessagesCommand|PublishCommand|create-phone-call/);
+    expect(sender.match(/new mod\.\w+Command\(/g)).toEqual(["new mod.SendTextMessageCommand("]);
+    // And only the payment-link tool layer calls the sender, after the contact policy's gate.
+    const callers = files(SRC).filter((f) => f !== THE_ONE_TEXT_FILE && /sendPaymentLinkText\(/.test(readFileSync(f, "utf8")));
+    expect(callers).toEqual([join(SRC, "lib", "sms", "payment-text.ts")]);
+    expect(readFileSync(callers[0]!, "utf8")).toMatch(/canSendPaymentLinkText\(/);
   });
 });
 

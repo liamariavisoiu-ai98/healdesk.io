@@ -112,6 +112,8 @@ export const EVENT_FIELDS: Partial<Record<OpsEvent, readonly string[]>> = {
   // call refused in test mode.
   voice_call_start_failed: ["clinicId", "code"],
   voice_test_mode_refused: ["clinicId", "phase", "code"],
+  // lib/sms/payment-text.ts: why the one text after a call did not go (a closed code).
+  payment_text_not_sent: ["clinicId", "code"],
   // lib/channels/answer-notices.ts: the incident or case by id, its start, channels and counts.
   aya_outage_started: ["clinicId", "eventId", "windowStart", "code"],
   aya_outage_unresolved: ["clinicId", "eventId", "windowStart", "count"],

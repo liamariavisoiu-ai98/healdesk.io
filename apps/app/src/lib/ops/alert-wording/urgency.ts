@@ -81,6 +81,8 @@ export const URGENCY: Readonly<Record<OpsEvent, Urgency>> = {
   voice_deprovision_failed: "today",
   voice_direct_line_loops: "urgent",
   voice_test_mode_refused: "urgent",
+  // A booking stands and its deposit is with the front desk; the sender needs a look today.
+  payment_text_not_sent: "today",
   // The counter's workflows: a clinic's calls going unanswered, and a promise in an email.
   aya_outage_started: "urgent",
   aya_outage_unresolved: "urgent",

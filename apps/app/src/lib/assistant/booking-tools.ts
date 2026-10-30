@@ -17,6 +17,7 @@ import { BOOKING_LINES_EN, BOOKING_LINES_ES, bookingLinesFor, depositLine, forCh
 import { directBookingOpen } from "@/lib/booking/direct-switch";
 import { bookingModeFor } from "@/lib/booking/mode";
 import { describeError, log } from "@/lib/log";
+import type { PaymentTextState } from "@/lib/sms/payment-text";
 import { withTenant } from "@/lib/tenant";
 import { spokenSlotEs } from "@/lib/voice/spoken";
 
@@ -103,6 +104,11 @@ export type BookingToolState = {
   manual: boolean;
   /** The conversation's one booking or request, once the engine has it. */
   done: { kind: "booked" | "request"; at: string | null; requestId: string | null; appointmentId: string | null } | null;
+  /**
+   * A call only: the payment-link text after its booking, once offered
+   * (lib/sms/payment-text.ts). In the call's memory only; never sealed.
+   */
+  text?: PaymentTextState;
 };
 
 export const EMPTY_TOOL_STATE: BookingToolState = {

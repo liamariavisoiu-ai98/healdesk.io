@@ -37,6 +37,7 @@ export const SETUP: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
   "voice_deprovision_failed",
   "voice_fallback_no_direct_line",
   "voice_test_mode_refused",
+  "payment_text_not_sent",
   "retell_fallback_unsynced",
   "practice_question_failed",
   "practice_question_review_past_due",
@@ -185,6 +186,7 @@ export const NO_CLINIC_PAGE: Readonly<Record<OpsEvent, string>> = {
   voice_deprovision_failed: "/admin/clinics",
   voice_direct_line_loops: "/admin/clinics",
   voice_test_mode_refused: "/admin/clinics",
+  payment_text_not_sent: "/admin/clinics",
   // always raised with a clinic; the list is Queues › Misses and outages.
   aya_outage_started: "/admin/queues#answer-cases",
   aya_outage_unresolved: "/admin/queues#answer-cases",

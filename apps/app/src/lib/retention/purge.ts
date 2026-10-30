@@ -247,6 +247,8 @@ export const PURGE_COVERAGE: Readonly<{
   notPurged: {
     conversation_flags:
       "no clock of its own: goes with the conversation or thread it flags, by cascade, when the purge deletes that",
+    payment_link_texts:
+      "no clock of its own: goes with the appointment it texted about, by cascade, when the purge deletes that (drizzle/0140); it holds no number and no words",
     incident_affected_contacts:
       "no clock of its own: goes with the contact it names, by cascade, when the purge deletes that, never holding the contact back; the incident keeps the count recorded (incidents.affected_recorded)",
     voice_redial_contexts:

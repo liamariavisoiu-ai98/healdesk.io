@@ -48,6 +48,7 @@ export const OPS_EVENTS = [
   "voice_deprovision_failed",
   "voice_direct_line_loops",
   "voice_test_mode_refused",
+  "payment_text_not_sent",
   "aya_outage_started",
   "aya_outage_unresolved",
   "aya_miss_case_opened",

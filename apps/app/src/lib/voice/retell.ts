@@ -30,6 +30,7 @@ import { describeError, log } from "@/lib/log";
 import { notifyBookingAlert, urgentAlertNotQueued, withoutTeamTold } from "@/lib/notices/booking-alerts";
 import { notifyOps } from "@/lib/ops/notify";
 import type { EmailTransport } from "@/lib/reporting/deliver";
+import { paymentTextTools, type PaymentTextTools } from "@/lib/sms/payment-text";
 import { withTenant } from "@/lib/tenant";
 
 import { nextCallLanguage, START_LANGUAGE, type CallLanguageState } from "./call-language";
@@ -363,6 +364,12 @@ export type RetellSessionDeps = {
   startDeadlineMs?: number;
   /** The booking tool layer; unset builds the shared one for the call (lib/assistant/booking-tools.ts). */
   tools?: (facts: AssistantFacts) => BookingTools | null;
+  /**
+   * The payment-link text after a booking (lib/sms/payment-text.ts); unset
+   * builds the shared one for the call. Never on a demo call. Whether it is
+   * ever offered is decided per booking (paymentLinkTextOffered), not here.
+   */
+  paymentText?: (clinicId: string, callId: string) => PaymentTextTools | null;
   /** The redial lookup (lib/voice/redial.ts, takeRedialContext); unset uses it. */
   redial?: (clinicId: string, callerPhone: string) => Promise<RedialContext | null>;
   /**
@@ -606,6 +613,8 @@ export class RetellCallSession {
   private capture: BookingCapture = EMPTY_CAPTURE;
   private toolState: BookingToolState = EMPTY_TOOL_STATE;
   private tools: BookingTools | null = null;
+  /** The payment-link text after this call's booking (lib/sms/payment-text.ts); none on a demo call. */
+  private paymentText: PaymentTextTools | null = null;
   private openedAt: Date;
   private startedAt: Date | null = null;
   private disclosurePlayedAt: Date | null = null;
@@ -1464,6 +1473,11 @@ export class RetellCallSession {
           // script's call is asked about the cap again, and a pause stops both.
           answering: { continuing: this.gateAnswered },
         });
+    this.paymentText ??= this.deps.demo
+      ? null
+      : this.deps.paymentText
+        ? this.deps.paymentText(this.clinicId, this.callId)
+        : paymentTextTools({ clinicId: this.clinicId, callId: this.callId, actor: ACTOR });
     // A short acknowledgement while the model thinks, only where nothing
     // must come first: not before an owed opening line, the Spanish line or
     // the welcome-back line, and not for a word or two.
@@ -1598,6 +1612,7 @@ export class RetellCallSession {
       now: this.now(),
       tools: this.tools,
       toolState: this.toolState,
+      paymentText: this.paymentText,
       callerPhone: this.callerPhone,
       resumed: resumed ? redialPromptBlock(resumed) : null,
       language: language.language,

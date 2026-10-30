@@ -465,13 +465,14 @@ a rule already holds, and treat a gap as a bug, not a precedent.
   sent once, never resent, naming no treatment, time or amount, only when the
   clinic's payment gateway is connected, and sent by the fixed tool layer,
   never the model. The clinic's switch can be turned on once phone is bought
-  and Stripe is connected, but nothing sends a text yet: no sender is chosen,
+  and Stripe is connected, but nothing sends a text yet: the sender is AWS End
+  User Messaging SMS (owner, 30 October 2026) and is not built,
   `paymentLinkTextOffered()` is false so the assistant never offers one, and
-  carrier registration per clinic will apply. The sender needs no business associate
+  one toll-free registration, healdesk's own, is still to be filed. The sender needs no business associate
   agreement (owner, 28 October 2026): like Meta and Stripe it is handled by
   scoping, so the text is fixed words and the link and nothing else, never a
-  treatment, a time, an amount or anything said on the call. Carriers still
-  require a sender registration per clinic. Anything beyond that one text stays
+  treatment, a time, an amount or anything said on the call. The carriers'
+  registration is one number healdesk registers once, not one per clinic. Anything beyond that one text stays
   forbidden. One thing is not contact "after
   a conversation ends" (owner's ruling, 21 October 2026): a window-gated reply
   to a patient's open request, such as the fixed line telling a person on Meta

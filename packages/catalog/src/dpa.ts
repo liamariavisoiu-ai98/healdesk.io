@@ -152,12 +152,16 @@ import { wrap } from "./wrap";
  * To publish a revision after release: add a new version at DPA_TEMPLATES[0],
  * never edit a released one. Someone has signed it.
  *
- * The first revision, dpa/1.1.0, was drafted on 30 October 2026 and is NOT
- * released: 1.0.0 with the Safeguards clause's telephone exception carrying
- * the one optional payment-link text after a call, as BAA 1.6.0's does
- * (DPA_NO_SMS_1_1, below; agreement-changes.md §21). It waits behind
- * DPA_1_1_0_RELEASED, which is false, and while that is false DPA_TEMPLATES
- * is exactly what it was before the draft.
+ * The first revision, dpa/1.1.0, was drafted on 30 October 2026 and released
+ * by the owner the same day ("release DPA 1.1.0 as well", in chat), without
+ * external counsel: 1.0.0 with the Safeguards clause's telephone exception
+ * carrying the one optional payment-link text after a call, as BAA 1.6.0's
+ * does (DPA_NO_SMS_1_1, below; agreement-changes.md §21). DPA_1_1_0_RELEASED
+ * is true, so 1.1.0 is DPA_TEMPLATES[0] and 1.0.0 follows it, released and
+ * never offered again. It applies to new signers only: a practice that signed
+ * 1.0.0 stays on 1.0.0, since nothing in the product lets it re-sign a newer
+ * DPA, and no payment-link text may go to a caller of a practice whose
+ * accepted agreement is older than the one that carries the exception.
  */
 
 export type DpaVariables = {
@@ -1299,7 +1303,7 @@ function validate100(v: DpaVariables): void {
 }
 
 // -----------------------------------------------------------------------------
-// 1.1.0 (a draft): the one optional payment-link text after a call
+// 1.1.0 (released 30 October 2026): the one optional payment-link text after a call
 // -----------------------------------------------------------------------------
 
 /** 1.0.0's Safeguards clause, the object 1.1.0 changes. */
@@ -1330,7 +1334,7 @@ export const DPA_NO_SMS_1_1 =
   `text included, does not extend to any other channel or content.`;
 
 /**
- * ⚖️ 1.1.0, drafted 30 October 2026, NOT released: 1.0.0's Safeguards clause
+ * ⚖️ 1.1.0, drafted 30 October 2026 and released by the owner that day: 1.0.0's Safeguards clause
  * with its last two sentences as DPA_NO_SMS_1_1 says them (the telephone
  * exception now carries the one optional payment-link text, as BAA 1.6.0's
  * does; docs/counsel/agreement-changes.md §21). Every other sentence is
@@ -1375,25 +1379,28 @@ function preamble110(v: DpaVariables): string {
  * docs/design/launch-readiness-2026-10-27/dpa-1-1-0-owner-checklist.md),
  * built as BAA_1_6_0_RELEASED was (baa.ts).
  *
- * False (today): DPA_TEMPLATES is exactly what it was before 1.1.0 was
- * drafted, dpa/1.0.0 alone, so checkout offers 1.0.0, CURRENT_DPA_VERSION is
- * dpa/1.0.0, getDpaTemplate("dpa/1.1.0") finds nothing, and nothing can sign,
- * provision, accept or offer 1.1.0. Unlike BAA 1.6.0's draft, which sat after
- * 1.5.1 in BAA_TEMPLATES and needed a migration of its own (0091) to give it
- * a destruction rule, 1.1.0 is not registered at all while the switch is
- * off, so the database and every version-to-rule map in apps/app stay as
- * they are. The draft is DPA_TEMPLATE_1_1_0_DRAFT, rendered only by the
- * tests and for docs/dpa-v1.1.0.txt.
+ * Released by the owner: on 30 October 2026 he said "release DPA 1.1.0 as
+ * well" in chat and released it himself, without external counsel, as he
+ * released dpa/1.0.0 on 20 October and BAA 1.6.0 on 29 October.
+ * `approvedByCounsel` keeps the flag's name for his release (see the field's
+ * doc comment on DpaTemplate); docs/counsel/agreement-changes.md §21 still
+ * recommends counsel review it.
  *
- * True: 1.1.0 is DPA_TEMPLATES[0] with approvedByCounsel true, and 1.0.0
+ * False (before the release): DPA_TEMPLATES was dpa/1.0.0 alone, so checkout
+ * offered 1.0.0 and nothing could sign, provision, accept or offer 1.1.0.
+ * Unlike BAA 1.6.0's draft, which sat after 1.5.1 in BAA_TEMPLATES and needed
+ * a migration of its own (0091) to give it a destruction rule, 1.1.0 was not
+ * registered at all while the switch was off.
+ *
+ * True (now): 1.1.0 is DPA_TEMPLATES[0] with approvedByCounsel true, and 1.0.0
  * follows it, released, signed by whoever signed it, and never offered again
- * (signableDpaTemplate takes only the current version). The release migration
- * (a *_dpa_release_1_1_0.sql in apps/app/drizzle, staged as
- * docs/design/launch-readiness-2026-10-27/dpa-release-1-1-0.sql) must land in
- * the same commit: apps/app tests/dpa-release-1-1-0.test.ts fails on a flip
- * without it and on it without a flip.
+ * (signableDpaTemplate takes only the current version). The DPA has no
+ * go-live floor, so a practice bound to 1.0.0 still goes live under it. The
+ * release migration (apps/app drizzle/0140_dpa_release_1_1_0.sql) landed in
+ * the same commit: apps/app tests/dpa-release-1-1-0.test.ts fails on the flip
+ * without it and on it without the flip.
  */
-export const DPA_1_1_0_RELEASED: boolean = false;
+export const DPA_1_1_0_RELEASED: boolean = true;
 
 const TEMPLATE_1_0_0: DpaTemplate = {
   version: "dpa/1.0.0",
@@ -1412,9 +1419,10 @@ const TEMPLATE_1_0_0: DpaTemplate = {
 };
 
 /**
- * DPA 1.1.0 as drafted: approvedByCounsel false, and not registered in
- * DPA_TEMPLATES while DPA_1_1_0_RELEASED is false. Its flag becomes true only
- * through dpaTemplatesFor(true); no literal here says true.
+ * DPA 1.1.0 as drafted, released by the owner on 30 October 2026. Its flag
+ * becomes true only through dpaTemplatesFor(true), which DPA_TEMPLATES now
+ * reads (DPA_1_1_0_RELEASED); this object keeps approvedByCounsel false so
+ * that the switch, not a literal, is what releases it.
  */
 export const DPA_TEMPLATE_1_1_0_DRAFT: DpaTemplate = {
   version: "dpa/1.1.0",
@@ -1441,7 +1449,10 @@ export function dpaTemplatesFor(released: boolean): readonly DpaTemplate[] {
 // (0090), go-live's copy of this flag, and the form to
 // app_calendar_election_released(). No hash moved: nothing in the text marked
 // it a draft (docs/counsel/dpa.md, gap 11). dpa/1.1.0, drafted on 30 October
-// 2026, joins at [0] only when the owner releases it (DPA_1_1_0_RELEASED).
+// 2026, was released by the owner the same day (DPA_1_1_0_RELEASED): it is at
+// [0], and 1.0.0 follows it, released but never offered again. The migration
+// of that day, dpa_release_1_1_0 (apps/app drizzle/0140), added dpa/1.1.0 to
+// app_dpa_version_released() and to app_destruction_rule().
 export const DPA_TEMPLATES: readonly DpaTemplate[] = dpaTemplatesFor(DPA_1_1_0_RELEASED);
 
 export const CURRENT_DPA_VERSION = DPA_TEMPLATES[0]!.version;

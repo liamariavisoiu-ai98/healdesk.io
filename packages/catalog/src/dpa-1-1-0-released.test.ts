@@ -1,37 +1,25 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
+
+import { AGREEMENT_COPY } from "./agreement-copy";
+import { agreementKindFor, isDpaReleased } from "./agreement-kind";
+import { agreementTemplateReleased } from "./agreement-match";
+import { signableDpaTemplate } from "./agreement-signing";
+import * as dpa from "./dpa";
 
 /**
- * A throwaway preview of DPA 1.1.0's release: "./dpa" is mocked so that its
- * switch reads true (DPA_TEMPLATES = dpaTemplatesFor(true)), and the modules
- * that offer, sign and accept the DPA are imported against it. The real
- * switch, DPA_1_1_0_RELEASED in dpa.ts, stays false: this file never touches
- * it, and dpa-1-1-0.test.ts asserts it is false.
+ * DPA 1.1.0's release, read from the code that does it. Until the owner's
+ * release on 30 October 2026 this file mocked "./dpa" so that its switch read
+ * true; the real switch, DPA_1_1_0_RELEASED in dpa.ts, is now true, so the
+ * mock is gone and every assertion runs against the real catalogue.
  *
- * What the release will do, read from the code that will do it: checkout's
- * copy names 1.1.0, signing takes 1.1.0 and asks a tab still on 1.0.0 to
- * reload, both stay released (a 1.0.0 signer keeps a released agreement),
- * and the agreement kind a practice signs does not change.
+ * What the release does: checkout's copy names 1.1.0, signing takes 1.1.0
+ * and asks a tab still on 1.0.0 to reload, both stay released (a 1.0.0
+ * signer keeps a released agreement, and stays on it: nothing in the product
+ * re-signs a newer DPA), and the agreement kind a practice signs does not
+ * change.
  */
-vi.mock("./dpa", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./dpa")>();
-  const templates = actual.dpaTemplatesFor(true);
-  return {
-    ...actual,
-    DPA_1_1_0_RELEASED: true,
-    DPA_TEMPLATES: templates,
-    CURRENT_DPA_VERSION: templates[0]!.version,
-    currentDpaTemplate: () => templates[0]!,
-    getDpaTemplate: (version: string) => templates.find((t) => t.version === version),
-  };
-});
 
-const { AGREEMENT_COPY } = await import("./agreement-copy");
-const { agreementKindFor, isDpaReleased } = await import("./agreement-kind");
-const { agreementTemplateReleased } = await import("./agreement-match");
-const { signableDpaTemplate } = await import("./agreement-signing");
-const dpa = await import("./dpa");
-
-describe("DPA 1.1.0 released (mocked switch only)", () => {
+describe("DPA 1.1.0 released", () => {
   test("1.1.0 is current", () => {
     expect(dpa.DPA_1_1_0_RELEASED).toBe(true);
     expect(dpa.CURRENT_DPA_VERSION).toBe("dpa/1.1.0");

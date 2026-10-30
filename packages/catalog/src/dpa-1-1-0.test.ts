@@ -27,14 +27,12 @@ import { dpaDraft110ReviewDocument, dpaReviewDocument } from "./dpa-review";
 import { regimeFor, specialties, type SpecialtyId } from "./specialties";
 
 /**
- * DPA 1.1.0, drafted 30 October 2026 and NOT released (DPA_1_1_0_RELEASED
- * false in dpa.ts): 1.0.0 with the Safeguards clause's telephone exception
- * carrying the one optional payment-link text after a call, in BAA 1.6.0's
- * words (docs/counsel/agreement-changes.md §21). What it says, that it says
- * nothing else new, and that with the switch off nothing offers it.
- *
- * The switch is never flipped here: "on" is read through dpaTemplatesFor(true),
- * the function the switch feeds.
+ * DPA 1.1.0, drafted 30 October 2026 and released by the owner that day
+ * (DPA_1_1_0_RELEASED true in dpa.ts): 1.0.0 with the Safeguards clause's
+ * telephone exception carrying the one optional payment-link text after a
+ * call, in BAA 1.6.0's words (docs/counsel/agreement-changes.md §21). What it
+ * says, that it says nothing else new, and that with the switch on checkout
+ * offers it and 1.0.0 stays released behind it.
  */
 
 const SAMPLE: DpaVariables = {
@@ -197,26 +195,31 @@ describe("DPA 1.1.0: the text", () => {
   });
 });
 
-describe("DPA 1.1.0: the switch, off", () => {
-  test("the switch is off, and DPA_TEMPLATES is dpa/1.0.0 alone, as before the draft", () => {
-    expect(DPA_1_1_0_RELEASED).toBe(false);
-    expect(DPA_TEMPLATES).toEqual(dpaTemplatesFor(false));
-    expect(DPA_TEMPLATES.map((t) => t.version)).toEqual(["dpa/1.0.0"]);
-    expect(CURRENT_DPA_VERSION).toBe("dpa/1.0.0");
-    expect(currentDpaTemplate().version).toBe("dpa/1.0.0");
+describe("DPA 1.1.0: the switch, on (released by the owner on 30 October 2026)", () => {
+  test("the switch is on, and DPA_TEMPLATES is dpa/1.1.0 then dpa/1.0.0, both released", () => {
+    expect(DPA_1_1_0_RELEASED).toBe(true);
+    expect(DPA_TEMPLATES).toEqual(dpaTemplatesFor(true));
+    expect(DPA_TEMPLATES.map((t) => [t.version, t.approvedByCounsel])).toEqual([
+      ["dpa/1.1.0", true],
+      ["dpa/1.0.0", true],
+    ]);
+    expect(CURRENT_DPA_VERSION).toBe("dpa/1.1.0");
+    expect(currentDpaTemplate().version).toBe("dpa/1.1.0");
     expect(currentDpaTemplate().approvedByCounsel).toBe(true);
   });
 
-  test("nothing offers, signs or accepts 1.1.0: unknown to the registry, the copy, signing and the release gate", () => {
+  test("checkout offers and signs 1.1.0 alone; 1.0.0 stays released but asks the signer to reload", () => {
+    // The draft object keeps its own flag false: only the switch releases it.
     expect(V110.approvedByCounsel).toBe(false);
-    expect(getDpaTemplate("dpa/1.1.0")).toBeUndefined();
-    expect(AGREEMENT_COPY.dpa.currentVersion).toBe("dpa/1.0.0");
-    expect(agreementTemplateReleased("dpa/1.1.0")).toBe(false);
+    expect(getDpaTemplate("dpa/1.1.0")?.approvedByCounsel).toBe(true);
+    expect(AGREEMENT_COPY.dpa.currentVersion).toBe("dpa/1.1.0");
+    expect(agreementTemplateReleased("dpa/1.1.0")).toBe(true);
+    // 1.0.0 stays released: whoever signed it is still provisioned and goes live under it.
     expect(agreementTemplateReleased("dpa/1.0.0")).toBe(true);
-    expect(() => signableDpaTemplate("dpa/1.1.0")).toThrow(/Unknown agreement version/);
-    // Even a caller standing in for the owner's release cannot sign it.
-    expect(() => signableDpaTemplate("dpa/1.1.0", { dpaReleased: true })).toThrow();
-    expect(signableDpaTemplate("dpa/1.0.0").version).toBe("dpa/1.0.0");
+    expect(signableDpaTemplate("dpa/1.1.0").version).toBe("dpa/1.1.0");
+    expect(() => signableDpaTemplate("dpa/1.0.0")).toThrow(/reload/);
+    expect(agreementTemplateReleased("dpa/1.2.0")).toBe(false);
+    expect(() => signableDpaTemplate("dpa/1.2.0")).toThrow(/Unknown agreement version/);
   });
 
   test("docs/dpa-v1.0.0.txt is still exactly the released file, and renders 1.0.0 whatever the switch", () => {
@@ -230,17 +233,19 @@ describe("DPA 1.1.0: the switch, off", () => {
     ).toBe(true);
   });
 
-  test("docs/dpa-v1.1.0.txt prints the draft's sample exactly, and says it is a draft nobody can sign", () => {
+  test("docs/dpa-v1.1.0.txt prints the released sample exactly, and says it is released for new signers only", () => {
     const doc = dpaDraft110ReviewDocument();
     const parts = doc.split(`\n${"-".repeat(78)}\n\n`);
     expect(parts[1]!.trimEnd()).toBe(prepareDpa(V110, SAMPLE).text);
     expect(doc).toContain(GOLDEN_1_1_0.sample);
-    expect(unwrap(parts[0]!)).toMatch(/DRAFT, NOT RELEASED/);
+    expect(unwrap(parts[0]!)).toMatch(/version dpa\/1\.1\.0, RELEASED/);
+    expect(unwrap(parts[0]!)).not.toMatch(/\bDRAFT\b|NOT RELEASED/);
+    expect(unwrap(parts[0]!)).toMatch(/A practice that signed dpa\/1\.0\.0 stays on dpa\/1\.0\.0/);
     expect(unwrap(parts[0]!)).toMatch(/counsel has not reviewed it/);
   });
 });
 
-describe("DPA 1.1.0: the switch, on (read through dpaTemplatesFor(true), never flipped)", () => {
+describe("DPA 1.1.0: dpaTemplatesFor(true), what the switch now feeds", () => {
   test("on, 1.1.0 is current and released, and 1.0.0 follows it, the same object", () => {
     const on = dpaTemplatesFor(true);
     const off = dpaTemplatesFor(false);

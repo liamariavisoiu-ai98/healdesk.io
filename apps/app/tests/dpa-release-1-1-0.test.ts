@@ -25,8 +25,9 @@ import { DESTRUCTION_RULES, destructionRuleFor } from "@/lib/offboarding/offboar
  * to what the catalogue will say once released, so the release cannot be a
  * flip with a migration that disagrees with it, or a flip with no migration.
  *
- * Today the switch is off: 1.1.0 is a draft nobody can sign, the release
- * file must not be in drizzle/, and nothing in apps/app knows 1.1.0.
+ * Released by the owner on 30 October 2026 (DPA_1_1_0_RELEASED true): 1.1.0
+ * is current, the release migration is drizzle/0140_dpa_release_1_1_0.sql,
+ * and every version-to-rule map in apps/app gives 1.1.0 1.0.0's rules.
  */
 
 const DRIZZLE = fileURLToPath(new URL("../drizzle/", import.meta.url));
@@ -116,9 +117,22 @@ describe("the release migration", () => {
     expect(allowList(sql, "app_destruction_rule")).toEqual(expected);
   });
 
-  test("the switch is off: the owner has not released 1.1.0", () => {
-    expect(DPA_1_1_0_RELEASED).toBe(false);
-    expect(CURRENT_DPA_VERSION).toBe("dpa/1.0.0");
+  test("the switch is on: the owner released 1.1.0 on 30 October 2026", () => {
+    expect(DPA_1_1_0_RELEASED).toBe(true);
+    expect(CURRENT_DPA_VERSION).toBe("dpa/1.1.0");
+    // 1.1.0's rules in every map are 1.0.0's, read from the released registry.
+    expect(getDpaTemplate("dpa/1.1.0")?.approvedByCounsel).toBe(true);
+    expect(destructionRuleFor("dpa/1.1.0")).toEqual({
+      rule: "export_or_ninety",
+      basis: "agreement",
+    });
+    expect(destructionRuleFor("dpa/1.1.0")).toEqual(destructionRuleFor("dpa/1.0.0"));
+    expect(reportingRuleFor("dpa/1.1.0").basis).toBe("agreement");
+    expect(reportingRuleFor("dpa/1.1.0")).toEqual(reportingRuleFor("dpa/1.0.0"));
+    expect(subcontractorNoticeRuleFor("dpa/1.1.0").basis).toBe("agreement");
+    expect(subcontractorNoticeRuleFor("dpa/1.1.0")).toEqual(
+      subcontractorNoticeRuleFor("dpa/1.0.0"),
+    );
   });
 
   test("it is in drizzle/ exactly when the switch is on", () => {

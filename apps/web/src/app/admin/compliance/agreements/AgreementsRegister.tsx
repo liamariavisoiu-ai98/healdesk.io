@@ -280,7 +280,7 @@ export function AgreementsRegister({
               {filtered ? ", filtered" : ""}
             </caption>
             <thead>
-              <tr className="border-line text-muted border-b text-left text-[13.2px] font-bold tracking-[0.06em] uppercase">
+              <tr className="border-line text-muted border-b text-left text-xs font-bold tracking-[0.06em] uppercase">
                 <Th>Clinic</Th>
                 <Th>Signatory</Th>
                 <Th>Signed</Th>
@@ -454,7 +454,7 @@ function Field({
 }) {
   return (
     <label className={className ?? ""}>
-      <span className="text-muted block text-[13.2px] font-bold tracking-[0.06em] uppercase">
+      <span className="text-muted block text-xs font-bold tracking-[0.06em] uppercase">
         {label}
       </span>
       <span className="mt-1.5 block">{children}</span>
@@ -767,7 +767,7 @@ function RowDetail({
         {step === "date" ? (
           <div className="mt-3 flex flex-wrap items-end gap-3">
             <label className="min-w-[200px]">
-              <span className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">
+              <span className="text-muted text-xs font-bold tracking-[0.06em] uppercase">
                 Last day the agreement was in effect
               </span>
               <input
@@ -783,7 +783,7 @@ function RowDetail({
               </span>
             </label>
             <label className="min-w-[280px]">
-              <span className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">
+              <span className="text-muted text-xs font-bold tracking-[0.06em] uppercase">
                 Who ended it, and why
               </span>
               <select

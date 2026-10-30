@@ -48,7 +48,7 @@ function Tile({ children, label, caption }: { children: React.ReactNode; label: 
       <div className="grid size-[72px] place-items-center overflow-hidden rounded-lg bg-white p-2.5 shadow-md ring-1 ring-black/[0.06] sm:size-20" aria-label={label} role="img">
         {children}
       </div>
-      <div className="flex h-4 max-w-full items-center justify-center text-[12.5px] font-semibold text-black/55">{caption}</div>
+      <div className="flex h-4 max-w-full items-center justify-center text-xs font-semibold text-black/55">{caption}</div>
     </div>
   );
 }
@@ -100,7 +100,7 @@ export function DemoBuildWait({
           {logoUrl ? (
             <img src={logoUrl} alt="" className="max-h-full max-w-full object-contain" />
           ) : (
-            <span className="font-display grid size-full place-items-center rounded-md text-[30px] font-medium" style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}>
+            <span className="font-display grid size-full place-items-center rounded-md text-2xl font-medium" style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}>
               {initial}
             </span>
           )}
@@ -142,18 +142,18 @@ export function DemoBuildWait({
           aria-label={done ? "Nearly there" : `${seconds} seconds left`}
         >
           {done ? (
-            <span className="font-display text-[26px] leading-tight font-medium">Nearly there</span>
+            <span className="font-display text-xl leading-tight font-medium">Nearly there</span>
           ) : (
             <>
-              <span className="font-display text-[64px] leading-none font-medium tracking-[-0.03em] tabular-nums">{seconds}</span>
-              <span className="text-muted mt-1 text-[14px] font-semibold tracking-wide uppercase">{seconds === 1 ? "second" : "seconds"}</span>
+              <span className="font-display text-6xl leading-none font-medium tracking-[-0.03em] tabular-nums">{seconds}</span>
+              <span className="text-muted mt-1 text-xs font-semibold tracking-wide uppercase">{seconds === 1 ? "second" : "seconds"}</span>
             </>
           )}
         </div>
       </div>
 
       {/* The step under way, and where it sits among the three. */}
-      <p key={shown.step} className="dw-step mt-8 text-[17px] font-semibold" aria-live="polite">
+      <p key={shown.step} className="dw-step mt-8 text-sm font-semibold" aria-live="polite">
         {stepLabel(shown.step, host)}
       </p>
       <div className="mt-3 flex gap-2" aria-hidden>
@@ -168,7 +168,7 @@ export function DemoBuildWait({
           />
         ))}
       </div>
-      <p className="text-muted mt-6 text-[15px] font-medium">Your demo opens on this page by itself.</p>
+      <p className="text-muted mt-6 text-xs font-medium">Your demo opens on this page by itself.</p>
     </div>
   );
 }

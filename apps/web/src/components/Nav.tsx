@@ -40,11 +40,11 @@ const WIDE_ONLY = "hidden min-[880px]:block";
 
 /** A text link in the bar: hidden below `WIDE_ONLY`'s width, a 44px target above it. */
 const TEXT_LINK =
-  "text-muted hover:text-ink aria-[current=page]:text-ink hidden min-h-11 items-center text-[16.8px] font-semibold whitespace-nowrap transition-colors min-[880px]:inline-flex";
+  "text-muted hover:text-ink aria-[current=page]:text-ink hidden min-h-11 items-center text-sm font-semibold whitespace-nowrap transition-colors min-[880px]:inline-flex";
 
 /** A link in the Menu disclosure: a full-width 44px row. */
 const MENU_LINK =
-  "text-ink hover:bg-paper-2 aria-[current=page]:bg-paper-2 flex min-h-11 items-center rounded-sm px-3 text-[16.8px] font-semibold";
+  "text-ink hover:bg-paper-2 aria-[current=page]:bg-paper-2 flex min-h-11 items-center rounded-sm px-3 text-sm font-semibold";
 
 /**
  * Wayfinding, on a phone (owner, 12 October 2026).
@@ -180,7 +180,7 @@ export function Nav() {
       className="nav border-line/60 bg-paper/85 sticky top-0 z-50 border-b backdrop-blur-md"
       data-way={wayfinding || undefined}
     >
-      <div className="mx-auto flex max-w-[1240px] items-center gap-2 px-5 py-4 min-[480px]:gap-3 sm:gap-5 sm:px-8 lg:px-14">
+      <div className="mx-auto flex max-w-page items-center gap-2 px-5 py-4 min-[480px]:gap-3 sm:gap-5 sm:px-8 lg:px-14">
         {/* The wordmark, and on a phone past the hero, the mark and the
             section on screen in its place (useWayfinding). The one hidden is
             inert, so a keyboard meets one home link, never two. */}
@@ -229,7 +229,7 @@ export function Nav() {
         {signIn ? (
           <a
             href={signIn}
-            className="text-muted hover:text-ink hidden min-h-11 items-center text-[16.8px] font-semibold whitespace-nowrap transition-colors min-[480px]:inline-flex"
+            className="text-muted hover:text-ink hidden min-h-11 items-center text-sm font-semibold whitespace-nowrap transition-colors min-[480px]:inline-flex"
           >
             {SIGN_IN_LABEL}
           </a>
@@ -239,7 +239,7 @@ export function Nav() {
 
         <details className="nav-menu relative min-[880px]:hidden">
           <summary
-            className="border-line text-ink hover:border-line-strong inline-flex min-h-11 cursor-pointer list-none items-center gap-1.5 rounded-sm border px-3 text-[15.6px] font-semibold whitespace-nowrap transition-colors select-none [&::-webkit-details-marker]:hidden"
+            className="border-line text-ink hover:border-line-strong inline-flex min-h-11 cursor-pointer list-none items-center gap-1.5 rounded-sm border px-3 text-xs font-semibold whitespace-nowrap transition-colors select-none [&::-webkit-details-marker]:hidden"
           >
             Menu
             <svg aria-hidden viewBox="0 0 16 16" className="nav-menu__chevron size-3.5 shrink-0 transition-transform duration-fast">

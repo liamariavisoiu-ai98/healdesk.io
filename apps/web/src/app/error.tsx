@@ -57,15 +57,15 @@ export default function ErrorPage({
     <>
       <Nav />
 
-      <main className="mx-auto max-w-[1240px] px-5 pt-16 pb-24 sm:px-8 sm:pt-24 lg:px-14">
+      <main className="mx-auto max-w-page px-5 pt-16 pb-24 sm:px-8 sm:pt-24 lg:px-14">
         <div className="max-w-[52ch]">
           <p className="eyebrow-tag">
             Something went wrong
           </p>
-          <h1 className="font-display mt-3 text-[clamp(40.8px,6vw,69.6px)] leading-[1.03] font-medium tracking-[-0.028em]">
+          <h1 className="font-display mt-3 text-[clamp(var(--text-4xl),6vw,var(--text-6xl))] leading-[1.03] font-medium tracking-[-0.028em]">
             {site.agent} dropped this one. She&rsquo;ll pick it straight back up.
           </h1>
-          <p className="text-muted mt-5 text-[20.4px] font-medium">
+          <p className="text-muted mt-5 text-lg font-medium">
             This part of the page hit an error on our side, not yours. Trying
             again usually fixes it. If it doesn&rsquo;t, a person will.
           </p>
@@ -74,20 +74,20 @@ export default function ErrorPage({
             <button
               type="button"
               onClick={() => retry()}
-              className="bg-brand-gradient shadow-sm inline-flex items-center justify-center rounded-full px-7 py-3.5 text-base font-bold text-white transition-transform duration-fast hover:-translate-y-0.5"
+              className="bg-brand-gradient shadow-sm inline-flex items-center justify-center rounded-full px-7 py-3.5 text-lg font-bold text-white transition-transform duration-fast hover:-translate-y-0.5"
             >
               Try again
             </button>
             <a
               href="/contact"
-              className="border-line text-ink hover:border-orange inline-flex items-center justify-center rounded-full border bg-white px-7 py-3.5 text-base font-bold transition-transform duration-fast hover:-translate-y-px"
+              className="border-line text-ink hover:border-orange inline-flex items-center justify-center rounded-full border bg-white px-7 py-3.5 text-lg font-bold transition-transform duration-fast hover:-translate-y-px"
             >
               Contact us
             </a>
           </div>
 
           {error.digest ? (
-            <p className="text-muted mt-8 text-[13.2px]">
+            <p className="text-muted mt-8 text-xs">
               Reference <code className="font-mono">{error.digest}</code>, in
               case you write in.
             </p>

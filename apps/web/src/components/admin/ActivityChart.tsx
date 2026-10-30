@@ -451,11 +451,11 @@ export function ActivityChart({
   return (
     <figure className="border-line rounded-md border bg-white p-5 sm:p-6">
       <figcaption className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h3 className="font-display text-[22.8px] leading-tight font-medium">
+        <h3 className="font-display text-xl leading-tight font-medium">
           Commits per day
         </h3>
         {model.rangeLabel ? (
-          <p className="text-muted text-[15.6px] font-semibold tabular-nums">
+          <p className="text-muted text-sm font-semibold tabular-nums">
             {model.rangeLabel}
           </p>
         ) : null}
@@ -593,7 +593,7 @@ export function ActivityChart({
               {model.ticks.map((tick) => (
                 <span
                   key={tick}
-                  className="text-muted absolute text-[13.2px] font-semibold tabular-nums"
+                  className="text-muted absolute text-xs font-semibold tabular-nums"
                   style={{
                     top: `${yPct(BASELINE - (tick / scaleTop) * PLOT_H)}%`,
                     left: 0,
@@ -635,7 +635,7 @@ export function ActivityChart({
               return (
                 <span
                   key={bar.day.date}
-                  className="text-muted absolute top-0 text-[13.2px] font-semibold whitespace-nowrap tabular-nums"
+                  className="text-muted absolute top-0 text-xs font-semibold whitespace-nowrap tabular-nums"
                   style={{ left: `${left}%`, transform: anchorX(left, 8) }}
                 >
                   {formatDate(bar.day.date, SHORT_DATE)}
@@ -708,10 +708,10 @@ function DirectLabel({
         transform: `${anchorX(leftPct, 8)} translateY(calc(-100% - 6px))`,
       }}
     >
-      <span className="text-muted text-[12px] font-bold tracking-[0.1em] uppercase">
+      <span className="text-muted text-xs font-bold tracking-[0.1em] uppercase">
         {caption}
       </span>
-      <span className="text-ink text-[15.6px] leading-none font-semibold tabular-nums">
+      <span className="text-ink text-sm leading-none font-semibold tabular-nums">
         {NUMBER.format(value)}
       </span>
     </span>
@@ -736,25 +736,25 @@ function Tooltip({ bar, announce }: { bar: Bar; announce: boolean }) {
         }`,
       }}
     >
-      <p className="text-[13.2px] font-semibold whitespace-nowrap opacity-70">
+      <p className="text-xs font-semibold whitespace-nowrap opacity-70">
         {formatDate(bar.day.date, LONG_DATE)}
       </p>
       {!bar.covered ? (
         // The one case where the tooltip is the only thing that can tell the
         // reader why a day is empty. "No commits" here would be a claim the
         // payload never made.
-        <p className="max-w-[22ch] text-[15.6px] leading-snug font-semibold">
+        <p className="max-w-[22ch] text-sm leading-snug font-semibold">
           Not counted: this read did not reach back this far
         </p>
       ) : bar.day.commits > 0 ? (
         <>
-          <p className="text-[18px] leading-tight font-semibold whitespace-nowrap tabular-nums">
+          <p className="text-base leading-tight font-semibold whitespace-nowrap tabular-nums">
             {NUMBER.format(bar.day.commits)}{" "}
-            <span className="text-[14.4px] font-medium opacity-70">
+            <span className="text-xs font-medium opacity-70">
               {bar.day.commits === 1 ? "commit" : "commits"}
             </span>
           </p>
-          <p className="mt-0.5 text-[14.4px] font-semibold whitespace-nowrap tabular-nums">
+          <p className="mt-0.5 text-xs font-semibold whitespace-nowrap tabular-nums">
             +{NUMBER.format(bar.day.additions)}
             <span className="mx-1 opacity-40">/</span>
             <span className="opacity-70">
@@ -763,7 +763,7 @@ function Tooltip({ bar, announce }: { bar: Bar; announce: boolean }) {
           </p>
         </>
       ) : (
-        <p className="text-[15.6px] leading-tight font-semibold whitespace-nowrap">
+        <p className="text-sm leading-tight font-semibold whitespace-nowrap">
           No commits
         </p>
       )}
@@ -781,7 +781,7 @@ function Tooltip({ bar, announce }: { bar: Bar; announce: boolean }) {
  */
 function CoverageNote({ model }: { model: Model }) {
   return (
-    <p className="text-muted mt-3 text-[15px] leading-snug font-medium">
+    <p className="text-muted mt-3 text-sm leading-snug font-medium">
       <span
         aria-hidden="true"
         className="mr-2 inline-block h-2.5 w-2.5 translate-y-[1px] rounded-sm border"
@@ -808,7 +808,7 @@ function EmptyState({
   coveredFromLabel: string | null;
 }) {
   return (
-    <p className="border-line text-muted mt-5 rounded-md border border-dashed px-4 py-10 text-center text-[16.8px] font-semibold">
+    <p className="border-line text-muted mt-5 rounded-md border border-dashed px-4 py-10 text-center text-base font-semibold">
       {!ok
         ? // A failed read sends no days at all, which is the same empty array a
           // window with nothing in it would send. Only `ok` tells them apart,

@@ -26,7 +26,7 @@ const NICHES = [
 ] as const;
 
 const field =
-  "border-line focus:border-orange text-ink placeholder:text-muted w-full rounded-sm border bg-white px-3.5 py-2.5 text-[16px] outline-none transition-colors";
+  "border-line focus:border-orange text-ink placeholder:text-muted w-full rounded-sm border bg-white px-3.5 py-2.5 text-sm outline-none transition-colors";
 
 export function DemoBuilder() {
   const [state, action, pending] = useActionState<CreateDemoState, FormData>(createDemoAction, { status: "idle" });
@@ -41,7 +41,7 @@ export function DemoBuilder() {
     <div className="border-line rounded-lg border bg-white p-5 sm:p-6">
       <form action={action} className="grid gap-4 sm:grid-cols-2">
         <label className="sm:col-span-2">
-          <span className="text-[14.4px] font-semibold">Clinic website</span>
+          <span className="text-xs font-semibold">Clinic website</span>
           <input
             name="websiteUrl"
             required
@@ -51,11 +51,11 @@ export function DemoBuilder() {
           />
         </label>
         <label>
-          <span className="text-[14.4px] font-semibold">Clinic name</span>
+          <span className="text-xs font-semibold">Clinic name</span>
           <input name="clinicName" required placeholder="Smith Dental" className={`${field} mt-1 ${invalid("clinicName") ? "border-red" : ""}`} />
         </label>
         <label>
-          <span className="text-[14.4px] font-semibold">Niche</span>
+          <span className="text-xs font-semibold">Niche</span>
           <select name="niche" className={`${field} mt-1`} defaultValue="">
             {NICHES.map(([value, label]) => (
               <option key={value} value={value}>
@@ -65,7 +65,7 @@ export function DemoBuilder() {
           </select>
         </label>
         <label>
-          <span className="text-[14.4px] font-semibold">Prospect email</span>
+          <span className="text-xs font-semibold">Prospect email</span>
           <input
             name="leadEmail"
             type="email"
@@ -74,30 +74,30 @@ export function DemoBuilder() {
           />
         </label>
         <label>
-          <span className="text-[14.4px] font-semibold">Prospect phone (optional)</span>
+          <span className="text-xs font-semibold">Prospect phone (optional)</span>
           <input
             name="phone"
             type="tel"
             placeholder="+1 512 555 0142"
             className={`${field} mt-1 ${invalid("phone") ? "border-red" : ""}`}
           />
-          <span className="text-muted mt-1 block text-[13.2px]">Prefills &ldquo;call me&rdquo;. They still tick consent themselves.</span>
+          <span className="text-muted mt-1 block text-xs">Prefills &ldquo;call me&rdquo;. They still tick consent themselves.</span>
         </label>
         <label className="flex items-center gap-2.5 sm:col-span-2">
           <input type="checkbox" name="sendEmail" className="accent-red size-4" />
-          <span className="text-[15px] font-medium">Email them the link as soon as it&rsquo;s ready</span>
+          <span className="text-sm font-medium">Email them the link as soon as it&rsquo;s ready</span>
         </label>
 
         <div className="flex flex-wrap items-center gap-3 sm:col-span-2">
           <button
             type="submit"
             disabled={pending}
-            className="bg-brand-gradient shadow-sm rounded-sm px-6 py-3 text-[16px] font-bold text-white transition-all duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-50"
+            className="bg-brand-gradient shadow-sm rounded-sm px-6 py-3 text-sm font-bold text-white transition-all duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-50"
           >
             {pending ? "Creating…" : "Build the demo"}
           </button>
           {state.status === "error" ? (
-            <p className="text-red-deep text-[15px] font-semibold" role="alert">
+            <p className="text-red-deep text-sm font-semibold" role="alert">
               {state.error}
             </p>
           ) : null}
@@ -106,17 +106,17 @@ export function DemoBuilder() {
 
       {state.status === "created" ? (
         <div className="bg-tint-mint mt-5 rounded-md px-4 py-4">
-          <p className="text-[15px] font-semibold">
+          <p className="text-sm font-semibold">
             {state.clinicName}&rsquo;s demo is building. This link works now and fills in within a minute or two:
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <code className="min-w-0 flex-1 truncate rounded-sm bg-white px-3 py-2 font-mono text-[14px]">{state.url}</code>
+            <code className="min-w-0 flex-1 truncate rounded-sm bg-white px-3 py-2 font-mono text-xs">{state.url}</code>
             <button
               type="button"
               onClick={() => {
                 void navigator.clipboard.writeText(state.url).then(() => setCopiedFor(state));
               }}
-              className="border-line hover:border-line-strong rounded-sm border bg-white px-3 py-2 text-[14.4px] font-bold"
+              className="border-line hover:border-line-strong rounded-sm border bg-white px-3 py-2 text-xs font-bold"
             >
               {copied ? "Copied" : "Copy link"}
             </button>
@@ -124,7 +124,7 @@ export function DemoBuilder() {
               href={state.url}
               target="_blank"
               rel="noreferrer"
-              className="border-line hover:border-line-strong rounded-sm border bg-white px-3 py-2 text-[14.4px] font-bold"
+              className="border-line hover:border-line-strong rounded-sm border bg-white px-3 py-2 text-xs font-bold"
             >
               Open
             </a>
@@ -174,7 +174,7 @@ export function CopyLink({ url }: { url: string }) {
       onClick={() => {
         void navigator.clipboard.writeText(url).then(() => setCopied(true));
       }}
-      className="text-red-deep hover:text-red text-[14.4px] font-bold"
+      className="text-red-deep hover:text-red text-xs font-bold"
     >
       {copied ? "Copied" : "Copy link"}
     </button>

@@ -39,12 +39,12 @@ export function ClosingCta() {
           <h2 id="closing-heading" className="heading-section text-ink mt-4">
             Let {site.agent} take the next call.
           </h2>
-          <p className="closing__line text-muted mt-5 text-[clamp(17px,1.25vw,19px)] leading-[1.55] font-medium">
+          <p className="closing__line text-muted mt-5 text-[clamp(var(--text-base),1.25vw,var(--text-lg))] leading-[1.55] font-medium">
             Talk to her first, free. When you are ready, she answers on the channels you choose.
           </p>
           <div className="closing__buttons mt-9 grid w-full max-w-[480px] grid-cols-1 gap-3 sm:grid-cols-2">
-            <BuyButton size="h-[54px] px-6 text-base" className="w-full whitespace-nowrap" />
-            <a href={site.cta.secondary.href} className="btn-ink h-[54px] w-full px-6 text-base whitespace-nowrap">
+            <BuyButton size="h-[54px] px-6 text-lg" className="w-full whitespace-nowrap" />
+            <a href={site.cta.secondary.href} className="btn-ink h-[54px] w-full px-6 text-lg whitespace-nowrap">
               {site.cta.secondary.label}
             </a>
           </div>

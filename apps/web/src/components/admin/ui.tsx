@@ -73,7 +73,7 @@ export function Section({
 export function Tag({ tone = "muted", children }: { tone?: Tone; children: React.ReactNode }) {
   return (
     <span
-      className={`inline-block rounded-full px-2.5 py-1 text-[13.2px] font-bold tracking-[0.06em] uppercase ${PILL[tone]}`}
+      className={`inline-block rounded-full px-2.5 py-1 text-xs font-bold tracking-[0.06em] uppercase ${PILL[tone]}`}
     >
       {children}
     </span>
@@ -95,7 +95,7 @@ export function Chip({
   title?: string;
   children: React.ReactNode;
 }) {
-  const className = `inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[13.2px] font-semibold whitespace-nowrap ${PILL[tone]}${href ? " hover:ring-line-strong hover:ring-1" : ""}`;
+  const className = `inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold whitespace-nowrap ${PILL[tone]}${href ? " hover:ring-line-strong hover:ring-1" : ""}`;
   const inner = (
     <>
       <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${DOT[tone]}`} />
@@ -278,7 +278,7 @@ export function ActionButton<T extends ActionOutcome>({
 export function ClinicId({ id }: { id: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <p className="text-muted mt-1.5 flex flex-wrap items-center gap-x-2 text-[13px]">
+    <p className="text-muted mt-1.5 flex flex-wrap items-center gap-x-2 text-xs">
       <span>Clinic id</span>
       <code className="font-mono select-all">{id}</code>
       <button
@@ -321,11 +321,11 @@ export function CodeField({
   const passcodeSet = useApprovalPasscodeSet();
   return (
     <label className="grid gap-1">
-      <span className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">
+      <span className="text-muted text-xs font-bold tracking-[0.06em] uppercase">
         {approval ? "Approval passcode (or authenticator code)" : "Code from your authenticator"}
       </span>
       {approval && passcodeSet === false ? (
-        <span className="text-muted text-[14.4px]">
+        <span className="text-muted text-xs">
           The approval passcode is not set on this deployment: only your authenticator code works.
         </span>
       ) : null}

@@ -149,7 +149,7 @@ function RoundKey({
         <Sheen />
         {icon}
       </span>
-      <span className="text-[12.5px] font-medium text-white/90">{label}</span>
+      <span className="text-xs font-medium text-white/90">{label}</span>
     </button>
   );
 }
@@ -247,8 +247,8 @@ export function PhoneCallCard({ clinic, callRoute, locked = false }: { clinic: s
         <span aria-hidden className="pointer-events-none absolute -bottom-28 -left-16 size-72 rounded-full bg-[#c9d8f4]/40 blur-3xl" />
 
         <FaceBubble size={116} className="relative" />
-        <div className="relative mt-3 text-[21px] font-semibold tracking-[-0.02em] text-[#1c1c1e]">Aya</div>
-        <div className="relative text-[13.5px] text-[#6e6e73]">{clinic}</div>
+        <div className="relative mt-3 text-lg font-semibold tracking-[-0.02em] text-[#1c1c1e]">Aya</div>
+        <div className="relative text-xs text-[#6e6e73]">{clinic}</div>
 
         <button
           type="button"
@@ -260,8 +260,8 @@ export function PhoneCallCard({ clinic, callRoute, locked = false }: { clinic: s
           <Sheen />
           {ICON.phone}
         </button>
-        <span className="relative mt-2.5 text-[17px] font-medium text-[#3a3a3c]">Call Aya</span>
-        <p className="relative mt-1.5 max-w-[300px] text-[13px] leading-snug text-[#8e8e93]" aria-live="polite">
+        <span className="relative mt-2.5 text-sm font-medium text-[#3a3a3c]">Call Aya</span>
+        <p className="relative mt-1.5 max-w-[300px] text-xs leading-snug text-[#8e8e93]" aria-live="polite">
           {locked
             ? "This demo has expired."
             : error
@@ -286,9 +286,9 @@ export function PhoneCallCard({ clinic, callRoute, locked = false }: { clinic: s
       <span aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/25 via-black/35 to-black/60" />
 
       <FaceBubble size={84} className="relative ring-white/30" />
-      <div className="relative mt-3 text-center text-[28px] leading-tight font-semibold tracking-[-0.02em] [text-wrap:balance]">Aya</div>
-      <div className="relative text-[15px] text-white/75">{clinic}</div>
-      <div className="relative mt-1 text-[15px] text-white/70 tabular-nums" aria-live="polite">
+      <div className="relative mt-3 text-center text-2xl leading-tight font-semibold tracking-[-0.02em] [text-wrap:balance]">Aya</div>
+      <div className="relative text-xs text-white/75">{clinic}</div>
+      <div className="relative mt-1 text-xs text-white/70 tabular-nums" aria-live="polite">
         {state === "live" ? formatElapsed(elapsed) : "calling…"}
       </div>
 

@@ -194,11 +194,11 @@ export default async function CasePage({ params }: { params: Promise<{ caseId: s
   const item = view.ok && waiting.ok ? waitingItemFor(waiting.data.items, caseId, view.data.draft?.version ?? null) : null;
 
   return (
-    <main className="mx-auto w-full max-w-[1240px] px-4 py-10 sm:px-8 lg:px-14">
+    <main className="mx-auto w-full max-w-page px-4 py-10 sm:px-8 lg:px-14">
       <a href={LIST} className="text-muted text-sm underline">
         ← Support
       </a>
-      <h1 className="font-display mt-2 text-[28px] leading-tight font-semibold tracking-[-0.02em]">Support</h1>
+      <h1 className="font-display mt-2 text-2xl leading-tight font-semibold tracking-[-0.02em]">Support</h1>
       {!view.ok ? (
         <Failure failure={view} what="the support case" />
       ) : (

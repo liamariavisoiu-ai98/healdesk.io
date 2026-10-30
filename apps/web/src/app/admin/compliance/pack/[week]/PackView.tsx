@@ -75,9 +75,9 @@ const WHEN_TAG: Record<When, string> = { "this week": "this week", "at week end"
 function Number_({ value, words }: { value: number | string; words: NumberWords }) {
   return (
     <div className="border-line flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b py-1.5 last:border-b-0">
-      <span className="w-14 text-right text-[19.2px] font-bold tabular-nums">{value}</span>
+      <span className="w-14 text-right text-lg font-bold tabular-nums">{value}</span>
       <span className="font-semibold">{words.label}</span>
-      <span className="text-muted text-[13.2px] tracking-[0.04em] uppercase">{WHEN_TAG[words.when]}</span>
+      <span className="text-muted text-xs tracking-[0.04em] uppercase">{WHEN_TAG[words.when]}</span>
       <span className="text-muted basis-full text-sm sm:basis-auto">{words.measures}</span>
     </div>
   );
@@ -150,7 +150,7 @@ function Vendors({ section }: { section: CompliancePackView["vendors"] }) {
       <p className="text-muted">Each subject as its latest attestation stood when the week ended; an attestation lapses the day after its expiry.</p>
       <table className="w-full text-left">
         <thead>
-          <tr className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">
+          <tr className="text-muted text-xs font-bold tracking-[0.06em] uppercase">
             <th className="py-1 pr-3">Subject</th>
             <th className="py-1 pr-3">Kind</th>
             <th className="py-1 pr-3">State at week end</th>
@@ -256,7 +256,7 @@ function DataLifecycle({ section }: { section: CompliancePackView["dataLifecycle
         <p className="text-muted">Their rows keep no history, so this is as of the build, not the week.</p>
         <table className="w-full text-left">
           <thead>
-            <tr className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">
+            <tr className="text-muted text-xs font-bold tracking-[0.06em] uppercase">
               <th className="py-1 pr-3">Job</th>
               <th className="py-1 pr-3">Switch</th>
               <th className="py-1 pr-3">Last run</th>
@@ -345,11 +345,11 @@ export function PackView({ record }: { record: CompliancePackRecordView }) {
           </a>
           <PrintButton />
         </div>
-        <h1 className="font-display mt-2 text-[28px] leading-tight font-semibold tracking-[-0.02em]">Compliance pack</h1>
-        <p className="mt-1 text-[15.6px] font-semibold">Week of {weekWords(pack.week)}</p>
+        <h1 className="font-display mt-2 text-2xl leading-tight font-semibold tracking-[-0.02em]">Compliance pack</h1>
+        <p className="mt-1 text-sm font-semibold">Week of {weekWords(pack.week)}</p>
         <p className="text-muted mt-1 text-sm">
           Stored {whenWords(record.generatedAt)} by {generatedByWords(record.generatedBy)}. A stored pack never changes. Fingerprint{" "}
-          <code className="font-mono text-[13px] break-all">{record.payloadHash}</code>
+          <code className="font-mono text-xs break-all">{record.payloadHash}</code>
         </p>
         {pack.build.partial ? (
           <p role="status" className="text-red-deep mt-3 text-sm font-semibold">

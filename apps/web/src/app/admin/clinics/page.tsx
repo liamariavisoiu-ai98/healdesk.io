@@ -39,8 +39,8 @@ export default async function ClinicsPage({ searchParams }: { searchParams: Prom
   const counts = Object.fromEntries(CLINIC_FILTERS.map((f) => [f.id, filterClinicRows(rows, f.id).length])) as Record<ClinicFilter, number>;
 
   return (
-    <main className="mx-auto w-full max-w-[1240px] px-4 py-10 sm:px-8 lg:px-14">
-      <h1 className="font-display text-[28px] leading-tight font-semibold tracking-[-0.02em]">Clinics</h1>
+    <main className="mx-auto w-full max-w-page px-4 py-10 sm:px-8 lg:px-14">
+      <h1 className="font-display text-2xl leading-tight font-semibold tracking-[-0.02em]">Clinics</h1>
 
       {!clinics.ok ? <Failure failure={clinics} what="the clinic list" /> : null}
       {!cards.ok ? <Failure failure={cards} what="the clinics' channel states" /> : null}

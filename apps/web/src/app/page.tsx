@@ -71,7 +71,7 @@ export default function HomePage() {
           wordmark hand-off that used to live here are gone, see HeroStage. */}
       <HeroStage />
 
-      <main className="mx-auto max-w-[1240px] px-5 sm:px-8 lg:px-14">
+      <main className="mx-auto max-w-page px-5 sm:px-8 lg:px-14">
         {/* Demos (#aya), the niche reel, and "Why go smart?", all driven by
             one selected specialty, so they cannot disagree with each other. */}
         <HomeExperience />

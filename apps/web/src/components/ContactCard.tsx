@@ -68,14 +68,14 @@ export function ContactCard() {
           a person" label over it until 9 October 2026 (owner). */}
       <a
         href={`mailto:${site.email}`}
-        className="font-display text-brand-gradient block text-[clamp(26.4px,3.12vw,33.6px)] leading-tight font-semibold tracking-[-0.02em]"
+        className="font-display text-brand-gradient block text-[clamp(var(--text-2xl),3.12vw,var(--text-3xl))] leading-tight font-semibold tracking-[-0.02em]"
       >
         {site.email}
       </a>
 
       {status === "sent" ? (
         <div className="mt-7">
-          <p className="font-display text-[22.8px] leading-snug font-medium">
+          <p className="font-display text-xl leading-snug font-medium">
             Got it. We&apos;ll come back to you.
           </p>
           <p className="text-muted mt-2 text-sm font-medium">
@@ -84,7 +84,7 @@ export function ContactCard() {
           <button
             type="button"
             onClick={() => setStatus("idle")}
-            className="text-muted hover:text-ink mt-4 inline-flex min-h-11 items-center text-[15.6px] font-bold transition-colors"
+            className="text-muted hover:text-ink mt-4 inline-flex min-h-11 items-center text-xs font-bold transition-colors"
           >
             Send another
           </button>
@@ -135,7 +135,7 @@ export function ContactCard() {
           />
 
           {error ? (
-            <p id={errorId} className="text-red-deep text-[15.6px] font-semibold" role="alert">
+            <p id={errorId} className="text-red-deep text-xs font-semibold" role="alert">
               {error}
             </p>
           ) : null}
@@ -145,7 +145,7 @@ export function ContactCard() {
           <button
             type="submit"
             disabled={status === "sending"}
-            className="bg-brand-gradient-deep shadow-sm w-full rounded-full px-6 py-3.5 text-[18px] font-bold text-white transition-transform duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-50"
+            className="bg-brand-gradient-deep shadow-sm w-full rounded-full px-6 py-3.5 text-sm font-bold text-white transition-transform duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-50"
           >
             {status === "sending" ? "Sending…" : "Send it over"}
           </button>
@@ -156,7 +156,7 @@ export function ContactCard() {
 }
 
 const CONTROL =
-  "border-line focus:border-orange text-ink placeholder:text-muted w-full resize-y rounded-sm border px-4 py-3 text-[17.4px] outline-none transition-colors";
+  "border-line focus:border-orange text-ink placeholder:text-muted w-full resize-y rounded-sm border px-4 py-3 text-sm outline-none transition-colors";
 
 /** A visible label over one control, which the render prop draws with the label's id. */
 function Field({
@@ -171,7 +171,7 @@ function Field({
   const id = `${useId()}-${name}`;
   return (
     <div>
-      <label htmlFor={id} className="text-ink mb-1.5 block text-[15px] font-semibold">
+      <label htmlFor={id} className="text-ink mb-1.5 block text-xs font-semibold">
         {label}
       </label>
       {children(id)}

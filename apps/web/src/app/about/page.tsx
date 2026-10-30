@@ -36,12 +36,12 @@ export default function AboutPage() {
       <Nav />
       <main className="mx-auto max-w-[760px] px-5 pt-16 pb-24 sm:px-8 sm:pt-20">
         <p className="eyebrow-tag">About</p>
-        <h1 className="font-display mt-3 text-[clamp(34px,5vw,52px)] leading-[1.05] font-medium tracking-[-0.025em]">
+        <h1 className="font-display mt-3 text-[clamp(var(--text-3xl),5vw,var(--text-5xl))] leading-[1.05] font-medium tracking-[-0.025em]">
           About {site.name}, and how we source what we publish
         </h1>
 
         <nav aria-label="On this page" className="mt-8">
-          <ul className="text-muted space-y-1 text-[15px]">
+          <ul className="text-muted space-y-1 text-sm">
             {SECTIONS.map((section) => (
               <li key={section.id}>
                 <a href={`#${section.id}`} className="hover:text-ink underline-offset-2 hover:underline">
@@ -52,7 +52,7 @@ export default function AboutPage() {
           </ul>
         </nav>
 
-        <div className="mt-6 space-y-4 text-[16.5px] leading-[1.7] [&_h2]:font-display [&_h2]:mt-12 [&_h2]:scroll-mt-24 [&_h2]:text-[26px] [&_h2]:leading-tight [&_h2]:font-medium [&_h2]:tracking-[-0.02em]">
+        <div className="mt-6 space-y-4 text-sm leading-[1.7] [&_h2]:font-display [&_h2]:mt-12 [&_h2]:scroll-mt-24 [&_h2]:text-2xl [&_h2]:leading-tight [&_h2]:font-medium [&_h2]:tracking-[-0.02em]">
           <h2 id="what">What is healdesk?</h2>
           <p>
             {site.entityDescription} It is sold to cash-pay elective clinics such as med spas, plastic surgery and

@@ -149,10 +149,10 @@ export function RoadmapBoard({ ok, groups, totals }: RoadmapBoardProps) {
     // than describing both and asking the reader to work it out.
     return (
       <div className="border-line rounded-md border border-dashed px-5 py-8 text-center">
-        <p className="font-display text-[21.6px] font-medium">
+        <p className="font-display text-xl font-medium">
           {ok ? "Nothing queued" : "The roadmap could not be read"}
         </p>
-        <p className="text-muted mx-auto mt-2 max-w-[46ch] text-[16.2px] font-medium">
+        <p className="text-muted mx-auto mt-2 max-w-[46ch] text-sm font-medium">
           {ok
             ? "The task list was read and there is nothing left in it. This is a clear runway, not a failure to look."
             : "The task list could not be read, so this is blank rather than empty. Nothing here says the work is done. On a deployed instance the task file is usually not shipped with the app, which is the most likely reason."}
@@ -166,10 +166,10 @@ export function RoadmapBoard({ ok, groups, totals }: RoadmapBoardProps) {
       {/* Summary strip, every number here is the server's, not a re-count. */}
       <div className="border-line flex flex-wrap items-center gap-x-6 gap-y-3 rounded-md border bg-white px-4 py-3.5">
         <p className="flex items-baseline gap-2">
-          <span className="font-figure text-brand-gradient text-[31.2px] leading-none font-semibold tabular-nums">
+          <span className="font-figure text-brand-gradient text-3xl leading-none font-semibold tabular-nums">
             {totals.tasks}
           </span>
-          <span className="text-muted text-[15.6px] font-semibold">
+          <span className="text-muted text-sm font-semibold">
             tasks ahead
           </span>
         </p>
@@ -178,7 +178,7 @@ export function RoadmapBoard({ ok, groups, totals }: RoadmapBoardProps) {
           {TASK_STATUSES.map((status) => (
             <li
               key={status}
-              className="flex items-baseline gap-1.5 text-[15.6px] font-semibold"
+              className="flex items-baseline gap-1.5 text-sm font-semibold"
               title={STATUS_META[status].meaning}
             >
               <span
@@ -195,7 +195,7 @@ export function RoadmapBoard({ ok, groups, totals }: RoadmapBoardProps) {
 
       {/* Filter row */}
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <span className="text-muted mr-1 text-[13.2px] font-bold tracking-[0.12em] uppercase">
+        <span className="text-muted mr-1 text-xs font-bold tracking-[0.12em] uppercase">
           Show
         </span>
 
@@ -210,7 +210,7 @@ export function RoadmapBoard({ ok, groups, totals }: RoadmapBoardProps) {
               onClick={() => toggleStatus(status)}
               title={meta.meaning}
               className={[
-                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[15px] font-bold transition-colors",
+                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-bold transition-colors",
                 isOn
                   ? "text-ink"
                   : "border-line text-muted hover:border-line-strong bg-transparent",
@@ -243,19 +243,19 @@ export function RoadmapBoard({ ok, groups, totals }: RoadmapBoardProps) {
           <button
             type="button"
             onClick={() => setSelected(ALL_STATUSES)}
-            className="text-muted hover:text-ink ml-1 text-[15px] font-bold underline decoration-1 underline-offset-4 transition-colors"
+            className="text-muted hover:text-ink ml-1 text-sm font-bold underline decoration-1 underline-offset-4 transition-colors"
           >
             Show all
           </button>
         ) : null}
 
-        <span className="text-muted ml-auto text-[15px] font-semibold tabular-nums">
+        <span className="text-muted ml-auto text-sm font-semibold tabular-nums">
           {shown} of {totals.tasks} shown
         </span>
       </div>
 
       {selected.size === 0 ? (
-        <p className="border-line text-muted mt-4 rounded-md border border-dashed px-5 py-6 text-center text-[16.2px] font-medium">
+        <p className="border-line text-muted mt-4 rounded-md border border-dashed px-5 py-6 text-center text-sm font-medium">
           Every status is switched off, so nothing is listed. That is the filter,
           not the roadmap.
         </p>
@@ -312,7 +312,7 @@ function GroupPanel({
         <span
           aria-hidden
           className={[
-            "text-muted mt-[3px] inline-block shrink-0 text-[16.8px] transition-transform",
+            "text-muted mt-[3px] inline-block shrink-0 text-base transition-transform",
             isOpen && !isEmptyUnderFilter ? "rotate-90" : "",
           ].join(" ")}
         >
@@ -320,15 +320,15 @@ function GroupPanel({
         </span>
 
         <span className="min-w-0 flex-1">
-          <span className="font-display block text-[19.8px] leading-snug font-medium tracking-[-0.012em]">
+          <span className="font-display block text-lg leading-snug font-medium tracking-[-0.012em]">
             {group.title}
           </span>
-          <span className="text-muted mt-1 block text-[15.6px] leading-relaxed font-medium">
+          <span className="text-muted mt-1 block text-sm leading-relaxed font-medium">
             {group.blurb}
           </span>
         </span>
 
-        <span className="text-muted shrink-0 text-[14.4px] font-bold tabular-nums">
+        <span className="text-muted shrink-0 text-xs font-bold tabular-nums">
           {isEmptyUnderFilter
             ? `0 of ${group.tasks.length} tasks`
             : hiddenCount > 0
@@ -363,13 +363,13 @@ function TaskRow({
   return (
     <li className="border-line flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-t py-3.5 first:border-t-0">
       <div className="min-w-0 flex-1 basis-[22rem]">
-        <p className="text-[18px] leading-snug font-bold">{task.title}</p>
-        <p className="text-muted mt-1 text-[16.2px] leading-relaxed font-medium">
+        <p className="text-base leading-snug font-bold">{task.title}</p>
+        <p className="text-muted mt-1 text-sm leading-relaxed font-medium">
           {task.plain}
         </p>
 
         {task.blockedBy === null ? null : (
-          <p className="text-muted mt-1.5 text-[15px] font-medium">
+          <p className="text-muted mt-1.5 text-sm font-medium">
             <span className="text-ink font-bold">Waits on</span>{" "}
             {blockedByTitle ??
               // The id resolves to nothing in this payload. Printing the raw id
@@ -382,7 +382,7 @@ function TaskRow({
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         {task.effort === null ? null : (
           <span
-            className="bg-paper-2 text-ink rounded-full px-2.5 py-[3px] text-[13.2px] font-semibold whitespace-nowrap"
+            className="bg-paper-2 text-ink rounded-full px-2.5 py-[3px] text-xs font-semibold whitespace-nowrap"
             title="Estimated effort, as written by hand"
           >
             <span className="sr-only">Estimated effort: </span>
@@ -400,7 +400,7 @@ function StatusChip({ status }: { status: TaskStatus }) {
 
   return (
     <span
-      className="text-ink inline-flex items-center gap-1.5 rounded-full border px-2.5 py-[3px] text-[13.2px] font-bold whitespace-nowrap"
+      className="text-ink inline-flex items-center gap-1.5 rounded-full border px-2.5 py-[3px] text-xs font-bold whitespace-nowrap"
       style={{
         borderColor: `color-mix(in srgb, ${meta.hex} 50%, transparent)`,
         backgroundColor: `color-mix(in srgb, ${meta.hex} 13%, transparent)`,

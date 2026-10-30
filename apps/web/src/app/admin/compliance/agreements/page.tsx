@@ -121,11 +121,11 @@ export default async function AgreementsPage({
   const filters = readFilters(await searchParams);
 
   return (
-    <main className="mx-auto w-full max-w-[1240px] px-5 py-12 sm:px-8 lg:px-14">
+    <main className="mx-auto w-full max-w-page px-5 py-12 sm:px-8 lg:px-14">
       <a href="/admin/compliance" className="text-muted text-sm underline underline-offset-2">
         ← Compliance
       </a>
-      <h1 className="font-display mt-2 text-[28px] leading-tight font-semibold tracking-[-0.02em]">
+      <h1 className="font-display mt-2 text-2xl leading-tight font-semibold tracking-[-0.02em]">
         Agreements
       </h1>
       {/* The retention rule is a tooltip on the register's Retention column

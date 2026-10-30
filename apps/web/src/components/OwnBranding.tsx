@@ -487,12 +487,12 @@ export function OwnBranding() {
         <h3 className="heading-sub text-ink mx-auto">
           See it in your own branding
         </h3>
-        <p className="text-muted mx-auto mt-3 max-w-[54ch] text-[clamp(16px,1.15vw,18px)] leading-[1.55] font-medium text-balance">
+        <p className="text-muted mx-auto mt-3 max-w-[54ch] text-[clamp(var(--text-sm),1.15vw,var(--text-base))] leading-[1.55] font-medium text-balance">
           Type your website and see {site.agent} on it. We&rsquo;ll email you your own, free.
         </p>
         {/* Their demo from an earlier visit, kept in this browser so it is never lost to an email that did not come. */}
         {remembered && phase === "idle" ? (
-          <p className="mt-4 text-[15px] font-medium">
+          <p className="mt-4 text-sm font-medium">
             <a
               href={remembered.url}
               target="_blank"
@@ -511,7 +511,7 @@ export function OwnBranding() {
       </p>
 
       {domainError ? (
-        <p id={`${ids}-domain-error`} className="text-red-deep mt-4 text-center text-[14.5px] font-semibold" role="alert">
+        <p id={`${ids}-domain-error`} className="text-red-deep mt-4 text-center text-sm font-semibold" role="alert">
           {domainError}
         </p>
       ) : null}
@@ -555,12 +555,12 @@ export function OwnBranding() {
               disabled={phase === "sending"}
               aria-invalid={domainError ? true : undefined}
               aria-describedby={domainError ? `${ids}-domain-error` : undefined}
-              className="h-full min-w-0 flex-1 bg-transparent text-center text-[15px] font-medium text-[#1d1d1f] outline-none placeholder:text-[#8e8e93] focus:text-left"
+              className="h-full min-w-0 flex-1 bg-transparent text-center text-sm font-medium text-[#1d1d1f] outline-none placeholder:text-[#8e8e93] focus:text-left"
             />
             {/* The example it is typing, with Safari's caret, drawn over the
                 empty field; the field itself is untouched. */}
             {typing ? (
-              <span aria-hidden className="pointer-events-none absolute inset-y-0 right-[84px] left-8 flex items-center justify-center text-[15px] font-medium text-[#8e8e93]">
+              <span aria-hidden className="pointer-events-none absolute inset-y-0 right-[84px] left-8 flex items-center justify-center text-sm font-medium text-[#8e8e93]">
                 {ghost}
                 <i className="own-caret" />
               </span>
@@ -570,7 +570,7 @@ export function OwnBranding() {
               type="submit"
               disabled={phase === "reading" || phase === "sending" || phase === "done"}
               aria-label={buttonLabel}
-              className="h-[26px] shrink-0 rounded-sm bg-[#0071e3] px-3 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#0077ed] disabled:opacity-60"
+              className="h-[26px] shrink-0 rounded-sm bg-[#0071e3] px-3 text-xs font-semibold text-white transition-colors hover:bg-[#0077ed] disabled:opacity-60"
             >
               {/* "Email it to me" leaves a phone's pill no room for the address. */}
               {buttonLabel === "Email it to me" ? (
@@ -613,10 +613,10 @@ export function OwnBranding() {
             <div className="flex items-start gap-3">
               <img src="/icon.png" alt="" className="size-10 shrink-0 rounded-sm ring-1 ring-black/[0.06]" />
               <div className="min-w-0 text-left">
-                <p id={`${ids}-sheet-title`} className="text-[15.5px] leading-snug font-semibold text-[#1d1d1f]">
+                <p id={`${ids}-sheet-title`} className="text-sm leading-snug font-semibold text-[#1d1d1f]">
                   Send me my own free AI assistant in my own branding
                 </p>
-                <p className="mt-1 text-[13.5px] leading-snug text-[#6e6e73]">
+                <p className="mt-1 text-xs leading-snug text-[#6e6e73]">
                   Built from <span className="font-semibold text-[#1d1d1f]">{host || "your website"}</span>. It opens
                   in a new tab, and the link comes by email too.
                 </p>
@@ -641,7 +641,7 @@ export function OwnBranding() {
               disabled={phase === "sending"}
               aria-invalid={emailError ? true : undefined}
               aria-describedby={`${ids}-email-note`}
-              className="mt-4 h-[38px] w-full rounded-sm border border-black/15 bg-white px-3 text-[15px] text-[#1d1d1f] outline-none transition-shadow placeholder:text-[#8e8e93] focus:border-[#0071e3] focus:ring-[3.5px] focus:ring-[rgb(0_113_227/0.3)]"
+              className="mt-4 h-[38px] w-full rounded-sm border border-black/15 bg-white px-3 text-sm text-[#1d1d1f] outline-none transition-shadow placeholder:text-[#8e8e93] focus:border-[#0071e3] focus:ring-[3.5px] focus:ring-[rgb(0_113_227/0.3)]"
             />
             {/* For bots only: people never see it, and api/own-demo builds nothing when it is filled. */}
             <input
@@ -655,11 +655,11 @@ export function OwnBranding() {
               className="absolute -left-[9999px] h-px w-px opacity-0"
             />
             {emailError ? (
-              <p id={`${ids}-email-note`} className="text-red-deep mt-2 text-[13.5px] font-semibold" role="alert">
+              <p id={`${ids}-email-note`} className="text-red-deep mt-2 text-xs font-semibold" role="alert">
                 {emailError}
               </p>
             ) : (
-              <p id={`${ids}-email-note`} className="mt-2 text-[12.5px] leading-snug text-[#6e6e73]">
+              <p id={`${ids}-email-note`} className="mt-2 text-xs leading-snug text-[#6e6e73]">
                 One email, with your link.{" "}
                 <a href="/privacy#own-demo" className="underline underline-offset-2">
                   How we use it
@@ -671,14 +671,14 @@ export function OwnBranding() {
               <button
                 type="button"
                 onClick={cancel}
-                className="h-[30px] rounded-sm border border-black/10 bg-white px-3.5 text-[13.5px] font-medium text-[#1d1d1f] shadow-sm transition-colors hover:bg-[#f5f5f7]"
+                className="h-[30px] rounded-sm border border-black/10 bg-white px-3.5 text-xs font-medium text-[#1d1d1f] shadow-sm transition-colors hover:bg-[#f5f5f7]"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={phase === "sending" || !email.trim()}
-                className="h-[30px] rounded-sm bg-[#0071e3] px-3.5 text-[13.5px] font-semibold text-white shadow-sm transition-colors hover:bg-[#0077ed] disabled:opacity-50"
+                className="h-[30px] rounded-sm bg-[#0071e3] px-3.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-[#0077ed] disabled:opacity-50"
               >
                 {phase === "sending" ? "Sending…" : "Send it to me"}
               </button>
@@ -691,7 +691,7 @@ export function OwnBranding() {
           {phase === "idle" || phase === "reading" ? (
             <div className="own-rise absolute inset-0 grid place-content-center justify-items-center gap-3 px-6 text-center">
               <HealdeskSoul size={64} />
-              <p className="font-display text-ink text-[clamp(22px,2.4vw,28px)] leading-tight font-normal tracking-[-0.02em]">
+              <p className="font-display text-ink text-[clamp(var(--text-xl),2.4vw,var(--text-2xl))] leading-tight font-normal tracking-[-0.02em]">
                 {phase === "reading" ? (
                   <>
                     Reading <span className="font-medium">{host}</span>&hellip;
@@ -707,7 +707,7 @@ export function OwnBranding() {
               address bar, as it is typed. */}
           {phase === "idle" || phase === "reading" ? (
             <div aria-hidden className="own-rise absolute right-4 bottom-4 flex items-end gap-2.5 sm:right-6 sm:bottom-6">
-              <p className="max-w-[230px] rounded-md rounded-br-sm bg-white px-3.5 py-2.5 text-left text-[13px] leading-snug text-[#1d1d1f] shadow-md ring-1 ring-black/5">
+              <p className="max-w-[230px] rounded-md rounded-br-sm bg-white px-3.5 py-2.5 text-left text-xs leading-snug text-[#1d1d1f] shadow-md ring-1 ring-black/5">
                 Hi, I&rsquo;m {site.agent} on <span className="font-semibold break-all">{echo || "your site"}</span>
               </p>
               <span className="bg-ink grid size-11 shrink-0 place-items-center rounded-full text-white shadow-md">
@@ -726,10 +726,10 @@ export function OwnBranding() {
                   <img src={preview.logoUrl} alt="" className="max-h-7 w-auto max-w-[160px] object-contain" />
                 ) : (
                   <>
-                    <span className="grid size-7 place-items-center rounded-sm text-[13px] font-bold" style={{ background: colour, color: ink }}>
+                    <span className="grid size-7 place-items-center rounded-sm text-xs font-bold" style={{ background: colour, color: ink }}>
                       {initial}
                     </span>
-                    <span className="truncate text-[15px] font-semibold text-[#1d1d1f]">{name}</span>
+                    <span className="truncate text-sm font-semibold text-[#1d1d1f]">{name}</span>
                   </>
                 )}
               </div>
@@ -747,7 +747,7 @@ export function OwnBranding() {
                     style={{ background: `color-mix(in srgb, ${colour} 14%, white)` }}
                   >
                     {/* Kept to the left, clear of the chat in the right-hand corner. */}
-                    <span className="font-display text-ink max-w-[11ch] text-left text-[clamp(26px,3.6vw,44px)] leading-[1.05] font-normal tracking-[-0.025em] text-balance">
+                    <span className="font-display text-ink max-w-[11ch] text-left text-[clamp(var(--text-2xl),3.6vw,var(--text-4xl))] leading-[1.05] font-normal tracking-[-0.025em] text-balance">
                       {name}
                     </span>
                   </div>
@@ -758,16 +758,16 @@ export function OwnBranding() {
               <div className="own-widget absolute right-4 bottom-4 w-[min(268px,calc(100%-32px))] sm:right-6 sm:bottom-6">
                 <div className="overflow-hidden rounded-md bg-white shadow-md ring-1 ring-black/5">
                   <div className="flex items-center gap-2.5 px-3.5 py-2.5" style={{ background: colour, color: ink }}>
-                    <span className="grid size-7 shrink-0 place-items-center rounded-full text-[12px] font-bold" style={{ background: ink, color: colour }}>
+                    <span className="grid size-7 shrink-0 place-items-center rounded-full text-xs font-bold" style={{ background: ink, color: colour }}>
                       {initial}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] leading-tight font-semibold">{name}</span>
-                      <span className="block text-[11px] leading-tight opacity-80">AI assistant</span>
+                      <span className="block truncate text-xs leading-tight font-semibold">{name}</span>
+                      <span className="block text-xs leading-tight opacity-80">AI assistant</span>
                     </span>
                   </div>
                   <div className="px-3 pt-3 pb-2.5">
-                    <p className="rounded-md rounded-bl-sm bg-[#f1f1f1] px-3 py-2 text-[12.5px] leading-snug text-[#1d1d1f]">
+                    <p className="rounded-md rounded-bl-sm bg-[#f1f1f1] px-3 py-2 text-xs leading-snug text-[#1d1d1f]">
                       {greeted ? (
                         <span className="morph-text">{greetingLead(name)}</span>
                       ) : (
@@ -780,7 +780,7 @@ export function OwnBranding() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2 border-t border-black/[0.06] px-3 py-2">
-                    <span className="flex-1 text-[12px] text-[#8e8e93]">Type a message&hellip;</span>
+                    <span className="flex-1 text-xs text-[#8e8e93]">Type a message&hellip;</span>
                     <span className="grid size-6 place-items-center rounded-full" style={{ background: colour, color: ink }}>
                       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="size-3.5">
                         <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />
@@ -795,7 +795,7 @@ export function OwnBranding() {
           {phase === "done" ? (
             <div className="own-rise absolute inset-0 z-[1] grid place-items-center bg-white/85 px-6 text-center backdrop-blur-[2px]">
               <div className="w-full max-w-[440px]">
-                <p className="font-display text-ink text-[clamp(22px,2.4vw,28px)] leading-tight font-medium tracking-[-0.02em]">
+                <p className="font-display text-ink text-[clamp(var(--text-xl),2.4vw,var(--text-2xl))] leading-tight font-medium tracking-[-0.02em]">
                   {build?.state === "ready" ? (
                     <>{host}&rsquo;s assistant is ready</>
                   ) : build?.state === "finishing" ? (
@@ -815,7 +815,7 @@ export function OwnBranding() {
                     />
                   </div>
                 )}
-                <p className="text-muted mx-auto mt-3 max-w-[44ch] text-[15px] font-medium">
+                <p className="text-muted mx-auto mt-3 max-w-[44ch] text-sm font-medium">
                   {build?.state === "ready" ? (
                     <>We&rsquo;re also emailing the link to <span className="text-ink font-semibold">{email.trim()}</span>. </>
                   ) : build?.state === "finishing" ? (
@@ -841,7 +841,7 @@ export function OwnBranding() {
                     href={demoLink}
                     target="_blank"
                     rel="noopener"
-                    className="mt-4 inline-flex h-[34px] items-center rounded-sm bg-[#0071e3] px-4 text-[14.5px] font-semibold text-white shadow-sm transition-colors hover:bg-[#0077ed]"
+                    className="mt-4 inline-flex h-[34px] items-center rounded-sm bg-[#0071e3] px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#0077ed]"
                   >
                     Open your demo
                   </a>

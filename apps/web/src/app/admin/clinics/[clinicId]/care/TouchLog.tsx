@@ -84,7 +84,7 @@ export function TouchLog({ health, onTouch }: { health: OpsResult<ClinicHealth |
       >
         <div className="flex flex-wrap gap-3">
           <label className="grid gap-1">
-            <span className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">Kind</span>
+            <span className="text-muted text-xs font-bold tracking-[0.06em] uppercase">Kind</span>
             <select name="kind" defaultValue="call" className="border-line rounded-sm border bg-white px-3 py-2 text-sm">
               <option value="call">Call</option>
               <option value="email">Email</option>
@@ -92,11 +92,11 @@ export function TouchLog({ health, onTouch }: { health: OpsResult<ClinicHealth |
             </select>
           </label>
           <label className="grid min-w-[240px] flex-1 gap-1">
-            <span className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">What was said (no patient details)</span>
+            <span className="text-muted text-xs font-bold tracking-[0.06em] uppercase">What was said (no patient details)</span>
             <input name="summary" required maxLength={500} autoComplete="off" className="border-line rounded-sm border bg-white px-3 py-2 text-sm" />
           </label>
           <label className="grid min-w-[200px] gap-1">
-            <span className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">Outcome (optional)</span>
+            <span className="text-muted text-xs font-bold tracking-[0.06em] uppercase">Outcome (optional)</span>
             <input name="outcome" maxLength={200} autoComplete="off" placeholder="will forward tonight" className="border-line rounded-sm border bg-white px-3 py-2 text-sm" />
           </label>
         </div>

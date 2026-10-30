@@ -67,7 +67,7 @@ export function HeroStage() {
     <section aria-labelledby="hero-heading" className="hero">
       {/* Above the photo, and transparent to the pointer everywhere but its
           own content, so the logos beside her still take a hover. */}
-      <div className="hero__copy pointer-events-none z-10 mx-auto w-full min-w-0 max-w-[1240px] px-5 pt-10 pb-8 text-center sm:px-8 sm:pt-16 lg:px-14 xl:pt-0 xl:pb-16 xl:text-left">
+      <div className="hero__copy pointer-events-none z-10 mx-auto w-full min-w-0 max-w-page px-5 pt-10 pb-8 text-center sm:px-8 sm:pt-16 lg:px-14 xl:pt-0 xl:pb-16 xl:text-left">
         <div ref={copyRef} className="pointer-events-auto mx-auto max-w-[760px] xl:mx-0 xl:max-w-[min(600px,46%)]">
           {/* The announcement, as one pill on one line (owner, 12 October
               2026): "NEW · Now on Instagram, Messenger and WhatsApp →", the
@@ -82,7 +82,7 @@ export function HeroStage() {
 
           <h1
             id="hero-heading"
-            className="font-display text-ink text-[clamp(40px,4.9vw,68px)] leading-[1.04] font-normal tracking-[-0.03em] text-balance"
+            className="font-display text-ink text-[clamp(var(--text-4xl),4.9vw,var(--text-6xl))] leading-[1.04] font-normal tracking-[-0.03em] text-balance"
           >
             {site.tagline}
           </h1>
@@ -90,8 +90,8 @@ export function HeroStage() {
           {/* One column on a phone, two equal ones from 640px: the grid is
               what makes the buttons the same size whatever their labels. */}
           <div className="mx-auto mt-8 grid w-full max-w-[480px] grid-cols-1 gap-3 sm:grid-cols-2 xl:mx-0 xl:mt-10">
-            <BuyButton size="h-[54px] px-6 text-base" className="w-full whitespace-nowrap" />
-            <a href={site.cta.secondary.href} className="btn-ink h-[54px] w-full px-6 text-base whitespace-nowrap">
+            <BuyButton size="h-[54px] px-6 text-lg" className="w-full whitespace-nowrap" />
+            <a href={site.cta.secondary.href} className="btn-ink h-[54px] w-full px-6 text-lg whitespace-nowrap">
               {site.cta.secondary.label}
             </a>
           </div>
@@ -119,12 +119,12 @@ function AnnouncementPill() {
   const { tag, text, cta } = site.announcement;
   const label = `${tag}: ${text}. ${cta}`;
   const className =
-    "hero-pill group mb-8 inline-flex max-w-full items-center gap-2 rounded-full border border-line bg-white py-1.5 pr-3.5 pl-1.5 text-[clamp(13px,3.4vw,14.5px)] leading-none whitespace-nowrap shadow-sm transition-[border-color,box-shadow] duration-fast hover:border-line-strong hover:shadow-md";
+    "hero-pill group mb-8 inline-flex max-w-full items-center gap-2 rounded-full border border-line bg-white py-1.5 pr-3.5 pl-1.5 text-[clamp(var(--text-xs),3.4vw,var(--text-sm))] leading-none whitespace-nowrap shadow-sm transition-[border-color,box-shadow] duration-fast hover:border-line-strong hover:shadow-md";
   // The tag is a fixed 11px, not a share of the line: at 0.78em of the
   // phone's floor it fell under 10px.
   const inner = (
     <>
-      <span className="bg-tint-mint text-ink rounded-full px-2 py-1 text-[11px] font-semibold tracking-[0.06em] uppercase">{tag}</span>
+      <span className="bg-tint-mint text-ink rounded-full px-2 py-1 text-xs font-semibold tracking-[0.06em] uppercase">{tag}</span>
       <span aria-hidden className="text-muted">·</span>
       <span className="text-ink min-w-0 overflow-hidden font-semibold text-ellipsis">{text}</span>
       <svg aria-hidden viewBox="0 0 16 16" className="text-red-deep size-[1.05em] shrink-0 transition-transform duration-fast ease-out group-hover:translate-x-0.5">

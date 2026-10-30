@@ -49,22 +49,22 @@ export default async function HostPage() {
   const repo = found.ok ? found.config.repo : process.env[REPO_VARIABLE]?.trim() || DEFAULT_REPO;
 
   return (
-    <main className="mx-auto w-full max-w-[1240px] px-4 py-10 sm:px-8 lg:px-14">
-      <h1 className="font-display text-[28px] leading-tight font-semibold tracking-[-0.02em]">Host</h1>
-      <p className="text-muted mt-3 max-w-[70ch] text-[15.6px]">
+    <main className="mx-auto w-full max-w-page px-4 py-10 sm:px-8 lg:px-14">
+      <h1 className="font-display text-2xl leading-tight font-semibold tracking-[-0.02em]">Host</h1>
+      <p className="text-muted mt-3 max-w-[70ch] text-sm">
         The AWS host runs apps/app: the database, the load balancer, the NAT and the task. Standby removes those, which
         bill by the hour, after a snapshot of the database, and keeps the key, the secrets, the images and the network,
         so turning it on again brings the same host back. Until the first clinic pays it holds synthetic data only.
       </p>
 
       <section className="border-line mt-8 rounded-md border bg-white p-5" aria-labelledby="host-state">
-        <p id="host-state" className="text-[24px] font-bold">
+        <p id="host-state" className="text-xl font-bold">
           {STATE_LABEL[state.state]}
           {state.state === "switching" && state.mode ? (
-            <span className="text-muted text-[17px] font-semibold"> to {state.mode}</span>
+            <span className="text-muted text-base font-semibold"> to {state.mode}</span>
           ) : null}
         </p>
-        <p className="mt-2 max-w-[70ch] text-[15.6px]">{state.note}</p>
+        <p className="mt-2 max-w-[70ch] text-sm">{state.note}</p>
         <p className="text-muted mt-2 text-sm">Right now, {LIVENESS_LABEL[liveness]}.</p>
         {state.run ? (
           <p className="text-muted mt-1 text-sm">
@@ -103,7 +103,7 @@ export default async function HostPage() {
       </section>
 
       {state.state === "standby" || state.state === "switching" || liveness === "unreachable" ? (
-        <p className="mt-6 max-w-[70ch] text-[15.6px]">
+        <p className="mt-6 max-w-[70ch] text-sm">
           <strong>Keep this session.</strong> Signing in to /admin asks the host for the second factor, so with the host
           in standby a new sign-in cannot finish. If you are signed out, turn it on from GitHub: Actions, Host (AWS), Run
           workflow, mode active. A first paid invoice turns it on by itself.

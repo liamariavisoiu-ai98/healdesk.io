@@ -65,8 +65,8 @@ export default async function SystemPage() {
   const [queues, writes, transcripts] = await Promise.all([fetchMachineQueues(), fetchStuckCalendarWrites(), fetchUndeliveredTranscripts()]);
   const standby = [queues, writes, transcripts].every(isHostUnreachable);
   return (
-    <main className="mx-auto w-full max-w-[1240px] px-4 py-10 sm:px-8 lg:px-14">
-      <h1 className="font-display text-[28px] leading-tight font-semibold tracking-[-0.02em]">System</h1>
+    <main className="mx-auto w-full max-w-page px-4 py-10 sm:px-8 lg:px-14">
+      <h1 className="font-display text-2xl leading-tight font-semibold tracking-[-0.02em]">System</h1>
       {standby ? (
         <HostStandbyNotice what="The queues section" />
       ) : (

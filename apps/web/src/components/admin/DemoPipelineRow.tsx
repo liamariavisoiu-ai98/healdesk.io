@@ -68,7 +68,7 @@ export function DemoPipelineRow({ pipeline, retryStalled }: DemoPipelineRowProps
   const retryLabel = now !== null && now.stalled > RETRY_BATCH ? `Retry the ${RETRY_BATCH} longest stalled` : "Retry all stalled";
 
   return (
-    <section aria-label="Demo pipeline" className="border-line mt-6 rounded-md border bg-white px-4 py-3 text-[14.4px] sm:px-5">
+    <section aria-label="Demo pipeline" className="border-line mt-6 rounded-md border bg-white px-4 py-3 text-xs sm:px-5">
       <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="font-semibold">Demos</span>
         <span aria-hidden="true">·</span>

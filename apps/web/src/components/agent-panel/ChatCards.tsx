@@ -58,8 +58,8 @@ function Shell({ title, aside, children }: { title: string; aside?: string; chil
   return (
     <div className="chat-card w-full max-w-[300px] rounded-md bg-white p-3.5 text-[#1d1d1f] shadow-sm ring-1 ring-black/[0.07]">
       <div className="flex items-baseline justify-between gap-3">
-        <p className="text-[14px] font-semibold">{title}</p>
-        {aside ? <p className="text-[11.5px] font-medium text-[#8e8e93]">{aside}</p> : null}
+        <p className="text-xs font-semibold">{title}</p>
+        {aside ? <p className="text-xs font-medium text-[#8e8e93]">{aside}</p> : null}
       </div>
       {children}
     </div>
@@ -84,7 +84,7 @@ function HoldRing({ left, accent }: { left: number; accent: CardAccent }) {
           style={{ stroke: accent.bg, ["--hold" as string]: `${HOLD_SECONDS}s` }}
         />
       </svg>
-      <span className="text-[12px] font-semibold tabular-nums">{left}</span>
+      <span className="text-xs font-semibold tabular-nums">{left}</span>
     </span>
   );
 }
@@ -123,14 +123,14 @@ export function BookingCard({ accent }: { accent: CardAccent }) {
       <Shell title={phase === "booked" ? "Booked" : "Pick a time"} aside="Google Calendar">
         {phase === "pick" || phase === "released" ? (
           <>
-            {phase === "released" ? <p className="mt-1.5 text-[12.5px] text-[#6e6e73]">The hold ran out, so the time was let go.</p> : null}
+            {phase === "released" ? <p className="mt-1.5 text-xs text-[#6e6e73]">The hold ran out, so the time was let go.</p> : null}
             <div className="mt-2.5 flex flex-wrap gap-1.5">
               {slots.map((time) => (
                 <button
                   key={time}
                   type="button"
                   onClick={() => hold(time)}
-                  className="chat-slot rounded-full border border-black/10 px-3 py-1.5 text-[13px] font-semibold transition-colors hover:border-current"
+                  className="chat-slot rounded-full border border-black/10 px-3 py-1.5 text-xs font-semibold transition-colors hover:border-current"
                   style={{ color: accent.bg === "var(--clinic)" ? "var(--color-ink)" : accent.bg }}
                 >
                   {time}
@@ -142,13 +142,13 @@ export function BookingCard({ accent }: { accent: CardAccent }) {
           <div className="mt-2.5 flex items-center gap-3">
             <HoldRing left={left} accent={accent} />
             <div className="min-w-0 flex-1">
-              <p className="text-[13.5px] font-semibold">{slot}</p>
-              <p className="text-[12px] text-[#6e6e73]">Held for you while you confirm</p>
+              <p className="text-xs font-semibold">{slot}</p>
+              <p className="text-xs text-[#6e6e73]">Held for you while you confirm</p>
             </div>
             <button
               type="button"
               onClick={() => setPhase("booked")}
-              className="shrink-0 rounded-full px-3.5 py-1.5 text-[13px] font-semibold"
+              className="shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold"
               style={{ background: accent.bg, color: accent.ink }}
             >
               Confirm
@@ -160,17 +160,17 @@ export function BookingCard({ accent }: { accent: CardAccent }) {
               <Check />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-[13.5px] font-semibold">{slot}</p>
-              <p className="text-[12px] text-[#6e6e73]">In the clinic&rsquo;s calendar</p>
+              <p className="text-xs font-semibold">{slot}</p>
+              <p className="text-xs text-[#6e6e73]">In the clinic&rsquo;s calendar</p>
             </div>
             {!deposit ? (
-              <button type="button" onClick={() => setDeposit(true)} className="shrink-0 text-[12.5px] font-semibold underline underline-offset-2">
+              <button type="button" onClick={() => setDeposit(true)} className="shrink-0 text-xs font-semibold underline underline-offset-2">
                 Deposit link
               </button>
             ) : null}
           </div>
         )}
-        <p className="mt-2.5 text-[11px] text-[#8e8e93]">A preview: nothing is booked.</p>
+        <p className="mt-2.5 text-xs text-[#8e8e93]">A preview: nothing is booked.</p>
       </Shell>
       {deposit ? <DepositCard accent={accent} /> : null}
     </div>
@@ -191,29 +191,29 @@ export function DepositCard({ accent }: { accent: CardAccent }) {
     <div className="chat-card-in">
       <Shell title="Deposit" aside="Your checkout">
         <div className="mt-2 flex items-baseline justify-between">
-          <p className="text-[12.5px] text-[#6e6e73]">Consultation deposit</p>
-          <p className="text-[20px] font-semibold tabular-nums">$100</p>
+          <p className="text-xs text-[#6e6e73]">Consultation deposit</p>
+          <p className="text-lg font-semibold tabular-nums">$100</p>
         </div>
         {phase === "paid" ? (
           <div className="chat-card-in mt-2.5 flex items-center gap-2.5">
             <span className="grid size-7 place-items-center rounded-full bg-[#e6f4ea] text-[#1e8e3e]">
               <Check />
             </span>
-            <p className="text-[13.5px] font-semibold">Deposit paid · slot confirmed</p>
+            <p className="text-xs font-semibold">Deposit paid · slot confirmed</p>
           </div>
         ) : (
           <button
             type="button"
             onClick={() => setPhase("paying")}
             disabled={phase === "paying"}
-            className="mt-2.5 flex h-9 w-full items-center justify-center gap-2 rounded-sm text-[13.5px] font-semibold disabled:opacity-80"
+            className="mt-2.5 flex h-9 w-full items-center justify-center gap-2 rounded-sm text-xs font-semibold disabled:opacity-80"
             style={{ background: accent.bg, color: accent.ink }}
           >
             {phase === "paying" ? <span className="chat-spinner" aria-hidden /> : null}
             {phase === "paying" ? "Opening checkout…" : "Pay deposit"}
           </button>
         )}
-        <p className="mt-2.5 text-[11px] text-[#8e8e93]">A preview: nothing is charged.</p>
+        <p className="mt-2.5 text-xs text-[#8e8e93]">A preview: nothing is charged.</p>
       </Shell>
     </div>
   );

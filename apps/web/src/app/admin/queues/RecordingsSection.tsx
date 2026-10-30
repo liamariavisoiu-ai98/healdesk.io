@@ -68,7 +68,7 @@ function Row({ alert }: { alert: RecordingAlertView }) {
   return (
     <li className="border-line rounded-md border bg-white p-5">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="font-mono text-[15px] font-semibold">{alert.callId}</span>
+        <span className="font-mono text-sm font-semibold">{alert.callId}</span>
         <span className="text-muted text-sm">still at Retell {when(alert.detectedAt)}</span>
       </div>
       <p className="text-muted mt-1 text-sm">
@@ -115,7 +115,7 @@ export default async function RecordingsSection({ searchParams }: { searchParams
       </p>
 
       {result && RESULTS[result] ? (
-        <p className="border-line mt-3 rounded-sm border bg-white px-4 py-3 text-[15.6px] font-semibold" role="status">
+        <p className="border-line mt-3 rounded-sm border bg-white px-4 py-3 text-sm font-semibold" role="status">
           {RESULTS[result]}
         </p>
       ) : null}
@@ -127,12 +127,12 @@ export default async function RecordingsSection({ searchParams }: { searchParams
       ) : (
         <>
           {loaded.data.unreadClinics > 0 ? (
-            <p className="text-red-deep mt-2 text-[15.6px] font-semibold">
+            <p className="text-red-deep mt-2 text-sm font-semibold">
               {loaded.data.unreadClinics} clinic(s) could not be read, so their alerts are missing
               below.
             </p>
           ) : null}
-          <h3 className="mt-4 text-[17px] font-bold">To delete ({open.length})</h3>
+          <h3 className="mt-4 text-base font-bold">To delete ({open.length})</h3>
           {open.length === 0 ? (
             <p className="text-muted mt-2 text-sm">No call is waiting to be deleted.</p>
           ) : (
@@ -142,7 +142,7 @@ export default async function RecordingsSection({ searchParams }: { searchParams
               ))}
             </ul>
           )}
-          <h3 className="mt-6 text-[17px] font-bold">Deleted ({resolved.length})</h3>
+          <h3 className="mt-6 text-base font-bold">Deleted ({resolved.length})</h3>
           {resolved.length === 0 ? null : (
             <ul className="mt-3 grid gap-3">
               {resolved.map((a) => (

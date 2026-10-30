@@ -41,15 +41,15 @@ export default function GlossaryPage() {
       />
       <Nav />
       <main className="mx-auto max-w-[760px] px-5 pt-16 pb-24 sm:px-8 sm:pt-20">
-        <nav aria-label="Breadcrumb" className="text-muted text-[14px] font-medium">
+        <nav aria-label="Breadcrumb" className="text-muted text-xs font-medium">
           <a href={HUB.path} className="hover:text-ink underline-offset-2 hover:underline">
             {HUB.name}
           </a>
         </nav>
-        <h1 className="font-display mt-3 text-[clamp(34px,5vw,52px)] leading-[1.05] font-medium tracking-[-0.025em]">
+        <h1 className="font-display mt-3 text-[clamp(var(--text-3xl),5vw,var(--text-5xl))] leading-[1.05] font-medium tracking-[-0.025em]">
           Glossary of AI receptionist terms
         </h1>
-        <p className="text-muted mt-4 text-[14.5px] leading-relaxed">
+        <p className="text-muted mt-4 text-sm leading-relaxed">
           Published by {site.name}, which sells an AI receptionist. How we source and correct:{" "}
           <a href="/about#sourcing" className="underline underline-offset-2">
             our standards
@@ -60,8 +60,8 @@ export default function GlossaryPage() {
         <dl className="mt-10 space-y-6">
           {entries.map((entry) => (
             <div key={entry.term} id={termAnchor(entry.term)} className="scroll-mt-24">
-              <dt className="font-display text-[20px] font-medium tracking-[-0.01em]">{entry.term}</dt>
-              <dd className="mt-1 text-[16.5px] leading-[1.7]">
+              <dt className="font-display text-lg font-medium tracking-[-0.01em]">{entry.term}</dt>
+              <dd className="mt-1 text-sm leading-[1.7]">
                 <Inline text={entry.definition} />
                 {entry.cite?.map((id) => {
                   const n = numbers.get(id);
@@ -88,10 +88,10 @@ export default function GlossaryPage() {
 
         {glossarySources.length > 0 ? (
           <section aria-labelledby="sources-heading" className="mt-14">
-            <h2 id="sources-heading" className="font-display text-[22px] font-medium tracking-[-0.015em]">
+            <h2 id="sources-heading" className="font-display text-xl font-medium tracking-[-0.015em]">
               Sources
             </h2>
-            <ol className="mt-4 space-y-2 text-[14.5px] leading-[1.6]">
+            <ol className="mt-4 space-y-2 text-sm leading-[1.6]">
               {glossarySources.map((source, index) => (
                 <li key={source.id} id={`source-${String(index + 1)}`} className="scroll-mt-24">
                   <span className="text-muted">[{index + 1}]</span>{" "}

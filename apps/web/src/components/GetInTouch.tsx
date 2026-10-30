@@ -165,7 +165,7 @@ export function GetInTouch({ className = "" }: { className?: string }) {
         </svg>
         {/* Its name is whichever label shows, so what is read out is what is
             on screen. */}
-        <span className="text-[10.5px] leading-none min-[480px]:hidden">Contact</span>
+        <span className="text-xs leading-none min-[480px]:hidden">Contact</span>
         <span className="hidden min-[480px]:inline">{site.meeting.label}</span>
       </a>
 

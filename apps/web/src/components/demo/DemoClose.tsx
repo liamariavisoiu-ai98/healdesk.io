@@ -243,14 +243,14 @@ export function ActivateButton({
         type="button"
         onClick={() => activate(placement)}
         className={`duration-fast inline-flex items-center justify-center gap-2 rounded-full font-bold shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 ${
-          big ? "min-h-14 w-full px-8 text-[18px] sm:w-auto" : "min-h-10 px-4 text-[15px] sm:px-5"
+          big ? "min-h-14 w-full px-8 text-base sm:w-auto" : "min-h-10 px-4 text-sm sm:px-5"
         }`}
         style={{ background: "var(--clinic)", color: "var(--clinic-ink)", outlineColor: "var(--clinic)" }}
       >
         {ACTIVATE_LABEL}
         {big ? ARROW : null}
       </button>
-      {subLabel ? <OfferSubLabel className="text-[13.2px] font-semibold tabular-nums opacity-80" /> : null}
+      {subLabel ? <OfferSubLabel className="text-xs font-semibold tabular-nums opacity-80" /> : null}
     </span>
   );
 }
@@ -270,16 +270,16 @@ export function OfferPrice({ tone = "dark", placement }: { tone?: "dark" | "ligh
   const dim = tone === "dark" ? "text-white/60" : "text-muted";
   return (
     <div ref={ref} className="tabular-nums">
-      <p className={`text-[13.2px] font-bold tracking-[0.08em] uppercase ${dim}`}>{rec.plan.name.split(",")[0]} · Recommended for {clinicName}</p>
+      <p className={`text-xs font-bold tracking-[0.08em] uppercase ${dim}`}>{rec.plan.name.split(",")[0]} · Recommended for {clinicName}</p>
       <p className="mt-1 flex flex-wrap items-baseline gap-x-2">
-        <span className="font-display text-[40px] leading-none font-medium tracking-[-0.02em]">{usd.format(rec.monthlyUsd)}</span>
-        <span className={`text-[16px] font-semibold ${dim}`}>/month at your volume</span>
+        <span className="font-display text-4xl leading-none font-medium tracking-[-0.02em]">{usd.format(rec.monthlyUsd)}</span>
+        <span className={`text-sm font-semibold ${dim}`}>/month at your volume</span>
       </p>
       <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
         {s.percent !== null ? (
-          <span className="rounded-full bg-[#87d68d] px-2.5 py-1 text-[12.6px] font-bold text-[#172a3a]">{s.percent}% off setup</span>
+          <span className="rounded-full bg-[#87d68d] px-2.5 py-1 text-xs font-bold text-[#172a3a]">{s.percent}% off setup</span>
         ) : null}
-        <span className="text-[17px] font-semibold">
+        <span className="text-base font-semibold">
           Setup{" "}
           {s.endsAt ? (
             <>
@@ -291,13 +291,13 @@ export function OfferPrice({ tone = "dark", placement }: { tone?: "dark" | "ligh
         </span>
       </div>
       {s.endsAt ? (
-        <p className="mt-2 text-[15px] font-semibold">
+        <p className="mt-2 text-sm font-semibold">
           You save {usd.format(s.savedUsd)} · ends in <OfferCountdown endsAt={s.endsAt} onEnd={offerEnded} />
         </p>
       ) : (
-        <p className={`mt-2 text-[14.4px] ${dim}`}>Your demo&rsquo;s setup offer has ended. This is the standard setup fee.</p>
+        <p className={`mt-2 text-xs ${dim}`}>Your demo&rsquo;s setup offer has ended. This is the standard setup fee.</p>
       )}
-      <p className={`mt-3 text-[13.2px] ${dim}`}>
+      <p className={`mt-3 text-xs ${dim}`}>
         {rec.plan.includedVoiceMinutes > 0 ? `${rec.plan.includedVoiceMinutes} voice minutes` : null}
         {rec.plan.includedVoiceMinutes > 0 && rec.plan.includedChatConversations > 0 ? " and " : null}
         {rec.plan.includedChatConversations > 0 ? `${rec.plan.includedChatConversations} chat conversations` : null} a month. Monthly
@@ -334,21 +334,21 @@ export function CloseCard({ channel }: { channel: Channel }) {
         aria-label="Dismiss"
         className="absolute top-2 right-2 grid size-11 place-items-center rounded-full text-white/55 transition-colors hover:text-white"
       >
-        <span aria-hidden className="text-[20px] leading-none">&times;</span>
+        <span aria-hidden className="text-lg leading-none">&times;</span>
       </button>
       <div className="flex items-center gap-3 pr-8">
         <ClinicMark size={40} />
         <div className="min-w-0">
-          <p className="font-display text-[22px] leading-tight font-medium">That was your {site.agent}.</p>
-          <p className="text-[14.4px] text-white/65">She has already read {clinicName}&rsquo;s website.</p>
+          <p className="font-display text-lg leading-tight font-medium">That was your {site.agent}.</p>
+          <p className="text-xs text-white/65">She has already read {clinicName}&rsquo;s website.</p>
         </div>
       </div>
       <div className="mt-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-t border-white/[0.08] pt-4 tabular-nums">
-        <p className="text-[15px] font-semibold">
-          <span className="font-display text-[26px] font-medium">{usd.format(rec.monthlyUsd)}</span>
+        <p className="text-sm font-semibold">
+          <span className="font-display text-2xl font-medium">{usd.format(rec.monthlyUsd)}</span>
           <span className="text-white/60">/mo</span>
         </p>
-        <p className="text-[15px] font-semibold">
+        <p className="text-sm font-semibold">
           Setup{" "}
           {s.endsAt ? (
             <>
@@ -360,7 +360,7 @@ export function CloseCard({ channel }: { channel: Channel }) {
         </p>
       </div>
       {s.endsAt ? (
-        <p className="mt-1 text-[13.8px] font-semibold text-[#87d68d] tabular-nums">
+        <p className="mt-1 text-xs font-semibold text-[#87d68d] tabular-nums">
           You save {usd.format(s.savedUsd)} · ends in <OfferCountdown endsAt={s.endsAt} onEnd={offerEnded} />
         </p>
       ) : null}
@@ -370,7 +370,7 @@ export function CloseCard({ channel }: { channel: Channel }) {
           track("close_card_cta", channel);
           activate("close-card");
         }}
-        className="duration-fast mt-4 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-6 text-[16.8px] font-bold transition-all hover:-translate-y-0.5"
+        className="duration-fast mt-4 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-6 text-base font-bold transition-all hover:-translate-y-0.5"
         style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
       >
         Make her live
@@ -419,8 +419,8 @@ export function MobileActivateBar({ after }: { after: RefObject<HTMLElement | nu
       }`}
     >
       <div className="flex items-center gap-3">
-        <div className="min-w-0 flex-1 text-[13.2px] leading-tight font-semibold tabular-nums">
-          <p className="text-[15px]">
+        <div className="min-w-0 flex-1 text-xs leading-tight font-semibold tabular-nums">
+          <p className="text-sm">
             {usd.format(rec.monthlyUsd)}/mo
             {rec.setup.endsAt ? <span className="text-[#87d68d]"> · save {usd.format(rec.setup.savedUsd)}</span> : null}
           </p>
@@ -436,7 +436,7 @@ export function MobileActivateBar({ after }: { after: RefObject<HTMLElement | nu
           type="button"
           tabIndex={visible ? 0 : -1}
           onClick={() => activate("mobile-bar")}
-          className="min-h-11 shrink-0 rounded-full px-5 text-[15px] font-bold"
+          className="min-h-11 shrink-0 rounded-full px-5 text-sm font-bold"
           style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
         >
           {ACTIVATE_LABEL}
@@ -466,10 +466,10 @@ export function TopOfferBar({ demoClock, copyLink }: { demoClock: ReactNode; cop
       role="region"
       aria-label="Your demo offer"
     >
-      <div className="mx-auto flex max-w-[1240px] flex-wrap items-center justify-center gap-x-4 gap-y-1 text-center text-[14.4px] font-semibold tabular-nums">
+      <div className="mx-auto flex max-w-page flex-wrap items-center justify-center gap-x-4 gap-y-1 text-center text-xs font-semibold tabular-nums">
         {live ? (
           <>
-            <span className="rounded-full bg-[#87d68d] px-2.5 py-0.5 text-[12.6px] font-bold text-[#172a3a]">{s.percent}% off setup</span>
+            <span className="rounded-full bg-[#87d68d] px-2.5 py-0.5 text-xs font-bold text-[#172a3a]">{s.percent}% off setup</span>
             <span>
               <s className="text-white/50">{usd.format(s.listUsd)}</s> <strong>{usd.format(s.dueUsd)}</strong>
               <span className="hidden sm:inline"> · you save {usd.format(s.savedUsd)}</span> · ends in{" "}
@@ -477,7 +477,7 @@ export function TopOfferBar({ demoClock, copyLink }: { demoClock: ReactNode; cop
             </span>
           </>
         ) : null}
-        <span className="flex items-center gap-2 text-[13.2px] text-white/60">
+        <span className="flex items-center gap-2 text-xs text-white/60">
           <span className="hidden sm:inline">Private demo for {clinicName} · live for</span>
           <span className="sm:hidden">Demo live for</span>
           {demoClock}

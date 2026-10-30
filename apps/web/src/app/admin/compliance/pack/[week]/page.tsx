@@ -36,14 +36,14 @@ export default async function CompliancePackPage({ params }: { params: Promise<{
         <a href="/admin/compliance/pack" className="text-muted text-sm underline underline-offset-2">
           ← Compliance packs
         </a>
-        <h1 className="font-display mt-2 text-[28px] leading-tight font-semibold tracking-[-0.02em]">Compliance pack</h1>
-        <p className="mt-1 text-[15.6px] font-semibold">
+        <h1 className="font-display mt-2 text-2xl leading-tight font-semibold tracking-[-0.02em]">Compliance pack</h1>
+        <p className="mt-1 text-sm font-semibold">
           Week of {weekWords({ start: week, lastDay: addDays(week, 6), timeZone: "America/New_York", from: `${week}T00:00:00.000Z`, to: `${addDays(week, 7)}T00:00:00.000Z` })}
         </p>
         {!result.ok ? (
           <Failure failure={result} what="the compliance pack" />
         ) : (
-          <p className="mt-4 text-[15.6px]">No pack is stored for this week. The list of packs offers to make one for any of the last twelve weeks that has none.</p>
+          <p className="mt-4 text-sm">No pack is stored for this week. The list of packs offers to make one for any of the last twelve weeks that has none.</p>
         )}
       </main>
     );

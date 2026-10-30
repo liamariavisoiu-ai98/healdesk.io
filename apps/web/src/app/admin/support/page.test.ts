@@ -141,7 +141,7 @@ describe("/admin/support", () => {
     expect(page).toContain("Closed (30 days) (0)");
     expect(html).toContain(`href="/admin/clinics/${CLINIC}/care"`);
     expect(page).toContain("Radiance Med Spa");
-    expect(html).toContain('<code class="font-mono text-[15px] select-all">HD-7F3KQ</code>');
+    expect(html).toContain('<code class="font-mono text-sm select-all">HD-7F3KQ</code>');
     expect(html).toContain(`href="/admin/support/${CASE}"`);
     expect(page).toContain("Open case");
     expect(page).toContain("Now");

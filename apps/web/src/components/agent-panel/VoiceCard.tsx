@@ -190,7 +190,7 @@ function CallButton({
       >
         {children}
       </span>
-      <span className="text-muted text-[12.5px] font-semibold">{label}</span>
+      <span className="text-muted text-xs font-semibold">{label}</span>
     </button>
   );
 }
@@ -521,7 +521,7 @@ export function VoiceCard({
     );
   const notYou =
     askName && !locked && callerName ? (
-      <p className="text-muted mt-2.5 text-center text-[13.2px] font-medium">
+      <p className="text-muted mt-2.5 text-center text-xs font-medium">
         Not {callerName}?{" "}
         <button type="button" onClick={forgetName} className="text-ink font-bold underline underline-offset-2">
           Change
@@ -556,7 +556,7 @@ export function VoiceCard({
               aria-selected={mode === tab.id}
               disabled={busy && tab.id !== "talk"}
               onClick={() => setMode(tab.id)}
-              className={`relative z-[1] flex items-center justify-center gap-1.5 rounded-sm px-2 py-2 text-[14px] font-semibold transition-colors duration-fast disabled:opacity-45 [&_svg]:size-[15px] ${
+              className={`relative z-[1] flex items-center justify-center gap-1.5 rounded-sm px-2 py-2 text-xs font-semibold transition-colors duration-fast disabled:opacity-45 [&_svg]:size-[15px] ${
                 mode === tab.id ? "text-ink" : "text-muted hover:text-ink"
               }`}
             >
@@ -565,7 +565,7 @@ export function VoiceCard({
             </button>
           ))}
         </div>
-        <p className="text-muted mt-1.5 text-center text-[12.5px] font-medium">{tabs[at]?.hint}</p>
+        <p className="text-muted mt-1.5 text-center text-xs font-medium">{tabs[at]?.hint}</p>
       </div>
 
       {mode === "talk" ? (
@@ -575,12 +575,12 @@ export function VoiceCard({
 
           {showCall ? (
             <div className="voice-rise flex w-full flex-1 flex-col items-center">
-              <p className="font-display text-ink mt-2 text-[21px] leading-tight font-medium tracking-[-0.02em]">
+              <p className="font-display text-ink mt-2 text-lg leading-tight font-medium tracking-[-0.02em]">
                 {live ? `On the line with ${name}` : "Connecting…"}
               </p>
-              <p className="text-muted mt-1 flex min-h-[1.5em] items-center gap-2 text-[14px] font-medium" aria-live="polite">
+              <p className="text-muted mt-1 flex min-h-[1.5em] items-center gap-2 text-xs font-medium" aria-live="polite">
                 {visual !== "idle" ? (
-                  <span className="call-state text-[12.5px] font-bold tracking-[0.06em] uppercase" data-state={visual}>
+                  <span className="call-state text-xs font-bold tracking-[0.06em] uppercase" data-state={visual}>
                     {STATE_WORDS[visual]}
                   </span>
                 ) : null}
@@ -589,7 +589,7 @@ export function VoiceCard({
 
               {/* Her words, as she says them. */}
               {live && captions ? (
-                <p className="voice-caption text-ink mt-3 min-h-[3.2em] max-w-[34ch] text-[15.5px] leading-[1.45] font-medium" aria-live="polite">
+                <p className="voice-caption text-ink mt-3 min-h-[3.2em] max-w-[34ch] text-sm leading-[1.45] font-medium" aria-live="polite">
                   {caption ? <span key={caption} className="voice-caption__line">{caption}</span> : <span className="text-muted">Say hello. Her words show here.</span>}
                 </p>
               ) : null}
@@ -599,7 +599,7 @@ export function VoiceCard({
                 <div className="voice-asks mt-3 w-full overflow-hidden" aria-label="Things to ask her">
                   <div className="voice-asks__track flex w-max gap-2">
                     {[...ASK_HER, ...ASK_HER].map((ask, i) => (
-                      <span key={i} aria-hidden={i >= ASK_HER.length} className="border-line text-muted shrink-0 rounded-full border bg-white px-3 py-1 text-[12.5px] font-semibold whitespace-nowrap">
+                      <span key={i} aria-hidden={i >= ASK_HER.length} className="border-line text-muted shrink-0 rounded-full border bg-white px-3 py-1 text-xs font-semibold whitespace-nowrap">
                         {ask}
                       </span>
                     ))}
@@ -621,9 +621,9 @@ export function VoiceCard({
             </div>
           ) : (
             <div className="voice-rise flex flex-col items-center">
-              {portraitLabel ? <p className="text-muted mt-3 text-[13.2px] font-bold tracking-[0.1em] uppercase">{portraitLabel}</p> : null}
+              {portraitLabel ? <p className="text-muted mt-3 text-xs font-bold tracking-[0.1em] uppercase">{portraitLabel}</p> : null}
               {idleTitle ? (
-                <p className="font-display text-ink mt-1.5 text-[23px] leading-tight font-medium tracking-[-0.02em]">{`Call ${name}`}</p>
+                <p className="font-display text-ink mt-1.5 text-xl leading-tight font-medium tracking-[-0.02em]">{`Call ${name}`}</p>
               ) : null}
               {askName && !locked && (!callerName || gateWaiting) ? (
                 <div className="mt-5 flex w-full justify-center">
@@ -651,7 +651,7 @@ export function VoiceCard({
                   type="button"
                   onClick={startCall}
                   disabled={locked || busy}
-                  className="morph-btn rounded-full px-6 py-3 text-[16.8px] font-bold shadow-md transition-all duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-45"
+                  className="morph-btn rounded-full px-6 py-3 text-base font-bold shadow-md transition-all duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-45"
                   style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
                 >
                   <span className="morph-btn__label">{state === "ended" ? "Call again" : "Talk now"}</span>
@@ -663,11 +663,11 @@ export function VoiceCard({
                 </button>
               </div>
               {callError ? (
-                <p className="text-red-deep mt-3 text-[15px] font-semibold" role="alert">
+                <p className="text-red-deep mt-3 text-sm font-semibold" role="alert">
                   {callError}
                 </p>
               ) : (
-                <p className="text-muted mt-3 text-[13.2px] font-medium">Uses your microphone. Nothing is recorded.</p>
+                <p className="text-muted mt-3 text-xs font-medium">Uses your microphone. Nothing is recorded.</p>
               )}
               {notYou}
               </>
@@ -691,10 +691,10 @@ export function VoiceCard({
             <div className="flex w-full flex-col items-center gap-6 lg:flex-row lg:justify-center lg:gap-8">
               {/* The dial card: the number, large, and a green call button. */}
               <div className="flex flex-col items-center">
-                <p className="text-muted text-[13.5px] font-semibold">
+                <p className="text-muted text-xs font-semibold">
                   {callerRoute ? `From the number ending ${dialReady}, call` : `Call ${name} from your phone`}
                 </p>
-                <a href={`tel:${demoLine}`} className="font-display text-ink mt-1.5 text-[32px] leading-tight font-semibold tracking-[-0.01em] tabular-nums">
+                <a href={`tel:${demoLine}`} className="font-display text-ink mt-1.5 text-3xl leading-tight font-semibold tracking-[-0.01em] tabular-nums">
                   {formatUs(demoLine)}
                 </a>
                 <a
@@ -710,13 +710,13 @@ export function VoiceCard({
                 <span className="grid size-[132px] place-items-center rounded-md bg-white p-3 shadow-sm ring-1 ring-black/[0.06]">
                   {qr ? <img src={qr} alt="" width={108} height={108} className="size-[108px]" /> : <span className="bg-paper-2 size-[108px] rounded-sm" />}
                 </span>
-                <p className="text-muted mt-2 text-[12.5px] font-semibold">Scan to call from your phone</p>
+                <p className="text-muted mt-2 text-xs font-semibold">Scan to call from your phone</p>
               </div>
             </div>
           ) : (
             <form onSubmit={registerCaller} className="w-full max-w-[380px]">
-              <p className="font-display text-ink text-[23px] leading-tight font-medium tracking-[-0.02em]">Call {name} from your phone</p>
-              <p className="text-muted mt-1.5 text-[15px] font-medium">Tell us the number you&rsquo;ll call from, and we&rsquo;ll recognise you.</p>
+              <p className="font-display text-ink text-xl leading-tight font-medium tracking-[-0.02em]">Call {name} from your phone</p>
+              <p className="text-muted mt-1.5 text-sm font-medium">Tell us the number you&rsquo;ll call from, and we&rsquo;ll recognise you.</p>
               <div className="mt-4 flex gap-2">
                 <input
                   type="tel"
@@ -727,26 +727,26 @@ export function VoiceCard({
                   aria-label="The number you'll call from"
                   autoComplete="tel"
                   disabled={locked}
-                  className="border-line text-ink placeholder:text-muted min-w-0 flex-1 rounded-sm border px-3.5 py-2.5 text-[16px] outline-none transition-colors focus:border-[var(--clinic)]"
+                  className="border-line text-ink placeholder:text-muted min-w-0 flex-1 rounded-sm border px-3.5 py-2.5 text-sm outline-none transition-colors focus:border-[var(--clinic)]"
                 />
                 <button
                   type="submit"
                   disabled={locked || dialSaving || !dialFrom.trim()}
-                  className="shrink-0 rounded-sm px-5 py-2.5 text-[16px] font-bold transition-all duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-45"
+                  className="shrink-0 rounded-sm px-5 py-2.5 text-sm font-bold transition-all duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-45"
                   style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
                 >
                   {dialSaving ? "Saving…" : "Get the number"}
                 </button>
               </div>
               {dialError ? (
-                <p className="text-red-deep mt-2.5 text-[15px] font-semibold" role="alert">
+                <p className="text-red-deep mt-2.5 text-sm font-semibold" role="alert">
                   {dialError}
                 </p>
               ) : null}
             </form>
           )}
           {dialReady !== null ? (
-            <p className="text-muted mt-6 max-w-[40ch] text-[14px] font-medium">
+            <p className="text-muted mt-6 max-w-[40ch] text-xs font-medium">
               {callerRoute
                 ? `It answers as ${name}, the way it would answer your own line. Calls from any other number reach healdesk’s assistant.`
                 : `${name} answers it the way she would answer your own line.`}
@@ -777,8 +777,8 @@ export function VoiceCard({
             ) : null}
             <span className={`grid size-16 place-items-center rounded-full bg-[#34c759] text-white [&_svg]:size-7 ${ringing ? "voice-buzz" : ""}`}>{ICON.dial}</span>
           </span>
-          <p className="font-display mt-2 text-[21px] leading-tight font-medium tracking-[-0.02em]">{ringing ? "Your phone is ringing…" : "Did it ring?"}</p>
-          <p className="text-muted max-w-[36ch] text-[15px] font-medium">
+          <p className="font-display mt-2 text-lg leading-tight font-medium tracking-[-0.02em]">{ringing ? "Your phone is ringing…" : "Did it ring?"}</p>
+          <p className="text-muted max-w-[36ch] text-sm font-medium">
             {ringing
               ? `${name} is calling ${sent ? `the number ending ${sent}` : "you"}. Say “stop” at any point and the call ends.`
               : "If it didn’t, check the number and try again."}
@@ -790,15 +790,15 @@ export function VoiceCard({
               setRinging(false);
               setConsent(false);
             }}
-            className="text-muted hover:text-ink mt-1 text-[15px] font-bold transition-colors"
+            className="text-muted hover:text-ink mt-1 text-sm font-bold transition-colors"
           >
             Call another number
           </button>
         </div>
       ) : (
         <div className="voice-rise flex flex-1 flex-col justify-center px-5 py-6">
-          <p className="font-display text-ink text-[23px] leading-tight font-medium tracking-[-0.02em]">Have it ring your phone</p>
-          <p className="text-muted mt-0.5 text-[14px] font-medium">{ringNote}</p>
+          <p className="font-display text-ink text-xl leading-tight font-medium tracking-[-0.02em]">Have it ring your phone</p>
+          <p className="text-muted mt-0.5 text-xs font-medium">{ringNote}</p>
           {askName && !locked ? (
             <div className="mt-3 flex w-full flex-col items-center">
               {gateFor(`${site.agent} will call you in a moment`)}
@@ -818,16 +818,16 @@ export function VoiceCard({
                 autoComplete="given-name"
                 maxLength={80}
                 disabled={locked}
-                className="border-line text-ink placeholder:text-muted min-w-0 rounded-sm border px-3.5 py-2.5 text-[16px] outline-none transition-colors focus:border-[var(--clinic)]"
+                className="border-line text-ink placeholder:text-muted min-w-0 rounded-sm border px-3.5 py-2.5 text-sm outline-none transition-colors focus:border-[var(--clinic)]"
               />
             )}
             <div className="border-line flex min-w-0 items-stretch overflow-hidden rounded-sm border transition-colors focus-within:border-[var(--clinic)]">
               {/* The country: its flag and code, then the number as it is written there. */}
               <label className="border-line relative flex shrink-0 items-center gap-1.5 border-r bg-black/[0.025] pr-2 pl-3">
-                <span aria-hidden className="text-[18px] leading-none">
+                <span aria-hidden className="text-base leading-none">
                   {dialCountry.flag}
                 </span>
-                <span aria-hidden className="text-ink text-[15px] font-semibold tabular-nums">
+                <span aria-hidden className="text-ink text-sm font-semibold tabular-nums">
                   +{dialCountry.code}
                 </span>
                 <svg aria-hidden viewBox="0 0 12 12" className="text-muted size-2.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
@@ -860,7 +860,7 @@ export function VoiceCard({
                 autoComplete="tel-national"
                 inputMode="tel"
                 disabled={locked}
-                className="text-ink placeholder:text-muted min-w-0 flex-1 px-3.5 py-2.5 text-[16px] tabular-nums outline-none"
+                className="text-ink placeholder:text-muted min-w-0 flex-1 px-3.5 py-2.5 text-sm tabular-nums outline-none"
               />
             </div>
           </div>
@@ -875,7 +875,7 @@ export function VoiceCard({
               onChange={(e) => setConsent(e.target.checked)}
               className="voice-switch mt-0.5 shrink-0"
             />
-            <span className="text-[13px] leading-[1.45] font-medium">
+            <span className="text-xs leading-[1.45] font-medium">
               {CALL_CONSENT.text}{" "}
               <span className="opacity-70">
                 {CALL_CONSENT.note}{" "}
@@ -888,14 +888,14 @@ export function VoiceCard({
           <button
             type="submit"
             disabled={locked || submitting || !consent || !phone.trim()}
-            className="mt-4 flex h-12 items-center justify-center gap-2 rounded-sm px-5 text-[16px] font-bold transition-all duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-45 [&_svg]:size-[18px]"
+            className="mt-4 flex h-12 items-center justify-center gap-2 rounded-sm px-5 text-sm font-bold transition-all duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-45 [&_svg]:size-[18px]"
             style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
           >
             {ICON.callme}
             {submitting ? "Calling…" : "Call me"}
           </button>
           {formError ? (
-            <p className="text-red-deep mt-2.5 text-[15px] font-semibold" role="alert">
+            <p className="text-red-deep mt-2.5 text-sm font-semibold" role="alert">
               {formError}
             </p>
           ) : null}

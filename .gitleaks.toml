@@ -261,3 +261,14 @@ condition = "AND"
 regexTarget = "line"
 paths = ['''^apps/app/tests/support-slack\.test\.ts$''']
 regexes = ['''^\s*const SECRET = "8f742231b10e8888abcd99aaabbb85a5";$''']
+
+# --- Stripe key stand-in in the portal page tests --------------------------
+# "sk_test_portalpages" is a word, not a key Stripe issued: the portal page
+# tests set it so the Settings page sees a Stripe account configured. Only that
+# exact value in that one file is excepted; any other sk_ value is still found.
+[[allowlists]]
+description = "Portal page tests: made-up STRIPE_SECRET_KEY stand-in, never issued"
+targetRules = ["stripe-access-token"]
+condition = "AND"
+paths = ['''^apps/app/tests/portal-pages\.test\.tsx$''']
+regexes = ['''^sk_test_portalpages$''']

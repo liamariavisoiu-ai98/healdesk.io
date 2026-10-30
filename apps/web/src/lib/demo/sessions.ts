@@ -300,6 +300,18 @@ export function __resetDemoCacheForTests(): void {
 
 /** A demo by slug, for the page and the visitor-facing routes. Null when unknown or unreachable. */
 export async function getDemoSession(slug: string, options: { fresh?: boolean } = {}): Promise<DemoSession | null> {
+  const found = await findDemoSession(slug, options);
+  return found === "unavailable" ? null : found;
+}
+
+/**
+ * As `getDemoSession`, but says "unavailable" when the Sheet could not be read
+ * and nothing is cached, rather than null. The demo page must tell the two
+ * apart: a read that failed (a Sheets quota or a timeout on a cold instance)
+ * showed a prospect the site's 404, "This page, she can't find", for a demo
+ * that exists (owner, 30 October 2026).
+ */
+export async function findDemoSession(slug: string, options: { fresh?: boolean } = {}): Promise<DemoSession | null | "unavailable"> {
   if (!isDemoSlug(slug)) return null;
   const hit = cache.get(slug);
   if (hit && !options.fresh && Date.now() - hit.at < cacheFor(hit.value)) return hit.value;
@@ -315,7 +327,7 @@ export async function getDemoSession(slug: string, options: { fresh?: boolean } 
     console.error("[healdesk] demo session read failed", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return hit?.value ?? null;
+    return hit?.value ?? "unavailable";
   }
 }
 

@@ -1,4 +1,9 @@
-import { agreementKindOfVersion, DPA_VERSION_PREFIX, type AgreementKind } from "@healdesk/catalog";
+import {
+  agreementKindOfVersion,
+  DPA_1_1_0_RELEASED,
+  DPA_VERSION_PREFIX,
+  type AgreementKind,
+} from "@healdesk/catalog";
 
 /**
  * What each agreement promises a practice about incidents and
@@ -55,6 +60,10 @@ export const REPORTING_RULES: Readonly<
     "0.1.0-draft": "five_days",
   },
   dpa: {
+    // DPA 1.1.0 (a draft): its Incidents clause is 1.0.0's own object. Listed
+    // only once the owner releases it (DPA_1_1_0_RELEASED in dpa.ts), since
+    // the map names nothing the catalog does not register.
+    ...(DPA_1_1_0_RELEASED ? { "1.1.0": "sixty_calendar_days" as const } : {}),
     "1.0.0": "sixty_calendar_days",
   },
 };
@@ -77,6 +86,9 @@ export const SUBCONTRACTOR_NOTICE_RULES: Readonly<
     "0.1.0-draft": "fifteen_days",
   },
   dpa: {
+    // DPA 1.1.0 (a draft): its Subcontractors clause is 1.0.0's own object;
+    // listed only once released, as above.
+    ...(DPA_1_1_0_RELEASED ? { "1.1.0": "twenty_four_hours" as const } : {}),
     "1.0.0": "twenty_four_hours",
   },
 };

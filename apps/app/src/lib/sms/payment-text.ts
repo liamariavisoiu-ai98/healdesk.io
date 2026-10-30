@@ -416,8 +416,24 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
       return "failed";
     }
 
-    // 3. The contact policy's one-text gate, on the exact words about to leave.
+    // 3. The contact policy's one-text gate, on the exact words about to leave,
+    // with the ledger read again now: the booking's row must still be this
+    // attempt's own claim, still queued. Anything else (settled meanwhile, or
+    // unreadable) is "already texted", and nothing leaves.
     const body = paymentLinkTextBody(link.url);
+    let alreadyTexted = true;
+    try {
+      alreadyTexted = await withTenant({ clinicId: context.clinicId, actor }, async (tx) => {
+        const [row] = await tx.db
+          .select({ id: paymentLinkTexts.id, status: paymentLinkTexts.status })
+          .from(paymentLinkTexts)
+          .where(eq(paymentLinkTexts.appointmentId, appointmentId))
+          .limit(1);
+        return !(row && row.id === claimed.id && row.status === "queued");
+      });
+    } catch (error) {
+      log.error("payment-link text: the ledger could not be read before the send", { clinicId: context.clinicId, error: describeError(error) });
+    }
     const decision = canSendPaymentLinkText({
       channel: "sms",
       purpose: "payment_link_text",
@@ -426,7 +442,7 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
       bookedOnThisCall: true,
       optedInAt: input.optedInAt,
       confirmedAt: input.confirmedAt,
-      alreadyTexted: false,
+      alreadyTexted,
       now,
     });
     if (!decision.allowed) {

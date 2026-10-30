@@ -23,6 +23,7 @@ import {
 } from "@/lib/sms/send";
 import { agreementVersionCoversText } from "@/lib/sms/agreement";
 import { smsOriginationIdentity, smsSenderConfigured } from "@/lib/sms/config";
+import { createDepositLink } from "@/lib/billing/deposit-link";
 import { recordDepositLapsed } from "@/lib/billing/deposits";
 import { supersededReason } from "@/lib/email/superseded";
 import { dedupeKey, notifyBookingAlert } from "@/lib/notices/booking-alerts";
@@ -485,6 +486,36 @@ describeDb("the call flow and the one send, against the database", { timeout: 30
     const again = await t.step({ state, answer: { paymentText: { confirmed: true } }, now: LATER(20) });
     expect(again.reply).toBe(PAYMENT_TEXT_LINES_EN.notSent);
     expect(attempts).toBe(1);
+  });
+
+  test("the one-text gate reads the ledger: a claim settled elsewhere before the send sends nothing", async () => {
+    const { clinicId, appointmentId } = await clinicWithBooking("text-gate-ledger");
+    const t = paymentTextTools(
+      { clinicId, callId: "call_gate" },
+      {
+        offered: async () => true,
+        transport,
+        env: ENV,
+        notify,
+        realCalls: true,
+        // While the link is made, something else settles the booking's claim.
+        createLink: async (clinic, appointment, options) => {
+          await inTenant(clinicId, (client) =>
+            client.query(`update payment_link_texts set status = 'failed', failure_code = 'error', settled_at = now() where appointment_id = $1`, [
+              appointmentId,
+            ]),
+          );
+          return createDepositLink(clinic, appointment, options);
+        },
+      },
+    );
+    const state: BookingToolState = {
+      ...EMPTY_TOOL_STATE,
+      text: { stage: "confirming", appointmentId, number: CALLER, optedInAt: LATER(5).toISOString(), unanswered: 0 },
+    };
+    const done = await t.step({ state, answer: { paymentText: { confirmed: true } }, now: LATER(15) });
+    expect(done.reply).toBe(PAYMENT_TEXT_LINES_EN.notSent);
+    expect(sent).toEqual([]);
   });
 
   test("a deposit not yet with the front desk is handed to it when the text fails", async () => {

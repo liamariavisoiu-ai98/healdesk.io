@@ -329,8 +329,11 @@ export const PAYMENT_LINK_TEXT_CONSENT_MS = 15 * 60 * 1000;
 /**
  * The gate for the ONE designed exception to inbound-only (see the header):
  * the payment-link text after a call. Pure, so the decision can be read
- * without a database; the tool layer (lib/sms/payment-text.ts) passes what
- * it read under the ledger's lock, and sends only on `allowed`.
+ * without a database; the tool layer (lib/sms/payment-text.ts) passes
+ * `alreadyTexted` from a fresh read of the booking's ledger row, made after
+ * it claimed that row and just before the send (true unless the row is still
+ * its own queued claim), and sends only on `allowed`. The ledger's unique
+ * key on the appointment remains the guard against two claims.
  *
  * Fails closed on every field. Anything that is not exactly that text is
  * `not_the_one_text`, whatever else about it would be fine, so no other

@@ -72,7 +72,9 @@
  * The rates were set by the owner on 13 October 2026. They are still a
  * judgement, not a measurement: the spec sets overage prices from measured
  * cost times a target margin, and launch step 3.5 measures that cost on pilot
- * traffic. Any copy that prints these rates must say they are provisional.
+ * traffic. That is internal: client-facing copy quotes the started block and
+ * its price only, never "provisional" and never our costs (owner, 30 October
+ * 2026), and a rate change follows the Terms' price-change notice.
  *
  * Each metered key encodes its rate, like the package keys, so a rate change
  * cannot silently bill the old rate: checkout fails loudly until
@@ -212,8 +214,8 @@ export const PRODUCTS: Readonly<Record<ProductId, Product>> = {
 
 /**
  * Whether checkout leaves the metered overage prices off and the terms say
- * overage is not billed. It is NOT a "these rates are final" flag: the rates
- * are provisional either way. See the header for why it stays false.
+ * overage is not billed. It is NOT a "these rates are final" flag, and its
+ * name is internal, never client copy. See the header for why it stays false.
  */
 export const OVERAGE_RATES_PROVISIONAL = false;
 

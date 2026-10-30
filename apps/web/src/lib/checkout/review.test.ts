@@ -176,10 +176,9 @@ describe("each month", () => {
     ]);
   });
 
-  test("the overage is the package's own price per started block of 100, and said to be provisional", () => {
+  test("the overage is the package's own price per started block of 100, with nothing of our costs", () => {
     expect(overageSentence(plan("webchat-300"), "month")).toBe(
-      "Past that: $52 for each started block of 100 extra chat conversations, on your next invoice. " +
-        "These rates are provisional until we have measured what a minute and a conversation cost to serve.",
+      "Past that: $52 for each started block of 100 extra chat conversations, on your next invoice.",
     );
     expect(overageSentence(plan("voice-500"), "month")).toMatch(
       /^Past that: \$104 for each started block of 100 extra voice minutes, on your next invoice\./,
@@ -190,7 +189,7 @@ describe("each month", () => {
     for (const p of SAMPLE) {
       for (const interval of ["month", "year"] as const) {
         const sentence = overageSentence(p, interval);
-        expect(sentence).toMatch(/provisional/);
+        expect(sentence).not.toMatch(/provisional|cost to serve|measured/i);
         // Billed per started block: never a per-unit rate. Word boundaries,
         // because "extra voice minutes" holds "a voice minute".
         expect(sentence).not.toMatch(

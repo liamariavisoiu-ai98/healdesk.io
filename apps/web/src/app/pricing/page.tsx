@@ -132,8 +132,9 @@ const LIVE_WHEN = [
  * Half off setup belongs to the personalised demo a clinic asked for and is
  * offered only there; this page prints the website's 30% and nothing else
  * (src/app/pricing/pricing-copy.test.ts). Overage is quoted per started block
- * of 100 at each product's extra-100 price, marked provisional, never as a
- * per-minute or per-conversation rate. No opening dates, no "revenue", and
+ * of 100 at each product's extra-100 price, never as a per-minute or
+ * per-conversation rate, and never with talk of our own costs (owner,
+ * 30 October 2026). No opening dates, no "revenue", and
  * the data line is the spec's: we sign a business associate agreement and
  * handle patient data under it.
  *
@@ -232,10 +233,6 @@ export default function PricingPage() {
                   {usd.format(example.extraUsd)} for {example.blocks === 1 ? "one started block" : `${example.blocks} started blocks`}{" "}
                   of {OVERAGE_BLOCK_UNITS} = {usd.format(example.stepUsd + example.extraUsd)}. Moving
                   up to {example.nextStep} minutes would have cost {usd.format(example.nextStepUsd)}.
-                </p>
-                <p className="text-sm">
-                  The extra-100 prices are provisional until we have measured what a minute and a
-                  conversation cost to serve.
                 </p>
               </>
             )}

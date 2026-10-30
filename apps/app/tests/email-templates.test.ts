@@ -754,7 +754,7 @@ describe("the welcome email (B1)", () => {
     expect(annual.text).not.toContain("Monthly price");
   });
 
-  test("the order names the package, its steps and the extra-100 prices, marked provisional", () => {
+  test("the order names the package, its steps and the extra-100 prices, with nothing of our costs", () => {
     const { text } = WELCOME_ENTRY.render(
       { ...WELCOME_ENTRY.fixture, planId: "voice-metachat-700-1500", channels: ["web", "meta", "voice"] },
       contextFor("welcome"),
@@ -764,7 +764,7 @@ describe("the welcome email (B1)", () => {
     expect(text).toContain(
       "Past the allowance: $104 for each started block of 100 extra voice minutes, and $78 for each started block of 100 extra chat conversations",
     );
-    expect(text).toMatch(/provisional/);
+    expect(text).not.toMatch(/provisional|measured|costs us/i);
     expect(text).not.toMatch(/\$1\.04|\$0\.78|per minute|per conversation/);
 
     const voice = WELCOME_ENTRY.render(

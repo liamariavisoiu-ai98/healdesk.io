@@ -162,14 +162,14 @@ describeDb("Billing", () => {
       "Until every channel in your package is in service, your monthly price is the price of the channels that are.",
     );
     expect(html).toContain("Your allowance starts when your plan does.");
-    // Each meter's extra-100 price, at the bought plan's rate, and provisional.
+    // Each meter's extra-100 price, at the bought plan's rate, and nothing of our costs.
     expect(html).toContain(
-      "Past it: $104 for each started block of 100 extra voice minutes (provisional).",
+      "Past it: $104 for each started block of 100 extra voice minutes.",
     );
     expect(html).toContain(
-      "Past it: $52 for each started block of 100 extra chat conversations (provisional).",
+      "Past it: $52 for each started block of 100 extra chat conversations.",
     );
-    expect(html).toMatch(/Their prices are provisional until we(&#x27;|’)ve measured/);
+    expect(html).not.toMatch(/provisional|measured|costs us/i);
     expect(html).not.toMatch(/\$1\.04|\$0\.52/);
     // The three switches, together, under one heading.
     const switches = html.slice(html.indexOf('id="switches"'), html.indexOf('id="change"'));

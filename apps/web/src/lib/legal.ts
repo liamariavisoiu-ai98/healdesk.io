@@ -57,7 +57,12 @@ import {
 // 2026-10-29.4, so the text without it can no longer be published, and
 // src/lib/legal-version.test.ts still pins what the pages render on each
 // side of the flag.
-export const LEGAL_VERSION = "2026-10-30.1";
+// 2026-10-30.2 also drops terms section 3's sentence calling the block
+// prices provisional until we have measured what usage costs to serve
+// (owner, 30 October 2026: nothing client-facing talks about our costs);
+// prices, the block rule and section 4's price-change notice are unchanged.
+// It replaces the live 2026-10-30.1.
+export const LEGAL_VERSION = "2026-10-30.2";
 export const LEGAL_LAST_UPDATED = "30 October 2026";
 
 export const ENTITY = {

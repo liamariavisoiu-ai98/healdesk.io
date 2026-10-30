@@ -818,8 +818,8 @@ describe("renderAgreementPdf", () => {
 
   test("names the file by version and date, and by nothing else", async () => {
     const pdf = await renderAgreementPdf(acceptance());
-    // The record's version, which is the current template's — 1.6.0 since its release on 29 October 2026.
-    expect(SIGNED.version).toBe("1.6.0");
+    // The record's version, which is the current template's — 1.7.0 since its release on 30 October 2026.
+    expect(SIGNED.version).toBe("1.7.0");
     expect(pdf.filename).toBe(`healdesk-baa-${SIGNED.version}-2026-08-18.pdf`);
     expect(pdf.filename).not.toContain("Radiance");
     expect(pdf.filename).not.toContain("Alex");
@@ -876,14 +876,14 @@ describe("a Data Protection Agreement's PDF", () => {
 
     const running = lines.filter((line) => line.startsWith("healdesk data protection agreement"));
     expect(running).toHaveLength(pageCount);
-    for (const line of running) expect(line).toContain("template dpa/1.0.0");
+    for (const line of running) expect(line).toContain("template dpa/1.1.0");
     // The DPA's own text speaks of business associate agreements (its status
     // clause says it is not one); the file's own words never call it one.
     expect(lines.some((line) => line.startsWith("healdesk business associate agreement"))).toBe(
       false,
     );
-    expect(doc.getTitle()).toBe("healdesk Data Protection Agreement dpa/1.0.0");
-    expect(pdf.filename).toBe("healdesk-dpa-1.0.0-2026-08-18.pdf");
+    expect(doc.getTitle()).toBe("healdesk Data Protection Agreement dpa/1.1.0");
+    expect(pdf.filename).toBe("healdesk-dpa-1.1.0-2026-08-18.pdf");
 
     // The agreement itself, verbatim, as for any acceptance.
     expect(collapsed(lines.join("\n"))).toContain(collapsed(DPA.text.split("\n").slice(0, 2).join(" ")));

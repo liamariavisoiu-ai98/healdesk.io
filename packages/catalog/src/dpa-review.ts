@@ -5,7 +5,14 @@ import {
   type CalendarAccount,
   type CalendarElectionVariables,
 } from "./calendar-terms";
-import { currentDpaTemplate, DPA_PRACTICE_DESCRIPTORS, prepareDpa, type DpaVariables } from "./dpa";
+import {
+  currentDpaTemplate,
+  DPA_PRACTICE_DESCRIPTORS,
+  getDpaTemplate,
+  prepareDpa,
+  type DpaTemplate,
+  type DpaVariables,
+} from "./dpa";
 import { currentDpaCalendarElection, prepareDpaCalendarElection } from "./dpa-calendar-election";
 import { regimeFor, specialties } from "./specialties";
 import { wrap } from "./wrap";
@@ -62,8 +69,15 @@ type Entry = {
   body: () => string;
 };
 
+/**
+ * The template the file being built renders: the released one for
+ * docs/dpa-v1.0.0.txt, a draft for its own review copy. Set only for the
+ * length of one synchronous build (dpaReviewFor).
+ */
+let reviewed: DpaTemplate | null = null;
+
 function render(overrides: Partial<DpaVariables>): string {
-  return prepareDpa(currentDpaTemplate(), { ...DPA_REVIEW_SAMPLE, ...overrides }).text;
+  return prepareDpa(reviewed ?? currentDpaTemplate(), { ...DPA_REVIEW_SAMPLE, ...overrides }).text;
 }
 
 /** One numbered clause of a rendered agreement, from its heading to the next clause's. */
@@ -171,7 +185,9 @@ function formatDay(iso: string): string {
 }
 
 function header(): string {
-  const template = currentDpaTemplate();
+  // dpa/1.0.0 by name: this header describes that released text, whatever
+  // DPA_TEMPLATES[0] is (dpa/1.1.0 since 30 October 2026).
+  const template = getDpaTemplate("dpa/1.0.0")!;
   const sample = prepareDpa(template, DPA_REVIEW_SAMPLE);
   const published = formatDay(template.publishedOn);
   return [
@@ -197,13 +213,12 @@ function electionAppendix(): string {
   ].join("\n\n");
 }
 
-/** The whole file, exactly as docs/dpa-v1.0.0.txt must hold it. */
-export function dpaReviewDocument(): string {
+/** Everything after the header: the sample, Appendix A and Appendix B. */
+function reviewBody(): string {
   const appendix = ENTRIES.map(
     (entry, i) => `${wrap(`A${i + 1}. ${entry.caption}`, "")}\n\n${entry.body()}`,
   ).join("\n\n");
   return [
-    header(),
     RULE,
     render({}).trimEnd(),
     RULE,
@@ -211,7 +226,41 @@ export function dpaReviewDocument(): string {
     appendix,
     RULE,
     electionAppendix(),
-  ]
-    .join("\n\n")
-    .concat("\n");
+  ].join("\n\n");
+}
+
+/** The whole file, exactly as docs/dpa-v1.0.0.txt must hold it: dpa/1.0.0, whatever is current. */
+export function dpaReviewDocument(): string {
+  reviewed = getDpaTemplate("dpa/1.0.0")!;
+  try {
+    return [header(), reviewBody()].join("\n\n").concat("\n");
+  } finally {
+    reviewed = null;
+  }
+}
+
+/**
+ * docs/dpa-v1.1.0.txt: dpa/1.1.0 (drafted and released by the owner on 30
+ * October 2026), laid out as docs/dpa-v1.0.0.txt is, for the same sample
+ * practice, with its own header saying what changed against dpa/1.0.0.
+ * dpa.test.ts fails when the file is not exactly this.
+ */
+export function dpaDraftReviewDocument110(): string {
+  const template = getDpaTemplate("dpa/1.1.0");
+  if (!template) throw new Error("dpa/1.1.0 is not registered.");
+  reviewed = template;
+  try {
+    const sample = prepareDpa(template, DPA_REVIEW_SAMPLE);
+    const before = prepareDpa(getDpaTemplate("dpa/1.0.0")!, DPA_REVIEW_SAMPLE);
+    const head = [
+      `healdesk Data Protection Agreement — version ${template.version}, ${template.approvedByCounsel ? "RELEASED" : "NOT RELEASED"}, rendered ${formatDay(template.publishedOn)}, the day it was drafted and released. Released by the owner that day ("release BAA 1.7.0 and DPA 1.1.0"), without external counsel; he decided the same day that no lawyer will be engaged (docs/counsel/README.md; docs/counsel/agreement-changes.md §21). approvedByCounsel is ${template.approvedByCounsel} in packages/catalog/src/dpa.ts (DPA_1_1_0_RELEASED), it is DPA_TEMPLATES[0], so agreementKindFor offers it to a practice that signs the Data Protection Agreement, and app_dpa_version_released lists it beside dpa/1.0.0 (apps/app drizzle/0140_baa_release_1_7_0). dpa/1.0.0 stays released and frozen for anything signed against it. It is frozen now: a change is a new version, never an edit.`,
+      `What is new against dpa/1.0.0, on the owner's instruction of 30 October 2026 ("Breach notice of 60 days vs California's 'immediately': adjust whatever's needed"; "24 hours' notice before adding a new vendor: adjust whatever's needed"), and nothing else: three sentences in three clauses. Clause 12, Reporting incidents and breaches: "in no case later than 60 calendar days after discovery" became "in no case later than 10 calendar days after discovery", "without unreasonable delay" still first. Clause 11, Subcontractors: "at least 24 hours' notice by email" became "at least 15 days' notice by email", with the same recipient, contents and right to object and terminate without penalty. Clause 9, Safeguards: "healdesk places no calls and sends no SMS. This exception does not extend to any other channel or content." became "healdesk places no calls and sends no SMS, except that the assistant is engineered and designed to offer a caller a single text message that carries fixed wording and Practice's own payment link, where Practice has chosen that option. This exception, that text included, does not extend to any other channel or content.", BAA 1.6.0's wording for the one optional payment-link text the owner allowed after a call (28 October 2026). Every other clause is dpa/1.0.0's own clause object, word for word, and the preamble differs only in its version line.`,
+      `Rendered for the sample practice of docs/dpa-v1.0.0.txt: a med spa that answered "No"; bookings in Mindbody; a personal Google account. From the title line on, the sample is exactly what packages/catalog/src/dpa.test.ts pins as ${template.version} / sample (SHA-256 ${sample.hash}; dpa/1.0.0's is ${before.hash}). Appendix A prints the clauses that render only for some practices, from this template; none of them is a clause this version changes. Appendix B is the calendar election, which this version does not change; its sample names dpa/1.0.0, as the released copy's does, and an election under dpa/1.1.0 names dpa/1.1.0. Source: packages/catalog/src/dpa.ts (CLAUSES_1_1), subprocessor-notice.ts (subprocessorNoticeClauseBody15Days).`,
+    ]
+      .map((p) => wrap(p, ""))
+      .join("\n\n");
+    return [head, reviewBody()].join("\n\n").concat("\n");
+  } finally {
+    reviewed = null;
+  }
 }

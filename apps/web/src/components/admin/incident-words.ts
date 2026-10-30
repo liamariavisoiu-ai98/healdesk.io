@@ -84,12 +84,13 @@ export const STEP_NEEDS: Partial<Record<ChecklistStep, string>> = {
 
 /**
  * What each agreement promises about the notice (lib/incidents/
- * reporting-rules.ts): BAA 1.2.2 on and the DPA, 60 calendar days; BAA 1.2.1
- * and before, five days. A practice with no agreement on file, or a version
+ * reporting-rules.ts): BAA 1.7.0 and dpa/1.1.0, 10 calendar days; BAA 1.2.2
+ * to 1.6.0 and dpa/1.0.0, 60 calendar days; BAA 1.2.1 and before, five days. A practice with no agreement on file, or a version
  * the map does not know, gets the five-day rule, the strictest; the lines
  * that print a rule say so beside it.
  */
 export const RULE_WORDS: Record<ScopeClocksView["agreementRule"], string> = {
+  ten_calendar_days: "no later than 10 calendar days after discovery",
   sixty_calendar_days: "no later than 60 calendar days after discovery",
   five_days: "five calendar days for a breach, five business days otherwise (BAA 1.2.1 and before)",
 };

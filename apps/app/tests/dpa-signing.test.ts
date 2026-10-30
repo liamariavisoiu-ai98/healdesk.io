@@ -40,7 +40,7 @@ import {
  * Signing the Data Protection Agreement (plan Part L), the path a veterinary
  * practice and a practice that answered "No" take since the owner released it
  * on 20 October 2026:
- * rendered through prepareDpa, stored as `dpa/1.0.0` with its own variables,
+ * rendered through prepareDpa, stored as its version (`dpa/1.1.0` since 30 October 2026) with its own variables,
  * held to the BAA path's refusals by field, its displayed-hash comparison and
  * its released-templates-only rule, and sent to the signer as a PDF and an
  * email that name the document they signed.
@@ -203,7 +203,13 @@ describe("which agreement, and whether it can be signed", () => {
   });
 
   test("released, only the current DPA signs: no BAA version, no unknown version", () => {
-    expect(signableDpaTemplate("dpa/1.0.0", RELEASED)).toBe(currentDpaTemplate());
+    // dpa/1.1.0 since its release on 30 October 2026; dpa/1.0.0, replaced
+    // outright, asks a tab left open on it to reload.
+    expect(signableDpaTemplate("dpa/1.1.0", RELEASED)).toBe(currentDpaTemplate());
+    expect(refusal(() => signableDpaTemplate("dpa/1.0.0", RELEASED))).toMatchObject({
+      message: "The agreement has been updated. Please reload and review the current version.",
+      field: "templateVersion",
+    });
     for (const version of [CURRENT_BAA_VERSION, "1.3.0", "1.0.0"]) {
       expect(
         refusal(() => signableDpaTemplate(version, RELEASED)),
@@ -391,13 +397,13 @@ describeDb("signing the DPA", () => {
     return Number(rows[0]!.n);
   }
 
-  test("a vet signs it: the row stores dpa/1.0.0, the DPA kind and its variables", async () => {
+  test("a vet signs it: the row stores dpa/1.1.0, the DPA kind and its variables", async () => {
     const request = vetRequest();
     const shown = displayed(request);
     const signed = await signOnDate({ ...request, displayedHash: shown.hash });
 
     expect(signed).toMatchObject({
-      version: "dpa/1.0.0",
+      version: "dpa/1.1.0",
       hash: shown.hash,
       text: shown.text,
       clauseIds: shown.clauseIds,
@@ -405,7 +411,7 @@ describeDb("signing the DPA", () => {
       approvedByCounsel: true,
     });
     const row = await storedRow(signed.agreementId);
-    expect(row.document_version).toBe("dpa/1.0.0");
+    expect(row.document_version).toBe("dpa/1.1.0");
     expect(row.agreement_kind).toBe("dpa");
     expect(row.document_hash).toBe(shown.hash);
     expect(row.rendered_text).toBe(shown.text);
@@ -432,7 +438,7 @@ describeDb("signing the DPA", () => {
       [signed.agreementId],
     );
     expect(rows[0]!.metadata).toMatchObject({
-      version: "dpa/1.0.0",
+      version: "dpa/1.1.0",
       hash: shown.hash,
       approvedByCounsel: true,
     });
@@ -444,7 +450,7 @@ describeDb("signing the DPA", () => {
     const signed = await signOnDate({ ...request, displayedHash: shown.hash });
     const row = await storedRow(signed.agreementId);
     expect(row.agreement_kind).toBe("dpa");
-    expect(row.document_version).toBe("dpa/1.0.0");
+    expect(row.document_version).toBe("dpa/1.1.0");
     expect(row.variables).toMatchObject({
       specialty: "med-spa",
       bookingSystem: "mindbody",
@@ -465,14 +471,14 @@ describeDb("signing the DPA", () => {
     expect(signed.copy).toMatchObject({ status: "skipped" });
     expect(sent.copies).toHaveLength(1);
     const copy = sent.copies[0] as AgreementCopyRequest;
-    expect(copy.version).toBe("dpa/1.0.0");
+    expect(copy.version).toBe("dpa/1.1.0");
     expect(copy.documentHash).toBe(signed.hash);
     // Dated by the acceptance, which the database stamps, not by the document's effective date.
     expect(copy.filename).toBe(
-      `healdesk-dpa-1.0.0-${copy.acceptedAt.toISOString().slice(0, 10)}.pdf`,
+      `healdesk-dpa-1.1.0-${copy.acceptedAt.toISOString().slice(0, 10)}.pdf`,
     );
     const pdf = await PDFDocument.load(copy.pdf);
-    expect(pdf.getTitle()).toBe("healdesk Data Protection Agreement dpa/1.0.0");
+    expect(pdf.getTitle()).toBe("healdesk Data Protection Agreement dpa/1.1.0");
 
     // The real wording: only the send is stood in for.
     const email = renderAgreementCopy(copy);

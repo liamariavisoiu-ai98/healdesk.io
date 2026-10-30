@@ -150,25 +150,25 @@ describe("the agreement step renders the version it signs (gate 11)", () => {
     await vi.waitFor(() => expect(onSigned).toHaveBeenCalled());
   });
 
-  test("1.6.0, the current version: 1.3.0's bullets above its own text, and the request names 1.6.0", async () => {
+  test("1.7.0, the current version: 1.3.0's bullets above its own text, and the request names 1.7.0", async () => {
     // The funnel's own entry, not one handed to the step.
     const onSigned = vi.fn();
     await renderStep(onSigned);
 
     const page = container.textContent ?? "";
-    expect(page).toContain("Version 1.6.0");
-    expect(page).not.toContain("Version 1.5.1");
-    // 1.6.0 shows 1.3.0's bullets, as 1.4.0, 1.5.0 and 1.5.1 did: its Term
-    // clause differs from 1.3.0's by one phrase no bullet words.
-    for (const term of baaExplainerTerms("1.6.0")) expect(page).toContain(term.plain);
-    expect(baaExplainerTerms("1.6.0")).toBe(baaExplainerTerms("1.5.1"));
+    expect(page).toContain("Version 1.7.0");
+    expect(page).not.toContain("Version 1.6.0");
+    // 1.7.0 shows 1.3.0's bullets, as 1.4.0 to 1.6.0 did: no bullet words
+    // the clauses it changes.
+    for (const term of baaExplainerTerms("1.7.0")) expect(page).toContain(term.plain);
+    expect(baaExplainerTerms("1.7.0")).toBe(baaExplainerTerms("1.5.1"));
     expect(page).toContain("limit its use and disclosure");
     expect(page).toContain("if you determine that we have violated a material term of it");
     expect(page).not.toContain("use it only");
     expect(page).not.toContain("if we materially breach it");
     const text = documentText();
-    expect(text).toContain("Version 1.6.0 — executed electronically");
-    expect(text).not.toContain("Version 1.5.1");
+    expect(text).toContain("Version 1.7.0 — executed electronically");
+    expect(text).not.toContain("Version 1.6.0");
     // The transcript is emailed, not kept (owner, 13 October 2026), and its
     // copy goes once delivery is confirmed (owner, 14 October 2026).
     expect(text.replace(/\s+/g, " ")).toContain("healdesk does not keep transcripts.");
@@ -186,10 +186,14 @@ describe("the agreement step renders the version it signs (gate 11)", () => {
     expect(text.replace(/\s+/g, " ")).toContain(
       "engineered and designed to offer a caller a single text message",
     );
+    // What 1.7.0 changes (owner, 30 October 2026): ten calendar days to
+    // report, fifteen days' notice of a new subcontractor.
+    expect(text.replace(/\s+/g, " ")).toContain("in no case later than 10 calendar days after discovery");
+    expect(text.replace(/\s+/g, " ")).toContain("at least 15 days' notice by email");
 
     const request = await sign();
-    expect(request.templateVersion).toBe("1.6.0");
-    // Both answers 1.6.0's calendar clause (1.3.0's) is chosen by, as the step was given them.
+    expect(request.templateVersion).toBe("1.7.0");
+    // Both answers 1.7.0's calendar clause (1.3.0's) is chosen by, as the step was given them.
     expect(request).toMatchObject({
       bookingSystem: "google_calendar",
       calendarAccount: "workspace_baa",

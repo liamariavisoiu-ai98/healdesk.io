@@ -630,11 +630,11 @@ describe("POST /api/agreement checks the calendar answers before anything is sig
       const response = await sign(null, signature("a@clinic.com", {}, practice));
       expect(response.status, practice.specialty).toBe(201);
       const body = (await response.json()) as { agreementId: string; version: string; text: string; approvedByCounsel: boolean };
-      expect(body.version, practice.specialty).toBe("dpa/1.0.0");
+      expect(body.version, practice.specialty).toBe("dpa/1.1.0");
       expect(body.approvedByCounsel).toBe(true);
       expect(body.text.startsWith("HEALDESK DATA PROTECTION AGREEMENT\n")).toBe(true);
       const found = await findAgreementRecord(body.agreementId);
-      expect(found.status === "found" && found.record.documentVersion).toBe("dpa/1.0.0");
+      expect(found.status === "found" && found.record.documentVersion).toBe("dpa/1.1.0");
     }
     // A veterinary practice that sends the BAA's wording is refused: the decision is the catalogue's.
     const vet = signature("a@clinic.com", {}, { specialty: "veterinary", covered: null });

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { BAA_1_6_0_RELEASED } from "@healdesk/catalog";
+import { BAA_1_6_0_RELEASED, BAA_1_7_0_RELEASED } from "@healdesk/catalog";
 import { describe, expect, test } from "vitest";
 
 import DataDeletionPage from "@/app/data-deletion/page";
@@ -94,7 +94,30 @@ const PINNED_WITH_1_6_0 = {
   },
 } as const;
 
-const PINNED = BAA_1_6_0_RELEASED ? PINNED_WITH_1_6_0 : PINNED_BEFORE_1_6_0;
+/**
+ * The text once BAA 1.7.0 and DPA 1.1.0 are released (BAA_1_7_0_RELEASED;
+ * owner, 30 October 2026): Terms' security annex and Privacy § 9 say a breach
+ * or security incident is reported in no case later than 10 calendar days
+ * after discovery, where 2026-10-29.5 said 60. Nothing else moves, and the
+ * deletion page is word for word the same.
+ */
+const PINNED_WITH_1_7_0 = {
+  version: "2026-10-30.1",
+  lastUpdated: "30 October 2026",
+  /** 2026-10-29.5 is the text on main this one replaces. */
+  replaces: "2026-10-29.5",
+  sha256: {
+    ...PINNED_WITH_1_6_0.sha256,
+    "/terms": "c5278e22b6f68ce192bf318f6fbc29fe2b6073780343a85fc0467ad56b83061e",
+    "/privacy": "4540676f387dc1a097c28f1019a696ac2f28f4723fb6c9bf3b558301a0193abd",
+  },
+} as const;
+
+const PINNED = BAA_1_7_0_RELEASED
+  ? PINNED_WITH_1_7_0
+  : BAA_1_6_0_RELEASED
+    ? PINNED_WITH_1_6_0
+    : PINNED_BEFORE_1_6_0;
 
 const PAGES = [
   ["/terms", TermsPage],

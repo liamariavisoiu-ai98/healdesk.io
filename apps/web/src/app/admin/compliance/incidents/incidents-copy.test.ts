@@ -72,7 +72,8 @@ describe("the incidents page", () => {
     expect(page).not.toContain("PAST THE AGREEMENT'S DEADLINE");
     expect(page).not.toMatch(/24 hours/i);
     // The promise itself, as BAA 1.5.0's Reporting clause words it.
-    expect(page).toContain("without unreasonable delay and in no case later than 60 calendar days");
+    expect(page).toContain("without unreasonable delay and in no case later than 10 calendar days");
+    expect(page).toContain("and 60 calendar days under BAA 1.2.2 to 1.6.0 and DPA 1.0.0");
     expect(page).toContain("Send report");
     expect(page).toContain("Not reportable");
   });

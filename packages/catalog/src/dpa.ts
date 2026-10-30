@@ -30,7 +30,10 @@ import {
 } from "./calendar-terms";
 import { MODEL_RETENTION_AGREEMENT } from "./model-retention";
 import { isSpecialtyId, regimeFor, type SpecialtyId } from "./specialties";
-import { subprocessorNoticeClauseBody } from "./subprocessor-notice";
+import {
+  subprocessorNoticeClauseBody,
+  subprocessorNoticeClauseBody15Days,
+} from "./subprocessor-notice";
 import { wrap } from "./wrap";
 
 /**
@@ -1221,6 +1224,127 @@ const CLAUSES_1_0: readonly DpaClause[] = [
   },
 ];
 
+// -----------------------------------------------------------------------------
+// dpa/1.1.0 (a draft): ten days to report, fifteen days' notice, the one text
+// -----------------------------------------------------------------------------
+
+/**
+ * ⚖️ dpa/1.1.0, drafted 30 October 2026 and released by the owner the same
+ * day (DPA_1_1_0_RELEASED, below): dpa/1.0.0 with three clauses changed, the two the owner asked to
+ * tighten that day in BAA 1.7.0 too ("Breach notice of 60 days vs
+ * California's 'immediately': adjust whatever's needed"; "24 hours' notice
+ * before adding a new vendor: adjust whatever's needed"), and the Safeguards
+ * clause's sentence on SMS, which BAA 1.6.0 already corrected and dpa/1.0.0
+ * still says without exception (docs/counsel/agreement-changes.md §21).
+ * Every other clause is dpa/1.0.0's own object, in its order, and the
+ * preamble differs only in its version line:
+ *
+ *   safeguards     1.0.0's but for its last two sentences: 1.0.0 says
+ *                  healdesk "places no calls and sends no SMS"; 1.1.0 adds
+ *                  that the assistant is engineered and designed to offer a
+ *                  caller one text with fixed wording and Practice's own
+ *                  payment link, where Practice has chosen that option, and
+ *                  folds that text into the telephone exception, in BAA
+ *                  1.6.0's words (NO_SMS_1_6 in baa.ts; owner, 28-29 October
+ *                  2026).
+ *   subcontractors 1.0.0's but for its notice paragraph:
+ *                  subprocessorNoticeClauseBody15Days(), at least 15 days'
+ *                  notice by email where 1.0.0 gives 24 hours, as BAA 1.7.0.
+ *   incidents      1.0.0's but for its first sentence's outer limit: in no
+ *                  case later than 10 calendar days after discovery where
+ *                  1.0.0 says 60, as BAA 1.7.0.
+ *
+ * Since its release it is DPA_TEMPLATES[0], so agreementKindFor offers it,
+ * and app_dpa_version_released lists it beside dpa/1.0.0 (drizzle/0140).
+ */
+
+const clauseOf100 = (id: string): DpaClause => CLAUSES_1_0.find((clause) => clause.id === id)!;
+
+/** The two sentences that end 1.0.0's telephone exception. */
+const NO_SMS_1_0 =
+  `healdesk places no calls and sends no SMS. This exception does not extend to any other ` +
+  `channel or content.`;
+
+/** BAA 1.6.0's NO_SMS_1_6 in this document's subject: "no calls", not "no calls to patients". */
+const NO_SMS_1_1 =
+  `healdesk places no calls and sends no SMS, except that the assistant is engineered and ` +
+  `designed to offer a caller a single text message that carries fixed wording and ` +
+  `Practice's own payment link, where Practice has chosen that option. This exception, that ` +
+  `text included, does not extend to any other channel or content.`;
+
+/** The outer limit 1.0.0's incidents clause states, in its first sentence. */
+const INCIDENT_LIMIT_1_0 = `in no case later than 60 calendar days after discovery:`;
+
+/** 1.1.0's outer limit (owner, 30 October 2026), as BAA 1.7.0's. */
+const INCIDENT_LIMIT_1_1 = `in no case later than 10 calendar days after discovery:`;
+
+/**
+ * One paragraph of a 1.0.0 clause with its ending replaced, refusing to
+ * render if 1.0.0's ending is not there (compared with the wrap undone).
+ */
+function replaceEnding(
+  clause: DpaClause,
+  which: "first" | "last",
+  was: string,
+  now: string,
+): DpaClause {
+  return {
+    id: clause.id,
+    heading: clause.heading,
+    appliesWhen: clause.appliesWhen,
+    body: (v) => {
+      const paragraphs = clause.body(v).split("\n\n");
+      const at = which === "first" ? 0 : paragraphs.length - 1;
+      const text = paragraphs[at]!.replace(/\s+/g, " ").trim();
+      if (!text.endsWith(` ${was}`)) {
+        throw new Error(`dpa/1.1.0's ${clause.id} clause: dpa/1.0.0's sentence is not there.`);
+      }
+      paragraphs[at] = wrap(text.slice(0, -was.length) + now);
+      return paragraphs.join("\n\n");
+    },
+  };
+}
+
+const SAFEGUARDS_1_1 = replaceEnding(clauseOf100("safeguards"), "last", NO_SMS_1_0, NO_SMS_1_1);
+
+const INCIDENTS_1_1 = replaceEnding(
+  clauseOf100("incidents"),
+  "first",
+  INCIDENT_LIMIT_1_0,
+  INCIDENT_LIMIT_1_1,
+);
+
+const SUBCONTRACTORS_1_0 = clauseOf100("subcontractors");
+
+/** 1.0.0's Subcontractors clause with its notice paragraph giving 15 days. */
+const SUBCONTRACTORS_1_1: DpaClause = {
+  id: SUBCONTRACTORS_1_0.id,
+  heading: SUBCONTRACTORS_1_0.heading,
+  appliesWhen: SUBCONTRACTORS_1_0.appliesWhen,
+  body: (v) => {
+    const paragraphs = SUBCONTRACTORS_1_0.body(v).split("\n\n");
+    if (paragraphs[paragraphs.length - 1] !== wrap(subprocessorNoticeClauseBody())) {
+      throw new Error("dpa/1.1.0's subcontractors clause: dpa/1.0.0's 24-hour notice is not there.");
+    }
+    paragraphs[paragraphs.length - 1] = wrap(subprocessorNoticeClauseBody15Days());
+    return paragraphs.join("\n\n");
+  },
+};
+
+/** 1.0.0's clauses in 1.0.0's order, with the three above in place of its own. */
+const CLAUSES_1_1: readonly DpaClause[] = CLAUSES_1_0.map((clause) => {
+  switch (clause.id) {
+    case SAFEGUARDS_1_1.id:
+      return SAFEGUARDS_1_1;
+    case SUBCONTRACTORS_1_1.id:
+      return SUBCONTRACTORS_1_1;
+    case INCIDENTS_1_1.id:
+      return INCIDENTS_1_1;
+    default:
+      return clause;
+  }
+});
+
 /** The 1.0.0 preamble: the BAA's layout, with this document's title and subject. */
 function preamble100(v: DpaVariables): string {
   const title = v.signatoryTitle?.trim() ? `, ${v.signatoryTitle.trim()}` : "";
@@ -1282,35 +1406,76 @@ function validate100(v: DpaVariables): void {
   }
 }
 
+/** 1.0.0's preamble, naming version 1.1.0. */
+function preamble110(v: DpaVariables): string {
+  const text = preamble100(v);
+  const was = "\nVersion 1.0.0 — executed electronically\n";
+  if (text.split(was).length !== 2) {
+    throw new Error("dpa/1.1.0's preamble: 1.0.0's version line is not there.");
+  }
+  return text.replace(was, "\nVersion 1.1.0 — executed electronically\n");
+}
+
 // -----------------------------------------------------------------------------
 // Templates
 // -----------------------------------------------------------------------------
 
-export const DPA_TEMPLATES: readonly DpaTemplate[] = [
-  // Newest released first, as BAA_TEMPLATES: CURRENT_DPA_VERSION and
-  // currentDpaTemplate() read [0]. Drafted 6 October 2026 and released on
-  // 2026-10-20, with its election form (calendar-election-dpa/1.0.0,
-  // dpa-calendar-election.ts). The migration of that day,
-  // dpa_release_1_0_0 (apps/app drizzle/0104), added the version to
-  // app_dpa_version_released() (0090), go-live's copy of this flag, and the
-  // form to app_calendar_election_released(). No hash moved: nothing in the text
-  // marked it a draft (docs/counsel/dpa.md, gap 11).
-  {
-    version: "dpa/1.0.0",
-    publishedOn: "2026-10-20",
-    // Approved for release by the OWNER on 2026-10-20, on the owner's own
-    // instruction ("Release the DPA now.") and without external counsel: as
-    // the field's doc comment on DpaTemplate says, the flag records the
-    // owner's release, not a lawyer's approval. Counsel approved the clauses
-    // as they stood on 6 October 2026, not the edits since, which
-    // agreement-changes.md §18 and docs/counsel/dpa.md recommend counsel
-    // review before the first live DPA practice.
-    approvedByCounsel: true,
-    preamble: preamble100,
-    clauses: CLAUSES_1_0,
-    validate: validate100,
-  },
-] as const;
+/**
+ * ⚖️ THE ONE SWITCH for releasing dpa/1.1.0 (owner's word only; the release
+ * checklist is docs/design/legal-4-baa-1-7-0-release-checklist.md).
+ *
+ * Released by the owner on 30 October 2026, with BAA 1.7.0 ("release BAA
+ * 1.7.0 and DPA 1.1.0"), without external counsel. False: dpa/1.0.0 is
+ * DPA_TEMPLATES[0], and dpa/1.1.0 a draft after it with approvedByCounsel
+ * false. True: dpa/1.1.0 is [0] with approvedByCounsel true, and dpa/1.0.0
+ * stays registered, released and frozen after it. apps/app
+ * drizzle/0140_baa_release_1_7_0.sql adds dpa/1.1.0 to
+ * app_dpa_version_released() and app_destruction_rule().
+ */
+export const DPA_1_1_0_RELEASED: boolean = true;
+
+// Newest released first, as BAA_TEMPLATES: CURRENT_DPA_VERSION and
+// currentDpaTemplate() read [0]. dpa/1.0.0 was drafted 6 October 2026 and
+// released on 2026-10-20, with its election form (calendar-election-dpa/1.0.0,
+// dpa-calendar-election.ts). The migration of that day, dpa_release_1_0_0
+// (apps/app drizzle/0104), added the version to app_dpa_version_released()
+// (0090), go-live's copy of this flag, and the form to
+// app_calendar_election_released(). No hash moved: nothing in the text marked
+// it a draft (docs/counsel/dpa.md, gap 11).
+const TEMPLATE_DPA_1_0_0: DpaTemplate = {
+  version: "dpa/1.0.0",
+  publishedOn: "2026-10-20",
+  // Approved for release by the OWNER on 2026-10-20, on the owner's own
+  // instruction ("Release the DPA now.") and without external counsel: as
+  // the field's doc comment on DpaTemplate says, the flag records the
+  // owner's release, not a lawyer's approval. Counsel approved the clauses
+  // as they stood on 6 October 2026, not the edits since, which
+  // agreement-changes.md §18 and docs/counsel/dpa.md recommend counsel
+  // review before the first live DPA practice.
+  approvedByCounsel: true,
+  preamble: preamble100,
+  clauses: CLAUSES_1_0,
+  validate: validate100,
+};
+
+const TEMPLATE_DPA_1_1_0_DRAFT: DpaTemplate = {
+  version: "dpa/1.1.0",
+  // Drafted and released the same day (owner, 30 October 2026).
+  publishedOn: "2026-10-30",
+  approvedByCounsel: false,
+  preamble: preamble110,
+  clauses: CLAUSES_1_1,
+  validate: validate100,
+};
+
+/** DPA_TEMPLATES as it reads once the switch is in the given state. */
+export function dpaTemplatesFor(released: boolean): readonly DpaTemplate[] {
+  return released
+    ? [{ ...TEMPLATE_DPA_1_1_0_DRAFT, approvedByCounsel: true }, TEMPLATE_DPA_1_0_0]
+    : [TEMPLATE_DPA_1_0_0, TEMPLATE_DPA_1_1_0_DRAFT];
+}
+
+export const DPA_TEMPLATES: readonly DpaTemplate[] = dpaTemplatesFor(DPA_1_1_0_RELEASED);
 
 export const CURRENT_DPA_VERSION = DPA_TEMPLATES[0]!.version;
 

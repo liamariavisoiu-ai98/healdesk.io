@@ -176,7 +176,8 @@ export function IncidentsBoard({
         </p>
         <p className="text-muted mt-2">
           The agreements&rsquo; promise, word for word: notice &ldquo;without unreasonable delay and in no case later
-          than 60 calendar days&rdquo; after discovery, under BAA 1.2.2 on and the DPA. BAA 1.2.1 and before promised
+          than 10 calendar days&rdquo; after discovery under BAA 1.7.0 and DPA 1.1.0, and 60 calendar days under BAA
+          1.2.2 to 1.6.0 and DPA 1.0.0. Each incident&rsquo;s clock follows the version that practice signed. BAA 1.2.1 and before promised
           five calendar days for a breach and five business days for the rest, and a practice with no agreement on file
           gets that, the strictest rule.
         </p>

@@ -15,6 +15,7 @@ import {
   currentDpaTemplate,
   DPA_ASSENT_LABEL,
   DPA_EXPLAINER,
+  dpaExplainerFor,
   dpaClauseExplainer,
   getBaaTemplate,
   getPlatform,
@@ -200,7 +201,7 @@ describe("the agreement the buyer reads is the one apps/app stores", () => {
       }) as const;
     const render = (bookingSystem: (typeof BOOKING_SYSTEMS)[number]["id"]) =>
       AGREEMENT_COPY.baa.render(input(bookingSystem)).text;
-    expect(AGREEMENT_COPY.baa.version).toBe("1.6.0");
+    expect(AGREEMENT_COPY.baa.version).toBe("1.7.0");
     expect(render("mindbody")).toContain("Mindbody");
     expect(render("calendly")).toContain("Calendly");
     // A 1.2.2 screen, loaded before the release, rendered the platform the
@@ -341,7 +342,7 @@ describe("AGREEMENT_COPY", () => {
   });
 
   test("1.2.2, the version signed until 1.3.0's release, shows exactly BAA_EXPLAINER's bullets", () => {
-    expect(AGREEMENT_COPY.baa.version).toBe("1.6.0");
+    expect(AGREEMENT_COPY.baa.version).toBe("1.7.0");
     expect(AGREEMENT_COPY.baa.released).toBe(true);
     const v122 = baaAgreementCopy(getBaaTemplate("1.2.2")!);
     expect(v122.explainer).toBe(BAA_EXPLAINER);
@@ -393,11 +394,11 @@ describe("AGREEMENT_COPY", () => {
         return note ? [[clause.id, note.plain]] : [];
       }),
     );
-    // The current entry is 1.6.0's since its release on 29 October 2026, and
-    // 1.6.0 shows 1.3.0's bullets as 1.5.1 does; building another leaves it
+    // The current entry is 1.7.0's since its release on 30 October 2026, and
+    // 1.7.0 shows 1.3.0's bullets as 1.5.1 does; building another leaves it
     // untouched.
-    expect(AGREEMENT_COPY.baa.version).toBe("1.6.0");
-    expect(AGREEMENT_COPY.baa.explainer).toBe(baaAgreementCopy(getBaaTemplate("1.6.0")!).explainer);
+    expect(AGREEMENT_COPY.baa.version).toBe("1.7.0");
+    expect(AGREEMENT_COPY.baa.explainer).toBe(baaAgreementCopy(getBaaTemplate("1.7.0")!).explainer);
     expect(AGREEMENT_COPY.baa.explainer.terms).toBe(copy.explainer.terms);
     expect(baaAgreementCopy(getBaaTemplate("1.2.2")!).explainer).toBe(BAA_EXPLAINER);
   });
@@ -407,7 +408,10 @@ describe("AGREEMENT_COPY", () => {
     expect(agreementCopyFor("dpa")).toBe(dpa);
     expect(dpa.kind).toBe("dpa");
     expect(dpa.title).toBe("Data Protection Agreement");
-    expect(dpa.explainer).toBe(DPA_EXPLAINER);
+    // dpa/1.1.0, current since 30 October 2026, words its two changed periods
+    // in its own explainer; dpa/1.0.0 keeps DPA_EXPLAINER.
+    expect(dpa.explainer).toBe(dpaExplainerFor("dpa/1.1.0"));
+    expect(dpaExplainerFor("dpa/1.0.0")).toBe(DPA_EXPLAINER);
     expect(dpa.explainer).not.toBe(BAA_EXPLAINER);
     expect(dpa.assentLabel).toBe(DPA_ASSENT_LABEL);
     expect(dpa.assentSentence("Golden Paws LLC")).not.toMatch(/Business Associate/);

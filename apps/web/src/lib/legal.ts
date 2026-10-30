@@ -1,4 +1,4 @@
-import { BAA_1_6_0_RELEASED } from "@healdesk/catalog";
+import { BAA_1_6_0_RELEASED, BAA_1_7_0_RELEASED } from "@healdesk/catalog";
 
 import {
   FIRST_PERIOD_REFUND_DAYS,
@@ -51,8 +51,17 @@ import {
 // 2026-10-29.5 adds the 30-day record of calls and chats the assistant could
 // not answer to Privacy § 6 (owner, 29 October 2026), on 1.6.0's release text,
 // and replaces the live 2026-10-29.4.
-export const LEGAL_VERSION = BAA_1_6_0_RELEASED ? "2026-10-29.5" : "2026-10-29.3";
-export const LEGAL_LAST_UPDATED = "29 October 2026";
+// 2026-10-30.1 is BAA 1.7.0's and DPA 1.1.0's release text (owner, 30 October
+// 2026): Terms' security annex and Privacy § 9 say a breach or security
+// incident is reported to the clinic in no case later than 10 calendar days
+// after discovery, where they said 60, as both agreements now do. It replaces
+// 2026-10-29.5.
+export const LEGAL_VERSION = BAA_1_7_0_RELEASED
+  ? "2026-10-30.1"
+  : BAA_1_6_0_RELEASED
+    ? "2026-10-29.5"
+    : "2026-10-29.3";
+export const LEGAL_LAST_UPDATED = BAA_1_7_0_RELEASED ? "30 October 2026" : "29 October 2026";
 
 export const ENTITY = {
   /** Full legal name, e.g. "Healdesk, Inc." Empty until the founder supplies it. */

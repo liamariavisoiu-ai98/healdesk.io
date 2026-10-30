@@ -37,20 +37,21 @@ const render = (selections: BaaSelections, version: string) =>
   prepareBaa(getBaaTemplate(version)!, { ...selections, ...SIGNER } as BaaVariables);
 
 describe("which templates ask the calendar questions", () => {
-  test("1.3.0, 1.4.0, 1.5.0, 1.5.1 and 1.6.0 do; every earlier version does not", () => {
+  test("1.3.0, 1.4.0, 1.5.0, 1.5.1, 1.6.0 and 1.7.0 do; every earlier version does not", () => {
     expect(templateReadsCalendarAccount(getBaaTemplate("1.3.0")!)).toBe(true);
     expect(templateReadsCalendarAccount(getBaaTemplate("1.4.0")!)).toBe(true);
     expect(templateReadsCalendarAccount(getBaaTemplate("1.5.0")!)).toBe(true);
     expect(templateReadsCalendarAccount(getBaaTemplate("1.5.1")!)).toBe(true);
     expect(templateReadsCalendarAccount(getBaaTemplate("1.6.0")!)).toBe(true);
+    expect(templateReadsCalendarAccount(getBaaTemplate("1.7.0")!)).toBe(true);
     for (const version of ["1.2.2", "1.2.1", "1.2.0", "1.0.0", "1.1.0-draft", "0.1.0-draft"]) {
       expect(templateReadsCalendarAccount(getBaaTemplate(version)!), version).toBe(false);
     }
     // Since 1.3.0's release the offered template asks both questions; 1.4.0,
     // offered from 13 October 2026, 1.5.0, from 14 October, and 1.5.1, from
-    // 19 October, and 1.6.0, from its release on 29 October, carry 1.3.0's
-    // calendar clauses.
-    expect(currentBaaTemplate().version).toBe("1.6.0");
+    // 19 October, 1.6.0, from its release on 29 October, and 1.7.0, from its
+    // release on 30 October, carry 1.3.0's calendar clauses.
+    expect(currentBaaTemplate().version).toBe("1.7.0");
     expect(templateReadsCalendarAccount(currentBaaTemplate())).toBe(true);
   });
 });

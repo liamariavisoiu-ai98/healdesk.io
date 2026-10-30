@@ -570,9 +570,11 @@ export function AgreementStep({
 
         {/* Interface copy beside the agreement, not part of it: v1 only
             answers. The one optional payment-link text is designed, not
-            built, and the agreement offered here (1.5.1) says healdesk sends
-            no SMS, so the box says the text waits for an agreement that
-            covers it. */}
+            built. The agreements offered here (BAA 1.6.0, released 29
+            October 2026, and DPA 1.1.0, released 30 October 2026) carry it,
+            but a clinic that signed an older one (BAA 1.5.1 or earlier, DPA
+            1.0.0) does not, so the box still says the text waits for an
+            agreement that covers it. */}
         <div className="border-line bg-paper-2/50 mt-6 rounded-sm border p-4">
           <p className="text-[15.6px] font-bold">Inbound only</p>
           <p className="text-muted mt-1.5 text-[15.6px] leading-relaxed">

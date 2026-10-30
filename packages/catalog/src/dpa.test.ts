@@ -190,9 +190,13 @@ describe("DPA freeze", () => {
   });
 
   test("is registered once, namespaced and released, and nothing in the text ever said it was a draft", () => {
-    expect(DPA_TEMPLATES.map((t) => t.version)).toEqual(["dpa/1.0.0"]);
-    expect(CURRENT_DPA_VERSION).toBe("dpa/1.0.0");
-    expect(currentDpaTemplate()).toBe(template());
+    // dpa/1.1.0, released by the owner on 30 October 2026, is current; 1.0.0
+    // follows it once, still released (dpa-1-1-0.test.ts).
+    expect(DPA_TEMPLATES.map((t) => t.version)).toEqual(["dpa/1.1.0", "dpa/1.0.0"]);
+    expect(DPA_TEMPLATES.filter((t) => t.version === "dpa/1.0.0")).toEqual([template()]);
+    expect(CURRENT_DPA_VERSION).toBe("dpa/1.1.0");
+    expect(currentDpaTemplate()).not.toBe(template());
+    expect(DPA_TEMPLATES[1]).toBe(template());
     expect(getDpaTemplate("1.0.0")).toBeUndefined();
     // Drafted 6 October 2026; released by the owner on 20 October 2026.
     expect(template().publishedOn).toBe("2026-10-20");

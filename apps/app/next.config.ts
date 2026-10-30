@@ -18,12 +18,15 @@ const nextConfig: NextConfig = {
   // dependencies imported by a literal specifier is explained above
   // AwsKmsKeyWrapper in src/lib/crypto/kms.ts. Every @aws-sdk package that
   // src imports belongs here (tests/aws-sdk-externals.test.ts): S3 is the
-  // export bucket's (src/lib/patient-rights/export-store.ts).
+  // export bucket's (src/lib/patient-rights/export-store.ts), and SMS and voice v2
+  // is the payment-link text's sender (src/lib/sms/send.ts), loaded by the
+  // voice process.
   serverExternalPackages: [
     "pg",
     "@aws-sdk/client-kms",
     "@aws-sdk/client-sesv2",
     "@aws-sdk/client-s3",
+    "@aws-sdk/client-pinpoint-sms-voice-v2",
   ],
 
   async headers() {

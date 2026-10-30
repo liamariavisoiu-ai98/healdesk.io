@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { AwsKmsKeyWrapper } from "@/lib/crypto/kms";
 import { getTransport } from "@/lib/reporting/deliver";
+import { sendPaymentLinkText } from "@/lib/sms/send";
 
 import nextConfig from "../next.config";
 
@@ -39,7 +40,7 @@ import nextConfig from "../next.config";
  * guards that fail first when one of the three is undone.
  */
 
-const SDKS = ["@aws-sdk/client-kms", "@aws-sdk/client-sesv2"] as const;
+const SDKS = ["@aws-sdk/client-kms", "@aws-sdk/client-sesv2", "@aws-sdk/client-pinpoint-sms-voice-v2"] as const;
 
 const packageJson = fileURLToPath(new URL("../package.json", import.meta.url));
 const manifest = JSON.parse(readFileSync(packageJson, "utf8")) as {
@@ -50,6 +51,11 @@ const manifest = JSON.parse(readFileSync(packageJson, "utf8")) as {
 const wire = vi.hoisted(() => ({
   kms: { loads: 0, sent: [] as Array<{ command: string; input: Record<string, unknown> }> },
   ses: {
+    loads: 0,
+    configs: [] as Array<Record<string, unknown>>,
+    sent: [] as Array<{ command: string; input: Record<string, unknown> }>,
+  },
+  sms: {
     loads: 0,
     configs: [] as Array<Record<string, unknown>>,
     sent: [] as Array<{ command: string; input: Record<string, unknown> }>,
@@ -111,7 +117,27 @@ vi.mock("@aws-sdk/client-sesv2", () => {
   };
 });
 
-describe("the build can resolve both clients and keeps them external", () => {
+vi.mock("@aws-sdk/client-pinpoint-sms-voice-v2", () => {
+  wire.sms.loads += 1;
+  class Command {
+    constructor(readonly input: Record<string, unknown>) {}
+  }
+  class SendTextMessageCommand extends Command {}
+  return {
+    SendTextMessageCommand,
+    PinpointSMSVoiceV2Client: class {
+      constructor(config: Record<string, unknown>) {
+        wire.sms.configs.push(config);
+      }
+      async send(command: Command) {
+        wire.sms.sent.push({ command: command.constructor.name, input: command.input });
+        return { MessageId: "sms-stub-0001" };
+      }
+    },
+  };
+});
+
+describe("the build can resolve every client and keeps them external", () => {
   test.each(SDKS)("%s is a dependency, resolvable from apps/app, and external", (name) => {
     expect(manifest.dependencies[name], `${name} in dependencies`).toBeDefined();
     expect(() => createRequire(packageJson).resolve(name)).not.toThrow();
@@ -121,6 +147,7 @@ describe("the build can resolve both clients and keeps them external", () => {
   test.each([
     ["src/lib/crypto/kms.ts", "@aws-sdk/client-kms"],
     ["src/lib/reporting/deliver.ts", "@aws-sdk/client-sesv2"],
+    ["src/lib/sms/send.ts", "@aws-sdk/client-pinpoint-sms-voice-v2"],
   ])("%s imports %s by a literal specifier", (file, name) => {
     const source = readFileSync(fileURLToPath(new URL(`../${file}`, import.meta.url)), "utf8");
     expect(source).toContain(`await import("${name}")`);
@@ -208,6 +235,34 @@ describe("SesTransport", () => {
     expect(wire.ses.configs[0]).toMatchObject({
       maxAttempts: 2,
       requestHandler: { connectionTimeout: 2_000, requestTimeout: 20_000 },
+    });
+  });
+});
+
+describe("the payment-link text's sender", () => {
+  // AWS's documentation-style id: no such number exists.
+  const ENV = { HEALDESK_SMS_ORIGINATION_IDENTITY: "phone-0123456789abcdef0123456789abcdef" };
+
+  test("loads @aws-sdk/client-pinpoint-sms-voice-v2 only once a text is sent, with the bounded client", async () => {
+    // Not configured: refused before anything is loaded.
+    expect(await sendPaymentLinkText({ to: "+15555550123", url: "https://checkout.stripe.com/c/pay/cs_test_1", env: {} })).toEqual({
+      status: "failed",
+      code: "not_configured",
+    });
+    expect(wire.sms.loads).toBe(0);
+
+    const result = await sendPaymentLinkText({ to: "+15555550123", url: "https://checkout.stripe.com/c/pay/cs_test_1", env: ENV });
+    expect(result).toEqual({ status: "sent", messageId: "sms-stub-0001" });
+    expect(wire.sms.loads).toBe(1);
+    expect(wire.sms.sent.map((s) => s.command)).toEqual(["SendTextMessageCommand"]);
+    expect(wire.sms.sent[0]!.input).toMatchObject({
+      DestinationPhoneNumber: "+15555550123",
+      OriginationIdentity: ENV.HEALDESK_SMS_ORIGINATION_IDENTITY,
+      MessageType: "TRANSACTIONAL",
+    });
+    expect(wire.sms.configs[0]).toMatchObject({
+      maxAttempts: 2,
+      requestHandler: { connectionTimeout: 2_000, requestTimeout: 8_000 },
     });
   });
 });

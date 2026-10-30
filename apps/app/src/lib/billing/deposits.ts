@@ -799,6 +799,20 @@ export async function flagForFrontDesk(
   /** `depositId`: the link that lapsed, so its alert is its own (BookingAlertRef.depositId). */
   options: { mayBePaid?: boolean; depositId?: string } = {},
 ): Promise<boolean> {
+  return (await flagForFrontDeskReporting(tx, appointmentId, options)).moved;
+}
+
+/**
+ * flagForFrontDesk, saying also whether the L10 is queued (inserted now, or
+ * already there under its key). notifyBookingAlert never throws, so a caller
+ * that must not leave the desk unannounced (lib/email/superseded.ts) reads
+ * `queued` before it closes anything else.
+ */
+export async function flagForFrontDeskReporting(
+  tx: TenantTx,
+  appointmentId: string,
+  options: { mayBePaid?: boolean; depositId?: string } = {},
+): Promise<{ moved: boolean; queued: boolean }> {
   const moved = await tx.db
     .update(appointments)
     .set({ depositStatus: "pending_front_desk" })
@@ -810,11 +824,11 @@ export async function flagForFrontDesk(
       ),
     )
     .returning({ id: appointments.id });
-  if (moved.length === 0) return false;
-  await notifyBookingAlert(tx, "deposit_to_collect", {
+  if (moved.length === 0) return { moved: false, queued: false };
+  const queued = await notifyBookingAlert(tx, "deposit_to_collect", {
     appointmentId,
     ...(options.mayBePaid ? { mayBePaid: true } : {}),
     ...(options.depositId ? { depositId: options.depositId } : {}),
   });
-  return true;
+  return { moved: true, queued };
 }

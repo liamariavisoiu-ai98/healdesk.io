@@ -2,7 +2,7 @@ import { CHANNELS, type Channel } from "@healdesk/catalog";
 import { and, eq, gt, sql } from "drizzle-orm";
 
 import { appointments, bookingRequests, clinicChannels, clinics, paymentLinkTexts, type ChannelWaitingOn } from "@/db/schema";
-import { flagForFrontDesk } from "@/lib/billing/deposits";
+import { flagForFrontDeskReporting } from "@/lib/billing/deposits";
 import { pauseEmailSuperseded } from "@/lib/channels/pause";
 import type { TenantTx } from "@/lib/tenant";
 
@@ -126,7 +126,10 @@ async function depositAlertSuperseded(tx: TenantTx, payload: unknown): Promise<s
       // link may be paid, so the front desk is told to check Stripe first
       // (the possibly-paid L10, the same key the payment-text "unknown"
       // path uses, so never twice), and this plain "collect" one is closed.
-      await flagForFrontDesk(tx, appointmentId, { mayBePaid: true });
+      // Closed only once that alert is known to be queued: if it could not
+      // be, the plain email goes, since a plain email beats none.
+      const flagged = await flagForFrontDeskReporting(tx, appointmentId, { mayBePaid: true });
+      if (!flagged.moved || !flagged.queued) return null;
       return "the payment-link text's outcome is unknown; the possibly-paid alert replaces it";
     }
     if (text && text.status !== "sent") return null;

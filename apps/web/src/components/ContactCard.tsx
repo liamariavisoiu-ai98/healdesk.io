@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useId, useState } from "react";
 
 import { site } from "@/lib/site";
 
@@ -12,12 +12,18 @@ import { site } from "@/lib/site";
  * to accept a message it cannot deliver rather than promising a reply nobody
  * will send, so the direct address has to be visible in the same breath.
  * it is the route that works whatever the transport is doing.
+ *
+ * Every field has a visible label (30 October 2026). Until then the
+ * placeholder was the only label, so a field's name vanished the moment
+ * someone started typing in it, and the browser's autofill left four boxes
+ * of text with nothing saying which was which.
  */
 type Status = "idle" | "sending" | "sent";
 
 export function ContactCard() {
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
+  const errorId = useId();
 
   const submit = useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -78,34 +84,35 @@ export function ContactCard() {
           <button
             type="button"
             onClick={() => setStatus("idle")}
-            className="text-muted hover:text-ink mt-4 text-[15.6px] font-bold transition-colors"
+            className="text-muted hover:text-ink mt-4 inline-flex min-h-11 items-center text-[15.6px] font-bold transition-colors"
           >
             Send another
           </button>
         </div>
       ) : (
-        <form onSubmit={submit} className="mt-7 space-y-2.5">
-          <Input name="name" placeholder="Your name" autoComplete="name" required />
-          <Input
-            name="clinic"
-            placeholder="Clinic (optional)"
-            autoComplete="organization"
-          />
+        <form onSubmit={submit} className="mt-7 space-y-3" aria-describedby={error ? errorId : undefined}>
+          <Input name="name" label="Your name" autoComplete="name" required />
+          <Input name="clinic" label="Clinic (optional)" autoComplete="organization" />
           <Input
             name="email"
+            label="Email"
             type="email"
             placeholder="you@yourclinic.com"
             autoComplete="email"
             required
           />
-          <textarea
-            name="message"
-            required
-            rows={4}
-            placeholder="What would you like to know?"
-            aria-label="Message"
-            className="border-line focus:border-orange text-ink placeholder:text-muted w-full resize-y rounded-sm border px-4 py-3 text-[17.4px] outline-none transition-colors"
-          />
+          <Field name="message" label="Message">
+            {(id) => (
+              <textarea
+                id={id}
+                name="message"
+                required
+                rows={4}
+                placeholder="What would you like to know?"
+                className={CONTROL}
+              />
+            )}
+          </Field>
           {/* Permanent, not a tooltip. The message reaches us as ordinary
               email through a vendor that signs no BAA, and this marketing
               site may never carry patient information, so the form says so
@@ -128,15 +135,17 @@ export function ContactCard() {
           />
 
           {error ? (
-            <p className="text-red-deep text-[15.6px] font-semibold" role="alert">
+            <p id={errorId} className="text-red-deep text-[15.6px] font-semibold" role="alert">
               {error}
             </p>
           ) : null}
 
+          {/* The deep gradient: the label is white body text, and white on the
+              brand gradient's orange end is 2.67:1 (globals.css explains). */}
           <button
             type="submit"
             disabled={status === "sending"}
-            className="bg-brand-gradient shadow-sm w-full rounded-full px-6 py-3.5 text-[18px] font-bold text-white transition-transform duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-50"
+            className="bg-brand-gradient-deep shadow-sm w-full rounded-full px-6 py-3.5 text-[18px] font-bold text-white transition-transform duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-50"
           >
             {status === "sending" ? "Sending…" : "Send it over"}
           </button>
@@ -146,28 +155,59 @@ export function ContactCard() {
   );
 }
 
+const CONTROL =
+  "border-line focus:border-orange text-ink placeholder:text-muted w-full resize-y rounded-sm border px-4 py-3 text-[17.4px] outline-none transition-colors";
+
+/** A visible label over one control, which the render prop draws with the label's id. */
+function Field({
+  name,
+  label,
+  children,
+}: {
+  name: string;
+  label: string;
+  children: (id: string) => React.ReactNode;
+}) {
+  const id = `${useId()}-${name}`;
+  return (
+    <div>
+      <label htmlFor={id} className="text-ink mb-1.5 block text-[15px] font-semibold">
+        {label}
+      </label>
+      {children(id)}
+    </div>
+  );
+}
+
 function Input({
   name,
+  label,
   placeholder,
   type = "text",
   autoComplete,
   required,
 }: {
   name: string;
-  placeholder: string;
+  label: string;
+  /** An example of the value, never the field's name: the label says that. */
+  placeholder?: string;
   type?: string;
   autoComplete?: string;
   required?: boolean;
 }) {
   return (
-    <input
-      name={name}
-      type={type}
-      placeholder={placeholder}
-      aria-label={placeholder}
-      autoComplete={autoComplete}
-      required={required}
-      className="border-line focus:border-orange text-ink placeholder:text-muted w-full rounded-sm border px-4 py-3 text-[17.4px] outline-none transition-colors"
-    />
+    <Field name={name} label={label}>
+      {(id) => (
+        <input
+          id={id}
+          name={name}
+          type={type}
+          placeholder={placeholder}
+          autoComplete={autoComplete}
+          required={required}
+          className={CONTROL}
+        />
+      )}
+    </Field>
   );
 }

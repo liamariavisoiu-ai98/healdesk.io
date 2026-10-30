@@ -119,10 +119,12 @@ function AnnouncementPill() {
   const { tag, text, cta } = site.announcement;
   const label = `${tag}: ${text}. ${cta}`;
   const className =
-    "hero-pill group mb-8 inline-flex max-w-full items-center gap-2 rounded-full border border-line bg-white py-1.5 pr-3.5 pl-1.5 text-[clamp(12.5px,3.4vw,14.5px)] leading-none whitespace-nowrap shadow-sm transition-[border-color,box-shadow] duration-fast hover:border-line-strong hover:shadow-md";
+    "hero-pill group mb-8 inline-flex max-w-full items-center gap-2 rounded-full border border-line bg-white py-1.5 pr-3.5 pl-1.5 text-[clamp(13px,3.4vw,14.5px)] leading-none whitespace-nowrap shadow-sm transition-[border-color,box-shadow] duration-fast hover:border-line-strong hover:shadow-md";
+  // The tag is a fixed 11px, not a share of the line: at 0.78em of the
+  // phone's floor it fell under 10px.
   const inner = (
     <>
-      <span className="bg-tint-mint text-ink rounded-full px-2 py-1 text-[0.78em] font-semibold tracking-[0.06em] uppercase">{tag}</span>
+      <span className="bg-tint-mint text-ink rounded-full px-2 py-1 text-[11px] font-semibold tracking-[0.06em] uppercase">{tag}</span>
       <span aria-hidden className="text-muted">·</span>
       <span className="text-ink min-w-0 overflow-hidden font-semibold text-ellipsis">{text}</span>
       <svg aria-hidden viewBox="0 0 16 16" className="text-red-deep size-[1.05em] shrink-0 transition-transform duration-fast ease-out group-hover:translate-x-0.5">

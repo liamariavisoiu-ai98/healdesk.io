@@ -5119,12 +5119,14 @@
    =============================================================================
    - `.dw-beam`   the line from the clinic's logo to healdesk's, with light
                   running along it: the site being read.
-   - `.dw-halo`   a soft ring breathing behind the countdown.
-   - `.dw-ring`   the countdown's arc, which empties as the seconds fall;
-                  `[data-done]` once they are out, a slow turning arc instead.
+   - `.dw-halo`   a soft glow breathing behind the glass card.
+   - `.dw-scene`  the card's scene, fading in when the step changes.
+   - `.dw-scan`   a band of the clinic's colour sweeping down their website.
+   - `.dw-chip`   what the scan finds (treatments, prices, hours) lifting off.
+   - `.dw-test`   one patient question and Aya's checked answer, in turn.
+   - `.dw-bar`    the slow bar that fills towards, never to, the end.
    - `.dw-step`   the step line, rising in when it changes.
-   With reduced motion: no running light, no breathing, no turning; the arc
-   still empties with the seconds, without easing.
+   With reduced motion: nothing moves; the chips and the first test show still.
    ============================================================================= */
 
 .dw-beam {
@@ -5154,8 +5156,30 @@
   background: radial-gradient(circle, color-mix(in srgb, var(--clinic) 22%, transparent) 0%, transparent 70%);
 }
 
-.dw-ring {
-  transition: stroke-dashoffset var(--duration-slow) linear;
+.dw-halo {
+  border-radius: var(--radius-lg);
+}
+
+.dw-scan {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 56px;
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--clinic) 22%, transparent) 70%, color-mix(in srgb, var(--clinic) 55%, transparent));
+  border-bottom: 2px solid var(--clinic);
+  opacity: 0;
+}
+
+.dw-bar {
+  transition: width var(--duration-slow) linear;
+}
+
+.dw-test {
+  opacity: 0;
+}
+
+.dw-test:first-child {
+  opacity: 1;
 }
 
 .dw-step {
@@ -5175,8 +5199,24 @@
   .dw-halo {
     animation: dw-breathe 2.8s var(--ease-standard) infinite;
   }
-  .dw-ring-wrap[data-done] {
-    animation: dw-turn 1.6s linear infinite;
+  .dw-scene {
+    animation: hd-fade-in var(--duration-slow) var(--ease-out) both;
+  }
+  .dw-scan {
+    animation: dw-sweep 2.6s var(--ease-standard) infinite;
+  }
+  .dw-chip {
+    opacity: 0;
+    animation: dw-lift 3.5s var(--ease-out) infinite;
+  }
+  .dw-test,
+  .dw-test:first-child {
+    opacity: 0;
+    animation: dw-turns 9s var(--ease-standard) infinite;
+  }
+  .dw-check {
+    animation: dw-pop 9s var(--ease-out) infinite;
+    animation-delay: inherit;
   }
   .dw-logo {
     animation: dw-float 3.2s var(--ease-standard) infinite;
@@ -5187,7 +5227,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .dw-ring {
+  .dw-bar {
     transition: none;
   }
   .dw-step {
@@ -5224,9 +5264,70 @@
   }
 }
 
-@keyframes dw-turn {
-  to {
-    transform: rotate(360deg);
+@keyframes dw-sweep {
+  0% {
+    transform: translateY(-60px);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(190px);
+    opacity: 0;
+  }
+}
+
+@keyframes dw-lift {
+  0% {
+    transform: translateY(10px) scale(0.92);
+    opacity: 0;
+  }
+  15%,
+  70% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-46px) scale(0.96);
+    opacity: 0;
+  }
+}
+
+@keyframes dw-turns {
+  0% {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  4%,
+  30% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  34%,
+  100% {
+    transform: translateY(-8px);
+    opacity: 0;
+  }
+}
+
+@keyframes dw-pop {
+  0%,
+  12% {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  16%,
+  30% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  34%,
+  100% {
+    opacity: 0;
   }
 }
 

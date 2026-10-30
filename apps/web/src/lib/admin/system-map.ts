@@ -170,7 +170,7 @@ export const TOOLS: readonly ToolDef[] = [
   // Lane P7g: support mail received on in.healdesk.io; lane P7h: held until the drafter has read it, then deleted (infra/aws/ses-inbound.tf).
   { id: "ses-in", name: "Support mail in", role: "SES receiving: clinics' emails to support", kind: "aws", category: "vault", icon: "mail", side: "patient" },
   // The one optional text after a call (apps/app lib/sms/send.ts; owner, 30 October 2026).
-  { id: "aws-sms", name: "Amazon texting", role: "End User Messaging SMS: the one payment-link text", kind: "aws", category: "vault", icon: "phone", side: "patient" },
+  { id: "aws-sms", name: "Amazon texting", role: "End User Messaging SMS: the one payment-link text", kind: "aws", category: "bookings", icon: "phone", side: "patient" },
   { id: "aws-console", name: "AWS console", role: "CloudShell, stored keys, alarms", kind: "aws", category: "vault", icon: "terminal", side: "patient" },
   { id: "claude-baa", name: "Claude", role: "Anthropic, patient account, under a BAA", kind: "vendor", category: "brain", icon: "sparkles", side: "patient" },
   { id: "gcal", name: "Google Calendar", role: "Each clinic's own diary", kind: "vendor", category: "bookings", icon: "calendar", side: "patient" },

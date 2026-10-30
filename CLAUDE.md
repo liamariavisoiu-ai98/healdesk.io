@@ -615,9 +615,8 @@ a rule already holds, and treat a gap as a bug, not a precedent.
   (owner, 13 October 2026): $104 for voice minutes, $52 for Web Chat and $78
   for Meta Chat conversations. At 90% of the included amount the clinic is
   emailed and may move up a step; an extra block always costs more than the
-  next step. The rates are provisional until measured. Copy says so and
-  quotes the block and its price, never a per-unit rate; being provisional
-  does not change what is billed.
+  next step. Copy quotes the block and its price, never a per-unit rate
+  (owner, 30 October 2026: clinic emails no longer talk about our costs).
 - "healdesk is a service of Viixi FZC, a company registered under the Sharjah
   Publishing City Free Zone, United Arab Emirates" appears on the Terms and
   Privacy pages. It is not in the site footer (owner, 9 October 2026): the

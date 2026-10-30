@@ -2099,7 +2099,7 @@ exports[`each template's output > cancel_scheduled, for clients: the snapshot 1`
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Turn auto-renew back on before then to keep it.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">Auto-renew is off, so your healdesk plan ends on Friday 6 November. AYA keeps answering until then.</p>
-<p style="margin:0 0 16px;">Because you turned it off within 14 days of your plan starting, your first period&#39;s fee is due back to you in full. We&#39;ll email you by Wednesday 7 October to arrange the refund.</p>
+<p style="margin:0 0 16px;">Because you turned it off within 14 days of your plan starting, your first period&#39;s fee is due back to you in full. We&#39;ll email you to arrange the refund.</p>
 <p style="margin:0 0 16px;">Changed your mind? Turn auto-renew back on in Billing before then, and nothing changes.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Turn auto-renew back on</a></p>
 <p style="margin:0 0 16px;">When the plan ends, we&#39;ll email you how to undo call forwarding and what happens to your data.</p>
@@ -2114,7 +2114,7 @@ exports[`each template's output > cancel_scheduled, for clients: the snapshot 1`
   "subject": "Your healdesk plan ends on 6 November",
   "text": "Auto-renew is off, so your healdesk plan ends on Friday 6 November. AYA keeps answering until then.
 
-Because you turned it off within 14 days of your plan starting, your first period's fee is due back to you in full. We'll email you by Wednesday 7 October to arrange the refund.
+Because you turned it off within 14 days of your plan starting, your first period's fee is due back to you in full. We'll email you to arrange the refund.
 
 Changed your mind? Turn auto-renew back on in Billing before then, and nothing changes.
 
@@ -2151,7 +2151,7 @@ exports[`each template's output > cancel_scheduled, for patients: the snapshot 1
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Turn auto-renew back on before then to keep it.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">Auto-renew is off, so your healdesk plan ends on Friday 6 November. AYA keeps answering until then.</p>
-<p style="margin:0 0 16px;">Because you turned it off within 14 days of your plan starting, your first period&#39;s fee is due back to you in full. We&#39;ll email you by Wednesday 7 October to arrange the refund.</p>
+<p style="margin:0 0 16px;">Because you turned it off within 14 days of your plan starting, your first period&#39;s fee is due back to you in full. We&#39;ll email you to arrange the refund.</p>
 <p style="margin:0 0 16px;">Changed your mind? Turn auto-renew back on in Billing before then, and nothing changes.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Turn auto-renew back on</a></p>
 <p style="margin:0 0 16px;">When the plan ends, we&#39;ll email you how to undo call forwarding and what happens to your data.</p>
@@ -2166,7 +2166,7 @@ exports[`each template's output > cancel_scheduled, for patients: the snapshot 1
   "subject": "Your healdesk plan ends on 6 November",
   "text": "Auto-renew is off, so your healdesk plan ends on Friday 6 November. AYA keeps answering until then.
 
-Because you turned it off within 14 days of your plan starting, your first period's fee is due back to you in full. We'll email you by Wednesday 7 October to arrange the refund.
+Because you turned it off within 14 days of your plan starting, your first period's fee is due back to you in full. We'll email you to arrange the refund.
 
 Changed your mind? Turn auto-renew back on in Billing before then, and nothing changes.
 
@@ -5368,7 +5368,7 @@ exports[`each template's output > overage_invoiced, for clients: the snapshot 1`
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">In the month from Sunday 6 September to Tuesday 6 October, AYA handled more than your plan includes. Past your allowance:</p>
 <ul style="margin:0 0 16px;padding-left:20px;"><li>30 voice minutes, billed as 1 block of 100 voice minutes at $104</li></ul>
-<p style="margin:0 0 16px;">Overage is billed for each started block of 100, so that comes to $104, charged to the card on file. The rates are provisional until we&#39;ve measured what each minute and conversation costs us.</p>
+<p style="margin:0 0 16px;">Overage is billed for each started block of 100, so that comes to $104, charged to the card on file.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://invoice.stripe.com/i/acct_testplatform/test_invoice" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">View the invoice</a></p>
 <p style="margin:0 0 16px;">To cancel online, sign in at https://app.healdesk.test/ and turn auto-renew off in Billing. Your plan then ends when the period you&#39;ve paid for runs out.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -5384,7 +5384,7 @@ exports[`each template's output > overage_invoiced, for clients: the snapshot 1`
 
 - 30 voice minutes, billed as 1 block of 100 voice minutes at $104
 
-Overage is billed for each started block of 100, so that comes to $104, charged to the card on file. The rates are provisional until we've measured what each minute and conversation costs us.
+Overage is billed for each started block of 100, so that comes to $104, charged to the card on file.
 
 View the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
@@ -5420,7 +5420,7 @@ exports[`each template's output > overage_invoiced, for patients: the snapshot 1
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">In the month from Sunday 6 September to Tuesday 6 October, AYA handled more than your plan includes. Past your allowance:</p>
 <ul style="margin:0 0 16px;padding-left:20px;"><li>30 voice minutes, billed as 1 block of 100 voice minutes at $104</li></ul>
-<p style="margin:0 0 16px;">Overage is billed for each started block of 100, so that comes to $104, charged to the card on file. The rates are provisional until we&#39;ve measured what each minute and conversation costs us.</p>
+<p style="margin:0 0 16px;">Overage is billed for each started block of 100, so that comes to $104, charged to the card on file.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://invoice.stripe.com/i/acct_testplatform/test_invoice" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">View the invoice</a></p>
 <p style="margin:0 0 16px;">To cancel online, sign in at https://app.healdesk.test/ and turn auto-renew off in Billing. Your plan then ends when the period you&#39;ve paid for runs out.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -5436,7 +5436,7 @@ exports[`each template's output > overage_invoiced, for patients: the snapshot 1
 
 - 30 voice minutes, billed as 1 block of 100 voice minutes at $104
 
-Overage is billed for each started block of 100, so that comes to $104, charged to the card on file. The rates are provisional until we've measured what each minute and conversation costs us.
+Overage is billed for each started block of 100, so that comes to $104, charged to the card on file.
 
 View the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
@@ -8443,7 +8443,7 @@ exports[`each template's output > support_reply, for clients: the snapshot 1`] =
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Hi, calls aren&#39;t reaching AYA yet because forwarding on your main line isn&#39;t set, so ca...</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">Hi, calls aren&#39;t reaching AYA yet because forwarding on your main line isn&#39;t set, so callers reach your line as before and nobody is missed.</p>
-<p style="margin:0 0 16px;">The codes for your carrier are in Settings, under Channels; they take about two minutes. If they don&#39;t take, reply here and we&#39;ll call you on Monday.</p>
+<p style="margin:0 0 16px;">The codes for your carrier are in Settings, under Channels; they take about two minutes. If they don&#39;t take, reply here and we&#39;ll call you.</p>
 <p style="margin:0 0 16px;">The Healdesk Team</p>
 <p style="margin:0 0 16px;">Your reference: HD-7F3KQ. To add anything, reply to this email and keep the reference in the subject, so it joins the same request.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -8457,7 +8457,7 @@ exports[`each template's output > support_reply, for clients: the snapshot 1`] =
   "subject": "Re: Your call forwarding (ref HD-7F3KQ)",
   "text": "Hi, calls aren't reaching AYA yet because forwarding on your main line isn't set, so callers reach your line as before and nobody is missed.
 
-The codes for your carrier are in Settings, under Channels; they take about two minutes. If they don't take, reply here and we'll call you on Monday.
+The codes for your carrier are in Settings, under Channels; they take about two minutes. If they don't take, reply here and we'll call you.
 
 The Healdesk Team
 
@@ -8492,7 +8492,7 @@ exports[`each template's output > support_reply, for patients: the snapshot 1`] 
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Hi, calls aren&#39;t reaching AYA yet because forwarding on your main line isn&#39;t set, so ca...</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">Hi, calls aren&#39;t reaching AYA yet because forwarding on your main line isn&#39;t set, so callers reach your line as before and nobody is missed.</p>
-<p style="margin:0 0 16px;">The codes for your carrier are in Settings, under Channels; they take about two minutes. If they don&#39;t take, reply here and we&#39;ll call you on Monday.</p>
+<p style="margin:0 0 16px;">The codes for your carrier are in Settings, under Channels; they take about two minutes. If they don&#39;t take, reply here and we&#39;ll call you.</p>
 <p style="margin:0 0 16px;">The Healdesk Team</p>
 <p style="margin:0 0 16px;">Your reference: HD-7F3KQ. To add anything, reply to this email and keep the reference in the subject, so it joins the same request.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -8506,7 +8506,7 @@ exports[`each template's output > support_reply, for patients: the snapshot 1`] 
   "subject": "Re: Your call forwarding (ref HD-7F3KQ)",
   "text": "Hi, calls aren't reaching AYA yet because forwarding on your main line isn't set, so callers reach your line as before and nobody is missed.
 
-The codes for your carrier are in Settings, under Channels; they take about two minutes. If they don't take, reply here and we'll call you on Monday.
+The codes for your carrier are in Settings, under Channels; they take about two minutes. If they don't take, reply here and we'll call you.
 
 The Healdesk Team
 
@@ -9068,7 +9068,7 @@ exports[`each template's output > usage_80, for clients: the snapshot 1`] = `
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">AYA has used 452 of the 500 voice minutes in this month&#39;s allowance, which resets on Friday 6 November.</p>
 <p style="margin:0 0 16px;">If it runs out before then, you can:</p>
-<ul style="margin:0 0 16px;padding-left:20px;"><li>Move up a step in Billing, for a bigger monthly allowance: it costs less than paying for extra blocks.</li><li>Do nothing. AYA keeps answering, and each started block of 100 extra voice minutes is billed at $104. That price is provisional until we&#39;ve measured what each minute and conversation costs us.</li></ul>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Move up a step in Billing, for a bigger monthly allowance: it costs less than paying for extra blocks.</li><li>Do nothing. AYA keeps answering, and each started block of 100 extra voice minutes is billed at $104.</li></ul>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Open Billing</a></p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
@@ -9085,7 +9085,7 @@ exports[`each template's output > usage_80, for clients: the snapshot 1`] = `
 If it runs out before then, you can:
 
 - Move up a step in Billing, for a bigger monthly allowance: it costs less than paying for extra blocks.
-- Do nothing. AYA keeps answering, and each started block of 100 extra voice minutes is billed at $104. That price is provisional until we've measured what each minute and conversation costs us.
+- Do nothing. AYA keeps answering, and each started block of 100 extra voice minutes is billed at $104.
 
 Open Billing: https://app.healdesk.test/
 
@@ -9120,7 +9120,7 @@ exports[`each template's output > usage_80, for patients: the snapshot 1`] = `
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">AYA has used 452 of the 500 voice minutes in this month&#39;s allowance, which resets on Friday 6 November.</p>
 <p style="margin:0 0 16px;">If it runs out before then, you can:</p>
-<ul style="margin:0 0 16px;padding-left:20px;"><li>Move up a step in Billing, for a bigger monthly allowance: it costs less than paying for extra blocks.</li><li>Do nothing. AYA keeps answering, and each started block of 100 extra voice minutes is billed at $104. That price is provisional until we&#39;ve measured what each minute and conversation costs us.</li></ul>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Move up a step in Billing, for a bigger monthly allowance: it costs less than paying for extra blocks.</li><li>Do nothing. AYA keeps answering, and each started block of 100 extra voice minutes is billed at $104.</li></ul>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Open Billing</a></p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
@@ -9137,7 +9137,7 @@ exports[`each template's output > usage_80, for patients: the snapshot 1`] = `
 If it runs out before then, you can:
 
 - Move up a step in Billing, for a bigger monthly allowance: it costs less than paying for extra blocks.
-- Do nothing. AYA keeps answering, and each started block of 100 extra voice minutes is billed at $104. That price is provisional until we've measured what each minute and conversation costs us.
+- Do nothing. AYA keeps answering, and each started block of 100 extra voice minutes is billed at $104.
 
 Open Billing: https://app.healdesk.test/
 
@@ -9170,7 +9170,7 @@ exports[`each template's output > usage_100, for clients: the snapshot 1`] = `
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Extra blocks of 100 bill at $52 until 6 November.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">AYA has used all 300 chat conversations in this month&#39;s allowance. She keeps answering, and until Friday 6 November, when your allowance resets, each started block of 100 extra chat conversations is billed at $52. That price is provisional until we&#39;ve measured what each minute and conversation costs us.</p>
+<p style="margin:0 0 16px;">AYA has used all 300 chat conversations in this month&#39;s allowance. She keeps answering, and until Friday 6 November, when your allowance resets, each started block of 100 extra chat conversations is billed at $52.</p>
 <p style="margin:0 0 16px;">Move up a step in Billing, for a bigger monthly allowance: it costs less than paying for extra blocks.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Open Billing</a></p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -9183,7 +9183,7 @@ exports[`each template's output > usage_100, for clients: the snapshot 1`] = `
 </html>",
   "preheader": "Extra blocks of 100 bill at $52 until 6 November.",
   "subject": "You've used all of this month's chat conversations",
-  "text": "AYA has used all 300 chat conversations in this month's allowance. She keeps answering, and until Friday 6 November, when your allowance resets, each started block of 100 extra chat conversations is billed at $52. That price is provisional until we've measured what each minute and conversation costs us.
+  "text": "AYA has used all 300 chat conversations in this month's allowance. She keeps answering, and until Friday 6 November, when your allowance resets, each started block of 100 extra chat conversations is billed at $52.
 
 Move up a step in Billing, for a bigger monthly allowance: it costs less than paying for extra blocks.
 
@@ -9218,7 +9218,7 @@ exports[`each template's output > usage_100, for patients: the snapshot 1`] = `
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Extra blocks of 100 bill at $52 until 6 November.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">AYA has used all 300 chat conversations in this month&#39;s allowance. She keeps answering, and until Friday 6 November, when your allowance resets, each started block of 100 extra chat conversations is billed at $52. That price is provisional until we&#39;ve measured what each minute and conversation costs us.</p>
+<p style="margin:0 0 16px;">AYA has used all 300 chat conversations in this month&#39;s allowance. She keeps answering, and until Friday 6 November, when your allowance resets, each started block of 100 extra chat conversations is billed at $52.</p>
 <p style="margin:0 0 16px;">Move up a step in Billing, for a bigger monthly allowance: it costs less than paying for extra blocks.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Open Billing</a></p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -9231,7 +9231,7 @@ exports[`each template's output > usage_100, for patients: the snapshot 1`] = `
 </html>",
   "preheader": "Extra blocks of 100 bill at $52 until 6 November.",
   "subject": "You've used all of this month's chat conversations",
-  "text": "AYA has used all 300 chat conversations in this month's allowance. She keeps answering, and until Friday 6 November, when your allowance resets, each started block of 100 extra chat conversations is billed at $52. That price is provisional until we've measured what each minute and conversation costs us.
+  "text": "AYA has used all 300 chat conversations in this month's allowance. She keeps answering, and until Friday 6 November, when your allowance resets, each started block of 100 extra chat conversations is billed at $52.
 
 Move up a step in Billing, for a bigger monthly allowance: it costs less than paying for extra blocks.
 

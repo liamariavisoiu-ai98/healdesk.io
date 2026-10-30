@@ -88,6 +88,7 @@ export type GuardRefusal =
   | "outbound_promise"
   | "alert_claim"
   | "other_party"
+  | "off_script"
   | "empty";
 
 export type GuardVerdict = { ok: true } | { ok: false; reason: GuardRefusal };
@@ -1332,7 +1333,7 @@ export function mentionsOtherParty(
 
 export function guardAssistantReply(
   reply: string,
-  facts: Pick<AssistantFacts, "neverSay"> & ScreenFacts & Partial<Pick<AssistantFacts, "urgentAlertsReady">>,
+  facts: Pick<AssistantFacts, "neverSay"> & ScreenFacts & Partial<Pick<AssistantFacts, "urgentAlertsReady" | "demoCall">>,
   turn: ReplyTurn = {},
 ): GuardVerdict {
   const text = normalise(reply);
@@ -1362,9 +1363,47 @@ export function guardAssistantReply(
     return { ok: false, reason: "alert_claim" };
   }
   if (mentionsOtherParty(reply, facts)) return { ok: false, reason: "other_party" };
+  if (facts.demoCall === true && offScript(reply)) return { ok: false, reason: "off_script" };
   // Last, so a reply refused for anything above keeps that reason.
   if (turn.bookingWritten !== true && confirmsBooking(reply)) return { ok: false, reason: "booking_confirmation" };
   return { ok: true };
+}
+
+// -----------------------------------------------------------------------------
+// A demo call off its script
+// -----------------------------------------------------------------------------
+
+/**
+ * Aya talking about her own workings on a demo call (transcript a17b5aff:
+ * "This isn't the caller and I'm not Aya for this flow, so I'll stop there.",
+ * "I can't show you a real comparison or a live demo from this chat", and
+ * advice to run "two separate sessions or numbers"). The person on the call
+ * is hearing the product: none of it is ever true of it.
+ */
+const SELF_TALK: readonly RegExp[] = [
+  /\b(?:this|that|my) flow\b/i,
+  /\bmy (?:instructions|prompt|script|system prompt|programming)\b|\bsystem prompt\b/i,
+  /\bI'?m not (?:really |actually )?Aya\b|\bI'?m answering as\b/i,
+  /\bthis (?:isn'?t|is not) the caller\b|\bwrong (?:place|flow)\b/i,
+  /\b(?:from|in|on) this chat\b/i,
+  /\b(?:fresh|new) session\b|\bseparate (?:sessions|numbers) (?:or|and)\b/i,
+  /\bcan'?t (?:show|give) you (?:a |an )?(?:real |live |actual )?(?:comparison|demo)\b/i,
+];
+
+/**
+ * A claim healdesk does not make, said as what Aya does (transcript a17b5aff:
+ * "I answer your patients' calls, texts and social messages", "I can't
+ * actually check the schedule or book anything myself"). There is no texting
+ * channel: the one optional text after a booking call is said as design, in
+ * the singular, and passes. She is designed to book.
+ */
+const FALSE_CLAIMS: readonly RegExp[] = [
+  /\b(?:calls?|phones?)\s*,\s*texts?\b|\btexts?\s*(?:,|and|or)\s*(?:social|dms?\b|messages|instagram|emails?|whatsapp)|\btext messages\b|\bsms\b|\btexting\b/i,
+  /\bI (?:can'?t|cannot|don'?t|do not) (?:actually |really )?(?:book|check (?:the|your|a) (?:schedule|calendar)|see (?:the|your|a) (?:schedule|calendar))\b|\bcan'?t (?:actually )?book anything\b/i,
+];
+
+export function offScript(reply: string): boolean {
+  return SELF_TALK.some((pattern) => pattern.test(reply)) || FALSE_CLAIMS.some((pattern) => pattern.test(reply));
 }
 
 // -----------------------------------------------------------------------------

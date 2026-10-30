@@ -39,7 +39,7 @@ import {
  * a clinic's owner talking about their business, never a patient.
  */
 
-export const DEMO_CASES_VERSION = "2026-10-29.1";
+export const DEMO_CASES_VERSION = "2026-10-30.1";
 
 /** The made-up clinic every case calls about. */
 export const DEMO_CASE_CLINIC: DemoCallClinic = {
@@ -1016,4 +1016,170 @@ const round5: DemoCase[] = [
   },
 ];
 
-export const DEMO_CASES: readonly DemoCase[] = [...bareNumbers, ...discovery, josh, ...callbacks, ...phase6, ...quirks, ...positioning, thomas, cancelled, ...round5];
+/**
+ * Transcript a17b5aff (30 October 2026, an owner calling about Miami Skin &
+ * Vein): the role-play was cut off in code straight after an in-character
+ * question, and nothing after it recovered. The caller's words are the
+ * transcript's; the clinic is the cases' own.
+ */
+const a17b5aff: DemoCase[] = [
+  {
+    id: "roleplay-exit-waits-for-open-question",
+    title: "The role-play never steps out straight after a question she asked in character; it ends on the reply after the caller answers it",
+    why: 'Transcript a17b5aff: "...would Tuesday, November 3 at 11:00 AM work for you? And that\'s the role-play!", then "Yeah" was read as feedback on the role-play, and the call never recovered.',
+    turns: [
+      ...TO_PITCH.slice(0, 2),
+      { caller: "Sure. Let's do that.", model: [modelSays(`Let's do it, you be the patient. ${demoRoleplayOpener(CLINIC)}`)], check: { stage: "roleplay" } },
+      { caller: "Hey. I'd like to book an appointment for next week.", model: [modelSays("Sure thing! Which treatment would you like, and what day and time works for you next week?")] },
+      { caller: "I forgot again. What treatments did you have?", model: [modelSays("We do Botox, HydraFacial and lip filler. Which one did you have in mind?")] },
+      {
+        caller: "I'm not sure. Like, which one would I actually need. What do you think?",
+        model: [modelSays("I can't pick for you over the phone, but a consultation with Dr. Maya Chen is the usual start. Want me to request one for next week?")],
+      },
+      { caller: "Yeah. Let's do that.", model: [modelSays("Got it. What day and time next week works best?")] },
+      {
+        caller: "Tuesday morning,",
+        model: [modelSays("Tuesday works. What time that morning suits you?")],
+        check: { stage: "roleplay", noteIncludes: ["never say a time is available, free or open", "never ask which one they mean"] },
+      },
+      {
+        caller: "Next Tuesday, let's call it I don't know. Do you have any slots for eleven AM?",
+        model: [modelSays("Eleven works, so would Tuesday, November 3 at 11:00 AM suit you?", { roleplay: "end" })],
+        check: { stage: "roleplay", heardExcludes: ["And that's the role-play"], noteIncludes: ["Ask no question in this reply"] },
+      },
+      {
+        caller: "Yeah.",
+        model: [modelSays("Perfect, the team will confirm Tuesday at 11. See you then!")],
+        check: { stage: "pitch", heardIncludes: [`See you then! ${DEMO_ROLEPLAY_EXIT}`] },
+      },
+    ],
+  },
+  {
+    id: "roleplay-ceiling-on-questions",
+    title: "A role-play whose every reply asks a question still ends, three turns past the wrap-up at most",
+    why: "The wait for an open question (a17b5aff) must never let a role-play run on (084f10d4).",
+    turns: [
+      ...TO_PITCH.slice(0, 3),
+      ...["Hi, I'd like to book.", "A facial.", "Friday.", "Morning.", "Ten.", "Ten AM.", "Yes, ten."].map((caller) => ({
+        caller,
+        model: [modelSays("Sure, which time suits you?")],
+        check: { stage: "roleplay" as const },
+      })),
+      { caller: "Yes.", model: [modelSays("Lovely, and anything else?")], check: { stage: "pitch" as const, heardIncludes: [DEMO_ROLEPLAY_EXIT] } },
+    ],
+  },
+  {
+    id: "called-out-owned-not-quizzed",
+    title: '"You got confused" is owned in one sentence and followed by the next step, never "which part?"; a second time, no more explaining',
+    why: 'Transcript a17b5aff: "you got confused there" three times, answered with "which part?", a fake booking re-confirmed, and "I can\'t actually check the schedule or book anything myself".',
+    turns: [
+      ...TO_PITCH,
+      {
+        caller: "Pretty good.",
+        model: [modelSays(`Glad you liked it. What made you want to look at an AI assistant for ${CLINIC}?`, { asked: "goal" })],
+        check: { asked: "goal" },
+      },
+      {
+        caller: "you got confused there.",
+        model: [modelSays(`You're right, I stepped out of the role-play too early. So, what made you want to look at an AI assistant for ${SHORT}?`, { asked: "goal" })],
+        check: {
+          progress: { calledOut: 1 },
+          noteIncludes: ["They just said you got confused. Own it in one plain sentence", "Never ask them which part"],
+          noGuardLine: true,
+        },
+      },
+      {
+        caller: "you got confused there. Right?",
+        model: [modelSays(`Sorry about that. What made you want to look at an AI assistant for ${SHORT}?`, { asked: "goal" })],
+        check: { progress: { calledOut: 2 }, noteIncludes: ["They have said 2 times that you got confused: no more explaining."], noGuardLine: true },
+      },
+      {
+        caller: "We miss calls after hours.",
+        model: [modelSays("Generally, how many calls do you get a day?", { asked: "volume" })],
+        check: { answers: { goal: "We miss calls after hours." }, progress: { calledOut: 0 } },
+      },
+    ],
+  },
+  {
+    id: "one-question-and-never-twice",
+    title: "One question a reply; \"what was your other question?\" gets it word for word; \"you already asked me that\" drops it for good",
+    why: 'Transcript a17b5aff: "What are your patients calling about most? And how many calls do you get a day?", then "what was your other question?", then the calls a day asked again and "You already asked me that."',
+    turns: [
+      ...TO_PITCH,
+      {
+        caller: "Pretty good.",
+        model: [modelSays("Glad you liked it. What are your patients calling about most? And how many calls do you get a day?", { asked: "goal" })],
+        check: { heardExcludes: ["how many calls do you get a day?"], heardIncludes: ["What are your patients calling about most?"], progress: { lastQuestion: "What are your patients calling about most?" } },
+      },
+      {
+        caller: "I don't know. And what was your other question?",
+        model: [modelSays("What are your patients calling about most?", { asked: "goal" })],
+        check: {
+          progress: { repeatAsked: true },
+          noteIncludes: ['They asked what your question was. Ask it again, in exactly these words and nothing else first: "What are your patients calling about most?"'],
+        },
+      },
+      {
+        caller: "Mostly Botox.",
+        model: [modelSays("Generally, how many calls do you get a day?", { asked: "volume" })],
+        check: { answers: { goal: "Mostly Botox." }, asked: "volume" },
+      },
+      {
+        caller: "You already asked me that.",
+        model: [modelSays("Sorry about that. What happens with those calls after hours, or when your team's busy with patients?", { asked: "missed" })],
+        check: { answers: { volume: SKIPPED_ANSWER }, noteIncludes: ["They just said you already asked that."], asked: "missed" },
+      },
+    ],
+  },
+  {
+    id: "no-self-talk-no-false-claims",
+    title: "Talk about her own workings, a texting channel or \"I can't book\" is never said: asked again, then a recovery line",
+    why: 'Transcript a17b5aff: "This isn\'t the caller and I\'m not Aya for this flow, so I\'ll stop there.", "calls, texts and social messages", "I can\'t actually check the schedule or book anything myself".',
+    turns: [
+      ...TO_PITCH.slice(0, 2),
+      {
+        caller: "What you would do for me first?",
+        model: [
+          modelSays("I answer your patients' calls, texts and social messages around the clock. Want to hear more, or try a quick role-play?", { asked: "choice" }),
+          modelSays("One Aya answers your phone, website chat, Instagram, Messenger and WhatsApp. Want to hear more, or try a quick role-play?", { asked: "choice" }),
+        ],
+        check: { heard: "One Aya answers your phone, website chat, Instagram, Messenger and WhatsApp. Want to hear more, or try a quick role-play?", noGuardLine: true },
+      },
+      { caller: "Let's do the role play.", model: [modelSays(`Let's do it, you be the patient. ${demoRoleplayOpener(CLINIC)}`)], check: { stage: "roleplay" } },
+      { caller: "Can I book a facial Friday morning?", model: [modelSays("Perfect, the team will confirm Friday morning. Take care!", { roleplay: "end" })], check: { stage: "pitch" } },
+      {
+        caller: "you got confused there.",
+        model: [
+          modelSays("Wait, we've ended up in the wrong place. This isn't the caller and I'm not Aya for this flow, so I'll stop there."),
+          modelSays("Honestly, I can't actually check the schedule or book anything myself."),
+        ],
+        check: { heardExcludes: ["flow", "not Aya", "book anything"], heardIncludes: ["Sorry, I lost my train of thought for a second there."], noGuardLine: true },
+      },
+    ],
+  },
+  {
+    id: "compare-and-stalled-pitch",
+    title: "\"What makes you better?\" gets one positioning line; a talk that finds nothing out in five turns goes to the pitch",
+    why: "Transcript a17b5aff: nine turns after the role-play, a question on the competition and one on how she'd improve, and not one pitch beat.",
+    turns: [
+      ...TO_PITCH,
+      ...["Pretty good.", "Hmm.", "Okay."].map((caller) => ({ caller, model: [modelSays("Glad to hear it.")] })),
+      {
+        caller: "Tell me what makes you so special. Why are you better than the competition?",
+        model: [modelSays("One Aya covers your phone, website chat, Instagram, Messenger and WhatsApp, with the same knowledge of your clinic.")],
+        check: { progress: { metaAsk: "compare" }, noteIncludes: ["They asked what makes you better than the alternatives."], noteExcludes: CLOSE_WORDS },
+      },
+      {
+        caller: "If you were to improve yourself, what would you change?",
+        model: [modelSays("I'd finish a booking before stepping out of the role-play.", { beats: ["pain"] })],
+        check: {
+          progress: { metaAsk: "improve", pitchStalls: 5 },
+          answers: { goal: SKIPPED_ANSWER, volume: SKIPPED_ANSWER, missed: SKIPPED_ANSWER, coverage: SKIPPED_ANSWER },
+          noteIncludes: ["They asked how you would do better", "They have answered the discovery questions: now the pitch, then the close."],
+        },
+      },
+    ],
+  },
+];
+
+export const DEMO_CASES: readonly DemoCase[] = [...bareNumbers, ...discovery, josh, ...callbacks, ...phase6, ...quirks, ...positioning, thomas, cancelled, ...round5, ...a17b5aff];

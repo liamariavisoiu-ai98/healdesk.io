@@ -130,6 +130,14 @@ export type AssistantFacts = {
    * facts never set it, so a patient's call is screened exactly as before.
    */
   businessCounts?: boolean;
+  /**
+   * A personalised demo call (lib/voice/demo-facts.ts, demoAssistantFacts):
+   * the guard also refuses Aya talking about her own workings ("I'm not Aya
+   * for this flow") and claims healdesk does not make (a texting channel, "I
+   * can't book"), heard on transcript a17b5aff. A clinic's facts never set
+   * it, so a patient's call is screened exactly as before.
+   */
+  demoCall?: boolean;
 };
 
 

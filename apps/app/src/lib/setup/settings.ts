@@ -573,6 +573,7 @@ const GREETING_REFUSED: Record<GreetingRefusal, string> = {
     "The greeting can't promise a text, a reminder, a follow-up or a call back: AYA only answers, and your team gets back to people.",
   alert_claim: "The greeting can't say your team has already been told: nothing has been sent when it is said.",
   other_party: "The greeting can't mention other patients or compare the practice with another one.",
+  off_script: "The greeting can't talk about how AYA works behind the scenes or claim she texts patients.",
   empty: "Write the greeting as text.",
 };
 

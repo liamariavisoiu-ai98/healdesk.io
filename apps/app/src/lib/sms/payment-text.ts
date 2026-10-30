@@ -17,6 +17,7 @@ import { withTenant, type TenantTx } from "@/lib/tenant";
 import { spokenPhone } from "@/lib/voice/spoken";
 import { voiceRealCallsAllowed } from "@/lib/voice/test-calls";
 
+import { agreementCoversText } from "./agreement";
 import { smsSenderConfigured } from "./config";
 import { paymentLinkTextBody, sendPaymentLinkText, type SmsSendResult, type SmsTransport } from "./send";
 
@@ -28,8 +29,9 @@ import { paymentLinkTextBody, sendPaymentLinkText, type SmsSendResult, type SmsT
  * Deterministic code decides every step; the model never sends, and its
  * prose is never read for a decision. After a booking written on a call
  * whose deposit is left to the front desk, and only while
- * paymentLinkTextOffered holds (the text's four checks, real calls, the
- * clinic under the BAA), the booked line gains the fixed offer. From then on
+ * paymentLinkTextOffered holds (the text's checks, real calls, and an
+ * accepted agreement that covers the text: BAA 1.6.0 or DPA 1.1.0 and
+ * later, agreementCoversText), the booked line gains the fixed offer. From then on
  * the call's turns read three fields of the model's structured `state`
  * (`paymentText`): `agreed` (the caller's yes or no to the text), `number`
  * (the digits the caller said) and `confirmed` (their yes to the number read
@@ -199,7 +201,10 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
     if (!deps.offered && !(smsSenderConfigured(deps.env) && realCalls())) return false;
     try {
       return await withTenant({ clinicId: context.clinicId, actor }, async (tx) => {
-        if (!(await offered(tx))) return false;
+        // The agreement is asked here as well as inside paymentLinkTextOffered,
+        // so no injected readiness can skip it: no clinic on an agreement
+        // older than BAA 1.6.0 or DPA 1.1.0 has a caller offered a text.
+        if (!(await offered(tx)) || !(await agreementCoversText(tx))) return false;
         const [appt] = await tx.db
           .select({ status: appointments.depositStatus, usd: appointments.depositUsd })
           .from(appointments)
@@ -306,7 +311,8 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
     let earlier: PaymentTextOutcome | null = null;
     try {
       ({ claimed, earlier } = await withTenant({ clinicId: context.clinicId, actor }, async (tx) => {
-        if (!(await offered(tx))) return { claimed: null, earlier: "failed" as const };
+        // At send time, again: the agreement in effect may have changed since the offer.
+        if (!(await offered(tx)) || !(await agreementCoversText(tx))) return { claimed: null, earlier: "failed" as const };
         const [row] = await tx.db
           .insert(paymentLinkTexts)
           .values({

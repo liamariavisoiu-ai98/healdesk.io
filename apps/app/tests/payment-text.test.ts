@@ -14,11 +14,12 @@ import {
   type PaymentTextDeps,
 } from "@/lib/sms/payment-text";
 import { PAYMENT_LINK_TEXT_TEMPLATE, paymentLinkTextBody, smsFailureCode, type SmsRequest } from "@/lib/sms/send";
+import { agreementVersionCoversText } from "@/lib/sms/agreement";
 import { smsOriginationIdentity, smsSenderConfigured } from "@/lib/sms/config";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { inTenant, seedClinic } from "./setup/factories";
+import { bindAgreementInEffect, inTenant, seedClinic } from "./setup/factories";
 import { createStripeFake } from "./setup/stripe-fake";
 
 /**
@@ -108,6 +109,16 @@ describe("reading the model's state", () => {
   });
 });
 
+describe("the agreement that covers the text", () => {
+  test("BAA 1.6.0 and DPA 1.1.0 or later; anything older, a draft, unknown or unreadable is no", () => {
+    expect(agreementVersionCoversText("1.6.0")).toBe(true);
+    expect(agreementVersionCoversText("dpa/1.1.0")).toBe(true);
+    for (const v of ["1.5.1", "1.5.0", "1.2.1", "dpa/1.0.0", "1.1.0-draft", "1.7.0", "dpa/1.2.0", "dpa/", "", "1.6", "v1.6.0", null, undefined]) {
+      expect(agreementVersionCoversText(v), String(v)).toBe(false);
+    }
+  });
+});
+
 describe("with nothing configured, as in CI", () => {
   test("the text is never offered and the database is never asked", async () => {
     const tools = paymentTextTools({ clinicId: "00000000-0000-0000-0000-000000000000", callId: "call_ci" }, { env: {}, realCalls: true });
@@ -192,12 +203,24 @@ describeDb("the call flow and the one send, against the database", { timeout: 30
     await closePools();
   });
 
-  async function clinicWithBooking(label: string) {
+  /** The clinic's agreement in effect, of the version's own kind. */
+  async function onAgreement(clinicId: string, version: string) {
+    await getMigratorPool().query(
+      version.startsWith("dpa/")
+        ? `update clinics set regulatory_regime = 'hipaa-if-covered', agreement_kind = 'dpa', is_covered_entity = false where id = $1`
+        : `update clinics set agreement_kind = 'baa' where id = $1`,
+      [clinicId],
+    );
+    await bindAgreementInEffect(clinicId, version);
+  }
+
+  async function clinicWithBooking(label: string, version: string | null = "1.6.0") {
     const c = await seedClinic(label);
     await getMigratorPool().query(
       `update clinics set stripe_connect_account_id = $2, stripe_connect_connected_at = now() where id = $1`,
       [c.clinicId, ACCOUNT],
     );
+    if (version) await onAgreement(c.clinicId, version);
     await inTenant(c.clinicId, (client) =>
       client.query(`insert into clinic_settings (clinic_id, deposits_enabled, deposit_hold_minutes) values ($1, true, 60)`, [c.clinicId]),
     );
@@ -425,6 +448,38 @@ describeDb("the call flow and the one send, against the database", { timeout: 30
     const { clinicId, appointmentId } = await clinicWithBooking("text-not-offered");
     expect((await tools(clinicId, "call_one", false).offerAfterBooking(bookedTurn(appointmentId), NOW)).state.text).toBeUndefined();
     await inTenant(clinicId, (client) => client.query(`update appointments set deposit_status = 'paid' where id = $1`, [appointmentId]));
+    expect((await tools(clinicId).offerAfterBooking(bookedTurn(appointmentId), NOW)).state.text).toBeUndefined();
+  });
+
+  test("only under an agreement that covers it: BAA 1.5.x, DPA 1.0.0 or no agreement is never offered or sent", async () => {
+    for (const [version, covered] of [
+      ["1.5.1", false],
+      ["1.6.0", true],
+      ["dpa/1.0.0", false],
+      ["dpa/1.1.0", true],
+      [null, false],
+    ] as const) {
+      const label = `text-agr-${String(version).replace(/[^a-z0-9]/gi, "")}`;
+      const { clinicId, appointmentId } = await clinicWithBooking(label, version);
+      // Offer time: the injected readiness says yes, the agreement decides.
+      const offer = await tools(clinicId).offerAfterBooking(bookedTurn(appointmentId), NOW);
+      expect(Boolean(offer.state.text), String(version)).toBe(covered);
+      // Send time: a call that somehow reached the yes is still refused.
+      const state: BookingToolState = {
+        ...EMPTY_TOOL_STATE,
+        text: { stage: "confirming", appointmentId, number: CALLER, optedInAt: LATER(5).toISOString(), unanswered: 0 },
+      };
+      const before = sent.length;
+      const done = await tools(clinicId, `call_${label}`).step({ state, answer: { paymentText: { confirmed: true } }, now: LATER(15) });
+      expect(done.reply, String(version)).toBe(covered ? PAYMENT_TEXT_LINES_EN.sent : PAYMENT_TEXT_LINES_EN.notSent);
+      expect(sent.length - before, String(version)).toBe(covered ? 1 : 0);
+      if (!covered) expect(await ledger(clinicId)).toEqual([]);
+    }
+  });
+
+  test("an agreement kind the clinic's own record disagrees with is not covered", async () => {
+    const { clinicId, appointmentId } = await clinicWithBooking("text-agr-mismatch");
+    await getMigratorPool().query(`update clinics set agreement_kind = null where id = $1`, [clinicId]);
     expect((await tools(clinicId).offerAfterBooking(bookedTurn(appointmentId), NOW)).state.text).toBeUndefined();
   });
 

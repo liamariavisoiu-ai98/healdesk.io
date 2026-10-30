@@ -159,6 +159,16 @@ describe("the agreement that covers the text", () => {
       expect(agreementVersionCoversText(v), String(v)).toBe(false);
     }
   });
+
+  test("a BAA draft at or past 1.6.0 that is not released is not covered", () => {
+    const templates = [
+      { version: "1.7.0", approvedByCounsel: false },
+      { version: "1.6.0", approvedByCounsel: true },
+    ];
+    expect(agreementVersionCoversText("1.7.0", templates)).toBe(false);
+    expect(agreementVersionCoversText("1.6.0", templates)).toBe(true);
+    expect(agreementVersionCoversText("1.6.0", [{ version: "1.6.0", approvedByCounsel: false }])).toBe(false);
+  });
 });
 
 describe("with nothing configured, as in CI", () => {

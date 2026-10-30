@@ -36,8 +36,15 @@ function atLeast(v: readonly number[], floor: readonly number[]): boolean {
   return true;
 }
 
-/** Pure: whether an accepted document version covers the text. Unknown or malformed: false. */
-export function agreementVersionCoversText(version: string | null | undefined): boolean {
+/**
+ * Pure: whether an accepted document version covers the text. Unknown,
+ * malformed or not released (approvedByCounsel false, a draft): false.
+ * `baaTemplates` is the catalogue's list unless a test passes its own.
+ */
+export function agreementVersionCoversText(
+  version: string | null | undefined,
+  baaTemplates: ReadonlyArray<{ version: string; approvedByCounsel: boolean }> = BAA_TEMPLATES,
+): boolean {
   if (typeof version !== "string" || version.length === 0) return false;
   const kind = agreementKindOfVersion(version);
   if (kind === "dpa") {
@@ -45,7 +52,13 @@ export function agreementVersionCoversText(version: string | null | undefined): 
     return semver !== null && getDpaTemplate(version)?.approvedByCounsel === true && atLeast(semver, TEXT_AGREEMENT_FLOOR.dpa);
   }
   const semver = parse(version);
-  return semver !== null && BAA_TEMPLATES.some((t) => t.version === version) && atLeast(semver, TEXT_AGREEMENT_FLOOR.baa);
+  // Released, as the DPA side asks: a template in the list that is still a
+  // draft (approvedByCounsel false) carries nothing a clinic signed.
+  return (
+    semver !== null &&
+    baaTemplates.some((t) => t.version === version && t.approvedByCounsel === true) &&
+    atLeast(semver, TEXT_AGREEMENT_FLOOR.baa)
+  );
 }
 
 /**

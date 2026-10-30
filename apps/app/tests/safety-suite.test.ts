@@ -467,6 +467,49 @@ describe("safety suite: inbound only, statically", () => {
     expect(callers).toEqual([join(SRC, "lib", "sms", "payment-text.ts")]);
     expect(readFileSync(callers[0]!, "utf8")).toMatch(/canSendPaymentLinkText\(/);
   });
+
+  test("no file in any app, package or script but the sender reaches the SMS SDK, and the sender hands out no raw transport", () => {
+    const repo = join(__dirname, "..", "..", "..");
+    const roots = [
+      SRC,
+      join(__dirname, "..", "scripts"),
+      join(repo, "apps", "web", "src"),
+      ...readdirSync(join(repo, "packages")).map((p) => join(repo, "packages", p, "src")),
+    ].filter((dir) => {
+      try {
+        return statSync(dir).isDirectory();
+      } catch {
+        return false;
+      }
+    });
+    // Code, not prose: an import or require of an SMS SDK, or the send command
+    // or client used. A sentence naming SendTextMessage on a status page is not a send.
+    const sdk =
+      /(?:from\s+|import\s*\(\s*|require\s*\(\s*)["'`]@aws-sdk\/client-(?:pinpoint|sns|end-user-messaging)[^"'`]*["'`]|\bSendTextMessageCommand\b|\bPinpointSMSVoiceV2Client\b|\.sendTextMessage\s*\(/;
+    const reaching = roots.flatMap(files).filter((f) => sdk.test(readFileSync(f, "utf8")));
+    expect(reaching).toEqual([THE_ONE_TEXT_FILE]);
+    // The sender exports the fixed words and the one send; the SDK transport,
+    // which would take any body, stays inside the module.
+    const sender = readFileSync(THE_ONE_TEXT_FILE, "utf8");
+    const exported = [...sender.matchAll(/^export (?:async )?(?:function|const|type) (\w+)/gm)].map((m) => m[1]).sort();
+    expect(exported).toEqual(
+      [
+        "PAYMENT_LINK_TEXT_TEMPLATE",
+        "SMS_SEND_DEADLINE_MS",
+        "SmsRequest",
+        "SmsSendResult",
+        "SmsTransport",
+        "paymentLinkTextBody",
+        "sendPaymentLinkText",
+        "smsClientConfig",
+        "smsFailureCode",
+      ].sort(),
+    );
+    expect(sender).not.toMatch(/^export \{/m);
+    // The body the sender sends is always paymentLinkTextBody's.
+    expect(sender).toMatch(/MessageBody: body/);
+    expect(sender).toMatch(/const body = paymentLinkTextBody\(input\.url\)/);
+  });
 });
 
 describe("safety suite: the Meta boundary's pre-model screen (storage is meta-front-door.test.ts)", () => {

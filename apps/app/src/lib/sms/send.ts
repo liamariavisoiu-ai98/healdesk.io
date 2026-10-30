@@ -104,8 +104,13 @@ export function smsClientConfig() {
 
 let cached: SmsTransport | undefined;
 
-/** The production transport: AWS End User Messaging SMS, loaded on first use. */
-export async function awsSmsTransport(): Promise<SmsTransport> {
+/**
+ * The production transport: AWS End User Messaging SMS, loaded on first use.
+ * Module-private on purpose: it would send any body, so the only way to it
+ * is sendPaymentLinkText, which hands it the fixed words alone
+ * (tests/safety-suite.test.ts holds every other file away from the SDK).
+ */
+async function awsSmsTransport(): Promise<SmsTransport> {
   if (cached) return cached;
   // A literal specifier, outside any `try` (see the header).
   const mod = await import("@aws-sdk/client-pinpoint-sms-voice-v2").catch((error: unknown) => {

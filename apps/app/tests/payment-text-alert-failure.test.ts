@@ -30,6 +30,17 @@ vi.mock("@/lib/notices/booking-alerts", async (importOriginal) => {
   };
 });
 
+const opsCalls = vi.hoisted(() => [] as Array<{ event: string; fields: Record<string, unknown> }>);
+vi.mock("@/lib/ops/notify", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/ops/notify")>();
+  return {
+    ...real,
+    notifyOps: (async (event: string, fields: Record<string, unknown>) => {
+      opsCalls.push({ event, fields });
+    }) as unknown as typeof real.notifyOps,
+  };
+});
+
 const describeDb = hasTestDatabase ? describe : describe.skip;
 const ACTOR = { type: "service", serviceName: "test" } as const;
 const NOW = new Date("2026-10-30T18:00:00Z");
@@ -41,6 +52,7 @@ describeDb("a text left queued whose possibly-paid alert cannot be queued", () =
   beforeEach(async () => {
     await truncateAll();
     failPossiblyPaid.on = false;
+    opsCalls.length = 0;
     vi.stubEnv("BETTER_AUTH_URL", "https://app.healdesk.test");
   });
   afterAll(async () => {
@@ -71,6 +83,10 @@ describeDb("a text left queued whose possibly-paid alert cannot be queued", () =
     failPossiblyPaid.on = true;
     const reason = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => supersededReason(tx, "deposit_to_collect", payload));
     expect(reason).toBeNull();
+    // A person is told, once, with no patient detail.
+    expect(opsCalls).toEqual([{ event: "payment_text_not_sent", fields: { clinicId: c.clinicId, code: "unannounced" } }]);
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => supersededReason(tx, "deposit_to_collect", payload));
+    expect(opsCalls).toHaveLength(1);
     // With the alert queued, the plain one would be closed instead.
     failPossiblyPaid.on = false;
     await inTenant(c.clinicId, (client) =>

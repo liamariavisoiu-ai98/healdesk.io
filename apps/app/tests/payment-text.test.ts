@@ -8,6 +8,7 @@ import { updateAgentConfig } from "@/lib/onboarding/agent-config";
 import {
   callRefHash,
   PAYMENT_TEXT_LINES_EN,
+  PAYMENT_TEXT_LINES_ES,
   paymentTextAnswer,
   paymentTextTools,
   textableNumber,
@@ -560,6 +561,21 @@ describeDb("the call flow and the one send, against the database", { timeout: 30
     expect(alerts.rows).toEqual([]);
   });
 
+  test("in Spanish, an unknown outcome is said as unconfirmed too", async () => {
+    const { clinicId, appointmentId } = await clinicWithBooking("text-unknown-es");
+    const t = paymentTextTools(
+      { clinicId, callId: "call_es" },
+      { offered: async () => true, env: ENV, notify, realCalls: true, smsDeadlineMs: 50, transport: () => new Promise(() => undefined) },
+    );
+    const state: BookingToolState = {
+      ...EMPTY_TOOL_STATE,
+      text: { stage: "confirming", appointmentId, number: CALLER, optedInAt: LATER(5).toISOString(), unanswered: 0 },
+    };
+    const done = await t.step({ state, answer: { paymentText: { confirmed: true } }, now: LATER(15), language: "es" });
+    expect(done.reply).toBe(PAYMENT_TEXT_LINES_ES.unsure);
+    expect(PAYMENT_TEXT_LINES_ES.unsure).toMatch(/no pude confirmar/);
+  });
+
   test("a definite refusal is not 'unknown': the plain front-desk path", () => {
     expect(smsFailureCode({ name: "ValidationException", Reason: "INVALID_PHONE_NUMBER" })).toBe("invalid_number");
     expect(smsFailureCode({ name: "ConflictException", Reason: "DESTINATION_PHONE_NUMBER_OPTED_OUT" })).toBe("opted_out");
@@ -765,6 +781,14 @@ describeDb("the call flow and the one send, against the database", { timeout: 30
       const reason = await withTenant({ clinicId, actor: ACTOR }, (tx) => supersededReason(tx, "deposit_to_collect", held!.payload));
       expect(reason).toMatch(/outcome is unknown/);
       expect(await depositStatus(clinicId, appointmentId)).toBe("pending_front_desk");
+      // The hand-over is audited, as the tool layer's own is, with no patient detail.
+      const audit = await inTenant(clinicId, (client) =>
+        client.query<{ metadata: Record<string, unknown> }>(
+          `select metadata from audit_log where resource_type = 'appointment' and resource_id = $1 and metadata->>'reason' = 'payment_text_unknown'`,
+          [appointmentId],
+        ),
+      );
+      expect(audit.rows.map((r) => r.metadata.outcome)).toEqual(["deposit_to_front_desk"]);
       const alerts = await deskAlerts(clinicId);
       expect(alerts.map((a) => [a.dedupe_key, a.payload.isPossiblyPaid])).toEqual([
         [dedupeKey("deposit_to_collect", { appointmentId }), false],
@@ -778,6 +802,18 @@ describeDb("the call flow and the one send, against the database", { timeout: 30
       // And the sweep has nothing left to do once the link expires.
       const later = new Date(LATER(3600).getTime() + OPEN_LINK_EXPIRY_GRACE_MS + 60_000);
       expect(await flagStaleOpenDepositsFor(clinicId, later)).toBe(0);
+    });
+
+    test("the possibly-paid email is never closed by the queued-text rule, even when a later link moves the deposit back", async () => {
+      const { clinicId, appointmentId } = await bookedWithAlert("text-desk-pp");
+      await leftQueued(clinicId, appointmentId);
+      const [held] = await deskAlerts(clinicId);
+      await withTenant({ clinicId, actor: ACTOR }, (tx) => supersededReason(tx, "deposit_to_collect", held!.payload));
+      const possiblyPaid = (await deskAlerts(clinicId))[1]!;
+      expect(possiblyPaid.payload.isPossiblyPaid).toBe(true);
+      // A later link moves the deposit pending_front_desk -> pending_link while the text row is still queued.
+      await inTenant(clinicId, (client) => client.query(`update appointments set deposit_status = 'pending_link' where id = $1`, [appointmentId]));
+      expect(await withTenant({ clinicId, actor: ACTOR }, (tx) => supersededReason(tx, "deposit_to_collect", possiblyPaid.payload))).toBeNull();
     });
 
     test("an expired open link with no word from Stripe is swept to the desk as possibly paid, once", async () => {

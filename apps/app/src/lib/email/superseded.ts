@@ -2,7 +2,7 @@ import { CHANNELS, type Channel } from "@healdesk/catalog";
 import { and, eq, gt, sql } from "drizzle-orm";
 
 import { appointments, bookingRequests, clinicChannels, clinics, paymentLinkTexts, type ChannelWaitingOn } from "@/db/schema";
-import { flagForFrontDesk } from "@/lib/billing/deposits";
+import { flagForFrontDeskReporting } from "@/lib/billing/deposits";
 import { pauseEmailSuperseded } from "@/lib/channels/pause";
 import type { TenantTx } from "@/lib/tenant";
 
@@ -57,7 +57,10 @@ export function isWaitingOnReadyStep(
 
 /**
  * Why the notice no longer needs sending, for its `last_error`, or null when
- * it still does. Reads in the outbox's tenant transaction.
+ * it still does. Runs in the outbox's tenant transaction, and mostly reads;
+ * for a call booking's L10 over a payment-link text whose outcome is
+ * unknown, it also hands the deposit to the front desk and queues the
+ * possibly-paid L10 that replaces the plain one (depositAlertSuperseded).
  */
 export async function supersededReason(
   tx: TenantTx,
@@ -120,13 +123,29 @@ async function depositAlertSuperseded(tx: TenantTx, payload: unknown): Promise<s
       .from(paymentLinkTexts)
       .where(and(eq(paymentLinkTexts.clinicId, tx.clinicId), eq(paymentLinkTexts.appointmentId, appointmentId)))
       .limit(1);
-    if (text?.status === "queued") {
+    // The possibly-paid email itself is decided on the deposit's own state:
+    // were it sent here, its own key already exists, nothing new would be
+    // queued, and closing it would leave neither email to go.
+    const possiblyPaid = (payload as { isPossiblyPaid?: unknown } | null)?.isPossiblyPaid === true;
+    if (text?.status === "queued" && !possiblyPaid) {
       // Claimed and never settled: the process died, or the outcome could
       // not be recorded, possibly after AWS accepted the text. The texted
       // link may be paid, so the front desk is told to check Stripe first
       // (the possibly-paid L10, the same key the payment-text "unknown"
       // path uses, so never twice), and this plain "collect" one is closed.
-      await flagForFrontDesk(tx, appointmentId, { mayBePaid: true });
+      // Closed only once that alert is known to be queued: if it could not
+      // be, the plain email goes, since a plain email beats none.
+      const flagged = await flagForFrontDeskReporting(tx, appointmentId, { mayBePaid: true });
+      if (flagged.moved) {
+        // As the payment-text tool layer records its own hand-over (toFrontDesk).
+        tx.audit.record({
+          action: "update",
+          resourceType: "appointment",
+          resourceId: appointmentId,
+          metadata: { outcome: "deposit_to_front_desk", reason: "payment_text_unknown" },
+        });
+      }
+      if (!flagged.moved || !flagged.queued) return null;
       return "the payment-link text's outcome is unknown; the possibly-paid alert replaces it";
     }
     if (text && text.status !== "sent") return null;

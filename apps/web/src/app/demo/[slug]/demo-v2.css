@@ -1137,3 +1137,9 @@ html:has(.hd-demo-v2) { zoom: 1; }
    down the page (owner, 30 October 2026: "the text should be scrollable"). */
 .hd-demo-v2 .demo-grid > .dcard { height: 680px; }
 .hd-demo-v2 .demo-grid > .dcard .hd-slot > * { min-height: 0; }
+/* What this demo can't know yet (lib/demo/v2/render.ts demoNoteHtml). */
+.hd-demo-v2 .hd-note { display: flex; gap: 12px; margin: 22px auto 0; max-width: 760px; padding: 14px 18px; border: 1px dashed rgb(0 0 0 / 0.16); border-radius: 16px; background: #fff; text-align: left; }
+.hd-demo-v2 .hd-note-i { flex: none; display: grid; place-items: center; width: 24px; height: 24px; margin-top: 1px; border-radius: 9999px; background: var(--ink, #1c1c1e); color: #fff; font-weight: 700; font-size: 13px; }
+.hd-demo-v2 .hd-note-h { font-weight: 650; font-size: 15.5px; }
+.hd-demo-v2 .hd-note-p { margin-top: 3px; font-size: 14.5px; line-height: 1.5; color: rgb(0 0 0 / 0.6); }
+.hd-demo-v2 .hd-note-l { margin-top: 6px; padding-left: 18px; list-style: disc; font-size: 14.5px; line-height: 1.6; color: rgb(0 0 0 / 0.72); }

@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-import { demoChatParams } from "@/lib/demo/chat-model";
+import { demoChatParams, demoUrgentReply } from "@/lib/demo/chat-model";
 import { getDemoSession, isDemoActive, isDemoSlug, profileOf } from "@/lib/demo/sessions";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 
@@ -103,6 +103,13 @@ export async function POST(request: Request, ctx: { params: Promise<{ slug: stri
     async start(controller) {
       const send = (payload: Record<string, unknown>) => controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
       try {
+        // An urgent message never reaches the model (lib/demo/chat-model.ts).
+        const urgent = demoUrgentReply(profile, clean[clean.length - 1]!.role === "user" ? clean[clean.length - 1]!.content : "");
+        if (urgent) {
+          send({ type: "text", text: urgent });
+          send({ type: "done" });
+          return;
+        }
         // The same request the handoff audit tested (lib/demo/chat-model.ts).
         const modelStream = client.beta.messages.stream(demoChatParams(profile, clean));
 

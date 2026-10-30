@@ -1,4 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import { findUrgentContent } from "@healdesk/catalog";
 
 import { buildClinicChatPrompt } from "./clinic-prompts";
 import type { ClinicProfile } from "./profile";
@@ -51,4 +52,22 @@ export function finalText(content: readonly Anthropic.Beta.Messages.BetaContentB
     .slice(lastSwitch + 1)
     .flatMap((block) => (block.type === "text" ? [block.text] : []))
     .join("");
+}
+
+/**
+ * The demo's fixed answer to a complication or an urgent symptom, or null
+ * when the message is neither. Screened in code before the model sees the
+ * message, as the product's own channels do (packages/catalog
+ * urgent-content.ts): an instruction alone did not hold, and the model told a
+ * test patient "I'm flagging this straight to our clinical team" when the
+ * demo contacts nobody (Miami Skin & Vein, 30 October 2026, held by its
+ * audit). Both callers ask here first, so the audit tests the answer the
+ * prospect gets.
+ */
+export function demoUrgentReply(profile: ClinicProfile, text: string): string | null {
+  const finding = findUrgentContent(text, profile.specialty);
+  if (!finding) return null;
+  const where = profile.phone ? ` Otherwise, please call ${profile.clinicName} directly on ${profile.phone}.` : ` Otherwise, please call ${profile.clinicName} directly.`;
+  const emergency = finding.emergency === "veterinary" ? "please contact your nearest emergency vet now." : "call 911 now.";
+  return `I'm an AI assistant, so I can't help with this one here. If this is an emergency, ${emergency}${where}`;
 }

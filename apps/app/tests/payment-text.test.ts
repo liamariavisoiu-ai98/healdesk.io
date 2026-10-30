@@ -30,6 +30,7 @@ import { dedupeKey, notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import { bookingDepositLine, isDepositToCollect } from "@/lib/portal/bookings";
 import { depositBadge } from "@/lib/portal/bookings-view";
 import { DESK_ALERT_HOLD_MS } from "@/lib/sms/payment-text";
+import { ALERT_WORDING } from "@/lib/ops/alert-wording";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
@@ -770,5 +771,18 @@ describeDb("the call flow and the one send, against the database", { timeout: 30
       expect(second.reply).toBe(PAYMENT_TEXT_LINES_EN.askNumber);
       expect(sent).toEqual([]);
     });
+  });
+});
+
+describe("the ops alert for a text that did not go", () => {
+  test("says what the code paths that raise it make true, and where the key is read", () => {
+    const w = ALERT_WORDING.payment_text_not_sent!;
+    // `error` is raised for a ledger row that could not be written too, before anything was sent.
+    expect(w.whatHappened).toMatch(/record of the text may not have been written, in which case nothing was sent/);
+    expect(w.whatHappened).not.toMatch(/confirmed their number, and the text did not go/);
+    // The web tier reads the texting number too, so a restart covers both.
+    expect(w.steps[0]).toMatch(/web tier and the voice line both read it/);
+    expect(w.steps[0]).not.toMatch(/redeploy the voice line\.$/);
+    expect(JSON.stringify(w)).not.toMatch(/\+1\d{10}|Chemical|peel/);
   });
 });

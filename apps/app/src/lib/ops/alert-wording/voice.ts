@@ -231,15 +231,15 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // hour: a deposit was just handed to the clinic's front desk (a payment
   // link lapsed, was cancelled or could not be checked, or a payment-link
   // text's outcome was unknown), and the email telling its team could not
-  // be queued. The deposit shows on Bookings as one to collect; nobody was
-  // emailed. Ids only.
+  // be queued. The deposit shows on Bookings as one to collect; the team
+  // may not have been told (a plainer reminder can still follow). Ids only.
   deposit_alert_not_queued: {
     title: "A deposit went to the front desk without its email",
     headline: "Deposit for {clinicName} with the front desk, no email",
     whatHappened:
-      "A booking's deposit at {clinicName} became the front desk's to collect. Its payment link lapsed, was cancelled or could not be checked, or a payment-link text's outcome was unknown. The email telling the clinic's team could not be queued. Bookings shows it as a deposit to collect, but nobody was emailed, and the link may already have been paid.",
+      "A booking's deposit at {clinicName} became the front desk's to collect. Its payment link lapsed, was cancelled or could not be checked, or a payment-link text's outcome was unknown. The email telling the clinic's team to check Stripe first could not be queued, so the team may not have been told. Bookings shows it as a deposit to collect, a plainer reminder email can still go out without the check-Stripe line, and the link may already have been paid.",
     whyItMatters:
-      "Until someone at the clinic opens Bookings, nobody asks for the deposit; and if they ask without checking Stripe, a caller who already paid the link could be charged twice.",
+      "Until someone at the clinic opens Bookings, nobody asks for the deposit; and if they ask without checking Stripe, a patient who already paid the link could be charged twice.",
     steps: [
       "Phone the clinic, its number on the clinic's Care tab, and ask its team to check the deposit: look in Stripe for a payment on the booking's link before collecting it.",
       "Open the clinic's Deliveries tab to see whether its emails are going at all, then check the app's logs for 'booking alert not queued' around the alert's time.",

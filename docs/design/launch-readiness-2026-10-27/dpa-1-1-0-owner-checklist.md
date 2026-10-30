@@ -1,6 +1,12 @@
-# DPA 1.1.0: owner checklist (DRAFT, not released)
+# DPA 1.1.0: owner checklist (RELEASED 30 October 2026)
 
-**Not released.** Drafted 30 October 2026 on branch `lane/dpa`. `DPA_1_1_0_RELEASED` is `false` in `packages/catalog/src/dpa.ts`. Checkout still offers DPA 1.0.0, and nothing can sign, provision, accept or offer 1.1.0. Only your word in chat releases it. Counsel has not reviewed it; an AI assistant drafted and reviewed it (`docs/counsel/agreement-changes.md` section 21).
+**Released by the owner on 30 October 2026, in code.** He said "release DPA 1.1.0 as well" in chat, without external counsel. `DPA_1_1_0_RELEASED` is `true` in `packages/catalog/src/dpa.ts`, and the release migration is `apps/app/drizzle/0140_dpa_release_1_1_0.sql`. Checkout offers DPA 1.1.0; DPA 1.0.0 stays released behind it. Counsel has not reviewed it; an AI assistant drafted and reviewed it (`docs/counsel/agreement-changes.md` sections 21 and 21.6).
+
+**New clinics only.** 1.1.0 applies to clinics that sign from the release on. A clinic that already signed DPA 1.0.0 stays on 1.0.0: there is no way in the product for it to re-sign a newer DPA (step 1 below). No payment-link text may go to a caller of a clinic whose accepted agreement is older than BAA 1.6.0 or DPA 1.1.0.
+
+**Not live yet.** Nothing is pushed, merged or deployed. Production offers 1.1.0 only once apps/web deploys from `main`, and the database accepts it only once `deploy-app.yml` runs migration 0140 (section 3). Each needs your yes.
+
+The steps below are kept as they were written before the release, as the record of what the release did. Steps 4.1 to 4.6 were done on 30 October 2026 on branch `lane/dpa`; step 4.7 is noted at its end.
 
 ## What 1.1.0 changes
 
@@ -15,7 +21,7 @@ These are BAA 1.6.0's words for the same text. The sample is in `docs/dpa-v1.1.0
 
 **No payment-link text may go to the caller of a clinic whose signed agreement is older than the version that carries the exception.** That means BAA 1.6.0 or later, or DPA 1.1.0 or later. A clinic on DPA 1.0.0 (or BAA 1.5.1 or older) has signed "sends no SMS".
 
-Today nothing sends a text (`paymentLinkTextOffered()` is false, and no sender exists). Whoever builds the sending must check the clinic's agreement in effect before every text, not only at checkout. Releasing 1.1.0 does not move existing DPA 1.0.0 clinics onto it (see step 1).
+Today nothing sends a text (`paymentLinkTextOffered()` is false, and no sender exists). Whoever builds the sending must check the clinic's agreement in effect before every text, not only at checkout. Releasing 1.1.0 did not move existing DPA 1.0.0 clinics onto it (see step 1).
 
 ## 1. Before you say "Release": who holds DPA 1.0.0?
 
@@ -54,6 +60,11 @@ apps/web deploys from `main` on Vercel; apps/app moves only when you run `deploy
    - Database suites that sign the current DPA and run go-live (`dpa-signing`, `agreement-kinds`, `agreement-resign`, `agreement-misclassification`, `go-live`, `database-audit`) sign 1.1.0 instead; they pass only with the migration in `drizzle/`.
 6. Also in the same commit: move the paragraph above `DPA_TEMPLATES` and the doc comment on `DPA_1_1_0_RELEASED` to the past tense, add the release to `docs/counsel/agreement-changes.md` section 21, and update `AGENTS.md`.
 7. Outside this lane, check with the lanes that own them: the Terms and Privacy pages (`apps/web/src/app/terms`, `privacy`, `lib/legal.ts`) if they name a DPA version or quote "sends no SMS"; the comment in `apps/web/src/components/checkout/AgreementStep.tsx` that names the BAA version offered; and `LAUNCH_PROMISES` in `apps/web/src/lib/admin/seo/launch.ts`, whose payment-link text item says a new DPA version is needed before the first text.
+
+### Done on 30 October 2026
+
+- 4.1 the flag is `true`; 4.2 migration `0140_dpa_release_1_1_0` was generated with drizzle-kit `--custom` and filled with the staged SQL (`<DAY>` = 30 October 2026; its DO-block asserts kept). The staged copy stays in this folder, as BAA 1.6.0's did, because `apps/app/tests/dpa-release-1-1-0.test.ts` still reads it; 4.3 `publishedOn` was already 2026-10-30; 4.4 `docs/dpa-v1.1.0.txt`'s header says released (its agreement text and `docs/dpa-v1.0.0.txt` did not move); 4.5 the tests moved as listed, plus `apps/web/src/app/api/agreement/route.test.ts`, which signs the current DPA; 4.6 comments, `agreement-changes.md` section 21.6, and the spec. `AGENTS.md` is the lead's.
+- 4.7: the Terms and Privacy pages name no DPA version and do not quote the DPA's "sends no SMS", so `LEGAL_VERSION` did not move. The `AgreementStep.tsx` comment and the `payment-link-text` item in `LAUNCH_PROMISES` now say 1.1.0 is released for new clinics only.
 
 ## 5. Rollback
 

@@ -75,6 +75,13 @@
 > `docs/dpa-v1.1.0.txt`): DPA 1.0.0 with its telephone exception carrying
 > the one optional payment-link text, in BAA 1.6.0's words. DPA 1.0.0 stays
 > the version offered until the owner releases 1.1.0.
+>
+> **Released by the owner on 30 October 2026, without external counsel**
+> ("release DPA 1.1.0 as well", in chat; § 21.6). Checkout offers 1.1.0 to
+> new DPA practices only. A practice that signed 1.0.0 stays on 1.0.0: the
+> product has no way for it to re-sign a newer DPA. No payment-link text goes
+> to a caller of a practice whose accepted agreement is older than the
+> version that carries the exception.
 
 ## Contents
 
@@ -95,7 +102,7 @@
 15. [BAA 1.5.0: the transcript's copy deleted once delivery is confirmed](#15-baa-150-the-transcripts-copy-deleted-once-delivery-is-confirmed) (released 14 October 2026)
 16. [BAA 1.5.1: the optional booking details asked in a website chat too](#16-baa-151-the-optional-booking-details-asked-in-a-website-chat-too) (released 19 October 2026)
 17. [BAA 1.6.0: the model provider's retention, as Anthropic documents it](#17-baa-160-the-model-providers-retention-as-anthropic-documents-it) (drafted 19 October 2026, released by the owner 29 October 2026)
-21. [DPA 1.1.0: the one optional payment-link text](#21-dpa-110-the-one-optional-payment-link-text-drafted-30-october-2026-not-released) (drafted 30 October 2026, not released)
+21. [DPA 1.1.0: the one optional payment-link text](#21-dpa-110-the-one-optional-payment-link-text-drafted-and-released-30-october-2026) (drafted 30 October 2026, released by the owner 30 October 2026)
 18. [Review log](#review-log-2026-10-01)
 
 ---
@@ -3448,9 +3455,11 @@ else; `docs/baa-v1.6.0.txt` re-rendered and its header says so.
 | 1.6.0 live_highlevel_personal | `d016bc7e…395c` | `c6472ec33af0df4b1dd749b9a164c965b112ee128ca09e666d1513b7042250e7` |
 | 1.6.0 live_calendly_nobaa | `df5cb9c7…22a6` | `8343db376f561f8259cc8fa93e20fb598d9d67cbd180f5a78f30f7a5ae3e878e` |
 
-## 21. DPA 1.1.0: the one optional payment-link text (drafted 30 October 2026, not released)
+## 21. DPA 1.1.0: the one optional payment-link text (drafted and released 30 October 2026)
 
-> **Not legal advice, and not reviewed by counsel. NOT RELEASED.** The owner
+> **Not legal advice, and not reviewed by counsel. Released by the owner on
+> 30 October 2026 (§ 21.6); the paragraph below is kept as it was written
+> before the release.** The owner
 > asked for a new DPA version on 30 October 2026 so that a practice signing
 > the DPA holds the same exception for the payment-link text as a practice
 > signing BAA 1.6.0 (§ 20). The wording was drafted by an AI assistant from
@@ -3531,7 +3540,9 @@ owner's checklist
 
 New, for the 1.1.0 draft (`packages/catalog/src/dpa-1-1-0.test.ts`); a
 draft's hashes may be regenerated while nobody can sign it. 1.0.0's
-(`packages/catalog/src/dpa.test.ts`) did not move.
+(`packages/catalog/src/dpa.test.ts`) did not move. Since the release on
+30 October 2026 1.1.0's are frozen too, and the release moved none of them:
+the text carries no draft marker, and the release is only the flag.
 
 | Variant | dpa/1.0.0 (unchanged) | dpa/1.1.0 (new) |
 | --- | --- | --- |
@@ -3543,6 +3554,39 @@ draft's hashes may be regenerated while nobody can sign it. 1.0.0's
 | vet_live_covered | `866ac3a866b1c1b5c7de17b5c7c37cab5c4a030ff702b1619fdb881fbf741635` | `7b3a8315de4c6528b9f088aac09a2704f67a2eba5407ca7ce17c07d813c168b4` |
 | vet_live_personal | `98c90edbf6746026c0c9658beaa1392bf1fc105e21ae3354f4bfd27c633197d5` | `1f183a0b76fc2fb9d6632859814aa658a78c7139749028ee02b5f05eed33442b` |
 | vet_notused_mindbody | `66096105d262139e06c11d35a4c0869e079fcd0ec860f80ac697a14d28dbb26e` | `9b16fffc38bd28831d14ce77be86d9bf3b08ae3b5045122dfc1513b86adef784` |
+
+### 21.6 Released by the owner, 30 October 2026
+
+The owner said "release DPA 1.1.0 as well" in chat on 30 October 2026 and
+released it himself, without external counsel, as he released dpa/1.0.0 on
+20 October and BAA 1.6.0 on 29 October. Counsel review is still recommended
+(the box at the top of this section).
+
+- `DPA_1_1_0_RELEASED` is true in `packages/catalog/src/dpa.ts`, so
+  `DPA_TEMPLATES` is dpa/1.1.0 (with `approvedByCounsel` true, the owner's
+  release under the BAA's flag name) and then dpa/1.0.0. `CURRENT_DPA_VERSION`
+  is dpa/1.1.0; checkout's copy and signing use it, and a signing page still
+  on 1.0.0 is asked to reload.
+- Migration `apps/app/drizzle/0140_dpa_release_1_1_0.sql` adds dpa/1.1.0 to
+  `app_dpa_version_released()` (go-live's list) and to
+  `app_destruction_rule()` (the export rule its Term clause states), and
+  re-asserts both in a DO block. apps/app's destruction, incident-reporting
+  and subcontractor-notice maps give 1.1.0 1.0.0's rules, since those clauses
+  are 1.0.0's own objects.
+- **New practices only.** dpa/1.0.0 stays released, so a practice that signed
+  it is still provisioned and goes live under it: the DPA has no go-live
+  floor. **A practice that signed 1.0.0 cannot move to 1.1.0:** the re-sign
+  flow (`apps/app/src/lib/agreements/resign.ts`) handles a newer BAA and the
+  DPA-to-BAA switch only, and nothing lets a practice re-sign a newer DPA.
+  It stays on 1.0.0, which says healdesk sends no SMS, until a DPA re-sign is
+  built or the owner handles it by hand.
+- **No payment-link text may go to a caller of a practice whose accepted
+  agreement is older than the version that carries the exception** (BAA
+  1.6.0 or DPA 1.1.0). Nothing sends a text yet; whoever builds the sending
+  must check the agreement in effect before every text.
+- Production does none of this until `deploy-app.yml` runs the migration and
+  rolls the new image, and Vercel deploys apps/web from `main`; each needs
+  the owner's yes (owner checklist, section 3).
 
 ---
 

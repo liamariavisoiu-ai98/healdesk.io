@@ -253,7 +253,9 @@ above:
    them nor denies them.
 9. **The supersede function allows DPA→BAA and BAA→BAA only.** DPA→DPA (a
    newer DPA re-accepted) is refused until a DPA 1.1.0 exists to decide it;
-   that fails closed.
+   that fails closed. DPA 1.1.0 exists since 30 October 2026, released for
+   new signers only; DPA→DPA is still refused, and nothing in the product
+   moves a 1.0.0 practice onto 1.1.0 (agreement-changes.md § 21.6).
 10. **Overlaps with the shared clause: one statement of each duty, the more
     protective kept** (7 October 2026; § 12.14 "The funnel's DPA"). The
     shared clause cannot be edited from here (it is `baa.ts`'s, frozen with

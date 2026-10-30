@@ -18,6 +18,7 @@ import {
   demoSetupCredit,
   demoUrl,
   displayName,
+  findDemoSession,
   getDemoSession,
   isDemoExpired,
   isDemoSlug,
@@ -91,7 +92,20 @@ function hostOf(websiteUrl: string): string {
 export default async function DemoPage({ params }: Props) {
   const { slug } = await params;
   if (!isDemoSlug(slug)) notFound();
-  const session = await getDemoSession(slug);
+  const session = await findDemoSession(slug);
+  // A failed read is not a missing demo: say it is loading and try again,
+  // never the site's 404 (owner, 30 October 2026).
+  if (session === "unavailable") {
+    return (
+      <Shell colour={FALLBACK_COLOUR}>
+        <RefreshWhileBuilding everyMs={4_000} />
+        <main className="mx-auto flex w-full max-w-[640px] flex-1 flex-col items-center justify-center px-5 py-20 text-center">
+          <h1 className="font-display text-[34px] leading-tight font-medium tracking-[-0.02em]">Your demo is loading</h1>
+          <p className="text-muted mt-4 text-[17px]">This takes a few seconds. The page opens by itself.</p>
+        </main>
+      </Shell>
+    );
+  }
   if (!session) notFound();
 
   const name = displayName(session);

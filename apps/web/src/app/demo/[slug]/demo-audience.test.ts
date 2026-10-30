@@ -18,7 +18,7 @@ import type { DemoSession } from "@/lib/demo/sessions";
 const sessions = vi.hoisted(() => ({ current: null as DemoSession | null }));
 vi.mock("@/lib/demo/sessions", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/demo/sessions")>();
-  return { ...actual, getDemoSession: async () => sessions.current };
+  return { ...actual, getDemoSession: async () => sessions.current, findDemoSession: async () => sessions.current };
 });
 
 // The page's timers and buttons are client components; static markup has no router.

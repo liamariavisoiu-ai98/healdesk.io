@@ -76,15 +76,10 @@ describeDb("the portal's screens", () => {
       expect(brokenLinks(html, portal.clinicSlug)).toEqual([]);
     });
 
-    test("the menu: Conversations and Bookings say they open after go-live and are not links", async () => {
+    test("the menu: Conversations and Bookings are not links, and one sentence says they open after go-live", async () => {
       const html = await renderHome();
       expect(html).toMatch(/<a href="\/c\/[^"]+" aria-current="page"[^>]*>Home<\/a>/);
-      expect(html).toMatch(
-        /aria-disabled="true"[^>]*><span[^>]*>Conversations<\/span><span[^>]*>Opens after go-live/,
-      );
-      expect(html).toMatch(
-        /aria-disabled="true"[^>]*><span[^>]*>Bookings<\/span><span[^>]*>Opens after go-live/,
-      );
+      expect(html).toContain("Conversations and Bookings open after go-live.");
       expect(html).not.toContain("/conversations");
       expect(html).not.toContain("/bookings");
     });

@@ -59,6 +59,12 @@ The one rule to carry even if you read nothing else:
 - **From `main` (folded in at the merge of 8779b778):** SEC-01 and SEC-02 were merged to `main` on the Owner's instruction (f7df3865). The production audit went from 18 high/critical advisories to 1, `GHSA-c475-qrg2-pj4r` (basic-ftp, via the undeployed `packages/leadgen`), excepted until 2026-12-20. CI on `check/deps-security` (run 39633580010) was green except TEST-01. TEST-01 (`setup-wizard` "one on day 5") was a test bug: the queued notice's `send_after` took the database's `now()` while the test delivered at a fixed date; `fix/setup-wizard-day5` takes the test's noon from the database clock (on `main`). The Resend email footers print only the bare mailing address since 22 Oct (`main`, not deployed then); the transcript email (SES) and the Terms, Privacy and `/about` pages still carry the entity line.
 
 ## Last completed work package
+- **SMS-SEND THIRD REVIEW FIXES (30 Oct 2026), CODE and TESTED LOCALLY on `sms/land`, not pushed, merged, deployed or migrated:**
+  - A text claim left `queued` (a crash, or an outcome that could not be recorded) now makes the outbox send the possibly-paid L10 and close the plain one (`lib/email/superseded.ts`); the error log names the outcome.
+  - A retried confirmation during an in-flight attempt hears the `unsure` line.
+  - The possibly-paid email goes only when the deposit is the front desk's.
+  - The sweep's two checks run independently; no dedicated test, because an internal call cannot be made to throw.
+  - Test counts are in the lane's final report.
 - **SMS-SEND SECOND REVIEW FIXES (30 Oct 2026), CODE and TESTED LOCALLY on `sms/land`, not pushed, merged, deployed or migrated; no infra or secret touched:**
   - A send with no answer inside the deadline is now `unknown` (0141's check gains it, edited in place, never applied). The deposit goes to the desk with the possibly-paid L10, the plain L10 is closed unsent, the caller hears the text could not be confirmed, and the ops alert says it may have gone.
   - The L10 hold is pushed on every turn of the text, and the claim refuses the text if that L10 was already sent.

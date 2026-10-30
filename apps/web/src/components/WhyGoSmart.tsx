@@ -63,6 +63,7 @@ const currency = new Intl.NumberFormat("en-US", {
  * share an edge. Below 1024px nothing moved.
  */
 export function WhyGoSmart({
+  heading: Heading = "h2",
   specialty,
   onSelectSpecialty,
   callsPerWeek,
@@ -70,6 +71,8 @@ export function WhyGoSmart({
   missedPercent,
   onMissedPercent,
 }: {
+  /** The heading's level: h1 where the section opens its page (/why-wait). */
+  heading?: "h1" | "h2";
   specialty: Specialty;
   onSelectSpecialty: (id: string) => void;
   callsPerWeek: number;
@@ -103,10 +106,10 @@ export function WhyGoSmart({
     >
       <div data-reveal="stagger" className="max-w-[760px] lg:sticky lg:top-28">
         <p className="eyebrow-tag">Why go smart?</p>
-        <h2 className="heading-section mt-5">
+        <Heading className="heading-section mt-5">
           The calls you never hear about are the ones{" "}
           <span className="text-brand-gradient">worth the most</span>.
-        </h2>
+        </Heading>
         <p className="text-muted mt-4 text-[20.4px] font-medium">
           Not a lost call, a lost case. Answer {site.agent}&apos;s four
           questions and see what a full front desk could be worth to you.

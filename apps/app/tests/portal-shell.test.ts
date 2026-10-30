@@ -13,6 +13,7 @@ import {
   isBuiltSection,
   BOOKINGS_BY_EMAIL,
   conversationsUntilBuilt,
+  notYetLine,
   OPENS_AFTER_GO_LIVE,
   portalNav,
   sectionPath,
@@ -131,6 +132,22 @@ describe("the menu", () => {
         note: OPENS_AFTER_GO_LIVE,
       });
     }
+  });
+
+  test("the screens not open yet are one sentence under the menu, never a dead tile", () => {
+    // Before go-live: both patient screens, in one sentence.
+    expect(notYetLine(portalNav("glow", "home"))).toBe("Conversations and Bookings open after go-live.");
+    // One opened: the other alone.
+    expect(notYetLine(portalNav("glow", "home", ["bookings"]))).toBe("Conversations opens after go-live.");
+    // Both opened: nothing to say.
+    expect(notYetLine(portalNav("glow", "home", ["conversations", "bookings"]))).toBe("");
+    // A screen with a line of its own gets its own sentence.
+    expect(
+      notYetLine([
+        { section: "conversations", label: "Conversations", href: null, current: false, note: OPENS_AFTER_GO_LIVE },
+        { section: "bookings", label: "Bookings", href: null, current: false, note: BOOKINGS_BY_EMAIL },
+      ]),
+    ).toBe("Conversations opens after go-live. Bookings: Each request is emailed to your team.");
   });
 
   test("what a not-yet-built Conversations would say, per channel: Meta's are never emailed", () => {

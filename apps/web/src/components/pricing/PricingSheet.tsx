@@ -110,7 +110,7 @@ function IntervalToggle({
             aria-pressed={on}
             onClick={() => onChange(option.id)}
             className={[
-              "inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-bold transition-colors",
+              "inline-flex min-h-11 items-center gap-2 rounded-full px-5 py-2.5 text-sm font-bold transition-colors",
               on ? "bg-ink text-white" : "text-muted hover:text-ink",
             ].join(" ")}
           >
@@ -187,6 +187,12 @@ const PRODUCT_COVERS: Record<ProductId, string> = {
 
 const unitWord = (product: ProductId) => (PRODUCTS[product].unit === "minute" ? "minutes" : "conversations");
 
+/** The product table's column headings, written once: the header row and each phone card's labels read them. */
+const PER_100_HEADING = (interval: BillingInterval) =>
+  `Per 100 a month${interval === "year" ? ", billed yearly" : ""}`;
+const EXTRA_100_HEADING = "Each extra 100 (provisional)";
+const SETUP_HEADING = "One-time setup";
+
 function ProductTable({ interval, offer }: { interval: BillingInterval; offer: SiteOffer }) {
   const combined = PACKAGES.filter((pkg) => pkg.voice && pkg.chat);
   return (
@@ -197,18 +203,20 @@ function ProductTable({ interval, offer }: { interval: BillingInterval; offer: S
       >
         Monthly price and setup.
       </h2>
+      {/* A table from 640px; under it each row is a card, every cell under
+          its column's heading (globals.css, "The pricing sheet's product
+          table on a phone"), so no price is behind a sideways scroll. The
+          `data-label` on each cell is what the card writes above it. */}
       <div className="mt-6 overflow-x-auto">
-        <table className="w-full min-w-[640px] text-left text-[16px]">
+        <table className="price-table w-full min-w-[640px] text-left text-[16px]">
           <thead>
             <tr className="border-line text-muted border-b text-[13px] font-bold tracking-[0.08em] uppercase">
               <th scope="col" className="py-3 pr-4">Product</th>
-              <th scope="col" className="py-3 pr-4">
-                Per 100 a month{interval === "year" ? ", billed yearly" : ""}
-              </th>
+              <th scope="col" className="py-3 pr-4">{PER_100_HEADING(interval)}</th>
               {OVERAGE_RATES_PROVISIONAL ? null : (
-                <th scope="col" className="py-3 pr-4">Each extra 100 (provisional)</th>
+                <th scope="col" className="py-3 pr-4">{EXTRA_100_HEADING}</th>
               )}
-              <th scope="col" className="py-3">One-time setup</th>
+              <th scope="col" className="py-3">{SETUP_HEADING}</th>
             </tr>
           </thead>
           <tbody>
@@ -220,19 +228,19 @@ function ProductTable({ interval, offer }: { interval: BillingInterval; offer: S
                     <span className="block font-semibold">{product.name}</span>
                     <span className="text-muted block text-[14.5px] font-medium">{PRODUCT_COVERS[id]}</span>
                   </th>
-                  <td className="py-4 pr-4">
+                  <td className="py-4 pr-4" data-label={PER_100_HEADING(interval)}>
                     <span className="font-figure text-[20px] font-semibold tabular-nums">
                       {usd.format(perStepUsd(id, interval))}
                     </span>{" "}
                     <span className="text-muted text-[14.5px] font-medium">per 100 {unitWord(id)}</span>
                   </td>
                   {OVERAGE_RATES_PROVISIONAL ? null : (
-                    <td className="py-4 pr-4 tabular-nums">
+                    <td className="py-4 pr-4 tabular-nums" data-label={EXTRA_100_HEADING}>
                       {usd.format(extraBlockUsd(id))}{" "}
                       <span className="text-muted text-[14.5px] font-medium">per 100 {unitWord(id)}</span>
                     </td>
                   )}
-                  <td className="py-4 font-semibold tabular-nums">
+                  <td className="py-4 font-semibold tabular-nums" data-label={SETUP_HEADING}>
                     <SetupPrice listUsd={product.setupFeeUsd} offer={offer} />
                   </td>
                 </tr>
@@ -246,11 +254,15 @@ function ProductTable({ interval, offer }: { interval: BillingInterval; offer: S
                     Both products&apos; prices, added
                   </span>
                 </th>
-                <td className="text-muted py-4 pr-4 text-[14.5px] font-medium">Voice step + chat step</td>
+                <td className="text-muted py-4 pr-4 text-[14.5px] font-medium" data-label={PER_100_HEADING(interval)}>
+                  Voice step + chat step
+                </td>
                 {OVERAGE_RATES_PROVISIONAL ? null : (
-                  <td className="text-muted py-4 pr-4 text-[14.5px] font-medium">Each product&apos;s own</td>
+                  <td className="text-muted py-4 pr-4 text-[14.5px] font-medium" data-label={EXTRA_100_HEADING}>
+                    Each product&apos;s own
+                  </td>
                 )}
-                <td className="py-4 font-semibold tabular-nums">
+                <td className="py-4 font-semibold tabular-nums" data-label={SETUP_HEADING}>
                   <SetupPrice listUsd={packageSetupFeeUsd(pkg)} offer={offer} />
                 </td>
               </tr>

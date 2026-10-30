@@ -92,7 +92,7 @@ export function GoogleSignIn(props: {
 
   return (
     <div className="mt-3">
-      <section className="border-line rounded-xl border px-4 py-3 text-sm">
+      <section className="border-line rounded-md border px-4 py-3 text-sm">
         <h3 className="font-semibold">{disclosure.heading}</h3>
         {disclosure.paragraphs.map((paragraph, index) =>
           index === last ? (
@@ -250,7 +250,7 @@ function DisconnectCalendar(props: { slug: string; onCancel: () => void }) {
     setWorking(false);
   }
   return (
-    <div className="border-line mt-3 rounded-xl border px-4 py-3 text-sm">
+    <div className="border-line mt-3 rounded-md border px-4 py-3 text-sm">
       <p>
         AYA stops booking into your calendar at once, and every booking becomes a request your team
         confirms. Disconnecting needs Face ID or your screen lock on a device you&rsquo;ve added.
@@ -330,7 +330,7 @@ function ChooseCalendar({ slug }: { slug: string }) {
         id={selectId}
         value={chosen}
         onChange={(event) => setChosen(event.target.value)}
-        className="border-line min-h-11 rounded-lg border bg-white px-2"
+        className="border-line min-h-11 rounded-sm border bg-white px-2"
       >
         {calendars.map((calendar) => (
           <option key={calendar.id} value={calendar.id}>
@@ -595,7 +595,7 @@ function ProviderFields(props: {
   const calendarId = useId();
   const n = props.index + 1;
   return (
-    <fieldset className="border-line grid gap-2 rounded-xl border px-4 py-3">
+    <fieldset className="border-line grid gap-2 rounded-md border px-4 py-3">
       <legend className="sr-only">Provider {n}</legend>
       <label htmlFor={nameId} className="text-sm font-semibold">
         Provider {n}&rsquo;s name
@@ -606,7 +606,7 @@ function ProviderFields(props: {
         maxLength={80}
         placeholder="e.g. Dr Chen"
         onChange={(event) => props.onChange({ displayName: event.target.value })}
-        className="border-line min-h-11 rounded-lg border px-3"
+        className="border-line min-h-11 rounded-sm border px-3"
       />
       <label htmlFor={calendarId} className="text-sm font-semibold">
         Their calendar
@@ -615,7 +615,7 @@ function ProviderFields(props: {
         id={calendarId}
         value={props.row.calendarId}
         onChange={(event) => props.onChange({ calendarId: event.target.value })}
-        className="border-line min-h-11 rounded-lg border bg-white px-2"
+        className="border-line min-h-11 rounded-sm border bg-white px-2"
       >
         <option value="" disabled>
           Choose their calendar

@@ -59,7 +59,7 @@ function Section(props: { id: string; title: string; intro?: ReactNode; children
     <section
       id={props.id}
       aria-labelledby={`${props.id}-heading`}
-      className="border-line scroll-mt-6 rounded-2xl border bg-white px-4 py-4 sm:px-5"
+      className="border-line scroll-mt-6 rounded-md border bg-white px-4 py-4 sm:px-5"
     >
       <h2 id={`${props.id}-heading`} className="text-lg font-semibold">
         {props.title}
@@ -90,7 +90,7 @@ function ProblemBox(props: { problem: Problem; onUse?: (rewrite: string) => void
   if (!props.problem) return null;
   const { rewrite } = props.problem;
   return (
-    <div className="rounded-xl border border-red-200 px-4 py-3 text-sm text-red-800">
+    <div className="rounded-md border border-problem-line px-4 py-3 text-sm text-problem">
       <p>{props.problem.message}</p>
       {rewrite && props.onUse ? (
         <div className="text-ink mt-2">
@@ -128,7 +128,7 @@ function TextInput(props: {
     value: props.value,
     maxLength: props.maxLength,
     "aria-describedby": props.hint ? hintId : undefined,
-    className: "border-line w-full rounded-xl border bg-white px-4 py-3 text-base",
+    className: "border-line w-full rounded-md border bg-white px-4 py-3 text-base",
   };
   return (
     <div className="grid gap-1">
@@ -223,7 +223,7 @@ export function PracticeForm(props: {
           id={zoneId}
           value={form.timezone}
           onChange={(e) => set({ timezone: e.target.value })}
-          className="border-line min-h-11 rounded-xl border bg-white px-4 py-2"
+          className="border-line min-h-11 rounded-md border bg-white px-4 py-2"
         >
           {zones.map((zone) => (
             <option key={zone.id} value={zone.id}>
@@ -259,7 +259,7 @@ function ListEditor(props: {
             onChange={(e) =>
               props.onItems(props.items.map((x, j) => (j === i ? e.target.value : x)))
             }
-            className="border-line min-h-11 flex-1 rounded-xl border bg-white px-3"
+            className="border-line min-h-11 flex-1 rounded-md border bg-white px-3"
           />
           <button
             type="button"
@@ -405,7 +405,7 @@ export function QuickAnswersForm(props: { slug: string; initial: Answer[] }) {
       className="grid gap-3"
     >
       {rows.map((row, i) => (
-        <fieldset key={i} className="border-line grid gap-2 rounded-xl border px-4 py-3">
+        <fieldset key={i} className="border-line grid gap-2 rounded-md border px-4 py-3">
           <legend className="sr-only">Quick answer {i + 1}</legend>
           {row.flagId ? (
             <p className="text-muted text-sm font-semibold">From a flagged conversation</p>
@@ -416,7 +416,7 @@ export function QuickAnswersForm(props: { slug: string; initial: Answer[] }) {
             value={row.question}
             maxLength={300}
             onChange={(e) => update(i, { question: e.target.value })}
-            className="border-line min-h-11 rounded-lg border px-3 font-semibold"
+            className="border-line min-h-11 rounded-sm border px-3 font-semibold"
           />
           <textarea
             aria-label={`Answer ${i + 1}`}
@@ -425,7 +425,7 @@ export function QuickAnswersForm(props: { slug: string; initial: Answer[] }) {
             maxLength={300}
             rows={2}
             onChange={(e) => update(i, { answer: e.target.value })}
-            className="border-line rounded-lg border px-3 py-2"
+            className="border-line rounded-sm border px-3 py-2"
           />
           <button
             type="button"

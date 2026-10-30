@@ -62,7 +62,7 @@ export function WebsiteChangesList(props: {
   return (
     <ul className="grid gap-3">
       {left.map((change) => (
-        <li key={change.id} className="border-line rounded-xl border px-4 py-3">
+        <li key={change.id} className="border-line rounded-md border px-4 py-3">
           <p className="text-muted text-xs font-semibold tracking-wide uppercase">
             {change.sectionName}
           </p>

@@ -127,7 +127,7 @@ export function BackupScreen(props: { slug: string; doneHref: string }) {
             width={220}
             height={220}
             alt="A QR code for your authenticator app"
-            className="rounded-lg border border-line bg-white p-2"
+            className="rounded-sm border border-line bg-white p-2"
           />
           <p className="text-muted text-sm">
             Can&rsquo;t scan? Type this key into the app:{" "}
@@ -146,7 +146,7 @@ export function BackupScreen(props: { slug: string; doneHref: string }) {
               inputMode="numeric"
               autoComplete="one-time-code"
               maxLength={8}
-              className="border-line min-h-11 w-40 rounded-xl border bg-white px-4 py-2 tracking-widest"
+              className="border-line min-h-11 w-40 rounded-md border bg-white px-4 py-2 tracking-widest"
             />
           </div>
           <button
@@ -165,7 +165,7 @@ export function BackupScreen(props: { slug: string; doneHref: string }) {
             Done. Keep these ten backup codes somewhere safe, away from this device: each one works
             once, if you ever lose the phone with the app too. We won&rsquo;t show them again.
           </p>
-          <ul className="grid grid-cols-2 gap-2 rounded-xl border border-line bg-white p-4 font-mono">
+          <ul className="grid grid-cols-2 gap-2 rounded-md border border-line bg-white p-4 font-mono">
             {codes.map((c) => (
               <li key={c}>{c}</li>
             ))}

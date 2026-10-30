@@ -35,6 +35,17 @@ export function Brand({ className = "", height }: { className?: string; height?:
 /** Where the navbar says which section is on screen: a phone. */
 const PHONE = "(max-width: 639px)";
 
+/** Shown only from the width where the text links fit in the row (see Nav). */
+const WIDE_ONLY = "hidden min-[880px]:block";
+
+/** A text link in the bar: hidden below `WIDE_ONLY`'s width, a 44px target above it. */
+const TEXT_LINK =
+  "text-muted hover:text-ink aria-[current=page]:text-ink hidden min-h-11 items-center text-[16.8px] font-semibold whitespace-nowrap transition-colors min-[880px]:inline-flex";
+
+/** A link in the Menu disclosure: a full-width 44px row. */
+const MENU_LINK =
+  "text-ink hover:bg-paper-2 aria-[current=page]:bg-paper-2 flex min-h-11 items-center rounded-sm px-3 text-[16.8px] font-semibold";
+
 /**
  * Wayfinding, on a phone (owner, 12 October 2026).
  *
@@ -135,11 +146,20 @@ function useWayfinding(enabled: boolean, header: RefObject<HTMLElement | null>) 
  * secondary button, opening a call booking over the page (GetInTouch.tsx).
  * It shows at every width: a calendar icon on a phone, its words from 480px.
  *
- * The text links wait until 700px. At 640, where they used to appear, a row
- * that also holds "Get in touch" is exactly full; at 700 there are about 60px
- * to spare. Nothing in the row wraps or shrinks except the wordmark, which
- * scales down on a phone narrower than about 360px rather than push the
- * buttons off the edge.
+ * The text links wait until 880px (`WIDE_ONLY`, `TEXT_LINK`). Until 30 October 2026 they waited
+ * until 700, where a row holding two links, "Get in touch" and "Get AYA" had
+ * about 60px to spare; "Pricing" joined the links that day, and with "Sign
+ * in" the row needs about 870px at zoom 1. Nothing in the row wraps or
+ * shrinks except the wordmark, which scales down on a phone narrower than
+ * about 360px rather than push the buttons off the edge.
+ *
+ * Below that width the links are not simply gone any more (30 October
+ * 2026): a plain "Menu" disclosure at the end of the row holds them, a
+ * `<details>` so it needs no script, opens and closes from the keyboard,
+ * and closes itself when a link is followed, since every link is a full page
+ * load. "Sign in" stays in the bar itself from 480px, where a signed-up
+ * clinic looks for it, and sits in the menu only on a phone narrower than
+ * that, where the bar has no room for a fifth item.
  *
  * Client component because both CTAs behave differently by route.
  */
@@ -152,6 +172,7 @@ export function Nav() {
   const headerRef = useRef<HTMLElement>(null);
   const way = useWayfinding(onHome, headerRef);
   const wayfinding = way.past && way.title !== null;
+  const signIn = portalSignInUrl();
 
   return (
     <header
@@ -183,39 +204,74 @@ export function Nav() {
 
         {/* Text links are hidden on the narrower screens rather than wrapped:
             a phone's row holds the wordmark and the two buttons instead of
-            five cramped items, and both destinations are one scroll or one
-            footer away. */}
-        {site.navLinks.map((item) => (
+            six cramped items, and the Menu at the end of the row holds the
+            links instead. */}
+        {site.navLinks.map((item, index) => (
           <a
             key={item.href}
             href={item.href}
-            className="text-muted hover:text-ink ml-auto hidden text-[16.8px] font-semibold whitespace-nowrap transition-colors min-[700px]:inline-flex"
+            aria-current={pathname === item.href ? "page" : undefined}
+            className={`${TEXT_LINK} ${index === 0 ? "ml-auto" : ""}`}
           >
             {item.label}
           </a>
         ))}
-        {/* A hairline between the two text links (owner, 9 October 2026),
-            shown wherever they are. */}
-        <span aria-hidden className="bg-line-strong hidden h-5 w-px shrink-0 min-[700px]:block" />
-        <a
-          href={demoHref}
-          className="text-muted hover:text-ink hidden text-[16.8px] font-semibold whitespace-nowrap transition-colors min-[700px]:inline-flex"
-        >
+        {/* A hairline between the page links and the demo link (owner,
+            9 October 2026), shown wherever they are. */}
+        <span aria-hidden className={`bg-line-strong h-5 w-px shrink-0 ${WIDE_ONLY}`} />
+        <a href={demoHref} className={TEXT_LINK}>
           {site.cta.secondary.label}
         </a>
 
         {/* The clinic portal's sign-in, once NEXT_PUBLIC_PORTAL_URL is set
-            (lib/portal-link.ts); nothing until then. */}
-        {portalSignInUrl() ? (
+            (lib/portal-link.ts); nothing until then. In the bar from 480px,
+            in the menu below. */}
+        {signIn ? (
           <a
-            href={portalSignInUrl()!}
-            className="text-muted hover:text-ink hidden text-[16.8px] font-semibold whitespace-nowrap transition-colors min-[700px]:inline-flex"
+            href={signIn}
+            className="text-muted hover:text-ink hidden min-h-11 items-center text-[16.8px] font-semibold whitespace-nowrap transition-colors min-[480px]:inline-flex"
           >
             {SIGN_IN_LABEL}
           </a>
         ) : null}
-        <GetInTouch className="ml-auto min-[700px]:ml-0" />
+        <GetInTouch className="ml-auto min-[880px]:ml-0" />
         <BuyButton className="shrink-0 whitespace-nowrap" />
+
+        <details className="nav-menu relative min-[880px]:hidden">
+          <summary
+            className="border-line text-ink hover:border-line-strong inline-flex min-h-11 cursor-pointer list-none items-center gap-1.5 rounded-sm border px-3 text-[15.6px] font-semibold whitespace-nowrap transition-colors select-none [&::-webkit-details-marker]:hidden"
+          >
+            Menu
+            <svg aria-hidden viewBox="0 0 16 16" className="nav-menu__chevron size-3.5 shrink-0 transition-transform duration-fast">
+              <path d="M3.5 6l4.5 4.5L12.5 6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </summary>
+          <ul className="border-line shadow-lg absolute top-full right-0 z-50 mt-2 grid w-56 gap-0.5 rounded-md border bg-white p-2">
+            {site.navLinks.map((item) => (
+              <li key={item.href}>
+                <a
+                  href={item.href}
+                  aria-current={pathname === item.href ? "page" : undefined}
+                  className={MENU_LINK}
+                >
+                  {item.label}
+                </a>
+              </li>
+            ))}
+            <li>
+              <a href={demoHref} className={MENU_LINK}>
+                {site.cta.secondary.label}
+              </a>
+            </li>
+            {signIn ? (
+              <li className="min-[480px]:hidden">
+                <a href={signIn} className={MENU_LINK}>
+                  {SIGN_IN_LABEL}
+                </a>
+              </li>
+            ) : null}
+          </ul>
+        </details>
       </div>
       {onHome ? <span aria-hidden className="nav-progress" /> : null}
     </header>

@@ -93,7 +93,11 @@ export function WhyWaitExperience() {
 
   return (
     <>
+      {/* The calculator opens the page, so its heading is the page's h1:
+          until 30 October 2026 /why-wait had none, and a screen reader's
+          heading list started at the second level. */}
       <WhyGoSmart
+        heading="h1"
         specialty={selected}
         onSelectSpecialty={setSelectedId}
         callsPerWeek={callsPerWeek}

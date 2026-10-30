@@ -151,7 +151,7 @@ export function Row({ label, children }: { label: string; children: React.ReactN
 }
 
 const BUTTON_BASE =
-  "inline-flex min-h-9 items-center rounded-full px-4 py-1.5 text-sm font-bold transition-colors disabled:opacity-50";
+  "inline-flex min-h-11 items-center rounded-full px-4 py-1.5 text-sm font-bold transition-colors disabled:opacity-50";
 const VARIANT = {
   primary: `${BUTTON_BASE} bg-ink text-white`,
   secondary: `${BUTTON_BASE} border-line-strong hover:border-ink border`,
@@ -254,7 +254,7 @@ export function ActionButton<T extends ActionOutcome>({
             <button
               type="button"
               onClick={() => setState("idle")}
-              className="text-muted text-sm underline"
+              className="text-muted inline-flex min-h-11 items-center text-sm underline"
             >
               Cancel
             </button>

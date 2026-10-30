@@ -99,7 +99,7 @@ export function StepUpPrompt(props: {
         {details} need {word} on a device you&rsquo;ve added.
       </p>
       {!supported ? (
-        <p className="border-line mt-6 rounded-xl border bg-white px-4 py-3 text-sm">
+        <p className="border-line mt-6 rounded-md border bg-white px-4 py-3 text-sm">
           This browser can&rsquo;t use passkeys. Open this page in Safari or Chrome, or on your
           phone.
         </p>

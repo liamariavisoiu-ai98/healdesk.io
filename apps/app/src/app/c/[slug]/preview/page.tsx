@@ -45,7 +45,7 @@ export default async function PreviewPage({ params }: { params: Promise<{ slug: 
     <PortalShell {...shell}>
       <h1 className="text-2xl font-semibold">Talk to your AYA</h1>
       {access.status === "closed" ? (
-        <p className="border-line mt-6 rounded-xl border bg-white px-4 py-3">
+        <p className="border-line mt-6 rounded-md border bg-white px-4 py-3">
           This account has closed.
         </p>
       ) : access.status === "locked" ? (
@@ -53,7 +53,7 @@ export default async function PreviewPage({ params }: { params: Promise<{ slug: 
           <h2 id="locked-heading" className="sr-only">
             Not open yet
           </h2>
-          <p className="border-line rounded-xl border bg-white px-4 py-3">
+          <p className="border-line rounded-md border bg-white px-4 py-3">
             The preview opens when every stage of the build is done. Still to come:{" "}
             {joinWords(access.left.map((l) => l.toLowerCase()))}.
           </p>
@@ -61,7 +61,7 @@ export default async function PreviewPage({ params }: { params: Promise<{ slug: 
             {access.stages
               .filter((stage) => stage.blocks && stage.state !== "done")
               .map((stage) => (
-                <li key={stage.id} className="border-line rounded-xl border bg-white px-4 py-3">
+                <li key={stage.id} className="border-line rounded-md border bg-white px-4 py-3">
                   <p className="font-semibold">{stage.label}</p>
                   <p className="text-muted mt-1 text-sm">{stage.detail}</p>
                 </li>
@@ -77,7 +77,7 @@ export default async function PreviewPage({ params }: { params: Promise<{ slug: 
         <>
           <p
             id="preview-banner"
-            className="border-ink bg-tint-butter mt-6 rounded-xl border-2 px-4 py-3 font-semibold"
+            className="border-ink bg-tint-butter mt-6 rounded-md border-2 px-4 py-3 font-semibold"
           >
             Preview: nothing here reaches {shell.audience}, and nothing is booked.
           </p>

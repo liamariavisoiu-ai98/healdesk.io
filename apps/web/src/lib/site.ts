@@ -8,15 +8,19 @@
  * One page carries the argument: hero, the two live demos, the specialties we
  * know, the money question, and a way to get in touch. Contact exists as its
  * own page but is linked ONLY from the footer, because a nav full of links is
- * an invitation to leave before the demo has done its job. There is no
- * pricing page since 9 October 2026 (owner): prices are shown in the purchase
- * flow.
+ * an invitation to leave before the demo has done its job. The pricing page
+ * went on 9 October 2026 (owner) and came back on 13 October with the step
+ * pricing; since 30 October 2026 it is in the navbar too, because a buyer
+ * who wants the number should not have to find the footer or open the
+ * purchase flow to see it.
  *
- * So the navbar holds a wordmark, one link and two calls to action, in that
- * order of weight: "Get AYA" opens the purchase flow, "Try AYA for free"
- * (until 9 October 2026 "Talk to AYA") moves the viewport to the demo, and "Why wait?" goes to the calculator, which
+ * So the navbar holds a wordmark, two page links and two calls to action, in
+ * that order of weight: "Get AYA" opens the purchase flow, "Try AYA for free"
+ * (until 9 October 2026 "Talk to AYA") moves the viewport to the demo,
+ * "Pricing" goes to the sheet, and "Why wait?" goes to the calculator, which
  * left the homepage on 23 September 2026 so that the homepage could be about
- * meeting her. Nothing else.
+ * meeting her. Nothing else. On a narrow screen the text links fold into a
+ * plain "Menu" disclosure (Nav.tsx).
  */
 
 /**
@@ -146,8 +150,11 @@ export const site = {
    */
   meeting: { label: "Get in touch", url: "https://calendly.com/healdesk-io/get-in-touch" },
 
-  /** The one link in the navbar. See the note at the top of the file. */
-  navLinks: [{ label: "Why wait?", href: "/why-wait" }],
+  /** The page links in the navbar, in order. See the note at the top of the file. */
+  navLinks: [
+    { label: "Pricing", href: "/pricing" },
+    { label: "Why wait?", href: "/why-wait" },
+  ],
 
   /**
    * Footer. Paths are absolute so the same list works from every page.

@@ -80,10 +80,10 @@ export function MapDrawer({
               <Icon name={content.icon} className="size-5" strokeWidth={2} />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-[11.5px] font-bold tracking-[0.12em] uppercase" style={{ color: content.accent.ink }}>
+              <p className="text-xs font-bold tracking-[0.12em] uppercase" style={{ color: content.accent.ink }}>
                 {content.kicker}
               </p>
-              <h2 className="text-[21px] leading-tight font-bold text-[#172a3a]">{content.title}</h2>
+              <h2 className="text-lg leading-tight font-bold text-[#172a3a]">{content.title}</h2>
             </div>
             <button
               type="button"
@@ -95,7 +95,7 @@ export function MapDrawer({
             </button>
           </header>
           <div className="flex-1 overflow-y-auto px-5 pt-4 pb-10">
-            {content.blurb ? <p className="text-[15px] text-[#3c4f60]">{content.blurb}</p> : null}
+            {content.blurb ? <p className="text-sm text-[#3c4f60]">{content.blurb}</p> : null}
             <StatusTally bridges={content.bridges.map((id) => view.bridges.find((bridge) => bridge.id === id)!)} />
             {content.tools.length > 0 ? (
               <div className="mt-4 flex flex-wrap gap-2">
@@ -104,7 +104,7 @@ export function MapDrawer({
                     key={tool.id}
                     type="button"
                     onClick={() => onSelect({ kind: "tool", id: tool.id })}
-                    className="flex min-h-11 items-center gap-2 rounded-full border border-[rgb(23_42_58/0.12)] bg-white px-3 text-[13.5px] font-semibold hover:border-[rgb(23_42_58/0.3)]"
+                    className="flex min-h-11 items-center gap-2 rounded-full border border-[rgb(23_42_58/0.12)] bg-white px-3 text-xs font-semibold hover:border-[rgb(23_42_58/0.3)]"
                   >
                     <Icon name={tool.icon} className="size-4 text-[#5c6e7e]" />
                     {tool.name}
@@ -112,7 +112,7 @@ export function MapDrawer({
                 ))}
               </div>
             ) : null}
-            <h3 className="mt-6 text-[11.5px] font-bold tracking-[0.12em] text-[#5c6e7e] uppercase">
+            <h3 className="mt-6 text-xs font-bold tracking-[0.12em] text-[#5c6e7e] uppercase">
               {content.bridges.length === 1 ? "The connection" : `Its ${content.bridges.length} connections`}
             </h3>
             <ul className="mt-2 grid gap-2.5">
@@ -233,7 +233,7 @@ function StatusTally({ bridges }: { bridges: BridgeView[] }) {
 export function StatusPill({ status, prefix }: { status: BridgeStatus; prefix?: string }) {
   const style = STATUS_STYLE[status];
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12.5px] font-bold whitespace-nowrap" style={{ background: style.tint, color: style.ink }}>
+    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold whitespace-nowrap" style={{ background: style.tint, color: style.ink }}>
       <Icon name={style.icon} className="size-3.5" strokeWidth={2.4} />
       {prefix ? `${prefix} ${STATUS_WORDS[status].toLowerCase()}` : STATUS_WORDS[status]}
     </span>
@@ -268,8 +268,8 @@ export function BridgeCard({
           <Icon name={style.icon} className="size-3.5" strokeWidth={2.4} />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block text-[15px] leading-snug font-bold text-[#172a3a]">{bridge.title}</span>
-          <span className="mt-0.5 block text-[12.5px] text-[#5c6e7e]">
+          <span className="block text-sm leading-snug font-bold text-[#172a3a]">{bridge.title}</span>
+          <span className="mt-0.5 block text-xs text-[#5c6e7e]">
             {from.name} {bridge.both ? "⇄" : "→"} {to.name} · {STATUS_WORDS[bridge.status]}
             {bridge.proven ? " · tested live" : ""}
           </span>
@@ -279,35 +279,35 @@ export function BridgeCard({
       {open ? (
         <div className="border-t border-[rgb(23_42_58/0.07)] px-4 pt-3 pb-4">
           <KeyLine bridge={bridge} from={from} to={to} keys={bridge.keys.map((id) => keys.get(id)!)} />
-          <p className="mt-3 text-[14px] text-[#172a3a]">{bridge.statusText}</p>
+          <p className="mt-3 text-xs text-[#172a3a]">{bridge.statusText}</p>
           {bridge.testMode ? (
-            <p className="mt-2 inline-flex rounded-full bg-[#fff2d9] px-2.5 py-1 text-[12.5px] font-bold text-[#7a4b00]">Stripe test mode: no real money yet</p>
+            <p className="mt-2 inline-flex rounded-full bg-[#fff2d9] px-2.5 py-1 text-xs font-bold text-[#7a4b00]">Stripe test mode: no real money yet</p>
           ) : null}
           <dl className="mt-3 grid gap-3">
             <div>
-              <dt className="text-[11px] font-bold tracking-[0.12em] text-[#5c6e7e] uppercase">What travels</dt>
-              <dd className="mt-0.5 text-[14px]">{bridge.carries}</dd>
+              <dt className="text-xs font-bold tracking-[0.12em] text-[#5c6e7e] uppercase">What travels</dt>
+              <dd className="mt-0.5 text-xs">{bridge.carries}</dd>
             </div>
             <div className="rounded-sm bg-[#f6f8fa] px-3 py-2.5">
-              <dt className="text-[11px] font-bold tracking-[0.12em] text-[#5c6e7e] uppercase">For example</dt>
-              <dd className="mt-0.5 text-[14px]">{bridge.example}</dd>
+              <dt className="text-xs font-bold tracking-[0.12em] text-[#5c6e7e] uppercase">For example</dt>
+              <dd className="mt-0.5 text-xs">{bridge.example}</dd>
             </div>
             {bridge.buildNote ? (
               <div>
-                <dt className="text-[11px] font-bold tracking-[0.12em] text-[#5c6e7e] uppercase">{bridge.build === "built" ? "Worth knowing" : "Still to do"}</dt>
-                <dd className="mt-0.5 text-[14px]">{bridge.buildNote}</dd>
+                <dt className="text-xs font-bold tracking-[0.12em] text-[#5c6e7e] uppercase">{bridge.build === "built" ? "Worth knowing" : "Still to do"}</dt>
+                <dd className="mt-0.5 text-xs">{bridge.buildNote}</dd>
               </div>
             ) : null}
             <div>
-              <dt className="text-[11px] font-bold tracking-[0.12em] text-[#5c6e7e] uppercase">{bridge.phi ? "Patient data" : "No patient data"}</dt>
-              <dd className="mt-0.5 text-[14px]">
+              <dt className="text-xs font-bold tracking-[0.12em] text-[#5c6e7e] uppercase">{bridge.phi ? "Patient data" : "No patient data"}</dt>
+              <dd className="mt-0.5 text-xs">
                 {bridge.phi
                   ? (bridge.phiNote ?? "Carries what a patient said or did, so it runs only under business associate agreements.")
                   : "Nothing about a patient travels here."}
               </dd>
             </div>
           </dl>
-          {bridge.keyless ? <p className="mt-3 text-[14px] text-[#3c4f60]">{bridge.keyless}</p> : null}
+          {bridge.keyless ? <p className="mt-3 text-xs text-[#3c4f60]">{bridge.keyless}</p> : null}
           {bridge.keys.length > 0 ? (
             <ul className="mt-3 grid gap-2">
               {bridge.keys.map((id) => (
@@ -355,14 +355,14 @@ function KeyLine({ bridge, from, to, keys }: { bridge: BridgeView; from: ToolDef
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         {keys.length === 0 ? (
-          <span className="text-[12.5px] font-semibold text-[#5c6e7e]">No key of ours</span>
+          <span className="text-xs font-semibold text-[#5c6e7e]">No key of ours</span>
         ) : (
           keys.map((key) => {
             const state = KEY_STATE[key.state];
             return (
-              <span key={key.id} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-bold" style={{ background: state.tint, color: state.ink }} title={`${key.label}: ${state.word}`}>
+              <span key={key.id} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold" style={{ background: state.tint, color: state.ink }} title={`${key.label}: ${state.word}`}>
                 <Icon name="key" className="size-3.5" strokeWidth={2.2} />
-                {key.env ? <span className="font-mono text-[11.5px]">{key.env}</span> : <span>{key.label}</span>}
+                {key.env ? <span className="font-mono text-xs">{key.env}</span> : <span>{key.label}</span>}
               </span>
             );
           })
@@ -374,7 +374,7 @@ function KeyLine({ bridge, from, to, keys }: { bridge: BridgeView; from: ToolDef
 
 function End({ tool }: { tool: ToolDef }) {
   return (
-    <span className="flex max-w-[42%] min-w-0 items-center gap-1.5 rounded-sm bg-white px-2 py-1.5 text-[12.5px] font-bold text-[#172a3a] ring-1 ring-[rgb(23_42_58/0.1)]">
+    <span className="flex max-w-[42%] min-w-0 items-center gap-1.5 rounded-sm bg-white px-2 py-1.5 text-xs font-bold text-[#172a3a] ring-1 ring-[rgb(23_42_58/0.1)]">
       <Icon name={tool.icon} className="size-4 shrink-0 text-[#5c6e7e]" />
       <span className="truncate">{tool.name}</span>
     </span>
@@ -388,27 +388,27 @@ export function KeyRow({ keyView, recordRotation }: { keyView: KeyView; recordRo
     <li className="rounded-sm border border-[rgb(23_42_58/0.1)] px-3.5 py-3">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <Icon name="key" className="size-4 text-[#5c6e7e]" />
-        <span className="text-[14px] font-bold">{keyView.label}</span>
+        <span className="text-xs font-bold">{keyView.label}</span>
       </div>
       <div className="mt-1.5 flex flex-wrap gap-1.5">
-        <span className="rounded-full px-2 py-0.5 text-[12px] font-bold" style={{ background: state.tint, color: state.ink }}>
+        <span className="rounded-full px-2 py-0.5 text-xs font-bold" style={{ background: state.tint, color: state.ink }}>
           {state.word}
         </span>
         {rotation ? (
-          <span className="rounded-full px-2 py-0.5 text-[12px] font-bold" style={{ background: rotation.tint, color: rotation.ink }}>
+          <span className="rounded-full px-2 py-0.5 text-xs font-bold" style={{ background: rotation.tint, color: rotation.ink }}>
             {rotation.word}
           </span>
         ) : null}
       </div>
-      <p className="mt-1.5 text-[12.5px] break-words text-[#5c6e7e]">
+      <p className="mt-1.5 text-xs break-words text-[#5c6e7e]">
         {keyView.env ? <code className="font-mono text-[#172a3a]">{keyView.env}</code> : null}
         {keyView.env ? " · " : ""}
         {keyView.homeLabel}
       </p>
-      <p className="mt-1 text-[13.5px]">{keyView.stateText}</p>
-      {keyView.rotation.state !== "public" ? <p className="mt-1 text-[13.5px]">{keyView.rotation.text}</p> : null}
+      <p className="mt-1 text-xs">{keyView.stateText}</p>
+      {keyView.rotation.state !== "public" ? <p className="mt-1 text-xs">{keyView.rotation.text}</p> : null}
       {keyView.rotation.how ? (
-        <details className="mt-1 text-[13.5px]">
+        <details className="mt-1 text-xs">
           <summary className="min-h-11 cursor-pointer py-2.5 font-semibold text-[#5c6e7e] hover:text-[#172a3a]">How to rotate it, and what happens meanwhile</summary>
           <p>{keyView.rotation.how}</p>
           {keyView.rotation.impact ? <p className="mt-1 text-[#5c6e7e]">{keyView.rotation.impact}</p> : null}
@@ -435,12 +435,12 @@ function RotatedButton({ keyId, recordRotation }: { keyId: string; recordRotatio
             if (outcome.ok) router.refresh();
           })
         }
-        className="min-h-11 rounded-full border border-[rgb(23_42_58/0.15)] px-4 text-[13.5px] font-bold hover:border-[rgb(23_42_58/0.35)] disabled:opacity-50"
+        className="min-h-11 rounded-full border border-[rgb(23_42_58/0.15)] px-4 text-xs font-bold hover:border-[rgb(23_42_58/0.35)] disabled:opacity-50"
       >
         {pending ? "Recording…" : "I rotated it today"}
       </button>
       {message ? (
-        <span className="text-[13px] font-semibold" role="status">
+        <span className="text-xs font-semibold" role="status">
           {message}
         </span>
       ) : null}

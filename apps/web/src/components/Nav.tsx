@@ -159,7 +159,7 @@ export function Nav() {
       className="nav border-line/60 bg-paper/85 sticky top-0 z-50 border-b backdrop-blur-md"
       data-way={wayfinding || undefined}
     >
-      <div className="mx-auto flex max-w-[1240px] items-center gap-2 px-5 py-4 min-[480px]:gap-3 sm:gap-5 sm:px-8 lg:px-14">
+      <div className="mx-auto flex max-w-page items-center gap-2 px-5 py-4 min-[480px]:gap-3 sm:gap-5 sm:px-8 lg:px-14">
         {/* The wordmark, and on a phone past the hero, the mark and the
             section on screen in its place (useWayfinding). The one hidden is
             inert, so a keyboard meets one home link, never two. */}
@@ -189,7 +189,7 @@ export function Nav() {
           <a
             key={item.href}
             href={item.href}
-            className="text-muted hover:text-ink ml-auto hidden text-[16.8px] font-semibold whitespace-nowrap transition-colors min-[700px]:inline-flex"
+            className="text-muted hover:text-ink ml-auto hidden text-base font-semibold whitespace-nowrap transition-colors min-[700px]:inline-flex"
           >
             {item.label}
           </a>
@@ -199,7 +199,7 @@ export function Nav() {
         <span aria-hidden className="bg-line-strong hidden h-5 w-px shrink-0 min-[700px]:block" />
         <a
           href={demoHref}
-          className="text-muted hover:text-ink hidden text-[16.8px] font-semibold whitespace-nowrap transition-colors min-[700px]:inline-flex"
+          className="text-muted hover:text-ink hidden text-base font-semibold whitespace-nowrap transition-colors min-[700px]:inline-flex"
         >
           {site.cta.secondary.label}
         </a>
@@ -209,7 +209,7 @@ export function Nav() {
         {portalSignInUrl() ? (
           <a
             href={portalSignInUrl()!}
-            className="text-muted hover:text-ink hidden text-[16.8px] font-semibold whitespace-nowrap transition-colors min-[700px]:inline-flex"
+            className="text-muted hover:text-ink hidden text-base font-semibold whitespace-nowrap transition-colors min-[700px]:inline-flex"
           >
             {SIGN_IN_LABEL}
           </a>

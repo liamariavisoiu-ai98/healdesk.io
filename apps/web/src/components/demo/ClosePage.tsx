@@ -75,7 +75,7 @@ export function ClosePage({
     >
       <Shell colour={colour}>
         {expired ? (
-          <div className="bg-ink sticky top-0 z-50 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 px-5 py-3 text-center text-[15px] font-semibold text-white sm:px-8">
+          <div className="bg-ink sticky top-0 z-50 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 px-5 py-3 text-center text-sm font-semibold text-white sm:px-8">
             <span>This demo has ended. {name}&rsquo;s {site.agent} is still ready to activate.</span>
             <CopyDemoLink />
           </div>
@@ -84,12 +84,12 @@ export function ClosePage({
         )}
 
         <header className="border-line/60 border-b">
-          <div className="mx-auto flex max-w-[1240px] items-center gap-3 px-4 py-4 sm:px-8 lg:px-14">
+          <div className="mx-auto flex max-w-page items-center gap-3 px-4 py-4 sm:px-8 lg:px-14">
             <AgentMark name={name} logoUrl={session.logoUrl} />
             {session.logoUrl ? null : (
-              <span className="font-display hidden min-w-0 truncate text-[21px] font-semibold tracking-[-0.01em] sm:inline">{name}</span>
+              <span className="font-display hidden min-w-0 truncate text-lg font-semibold tracking-[-0.01em] sm:inline">{name}</span>
             )}
-            <span aria-hidden className="text-muted text-[18px] font-light">×</span>
+            <span aria-hidden className="text-muted text-base font-light">×</span>
             <a href="/" aria-label="healdesk" className="shrink-0">
               <img src="/brand/healdesk-logo.webp" alt="healdesk" width={2400} height={437} className="h-[20px] w-auto sm:h-[26px]" />
             </a>
@@ -97,12 +97,12 @@ export function ClosePage({
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-[1240px] px-4 pt-10 pb-28 sm:px-8 sm:pb-16 lg:px-14">
+        <main className="mx-auto w-full max-w-page px-4 pt-10 pb-28 sm:px-8 sm:pb-16 lg:px-14">
           <div className="max-w-[760px]">
-            <h1 className="font-display mt-2 text-[34px] leading-[1.1] font-medium tracking-[-0.02em] sm:text-[44px]">
+            <h1 className="font-display mt-2 text-3xl leading-[1.1] font-medium tracking-[-0.02em] sm:text-4xl">
               {name}, answering every call and chat.
             </h1>
-            <p className="text-muted mt-3 max-w-[56ch] text-[18px] leading-[1.5] font-medium">
+            <p className="text-muted mt-3 max-w-[56ch] text-base leading-[1.5] font-medium">
               Your {site.agent} already knows {name}&rsquo;s services, prices and hours. Call her or message her the way a{" "}
               {one} would.
             </p>
@@ -140,7 +140,7 @@ export function ClosePage({
           )}
 
           <aside className="border-line mt-6 rounded-md border bg-white px-5 py-4 text-center">
-            <p className="text-[15.6px] leading-[1.5] font-medium">&ldquo;{demoModeLine(name)}&rdquo;</p>
+            <p className="text-sm leading-[1.5] font-medium">&ldquo;{demoModeLine(name)}&rdquo;</p>
           </aside>
 
           <CoverageModes schedule={schedule} source={source} />

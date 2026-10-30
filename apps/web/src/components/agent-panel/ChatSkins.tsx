@@ -168,7 +168,7 @@ function Avatar({
 }) {
   const inner = (
     <span
-      className="grid shrink-0 place-items-center overflow-hidden rounded-full bg-white text-[12px] font-bold"
+      className="grid shrink-0 place-items-center overflow-hidden rounded-full bg-white text-xs font-bold"
       style={{
         width: size,
         height: size,
@@ -360,11 +360,6 @@ function useDragScroll() {
   };
 }
 
-/** The page's zoom, read off an element: its drawn width over its laid-out one (0.9 from 640px). */
-function zoomOf(el: HTMLElement): number {
-  return el.getBoundingClientRect().width / Math.max(1, el.offsetWidth) || 1;
-}
-
 export function ChatSkins({
   name,
   logoUrl,
@@ -510,14 +505,13 @@ export function ChatSkins({
       onSend(chip);
       return;
     }
-    const zoom = zoomOf(chipEl);
     const from = chipEl.getBoundingClientRect();
     const to = field.getBoundingClientRect();
     const ghost = chipEl.cloneNode(true) as HTMLElement;
     Object.assign(ghost.style, {
       position: "fixed",
-      left: `${from.left / zoom}px`,
-      top: `${from.top / zoom}px`,
+      left: `${from.left}px`,
+      top: `${from.top}px`,
       width: `${chipEl.offsetWidth}px`,
       height: `${chipEl.offsetHeight}px`,
       margin: "0",
@@ -526,8 +520,8 @@ export function ChatSkins({
     });
     document.body.appendChild(ghost);
     setFlying(chip);
-    const dx = (to.left - from.left) / zoom + 6;
-    const dy = (to.top + to.height / 2 - (from.top + from.height / 2)) / zoom;
+    const dx = to.left - from.left + 6;
+    const dy = to.top + to.height / 2 - (from.top + from.height / 2);
     const tokens = getComputedStyle(document.documentElement);
     const animation = ghost.animate(
       [
@@ -554,12 +548,12 @@ export function ChatSkins({
           <Avatar name={name} logoUrl={logoUrl} size={34} filled />
           {/* The name alone: "We typically reply instantly" under it went
               (owner, 12 October 2026). */}
-          <p className="min-w-0 truncate text-[15px] leading-tight font-semibold">{name}</p>
+          <p className="min-w-0 truncate text-sm leading-tight font-semibold">{name}</p>
         </div>
       ) : (
         <div className="flex items-center gap-2.5 px-4 py-3" data-tone="brand" style={{ color: "var(--clinic-ink)" }}>
           <Avatar name={name} logoUrl={logoUrl} size={34} />
-          <p className="min-w-0 truncate text-[15px] leading-tight font-semibold">{name}</p>
+          <p className="min-w-0 truncate text-sm leading-tight font-semibold">{name}</p>
         </div>
       ),
     whatsapp: (
@@ -567,8 +561,8 @@ export function ChatSkins({
         <span className="[&_svg]:size-5">{Icon.back}</span>
         <Avatar name={name} logoUrl={logoUrl} size={36} />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[15.5px] leading-tight font-medium">{name}</p>
-          <p className="truncate text-[12.5px] leading-tight opacity-85">{streaming ? "typing…" : "online"}</p>
+          <p className="truncate text-sm leading-tight font-medium">{name}</p>
+          <p className="truncate text-xs leading-tight opacity-85">{streaming ? "typing…" : "online"}</p>
         </div>
         <span className="flex gap-5 pr-1.5 [&_svg]:size-[21px]">
           {Icon.video}
@@ -581,8 +575,8 @@ export function ChatSkins({
         <span className="[&_svg]:size-6">{Icon.back}</span>
         <Avatar name={name} logoUrl={logoUrl} size={30} ring />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[15px] leading-tight font-semibold">{name}</p>
-          <p className="truncate text-[12.5px] leading-tight text-[#737373]">{handleOf(name)}</p>
+          <p className="truncate text-sm leading-tight font-semibold">{name}</p>
+          <p className="truncate text-xs leading-tight text-[#737373]">{handleOf(name)}</p>
         </div>
         <span className="flex gap-5 pr-1 [&_svg]:size-[23px]">
           {Icon.phone}
@@ -598,8 +592,8 @@ export function ChatSkins({
           <span className="absolute right-0 bottom-0 size-3 rounded-full border-2 border-white bg-[#31a24c]" />
         </span>
         <div className="min-w-0 flex-1 text-[#050505]">
-          <p className="truncate text-[15.5px] leading-tight font-semibold">{name}</p>
-          <p className="truncate text-[12.5px] leading-tight text-[#65676b]">Active now</p>
+          <p className="truncate text-sm leading-tight font-semibold">{name}</p>
+          <p className="truncate text-xs leading-tight text-[#65676b]">Active now</p>
         </div>
         <span className="flex gap-5 pr-1 [&_svg]:size-[22px]">
           {Icon.phone}
@@ -623,11 +617,11 @@ export function ChatSkins({
   /** Over the thread, each app's own way of saying when: a date pill, a time, "Today" and a time. */
   const opening =
     skin === "whatsapp" ? (
-      <p className="mx-auto mb-1.5 w-fit rounded-sm bg-white/90 px-2.5 py-1 text-[11.5px] font-medium tracking-[0.02em] text-[#54656f] uppercase shadow-sm">Today</p>
+      <p className="mx-auto mb-1.5 w-fit rounded-sm bg-white/90 px-2.5 py-1 text-xs font-medium tracking-[0.02em] text-[#54656f] uppercase shadow-sm">Today</p>
     ) : skin === "instagram" ? (
-      <p className="pb-1 text-center text-[11.5px] font-medium text-[#737373]">{hydrated ? `Today ${time(messages[0]?.at)}` : "Today"}</p>
+      <p className="pb-1 text-center text-xs font-medium text-[#737373]">{hydrated ? `Today ${time(messages[0]?.at)}` : "Today"}</p>
     ) : skin === "messenger" ? (
-      <p className="pb-1 text-center text-[11.5px] font-medium tracking-[0.04em] text-[#65676b] uppercase">{hydrated ? `Today at ${time(messages[0]?.at)}` : "Today"}</p>
+      <p className="pb-1 text-center text-xs font-medium tracking-[0.04em] text-[#65676b] uppercase">{hydrated ? `Today at ${time(messages[0]?.at)}` : "Today"}</p>
     ) : null;
 
   /** Under the visitor's last message: each app's receipt, "Sent" until she starts answering. */
@@ -641,17 +635,17 @@ export function ChatSkins({
           </span>
         </div>
       ) : (
-        <p className="flex items-center justify-end gap-1 text-[11.5px] text-[#65676b]">
+        <p className="flex items-center justify-end gap-1 text-xs text-[#65676b]">
           <span className="grid size-3 place-items-center rounded-full border border-[#65676b] [&_svg]:size-2">{Icon.ticks}</span>
           Sent
         </p>
       );
     }
     if (skin === "instagram") {
-      return <p className="receipt-in pr-1 text-right text-[11.5px] text-[#737373]">{seen ? "Seen" : "Sent"}</p>;
+      return <p className="receipt-in pr-1 text-right text-xs text-[#737373]">{seen ? "Seen" : "Sent"}</p>;
     }
     return (
-      <p className="receipt-in pr-1 text-right text-[11.5px] font-medium text-[#8e8e93]">
+      <p className="receipt-in pr-1 text-right text-xs font-medium text-[#8e8e93]">
         {seen ? "Seen" : "Sent"}
         {hydrated ? ` · ${time(message.at)}` : ""}
       </p>
@@ -670,11 +664,11 @@ export function ChatSkins({
       // until the words arrive.
       if (typing) return null;
       const shape = firstOfRun ? (mine ? "rounded-sm rounded-tr-none" : "rounded-sm rounded-tl-none") : "rounded-sm";
-      const className = `relative max-w-[82%] px-2.5 pt-1.5 pb-[18px] text-[14.6px] leading-[1.38] text-[#111b21] shadow-sm ${shape}`;
+      const className = `relative max-w-[82%] px-2.5 pt-1.5 pb-[18px] text-sm leading-[1.38] text-[#111b21] shadow-sm ${shape}`;
       // Grey ticks until she has started on an answer, blue once she has: read.
       const read = !mine || i < lastUser || seen;
       const stamp = (
-        <span className="absolute right-2 bottom-1 flex items-center gap-0.5 text-[11px] text-[#667781]">
+        <span className="absolute right-2 bottom-1 flex items-center gap-0.5 text-xs text-[#667781]">
           {time(message.at)}
           {mine ? (
             <span className={`wa-ticks [&_svg]:h-[11px] [&_svg]:w-[16px] ${read ? "text-[#53bdeb]" : "text-[#8696a0]"}`}>{Icon.ticks}</span>
@@ -699,7 +693,7 @@ export function ChatSkins({
 
     if (skin === "instagram" || skin === "messenger") {
       const ig = skin === "instagram";
-      const shape = ig ? "rounded-md px-3.5 py-2 text-[15px] leading-[1.38]" : "rounded-md px-3 py-2 text-[15px] leading-[1.34]";
+      const shape = ig ? "rounded-md px-3.5 py-2 text-sm leading-[1.38]" : "rounded-md px-3 py-2 text-sm leading-[1.34]";
       return (
         <div className={`flex items-end gap-2 ${mine ? "justify-end" : "justify-start"}`}>
           {!mine ? <span className="w-7">{firstOfRun ? <Avatar name={name} logoUrl={logoUrl} size={28} /> : null}</span> : null}
@@ -729,7 +723,7 @@ export function ChatSkins({
         {!mine ? <Avatar name={name} logoUrl={logoUrl} size={26} /> : null}
         {mine ? (
           <p
-            className="max-w-[82%] rounded-md rounded-br-sm px-3.5 py-2.5 text-[15.2px] leading-[1.45] whitespace-pre-wrap"
+            className="max-w-[82%] rounded-md rounded-br-sm px-3.5 py-2.5 text-sm leading-[1.45] whitespace-pre-wrap"
             style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
           >
             {message.content}
@@ -738,7 +732,7 @@ export function ChatSkins({
           <AssistantBubble
             typing={typing}
             streaming={live}
-            className="text-ink max-w-[82%] rounded-md rounded-bl-sm bg-[#f1f1f1] px-3.5 py-2.5 text-[15.2px] leading-[1.45]"
+            className="text-ink max-w-[82%] rounded-md rounded-bl-sm bg-[#f1f1f1] px-3.5 py-2.5 text-sm leading-[1.45]"
           >
             {message.content}
           </AssistantBubble>
@@ -765,13 +759,13 @@ export function ChatSkins({
         <input
           {...inputProps}
           placeholder={off ?? placeholder ?? `Message ${name}…`}
-          className="border-line text-ink placeholder:text-muted min-w-0 flex-1 rounded-full border bg-white px-4 py-2.5 text-[16px] outline-none focus:border-[var(--clinic)]"
+          className="border-line text-ink placeholder:text-muted min-w-0 flex-1 rounded-full border bg-white px-4 py-2.5 text-sm outline-none focus:border-[var(--clinic)]"
         />
         <button
           type="submit"
           disabled={disabled || streaming || !input.trim()}
           data-armed={armed || undefined}
-          className="morph-btn morph-btn--once shrink-0 rounded-full px-5 py-2.5 text-[15.2px] font-bold transition-opacity disabled:opacity-45"
+          className="morph-btn morph-btn--once shrink-0 rounded-full px-5 py-2.5 text-sm font-bold transition-opacity disabled:opacity-45"
           style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
         >
           <span className="morph-btn__label">Send</span>
@@ -791,7 +785,7 @@ export function ChatSkins({
         <input
           {...inputProps}
           placeholder={off ?? "Message"}
-          className="min-w-0 flex-1 rounded-full bg-white px-4 py-2.5 text-[15.5px] text-[#111b21] outline-none placeholder:text-[#667781]"
+          className="min-w-0 flex-1 rounded-full bg-white px-4 py-2.5 text-sm text-[#111b21] outline-none placeholder:text-[#667781]"
         />
         <button
           type="submit"
@@ -813,10 +807,10 @@ export function ChatSkins({
           <input
             {...inputProps}
             placeholder={off ?? "Message..."}
-            className="min-w-0 flex-1 bg-transparent py-1 text-[15px] text-black outline-none placeholder:text-[#737373]"
+            className="min-w-0 flex-1 bg-transparent py-1 text-sm text-black outline-none placeholder:text-[#737373]"
           />
           {input.trim() ? (
-            <button type="submit" disabled={disabled || streaming} className="text-[15px] font-semibold text-[#3797f0] disabled:opacity-50">
+            <button type="submit" disabled={disabled || streaming} className="text-sm font-semibold text-[#3797f0] disabled:opacity-50">
               Send
             </button>
           ) : (
@@ -832,7 +826,7 @@ export function ChatSkins({
         <input
           {...inputProps}
           placeholder={off ?? "Aa"}
-          className="min-w-0 flex-1 rounded-full bg-[#f0f2f5] px-4 py-2 text-[15px] text-[#050505] outline-none placeholder:text-[#65676b]"
+          className="min-w-0 flex-1 rounded-full bg-[#f0f2f5] px-4 py-2 text-sm text-[#050505] outline-none placeholder:text-[#65676b]"
         />
         <button type="submit" disabled={disabled || streaming || !input.trim()} aria-label="Send" className="disabled:opacity-40 [&_svg]:size-[22px]">
           {Icon.send}
@@ -872,7 +866,7 @@ export function ChatSkins({
                 <span className="grid size-8 place-items-center rounded-sm [&_svg]:size-[18px]" style={{ background: box.badge, color: box.ink }}>
                   {box.icon}
                 </span>
-                <span className={`text-[12.6px] font-bold transition-colors duration-fast ${active ? "text-ink" : "text-muted hover:text-ink"}`}>{box.label}</span>
+                <span className={`text-xs font-bold transition-colors duration-fast ${active ? "text-ink" : "text-muted hover:text-ink"}`}>{box.label}</span>
               </button>
             );
           })}
@@ -900,7 +894,7 @@ export function ChatSkins({
         >
           {opening}
           {skin === "whatsapp" ? (
-            <p className="mx-auto mb-2 w-fit rounded-sm bg-[#ffeecd] px-3 py-1.5 text-center text-[12px] text-[#54656f] shadow-sm">
+            <p className="mx-auto mb-2 w-fit rounded-sm bg-[#ffeecd] px-3 py-1.5 text-center text-xs text-[#54656f] shadow-sm">
               {aiNotice}
             </p>
           ) : null}
@@ -923,7 +917,7 @@ export function ChatSkins({
                 key={chip}
                 type="button"
                 onClick={(event) => fly(event, chip)}
-                className={`chip-rail__chip border-line hover:border-line-strong text-ink shrink-0 rounded-full border bg-white px-3.5 py-1.5 text-[13.8px] font-semibold whitespace-nowrap transition-colors ${flying === chip ? "invisible" : ""}`}
+                className={`chip-rail__chip border-line hover:border-line-strong text-ink shrink-0 rounded-full border bg-white px-3.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors ${flying === chip ? "invisible" : ""}`}
               >
                 {chip}
               </button>
@@ -933,7 +927,7 @@ export function ChatSkins({
       ) : null}
 
       {error ? (
-        <p className="text-red-deep bg-white px-4 py-2 text-[14.4px] font-semibold" role="alert">
+        <p className="text-red-deep bg-white px-4 py-2 text-xs font-semibold" role="alert">
           {error}
         </p>
       ) : null}

@@ -95,7 +95,7 @@ export function BuildProgress({
       <div className="w-full">
         {bar}
         {/* The step drops out where it would be cut short; the percentage and the time left stay. */}
-        <p className="mt-2 flex justify-center gap-3 text-[13.5px] font-semibold text-[#6e6e73] sm:justify-between">
+        <p className="mt-2 flex justify-center gap-3 text-xs font-semibold text-[#6e6e73] sm:justify-between">
           <span className="hidden truncate sm:block">{stepLabel(shown.step, host)}</span>
           <span className="shrink-0 tabular-nums">
             {shown.percent}% &middot; {left}
@@ -108,11 +108,11 @@ export function BuildProgress({
   return (
     <div className="w-full max-w-[460px]">
       <div className="flex items-baseline justify-between gap-4">
-        <span className="font-display text-[44px] leading-none font-medium tracking-[-0.02em] tabular-nums">{shown.percent}%</span>
-        <span className="text-muted text-[15.5px] font-semibold">{left}</span>
+        <span className="font-display text-4xl leading-none font-medium tracking-[-0.02em] tabular-nums">{shown.percent}%</span>
+        <span className="text-muted text-sm font-semibold">{left}</span>
       </div>
       <div className="mt-3">{bar}</div>
-      <ol className="mt-6 space-y-3 text-left text-[16px] font-medium">
+      <ol className="mt-6 space-y-3 text-left text-sm font-medium">
         {STEPS.map((step, i) => {
           const state = i < current ? "done" : i === current ? "now" : "later";
           return (
@@ -136,7 +136,7 @@ export function BuildProgress({
           );
         })}
       </ol>
-      <p className="text-muted mt-6 text-[15px] font-medium">
+      <p className="text-muted mt-6 text-sm font-medium">
         {shown.leftMs > 0
           ? "This page will update by itself."
           : stage === "building"

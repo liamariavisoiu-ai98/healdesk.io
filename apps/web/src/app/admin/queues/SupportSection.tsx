@@ -77,7 +77,7 @@ function Row({ request }: { request: SupportRequestView }) {
   return (
     <li className="border-line rounded-md border bg-white p-5">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="font-mono text-[15px] font-semibold">{request.requestId}</span>
+        <span className="font-mono text-sm font-semibold">{request.requestId}</span>
         <span className="text-muted text-sm">
           {request.topic} · asked {when(request.askedAt)} · reply by {day(request.replyByOn)}
         </span>
@@ -124,7 +124,7 @@ export default async function SupportSection({ searchParams }: { searchParams: P
   return (
     <Section id="support" title={`Support${loaded.ok ? ` (${owed.length} owed)` : ""}`}>
       {result && RESULTS[result] ? (
-        <p className="border-line mt-2 rounded-sm border bg-white px-4 py-3 text-[15.6px] font-semibold" role="status">
+        <p className="border-line mt-2 rounded-sm border bg-white px-4 py-3 text-sm font-semibold" role="status">
           {RESULTS[result]}
         </p>
       ) : null}
@@ -144,12 +144,12 @@ export default async function SupportSection({ searchParams }: { searchParams: P
       ) : (
         <>
           {loaded.data.unreadClinics > 0 ? (
-            <p className="text-red-deep mt-2 text-[15.6px] font-semibold">
+            <p className="text-red-deep mt-2 text-sm font-semibold">
               {loaded.data.unreadClinics} clinic(s) could not be read, so their requests are missing
               below.
             </p>
           ) : null}
-          <h3 className="mt-4 text-[17px] font-bold">Waiting for a reply ({owed.length})</h3>
+          <h3 className="mt-4 text-base font-bold">Waiting for a reply ({owed.length})</h3>
           {owed.length === 0 ? (
             <p className="text-muted mt-2 text-sm">Nothing is waiting.</p>
           ) : (
@@ -159,7 +159,7 @@ export default async function SupportSection({ searchParams }: { searchParams: P
               ))}
             </ul>
           )}
-          <h3 className="mt-6 text-[17px] font-bold">Replied ({replied.length})</h3>
+          <h3 className="mt-6 text-base font-bold">Replied ({replied.length})</h3>
           {replied.length === 0 ? null : (
             <ul className="mt-3 grid gap-3">
               {replied.map((r) => (

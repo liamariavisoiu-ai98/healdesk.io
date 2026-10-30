@@ -78,10 +78,10 @@ export function FaqItem({ question, children }: { question: string; children: Re
   return (
     <details ref={details} className="group border-line border-b py-5 first:border-t">
       <summary onClick={onClick} className="flex cursor-pointer list-none items-start gap-4 [&::-webkit-details-marker]:hidden">
-        <span className="font-display flex-1 text-[21.6px] leading-snug font-medium tracking-[-0.015em]">{question}</span>
+        <span className="font-display flex-1 text-xl leading-snug font-medium tracking-[-0.015em]">{question}</span>
         <span
           aria-hidden
-          className="text-red-deep mt-0.5 shrink-0 text-[21.6px] leading-none transition-transform duration-slow ease-out group-open:rotate-45 group-data-[closing=true]:rotate-0!"
+          className="text-red-deep mt-0.5 shrink-0 text-xl leading-none transition-transform duration-slow ease-out group-open:rotate-45 group-data-[closing=true]:rotate-0!"
         >
           +
         </span>

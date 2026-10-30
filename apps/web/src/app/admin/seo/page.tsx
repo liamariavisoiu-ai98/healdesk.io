@@ -93,9 +93,9 @@ export default async function SeoPage() {
   const bounds = roadmapBounds();
 
   return (
-    <main className="mx-auto w-full max-w-[1240px] px-4 py-10 sm:px-8 lg:px-14">
-      <h1 className="font-display text-[28px] leading-tight font-semibold tracking-[-0.02em]">SEO</h1>
-      <p className="text-muted mt-3 max-w-[72ch] text-[15.6px]">
+    <main className="mx-auto w-full max-w-page px-4 py-10 sm:px-8 lg:px-14">
+      <h1 className="font-display text-2xl leading-tight font-semibold tracking-[-0.02em]">SEO</h1>
+      <p className="text-muted mt-3 max-w-[72ch] text-sm">
         Is healdesk findable, what is waiting on you, and what ships next. The strategy itself lives in{" "}
         <a className="text-ink underline underline-offset-2" href={STRATEGY_DOC} rel="noreferrer" target="_blank">
           the strategy doc
@@ -118,7 +118,7 @@ export default async function SeoPage() {
 
       <div className="mt-8 grid gap-6 lg:grid-cols-2">
         <section id="your-steps" aria-labelledby="steps-heading" className="border-line scroll-mt-24 rounded-md border bg-white p-5">
-          <h2 id="steps-heading" className="text-[17px] font-bold">
+          <h2 id="steps-heading" className="text-base font-bold">
             Your steps
           </h2>
           <p className="text-muted mt-1 text-sm">Only you can do these. Tick each one when it is done; the doc has the text to paste.</p>
@@ -127,7 +127,7 @@ export default async function SeoPage() {
 
         <section id="site-health" aria-labelledby="health-heading" className="border-line scroll-mt-24 rounded-md border bg-white p-5">
           <div className="flex flex-wrap items-center gap-3">
-            <h2 id="health-heading" className="text-[17px] font-bold">
+            <h2 id="health-heading" className="text-base font-bold">
               Site health
             </h2>
             <div className="ml-auto flex flex-wrap gap-2">
@@ -145,7 +145,7 @@ export default async function SeoPage() {
       </div>
 
       <section id="pages" aria-labelledby="pages-heading" className="border-line mt-6 scroll-mt-24 rounded-md border bg-white p-5">
-        <h2 id="pages-heading" className="text-[17px] font-bold">
+        <h2 id="pages-heading" className="text-base font-bold">
           Pages
         </h2>
         <p className="text-muted mt-1 text-sm">From the content registry in code. Only Live pages are public; a legal page goes live after its audit passes.</p>
@@ -182,7 +182,7 @@ export default async function SeoPage() {
       </section>
 
       <section aria-labelledby="roadmap-heading" className="border-line mt-6 rounded-md border bg-white p-5">
-        <h2 id="roadmap-heading" className="text-[17px] font-bold">
+        <h2 id="roadmap-heading" className="text-base font-bold">
           Roadmap
         </h2>
         <p className="text-muted mt-1 text-sm">October 2026 to April 2027, drawn to scale; the line is today.</p>
@@ -212,7 +212,7 @@ export default async function SeoPage() {
       </section>
 
       <section id="ai-visibility" aria-labelledby="ai-heading" className="border-line mt-6 scroll-mt-24 rounded-md border bg-white p-5">
-        <h2 id="ai-heading" className="text-[17px] font-bold">
+        <h2 id="ai-heading" className="text-base font-bold">
           AI visibility
         </h2>
         <p className="text-muted mt-1 text-sm">
@@ -266,7 +266,7 @@ export default async function SeoPage() {
 function Tile({ href, value, label }: { href: string; value: string; label: string }) {
   return (
     <a href={href} className="border-line hover:border-line-strong block min-h-11 rounded-md border bg-white px-4 py-3 transition-colors">
-      <span className="block text-[22px] font-bold">{value}</span>
+      <span className="block text-xl font-bold">{value}</span>
       <span className="text-muted block text-sm">{label}</span>
     </a>
   );

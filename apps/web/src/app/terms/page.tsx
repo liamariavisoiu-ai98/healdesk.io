@@ -360,7 +360,7 @@ export default function TermsPage() {
             the rates are held back (OVERAGE_RATES_PROVISIONAL) there is no
             price to print and the column is left out. */}
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-[14.5px]">
+          <table className="w-full min-w-[640px] text-sm">
             <thead>
               <tr className="border-line border-b text-left">
                 <th className="py-2 pr-3 font-semibold">Product</th>
@@ -401,7 +401,7 @@ export default function TermsPage() {
           which for a package of voice and chat is the two products&apos; setup fees added:
         </p>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[420px] text-[14.5px]">
+          <table className="w-full min-w-[420px] text-sm">
             <thead>
               <tr className="border-line border-b text-left">
                 <th className="py-2 pr-3 font-semibold">Package</th>
@@ -1072,4 +1072,4 @@ export default function TermsPage() {
 }
 
 /** The annex's own subheadings, a step below a section title. */
-const ANNEX_HEADING = "font-display pt-2 text-[20px] leading-tight font-medium tracking-[-0.015em]";
+const ANNEX_HEADING = "font-display pt-2 text-lg leading-tight font-medium tracking-[-0.015em]";

@@ -33,13 +33,13 @@ export default function GuidesHub() {
         ])}
       />
       <Nav />
-      <main className="mx-auto max-w-[1240px] px-5 pt-16 pb-24 sm:px-8 sm:pt-20 lg:px-14">
+      <main className="mx-auto max-w-page px-5 pt-16 pb-24 sm:px-8 sm:pt-20 lg:px-14">
         <div className="max-w-[60ch]">
           <p className="eyebrow-tag">Library</p>
-          <h1 className="font-display mt-3 text-[clamp(36px,5.4vw,60px)] leading-[1.04] font-medium tracking-[-0.026em]">
+          <h1 className="font-display mt-3 text-[clamp(var(--text-3xl),5.4vw,var(--text-6xl))] leading-[1.04] font-medium tracking-[-0.026em]">
             {HUB.name}
           </h1>
-          <p className="text-muted mt-5 text-[18px] leading-[1.6] font-medium">
+          <p className="text-muted mt-5 text-base leading-[1.6] font-medium">
             Each page answers one question a clinic asks about AI at the front desk. Every figure names its
             source, every law links to its text, and every page carries the date it was last checked. {site.name}{" "}
             sells an AI receptionist, and{" "}
@@ -54,19 +54,19 @@ export default function GuidesHub() {
           <section key={family} aria-labelledby={`${family}-heading`} className="mt-16">
             <h2
               id={`${family}-heading`}
-              className="font-display text-[clamp(26px,3.2vw,36px)] leading-tight font-medium tracking-[-0.022em]"
+              className="font-display text-[clamp(var(--text-2xl),3.2vw,var(--text-3xl))] leading-tight font-medium tracking-[-0.022em]"
             >
               {FAMILIES[family].plural}
             </h2>
-            <p className="text-muted mt-2 max-w-[60ch] text-[16px]">{FAMILIES[family].blurb}</p>
+            <p className="text-muted mt-2 max-w-[60ch] text-sm">{FAMILIES[family].blurb}</p>
             <ul className="mt-6 grid gap-4 md:grid-cols-2">
               {pieces.map((piece) => (
                 <li key={piece.slug} className="border-line rounded-lg border p-5">
-                  <a href={piecePath(piece)} className="font-display text-[20px] leading-snug font-medium hover:underline">
+                  <a href={piecePath(piece)} className="font-display text-lg leading-snug font-medium hover:underline">
                     {piece.title}
                   </a>
-                  <p className="text-muted mt-2 text-[15px] leading-relaxed">{piece.description}</p>
-                  <p className="text-muted mt-3 text-[13px]">Last reviewed {formatDate(piece.lastReviewed)}</p>
+                  <p className="text-muted mt-2 text-sm leading-relaxed">{piece.description}</p>
+                  <p className="text-muted mt-3 text-xs">Last reviewed {formatDate(piece.lastReviewed)}</p>
                 </li>
               ))}
             </ul>
@@ -76,11 +76,11 @@ export default function GuidesHub() {
         <section aria-labelledby="more-heading" className="mt-16">
           <h2
             id="more-heading"
-            className="font-display text-[clamp(26px,3.2vw,36px)] leading-tight font-medium tracking-[-0.022em]"
+            className="font-display text-[clamp(var(--text-2xl),3.2vw,var(--text-3xl))] leading-tight font-medium tracking-[-0.022em]"
           >
             Reference
           </h2>
-          <ul className="mt-4 space-y-2 text-[16.5px]">
+          <ul className="mt-4 space-y-2 text-sm">
             <li>
               <a href="/glossary" className="underline underline-offset-2">
                 Glossary of AI receptionist terms

@@ -118,7 +118,7 @@ function IntervalToggle({
             {option.badge ? (
               <span
                 className={[
-                  "rounded-full px-2 py-0.5 text-[11px] font-bold tracking-[0.06em] uppercase",
+                  "rounded-full px-2 py-0.5 text-xs font-bold tracking-[0.06em] uppercase",
                   on ? "bg-white/15 text-white" : "bg-sun text-ink",
                 ].join(" ")}
               >
@@ -140,7 +140,7 @@ function IntervalToggle({
 function OfferBanner({ offer }: { offer: SiteOffer }) {
   if (!offer.live || !offer.endsAt) return null;
   return (
-    <p className="bg-tint-butter text-ink rounded-md px-4 py-2.5 text-[15px] font-semibold">
+    <p className="bg-tint-butter text-ink rounded-md px-4 py-2.5 text-sm font-semibold">
       {SITE_SETUP_CREDIT.percentOfSetupFee}% off the setup fee when you buy on this site. Ends in{" "}
       <span className="font-figure tabular-nums" aria-live="off">
         {countdownLabel(offer.remainingMs)}
@@ -193,14 +193,14 @@ function ProductTable({ interval, offer }: { interval: BillingInterval; offer: S
     <section aria-labelledby="price-table-heading" className="mt-10">
       <h2
         id="price-table-heading"
-        className="font-display text-[clamp(28.8px,3.6vw,40.8px)] leading-tight font-medium tracking-[-0.024em]"
+        className="font-display text-[clamp(var(--text-2xl),3.6vw,var(--text-4xl))] leading-tight font-medium tracking-[-0.024em]"
       >
         Monthly price and setup.
       </h2>
       <div className="mt-6 overflow-x-auto">
-        <table className="w-full min-w-[640px] text-left text-[16px]">
+        <table className="w-full min-w-[640px] text-left text-sm">
           <thead>
-            <tr className="border-line text-muted border-b text-[13px] font-bold tracking-[0.08em] uppercase">
+            <tr className="border-line text-muted border-b text-xs font-bold tracking-[0.08em] uppercase">
               <th scope="col" className="py-3 pr-4">Product</th>
               <th scope="col" className="py-3 pr-4">
                 Per 100 a month{interval === "year" ? ", billed yearly" : ""}
@@ -218,18 +218,18 @@ function ProductTable({ interval, offer }: { interval: BillingInterval; offer: S
                 <tr key={id} className="border-line border-b align-top">
                   <th scope="row" className="py-4 pr-4 font-normal">
                     <span className="block font-semibold">{product.name}</span>
-                    <span className="text-muted block text-[14.5px] font-medium">{PRODUCT_COVERS[id]}</span>
+                    <span className="text-muted block text-sm font-medium">{PRODUCT_COVERS[id]}</span>
                   </th>
                   <td className="py-4 pr-4">
-                    <span className="font-figure text-[20px] font-semibold tabular-nums">
+                    <span className="font-figure text-lg font-semibold tabular-nums">
                       {usd.format(perStepUsd(id, interval))}
                     </span>{" "}
-                    <span className="text-muted text-[14.5px] font-medium">per 100 {unitWord(id)}</span>
+                    <span className="text-muted text-sm font-medium">per 100 {unitWord(id)}</span>
                   </td>
                   {OVERAGE_RATES_PROVISIONAL ? null : (
                     <td className="py-4 pr-4 tabular-nums">
                       {usd.format(extraBlockUsd(id))}{" "}
-                      <span className="text-muted text-[14.5px] font-medium">per 100 {unitWord(id)}</span>
+                      <span className="text-muted text-sm font-medium">per 100 {unitWord(id)}</span>
                     </td>
                   )}
                   <td className="py-4 font-semibold tabular-nums">
@@ -242,13 +242,13 @@ function ProductTable({ interval, offer }: { interval: BillingInterval; offer: S
               <tr key={pkg.id} className="border-line border-b align-top">
                 <th scope="row" className="py-4 pr-4 font-normal">
                   <span className="block font-semibold">{pkg.name}</span>
-                  <span className="text-muted block text-[14.5px] font-medium">
+                  <span className="text-muted block text-sm font-medium">
                     Both products&apos; prices, added
                   </span>
                 </th>
-                <td className="text-muted py-4 pr-4 text-[14.5px] font-medium">Voice step + chat step</td>
+                <td className="text-muted py-4 pr-4 text-sm font-medium">Voice step + chat step</td>
                 {OVERAGE_RATES_PROVISIONAL ? null : (
-                  <td className="text-muted py-4 pr-4 text-[14.5px] font-medium">Each product&apos;s own</td>
+                  <td className="text-muted py-4 pr-4 text-sm font-medium">Each product&apos;s own</td>
                 )}
                 <td className="py-4 font-semibold tabular-nums">
                   <SetupPrice listUsd={packageSetupFeeUsd(pkg)} offer={offer} />
@@ -287,10 +287,10 @@ function StepSlider({
   return (
     <div>
       <div className="flex items-baseline justify-between gap-3">
-        <label htmlFor={id} className="text-[15px] font-semibold">
+        <label htmlFor={id} className="text-sm font-semibold">
           {PRODUCTS[product].name} step
         </label>
-        <span className="font-figure text-[18px] font-semibold tabular-nums">{stepLabel(value, product)}</span>
+        <span className="font-figure text-base font-semibold tabular-nums">{stepLabel(value, product)}</span>
       </div>
       <input
         id={id}
@@ -303,7 +303,7 @@ function StepSlider({
         onChange={(event) => onChange(Number(event.target.value))}
         className="accent-red mt-3 w-full"
       />
-      <div className="text-muted mt-1 flex justify-between text-[12.5px] font-medium tabular-nums" aria-hidden>
+      <div className="text-muted mt-1 flex justify-between text-xs font-medium tabular-nums" aria-hidden>
         <span>{MIN_STEP_UNITS}</span>
         <span>{MAX_STEP_UNITS.toLocaleString("en-US")}</span>
       </div>
@@ -345,14 +345,14 @@ function Calculator({ interval, offer }: { interval: BillingInterval; offer: Sit
     <section aria-labelledby="calculator-heading" className="mt-20">
       <h2
         id="calculator-heading"
-        className="font-display text-[clamp(28.8px,3.6vw,40.8px)] leading-tight font-medium tracking-[-0.024em]"
+        className="font-display text-[clamp(var(--text-2xl),3.6vw,var(--text-4xl))] leading-tight font-medium tracking-[-0.024em]"
       >
         Work out your price.
       </h2>
       <div className="mt-7 grid gap-6 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
         <div className="border-line rounded-lg border bg-white p-6 sm:p-8">
           <fieldset>
-            <legend className="text-[15px] font-semibold">Product</legend>
+            <legend className="text-sm font-semibold">Product</legend>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
               {PACKAGES.map((option) => (
                 <PackageOption
@@ -377,15 +377,15 @@ function Calculator({ interval, offer }: { interval: BillingInterval; offer: Sit
           ].join(" ")}
           aria-live="polite"
         >
-          <p className="text-muted text-[13px] font-bold tracking-[0.1em] uppercase">{plan.packageName}</p>
-          <p className="font-figure mt-3 text-[48px] leading-none font-semibold tracking-[-0.03em] tabular-nums">
+          <p className="text-muted text-xs font-bold tracking-[0.1em] uppercase">{plan.packageName}</p>
+          <p className="font-figure mt-3 text-5xl leading-none font-semibold tracking-[-0.03em] tabular-nums">
             {usd.format(monthlyFigureUsd(plan, interval))}
-            <span className="text-muted font-sans text-[18px] font-semibold">/mo</span>
+            <span className="text-muted font-sans text-base font-semibold">/mo</span>
           </p>
           <p className="text-muted mt-2 text-sm font-medium">
             {interval === "year" ? `${annualTotalLabel(plan)} billed yearly` : "Billed monthly"}
           </p>
-          <dl className="text-muted mt-6 space-y-2 text-[15.5px]">
+          <dl className="text-muted mt-6 space-y-2 text-sm">
             {lines.map((line) => (
               <Row key={line.label} label={line.label}>
                 {usd.format(line.usd)}
@@ -401,14 +401,14 @@ function Calculator({ interval, offer }: { interval: BillingInterval; offer: Sit
               <Row label="Each extra 100 conversations">{usd.format(extraBlockUsd(chat))}</Row>
             ) : null}
           </dl>
-          <p className="text-muted mt-5 text-[14.5px] font-medium">
+          <p className="text-muted mt-5 text-sm font-medium">
             Today you pay the setup fee. Your {interval === "year" ? "annual" : "monthly"} price starts the day{" "}
             {site.agent} first answers a patient.
           </p>
           <PlanBuyLink
             planId={plan.id}
             interval={interval}
-            className="bg-red hover:bg-red-deep mt-6 rounded-sm px-6 py-3.5 text-center text-[17px] font-semibold text-white transition-colors duration-fast"
+            className="bg-red hover:bg-red-deep mt-6 rounded-sm px-6 py-3.5 text-center text-base font-semibold text-white transition-colors duration-fast"
           />
         </div>
       </div>
@@ -464,14 +464,14 @@ function PackageOption({ pkg, selected, onSelect }: { pkg: Package; selected: bo
       ].join(" ")}
     >
       <span className="flex items-baseline justify-between gap-2">
-        <span className="text-[16px] font-semibold">{pkg.name}</span>
+        <span className="text-sm font-semibold">{pkg.name}</span>
         {pkg.highlight ? (
-          <span className="bg-sun text-ink shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold tracking-[0.06em] uppercase">
+          <span className="bg-sun text-ink shrink-0 rounded-full px-2 py-0.5 text-xs font-bold tracking-[0.06em] uppercase">
             {pkg.highlight}
           </span>
         ) : null}
       </span>
-      <span className="text-muted mt-1 block text-[13.5px] font-medium">{packageChips(pkg).join(" · ")}</span>
+      <span className="text-muted mt-1 block text-xs font-medium">{packageChips(pkg).join(" · ")}</span>
     </button>
   );
 }
@@ -486,21 +486,21 @@ function FindYourStep({ interval }: { interval: BillingInterval }) {
     <section aria-labelledby="steps-heading" className="mt-20">
       <h2
         id="steps-heading"
-        className="font-display text-[clamp(28.8px,3.6vw,40.8px)] leading-tight font-medium tracking-[-0.024em]"
+        className="font-display text-[clamp(var(--text-2xl),3.6vw,var(--text-4xl))] leading-tight font-medium tracking-[-0.024em]"
       >
         Find your step.
       </h2>
-      <p className="text-muted mt-4 max-w-[64ch] text-[18px] leading-[1.55] font-medium">
+      <p className="text-muted mt-4 max-w-[64ch] text-base leading-[1.55] font-medium">
         Each step is 100 minutes or 100 conversations a month. Voice and chat are chosen separately, and
         their prices add up.
       </p>
       <div className="mt-6 overflow-x-auto">
-        <table className="w-full min-w-[520px] text-left text-[16px] tabular-nums">
+        <table className="w-full min-w-[520px] text-left text-sm tabular-nums">
           <caption className="sr-only">
             Monthly price at each step{interval === "year" ? ", billed yearly" : ""}
           </caption>
           <thead>
-            <tr className="border-line text-muted border-b text-[13px] font-bold tracking-[0.08em] uppercase">
+            <tr className="border-line text-muted border-b text-xs font-bold tracking-[0.08em] uppercase">
               <th scope="col" className="py-3 pr-4">Step</th>
               {PRODUCT_ORDER.map((id) => (
                 <th key={id} scope="col" className="py-3 pr-4">
@@ -518,7 +518,7 @@ function FindYourStep({ interval }: { interval: BillingInterval }) {
                 {PRODUCT_ORDER.map((id) => (
                   <td key={id} className="py-2.5 pr-4">
                     {usd.format((units / STEP_UNITS) * perStepUsd(id, interval))}
-                    <span className="text-muted text-[14px] font-medium">/mo</span>
+                    <span className="text-muted text-xs font-medium">/mo</span>
                   </td>
                 ))}
               </tr>

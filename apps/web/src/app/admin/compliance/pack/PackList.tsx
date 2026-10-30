@@ -70,7 +70,7 @@ export function PackList({
       <div className="mt-3 overflow-x-auto">
         <table className="w-full text-left text-sm">
           <thead>
-            <tr className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">
+            <tr className="text-muted text-xs font-bold tracking-[0.06em] uppercase">
               <th className="py-1 pr-3">Week of</th>
               <th className="py-1 pr-3">Stored</th>
               {(Object.keys(HEADLINE_WORDS) as (keyof CompliancePackHeadline)[]).map((key) => (

@@ -80,8 +80,8 @@ export function ClosingOffer() {
       <ul className="mx-auto mt-8 hidden max-w-[980px] gap-3 sm:grid sm:grid-cols-2 lg:grid-cols-3">
         {objections(clinicName, site.agent, audience).map((o) => (
           <li key={o.q} className="border-line rounded-md border bg-white px-5 py-5">
-            <p className="text-[15.6px] font-bold">{o.q}</p>
-            <p className="text-muted mt-1.5 text-[14.4px] leading-[1.5]">{o.a}</p>
+            <p className="text-sm font-bold">{o.q}</p>
+            <p className="text-muted mt-1.5 text-xs leading-[1.5]">{o.a}</p>
           </li>
         ))}
       </ul>
@@ -89,13 +89,13 @@ export function ClosingOffer() {
         {objections(clinicName, site.agent, audience).map((o) => (
           <li key={o.q}>
             <details className="group">
-              <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 text-[15.6px] font-bold">
+              <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 text-sm font-bold">
                 {o.q}
-                <span aria-hidden className="text-muted text-[20px] transition-transform group-open:rotate-45">
+                <span aria-hidden className="text-muted text-lg transition-transform group-open:rotate-45">
                   +
                 </span>
               </summary>
-              <p className="text-muted px-4 pb-4 text-[14.4px] leading-[1.5]">{o.a}</p>
+              <p className="text-muted px-4 pb-4 text-xs leading-[1.5]">{o.a}</p>
             </details>
           </li>
         ))}
@@ -111,20 +111,20 @@ export function ClosingOffer() {
           <li key={step.title} className="border-line flex gap-4 rounded-md border bg-white px-5 py-5">
             <span
               aria-hidden
-              className="grid size-8 shrink-0 place-items-center rounded-full text-[14px] font-bold tabular-nums"
+              className="grid size-8 shrink-0 place-items-center rounded-full text-xs font-bold tabular-nums"
               style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
             >
               {i + 1}
             </span>
             <span>
-              <span className="block text-[16px] leading-snug font-bold">{step.title}</span>
-              <span className="text-muted mt-1 block text-[14.4px] leading-[1.45]">{step.body}</span>
+              <span className="block text-sm leading-snug font-bold">{step.title}</span>
+              <span className="text-muted mt-1 block text-xs leading-[1.45]">{step.body}</span>
             </span>
           </li>
         ))}
       </ol>
 
-      <p className="text-muted mx-auto mt-8 max-w-[64ch] text-center text-[14.4px] font-semibold">
+      <p className="text-muted mx-auto mt-8 max-w-[64ch] text-center text-xs font-semibold">
         Books into your Google Calendar · You keep your number ·{" "}
         {audience === "clients" ? agreementPoint(audience) : "We sign a BAA and handle patient data under it"}
       </p>

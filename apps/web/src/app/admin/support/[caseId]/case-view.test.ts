@@ -81,7 +81,7 @@ describe("a drafted case", () => {
     expect(html).toContain('id="support-case"');
     expect(html).toContain(`href="/admin/clinics/${CLINIC}/care"`);
     expect(page).toContain("Radiance Med Spa");
-    expect(html).toContain('<code class="font-mono text-[15px] select-all">HD-7F3KQ</code>');
+    expect(html).toContain('<code class="font-mono text-sm select-all">HD-7F3KQ</code>');
     expect(page).toContain(`Clinic id ${CLINIC}`);
     expect(page).toContain("Now");
     expect(page).toContain("Drafted");

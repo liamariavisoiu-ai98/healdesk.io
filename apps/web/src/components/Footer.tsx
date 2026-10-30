@@ -51,12 +51,12 @@ import { site } from "@/lib/site";
 export function Footer() {
   return (
     <footer className="border-line border-t">
-      <div className="mx-auto flex max-w-[1240px] flex-col gap-5 px-5 pt-8 pb-6 sm:px-8 md:flex-row md:items-start md:justify-between md:gap-10 lg:px-14">
+      <div className="mx-auto flex max-w-page flex-col gap-5 px-5 pt-8 pb-6 sm:px-8 md:flex-row md:items-start md:justify-between md:gap-10 lg:px-14">
         <div className="max-w-[46ch]">
           <a href="/" aria-label={`${site.name} home`} className="inline-block [&_img]:h-[22px]">
             <WordmarkGlyphs />
           </a>
-          <p className="text-muted mt-2.5 text-[13.5px] leading-[1.5] font-medium">
+          <p className="text-muted mt-2.5 text-xs leading-[1.5] font-medium">
             An AI front desk for high-ticket elective clinics. Every call, chat
             and DM answered, and the appointment booked.
           </p>
@@ -70,7 +70,7 @@ export function Footer() {
             <a
               key={item.href}
               href={item.href}
-              className="text-muted hover:text-ink text-[14px] leading-6 font-semibold transition-colors"
+              className="text-muted hover:text-ink text-xs leading-6 font-semibold transition-colors"
             >
               {item.label}
             </a>
@@ -79,23 +79,23 @@ export function Footer() {
           {portalSignInUrl() ? (
             <a
               href={portalSignInUrl()!}
-              className="text-muted hover:text-ink text-[14px] leading-6 font-semibold transition-colors"
+              className="text-muted hover:text-ink text-xs leading-6 font-semibold transition-colors"
             >
               {SIGN_IN_LABEL}
             </a>
           ) : null}
           <a
             href={`mailto:${site.email}`}
-            className="text-muted hover:text-ink text-[14px] leading-6 font-semibold transition-colors"
+            className="text-muted hover:text-ink text-xs leading-6 font-semibold transition-colors"
           >
             {site.email}
           </a>
         </nav>
       </div>
 
-      <div className="mx-auto max-w-[1240px] px-5 pb-6 sm:px-8 lg:px-14">
+      <div className="mx-auto max-w-page px-5 pb-6 sm:px-8 lg:px-14">
         <div className="border-line space-y-1.5 border-t pt-4">
-          <div className="text-muted flex flex-wrap gap-x-3 gap-y-1 text-[12.5px] leading-[1.5]">
+          <div className="text-muted flex flex-wrap gap-x-3 gap-y-1 text-xs leading-[1.5]">
             <p>
               © {new Date().getFullYear()} {site.name}.
             </p>
@@ -104,7 +104,7 @@ export function Footer() {
           {/* The homepage's hero carries these logos; lib/integrations.ts keeps
               this line in step with them. Google's brand guidelines and Stripe's
               terms ask for it, so it stays, but as the page's finest print. */}
-          <p className="text-muted/70 text-[11px] leading-[1.5]">{TRADEMARKS}</p>
+          <p className="text-muted/70 text-xs leading-[1.5]">{TRADEMARKS}</p>
         </div>
       </div>
     </footer>

@@ -52,8 +52,8 @@ export function DemoCountdown({ expiresAt }: { expiresAt: string }) {
   const { days, hours, minutes, seconds } = parts(end - (now ?? end - 7 * 86_400_000));
   const cell = (value: number, label: string) => (
     <span className="inline-flex items-baseline gap-0.5">
-      <span className="font-display tabular-nums text-[17px] font-semibold">{value.toString().padStart(2, "0")}</span>
-      <span className="text-[12px] font-bold opacity-75">{label}</span>
+      <span className="font-display tabular-nums text-base font-semibold">{value.toString().padStart(2, "0")}</span>
+      <span className="text-xs font-bold opacity-75">{label}</span>
     </span>
   );
 
@@ -92,7 +92,7 @@ export function CopyDemoLink({ className = "" }: { className?: string }) {
           window.setTimeout(() => setCopied(false), 2_000);
         });
       }}
-      className={`inline-flex items-center gap-1.5 rounded-full border border-current/30 px-3 py-1 text-[13.2px] font-bold transition-opacity hover:opacity-80 ${className}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border border-current/30 px-3 py-1 text-xs font-bold transition-opacity hover:opacity-80 ${className}`}
     >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="size-3.5" aria-hidden>
         <rect x="9" y="9" width="12" height="12" rx="2" />

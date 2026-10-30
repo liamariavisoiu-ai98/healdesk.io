@@ -162,7 +162,7 @@ export default async function SetupRequestsSection({ searchParams }: { searchPar
       </p>
 
       {result && RESULTS[result] ? (
-        <p className="border-line mt-3 rounded-sm border bg-white px-4 py-3 text-[15.6px] font-semibold" role="status">
+        <p className="border-line mt-3 rounded-sm border bg-white px-4 py-3 text-sm font-semibold" role="status">
           {RESULTS[result]}
         </p>
       ) : null}
@@ -181,7 +181,7 @@ export default async function SetupRequestsSection({ searchParams }: { searchPar
             return (
               <li key={request.id} className="border-line rounded-md border bg-white p-5">
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                  <span className="text-[19.2px] font-bold">{request.clinicName}</span>
+                  <span className="text-lg font-bold">{request.clinicName}</span>
                   <span className="text-muted text-sm">asked {when(request.createdAt)}</span>
                 </div>
                 <p className="text-muted mt-1 text-sm break-words">

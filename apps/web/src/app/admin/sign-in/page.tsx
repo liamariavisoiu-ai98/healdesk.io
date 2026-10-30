@@ -63,7 +63,7 @@ export default async function AdminSignInPage() {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="border-line/60 border-b">
-        <div className="mx-auto flex w-full max-w-[1240px] items-center px-5 py-4 sm:px-8 lg:px-14">
+        <div className="mx-auto flex w-full max-w-page items-center px-5 py-4 sm:px-8 lg:px-14">
           <Brand />
           <a
             href="/"
@@ -75,10 +75,10 @@ export default async function AdminSignInPage() {
       </header>
 
       <main className="mx-auto flex w-full max-w-[460px] flex-1 flex-col justify-center px-5 py-16 sm:px-8">
-        <h1 className="font-display text-[clamp(31.2px,4.32vw,40.8px)] leading-tight font-medium tracking-[-0.024em]">
+        <h1 className="font-display text-[clamp(var(--text-3xl),4.32vw,var(--text-4xl))] leading-tight font-medium tracking-[-0.024em]">
           Admin.
         </h1>
-        <p className="text-muted mt-3 text-[18px] font-medium">
+        <p className="text-muted mt-3 text-base font-medium">
           One account, one password, and a code from your authenticator app.
           Everything the console can reach lives in the other app and is asked
           for over a signed request.
@@ -87,7 +87,7 @@ export default async function AdminSignInPage() {
         {configured ? (
           <>
             <SignInForm />
-            <p className="text-muted mt-2 text-[15.6px]">
+            <p className="text-muted mt-2 text-sm">
               Lost the authenticator? Run the admin:totp script again and
               replace its secret in Vercel; nothing here can reset it.
             </p>
@@ -122,7 +122,7 @@ function NotConfigured() {
 
   return (
     <div className="border-line mt-8 rounded-md border bg-white p-5">
-      <p className="text-[18px] font-semibold">Not configured.</p>
+      <p className="text-base font-semibold">Not configured.</p>
       <p className="text-muted mt-2 text-sm">
         There is no admin account set on this server and no key to sign a session
         with, so there is nothing to sign in to. The door stays shut rather than
@@ -138,16 +138,16 @@ function NotConfigured() {
         <div className="border-line/60 mt-4 border-t pt-4">
           <p className="text-muted text-sm">
             Set these in{" "}
-            <code className="text-ink text-[15.6px]">apps/web/.env.local</code> and
+            <code className="text-ink text-sm">apps/web/.env.local</code> and
             restart the dev server:
           </p>
           <dl className="mt-3 grid gap-3">
             {SETUP.filter((item) => missing.includes(item.name)).map((item) => (
               <div key={item.name}>
-                <dt className="text-ink text-[15.6px] font-bold">
+                <dt className="text-ink text-sm font-bold">
                   <code>{item.name}</code>
                 </dt>
-                <dd className="text-muted mt-0.5 text-[15.6px]">{item.note}</dd>
+                <dd className="text-muted mt-0.5 text-sm">{item.note}</dd>
               </div>
             ))}
           </dl>

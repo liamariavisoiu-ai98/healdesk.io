@@ -145,7 +145,7 @@ export function IncidentsBoard({
     return (
       <main className="mx-auto max-w-[1000px] px-5 py-10">
         <a href="/admin/compliance" className="text-muted text-sm underline underline-offset-2">← Compliance</a>
-        <h1 className="font-display mt-2 text-[28px] font-semibold tracking-[-0.02em]">Incidents</h1>
+        <h1 className="font-display mt-2 text-2xl font-semibold tracking-[-0.02em]">Incidents</h1>
         <p className="text-red-deep mt-4 font-semibold">{register.message}</p>
         {children}
       </main>
@@ -158,7 +158,7 @@ export function IncidentsBoard({
   return (
     <main className="mx-auto max-w-[1000px] px-5 py-10 sm:px-8">
       <a href="/admin/compliance" className="text-muted text-sm underline underline-offset-2">← Compliance</a>
-      <h1 className="font-display mt-2 text-[28px] font-semibold tracking-[-0.02em]">Incidents</h1>
+      <h1 className="font-display mt-2 text-2xl font-semibold tracking-[-0.02em]">Incidents</h1>
       <p className="mt-4 text-sm font-semibold">
         {open.length} open · {undecided.length} waiting for a decision
       </p>

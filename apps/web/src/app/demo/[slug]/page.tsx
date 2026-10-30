@@ -127,10 +127,10 @@ export default async function DemoPage({ params }: Props) {
           <>
             {expired ? null : <RefreshWhileBuilding />}
             <main className="mx-auto flex w-full max-w-[640px] flex-1 flex-col items-center justify-center px-5 py-24 text-center">
-              <h1 className="font-display text-[34px] leading-tight font-medium tracking-[-0.02em]">
+              <h1 className="font-display text-3xl leading-tight font-medium tracking-[-0.02em]">
                 We&rsquo;re building {name}&rsquo;s demo
               </h1>
-              <p className="text-muted mt-3 mb-9 text-[17px] font-medium">
+              <p className="text-muted mt-3 mb-9 text-base font-medium">
                 Your voice and chat assistants, from {host}.
               </p>
               <BuildProgress stage={state} elapsedMs={demoBuildElapsedMs(session)} host={host} />
@@ -138,10 +138,10 @@ export default async function DemoPage({ params }: Props) {
           </>
         ) : (
           <main className="mx-auto flex w-full max-w-[640px] flex-1 flex-col items-center justify-center px-5 py-24 text-center">
-            <h1 className="font-display text-[34px] leading-tight font-medium tracking-[-0.02em]">
+            <h1 className="font-display text-3xl leading-tight font-medium tracking-[-0.02em]">
               We&rsquo;re preparing {name}&rsquo;s demo
             </h1>
-            <p className="text-muted mt-3 text-[17px] font-medium">
+            <p className="text-muted mt-3 text-base font-medium">
               {isSelfServeDemo(session)
                 ? `Our team is putting the finishing touches on it, and we'll email you the moment it's ready. Questions: ${site.email}.`
                 : "Our team is putting the finishing touches on it. Check back shortly, or reply to our email and we'll let you know the moment it's ready."}
@@ -176,20 +176,20 @@ export default async function DemoPage({ params }: Props) {
           `demoOfferEndsAt`), so it carries its own clock and is never
           promised after that runs out, though the demo itself runs on. */}
       {expired ? (
-        <div className="bg-ink sticky top-0 z-50 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 px-5 py-3 text-center text-[15px] font-semibold text-white sm:px-8">
+        <div className="bg-ink sticky top-0 z-50 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 px-5 py-3 text-center text-sm font-semibold text-white sm:px-8">
           <span>Instance Archived — Server Allocation Window Expired for {name}</span>
           <CopyDemoLink />
         </div>
       ) : (
         <div
-          className="sticky top-0 z-50 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 px-5 py-2.5 text-center text-[15px] font-semibold shadow-sm sm:px-8"
+          className="sticky top-0 z-50 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 px-5 py-2.5 text-center text-sm font-semibold shadow-sm sm:px-8"
           style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
         >
           <span className="flex items-center gap-2">
             Private demo for {name}. Live for <DemoCountdown expiresAt={session.expiresAt.toISOString()} />
           </span>
           {offerEnds ? (
-            <span className="inline-flex flex-wrap items-center gap-x-2 rounded-full bg-[#87d68d] px-3 py-1 text-[13.2px] font-bold text-[#172a3a]">
+            <span className="inline-flex flex-wrap items-center gap-x-2 rounded-full bg-[#87d68d] px-3 py-1 text-xs font-bold text-[#172a3a]">
               {demoSetupCredit(session).percentOfSetupFee}% off your setup fee, ends in{" "}
               <RefreshingOfferCountdown endsAt={offerEnds.toISOString()} />
             </span>
@@ -199,19 +199,19 @@ export default async function DemoPage({ params }: Props) {
       )}
 
       <header className="border-line/60 border-b">
-        <div className="mx-auto flex max-w-[1240px] items-center gap-3 px-5 py-4 sm:px-8 lg:px-14">
+        <div className="mx-auto flex max-w-page items-center gap-3 px-5 py-4 sm:px-8 lg:px-14">
           <AgentMark name={name} logoUrl={session.logoUrl} />
           {session.logoUrl ? null : (
-            <span className="font-display hidden min-w-0 truncate text-[21px] font-semibold tracking-[-0.01em] sm:inline">{name}</span>
+            <span className="font-display hidden min-w-0 truncate text-lg font-semibold tracking-[-0.01em] sm:inline">{name}</span>
           )}
           {/* Both brands, side by side: the clinic's assistant, built by healdesk. */}
-          <span aria-hidden className="text-muted text-[18px] font-light">×</span>
+          <span aria-hidden className="text-muted text-base font-light">×</span>
           <a href="/" aria-label="healdesk" className="shrink-0">
             <img src="/brand/healdesk-logo.webp" alt="healdesk" width={2400} height={437} className="h-[22px] w-auto sm:h-[26px]" />
           </a>
           {selfServe ? (
             <DemoBuyButton
-              className="ml-auto shrink-0 rounded-full px-4 py-2 text-[15px] font-bold transition-opacity hover:opacity-90 sm:px-5 sm:py-2.5"
+              className="ml-auto shrink-0 rounded-full px-4 py-2 text-sm font-bold transition-opacity hover:opacity-90 sm:px-5 sm:py-2.5"
               style={ctaStyle}
               pressed={{ slug, placement: "header" }}
             >
@@ -220,7 +220,7 @@ export default async function DemoPage({ params }: Props) {
           ) : (
             <a
               href={`/demo/${slug}/onboard?from=header`}
-              className="ml-auto shrink-0 rounded-full px-4 py-2 text-[15px] font-bold transition-opacity hover:opacity-90 sm:px-5 sm:py-2.5"
+              className="ml-auto shrink-0 rounded-full px-4 py-2 text-sm font-bold transition-opacity hover:opacity-90 sm:px-5 sm:py-2.5"
               style={ctaStyle}
             >
               {DEMO_ONBOARD_LABEL}
@@ -229,12 +229,12 @@ export default async function DemoPage({ params }: Props) {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-[1240px] px-5 pt-10 pb-16 sm:px-8 lg:px-14">
+      <main className="mx-auto w-full max-w-page px-5 pt-10 pb-16 sm:px-8 lg:px-14">
         <div className="max-w-[760px]">
-          <h1 className="font-display mt-2 text-[34px] leading-[1.1] font-medium tracking-[-0.02em] sm:text-[44px]">
+          <h1 className="font-display mt-2 text-3xl leading-[1.1] font-medium tracking-[-0.02em] sm:text-4xl">
             {name}, answering every call and chat.
           </h1>
-          <p className="text-muted mt-3 max-w-[56ch] text-[18px] leading-[1.5] font-medium">
+          <p className="text-muted mt-3 max-w-[56ch] text-base leading-[1.5] font-medium">
             {site.agent} already knows {name}&rsquo;s services, prices and FAQs. Try her the way a {one} would.
           </p>
           {/* The owner asked for "the most human-like agent on the market" and
@@ -242,12 +242,12 @@ export default async function DemoPage({ params }: Props) {
               first is the visitor's own experience on this page, and CLAUDE.md
               forbids an unqualified "HIPAA compliant" (no body certifies it,
               and the FTC has charged that claim as deceptive on its own). */}
-          <p className="text-ink mt-3 text-[20px] leading-snug font-semibold">
+          <p className="text-ink mt-3 text-lg leading-snug font-semibold">
             {site.agent} sounds like a person, not a robot. Talk to her and hear it for yourself.
           </p>
           <ul className="mt-5 flex flex-wrap gap-2">
             {["Answers 24/7", "Phone, website & socials", "Books into your calendar", "Deposit links in chat", agreementPoint].map((point) => (
-              <li key={point} className="border-line flex items-center gap-1.5 rounded-full border bg-white px-3.5 py-1.5 text-[14.4px] font-semibold">
+              <li key={point} className="border-line flex items-center gap-1.5 rounded-full border bg-white px-3.5 py-1.5 text-xs font-semibold">
                 <span aria-hidden className="size-1.5 rounded-full bg-[#87d68d]" />
                 {point}
               </li>
@@ -293,14 +293,14 @@ export default async function DemoPage({ params }: Props) {
 
         {/* Under both panels: what the assistant does beyond answering (owner, 7 October 2026). */}
         <div className="mt-6 flex flex-col items-center gap-1 text-center">
-          <p className="font-display text-[22px] leading-tight font-medium tracking-[-0.01em] sm:text-[26px]">
+          <p className="font-display text-xl leading-tight font-medium tracking-[-0.01em] sm:text-2xl">
             {site.agent} can manage bookings, send payment links and look after people the way you would.
           </p>
         </div>
 
         {/* The training disclaimer, in the brief's words: what demo mode cannot do yet. */}
         <aside className="border-line mt-6 rounded-md border bg-white px-5 py-4 text-center">
-          <p className="text-[15.6px] leading-[1.5] font-medium">&ldquo;{demoModeLine(name)}&rdquo;</p>
+          <p className="text-sm leading-[1.5] font-medium">&ldquo;{demoModeLine(name)}&rdquo;</p>
         </aside>
 
         <CoverageOffer

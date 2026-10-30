@@ -62,14 +62,14 @@ export function ContactCard() {
           a person" label over it until 9 October 2026 (owner). */}
       <a
         href={`mailto:${site.email}`}
-        className="font-display text-brand-gradient block text-[clamp(26.4px,3.12vw,33.6px)] leading-tight font-semibold tracking-[-0.02em]"
+        className="font-display text-brand-gradient block text-[clamp(var(--text-2xl),3.12vw,var(--text-3xl))] leading-tight font-semibold tracking-[-0.02em]"
       >
         {site.email}
       </a>
 
       {status === "sent" ? (
         <div className="mt-7">
-          <p className="font-display text-[22.8px] leading-snug font-medium">
+          <p className="font-display text-xl leading-snug font-medium">
             Got it. We&apos;ll come back to you.
           </p>
           <p className="text-muted mt-2 text-sm font-medium">
@@ -78,7 +78,7 @@ export function ContactCard() {
           <button
             type="button"
             onClick={() => setStatus("idle")}
-            className="text-muted hover:text-ink mt-4 text-[15.6px] font-bold transition-colors"
+            className="text-muted hover:text-ink mt-4 text-sm font-bold transition-colors"
           >
             Send another
           </button>
@@ -104,7 +104,7 @@ export function ContactCard() {
             rows={4}
             placeholder="What would you like to know?"
             aria-label="Message"
-            className="border-line focus:border-orange text-ink placeholder:text-muted w-full resize-y rounded-sm border px-4 py-3 text-[17.4px] outline-none transition-colors"
+            className="border-line focus:border-orange text-ink placeholder:text-muted w-full resize-y rounded-sm border px-4 py-3 text-base outline-none transition-colors"
           />
           {/* Permanent, not a tooltip. The message reaches us as ordinary
               email through a vendor that signs no BAA, and this marketing
@@ -128,7 +128,7 @@ export function ContactCard() {
           />
 
           {error ? (
-            <p className="text-red-deep text-[15.6px] font-semibold" role="alert">
+            <p className="text-red-deep text-sm font-semibold" role="alert">
               {error}
             </p>
           ) : null}
@@ -136,7 +136,7 @@ export function ContactCard() {
           <button
             type="submit"
             disabled={status === "sending"}
-            className="bg-brand-gradient shadow-sm w-full rounded-full px-6 py-3.5 text-[18px] font-bold text-white transition-transform duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-50"
+            className="bg-brand-gradient shadow-sm w-full rounded-full px-6 py-3.5 text-base font-bold text-white transition-transform duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-50"
           >
             {status === "sending" ? "Sending…" : "Send it over"}
           </button>
@@ -167,7 +167,7 @@ function Input({
       aria-label={placeholder}
       autoComplete={autoComplete}
       required={required}
-      className="border-line focus:border-orange text-ink placeholder:text-muted w-full rounded-sm border px-4 py-3 text-[17.4px] outline-none transition-colors"
+      className="border-line focus:border-orange text-ink placeholder:text-muted w-full rounded-sm border px-4 py-3 text-base outline-none transition-colors"
     />
   );
 }

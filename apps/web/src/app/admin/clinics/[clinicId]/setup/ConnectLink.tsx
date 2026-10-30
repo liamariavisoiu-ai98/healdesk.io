@@ -86,7 +86,7 @@ function ConnectLinkControl({ clinicId, connection, onIssue }: { clinicId: strin
       className="mt-4 flex flex-wrap items-end gap-3"
     >
       <label className="min-w-[220px] flex-1">
-        <span className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">Email it to (optional)</span>
+        <span className="text-muted text-xs font-bold tracking-[0.06em] uppercase">Email it to (optional)</span>
         <input
           name="to"
           type="email"

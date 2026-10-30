@@ -42,11 +42,11 @@ export function ArticlePage({ piece }: { piece: Piece }) {
         ]}
       />
       <Nav />
-      <div className="mx-auto max-w-[1240px] px-5 sm:px-8 lg:grid lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-12 lg:px-14 xl:grid-cols-[15rem_minmax(0,1fr)] xl:gap-20">
+      <div className="mx-auto max-w-page px-5 sm:px-8 lg:grid lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-12 lg:px-14 xl:grid-cols-[15rem_minmax(0,1fr)] xl:gap-20">
         <LegalContents entries={piece.sections.map((section) => ({ id: section.id, title: section.heading }))} />
 
         <main className="mx-auto max-w-[760px] pt-14 pb-24 sm:pt-20 lg:mx-0">
-          <nav aria-label="Breadcrumb" className="text-muted text-[14px] font-medium">
+          <nav aria-label="Breadcrumb" className="text-muted text-xs font-medium">
             <a href={HUB.path} className="hover:text-ink underline-offset-2 hover:underline">
               {HUB.name}
             </a>
@@ -54,11 +54,11 @@ export function ArticlePage({ piece }: { piece: Piece }) {
             <span>{family.label}</span>
           </nav>
 
-          <h1 className="font-display mt-3 text-[clamp(32px,4.6vw,50px)] leading-[1.06] font-medium tracking-[-0.025em]">
+          <h1 className="font-display mt-3 text-[clamp(var(--text-3xl),4.6vw,var(--text-5xl))] leading-[1.06] font-medium tracking-[-0.025em]">
             {piece.title}
           </h1>
 
-          <p className="text-muted mt-4 text-[14.5px] leading-relaxed">
+          <p className="text-muted mt-4 text-sm leading-relaxed">
             Published by {site.name}, which sells an AI receptionist. How we source and correct:{" "}
             <a href="/about#sourcing" className="underline underline-offset-2">
               our standards
@@ -67,23 +67,23 @@ export function ArticlePage({ piece }: { piece: Piece }) {
           </p>
 
           {piece.legal ? (
-            <div role="note" className="border-line bg-paper-2 mt-6 rounded-md border px-5 py-4 text-[15px] leading-relaxed">
+            <div role="note" className="border-line bg-paper-2 mt-6 rounded-md border px-5 py-4 text-sm leading-relaxed">
               This page describes what the laws say, as of the date above, and links each one. It is not legal
               advice and does not say how a law applies to any one practice.
               {piece.review ? ` ${piece.review}` : ""}
             </div>
           ) : null}
 
-          <p className="mt-8 text-[19px] leading-[1.6] font-medium">
+          <p className="mt-8 text-lg leading-[1.6] font-medium">
             <Inline text={piece.answer} />
           </p>
 
           {piece.sections.map((section) => (
             <section key={section.id} id={section.id} className="mt-12 scroll-mt-24">
-              <h2 className="font-display text-[26px] leading-tight font-medium tracking-[-0.02em]">
+              <h2 className="font-display text-2xl leading-tight font-medium tracking-[-0.02em]">
                 {section.heading}
               </h2>
-              <div className="mt-4 space-y-4 text-[16.5px] leading-[1.7] [&_li]:max-w-[38em] [&_p]:max-w-[38em]">
+              <div className="mt-4 space-y-4 text-sm leading-[1.7] [&_li]:max-w-[38em] [&_p]:max-w-[38em]">
                 {section.blocks.map((block, index) => (
                   <BlockView key={index} block={block} numbers={numbers} />
                 ))}
@@ -92,10 +92,10 @@ export function ArticlePage({ piece }: { piece: Piece }) {
           ))}
 
           <section aria-labelledby="aya-note" className="border-line mt-14 border-t pt-8">
-            <h2 id="aya-note" className="font-display text-[22px] font-medium tracking-[-0.015em]">
+            <h2 id="aya-note" className="font-display text-xl font-medium tracking-[-0.015em]">
               How {site.agent} handles this
             </h2>
-            <div className="mt-3 space-y-3 text-[16.5px] leading-[1.7] [&_p]:max-w-[38em]">
+            <div className="mt-3 space-y-3 text-sm leading-[1.7] [&_p]:max-w-[38em]">
               {piece.aya.map((sentence, index) => (
                 <p key={index}>
                   <Inline text={sentence} />
@@ -111,10 +111,10 @@ export function ArticlePage({ piece }: { piece: Piece }) {
           </section>
 
           <section aria-labelledby="sources-heading" className="mt-12">
-            <h2 id="sources-heading" className="font-display text-[22px] font-medium tracking-[-0.015em]">
+            <h2 id="sources-heading" className="font-display text-xl font-medium tracking-[-0.015em]">
               Sources
             </h2>
-            <ol className="mt-4 space-y-2 text-[14.5px] leading-[1.6]">
+            <ol className="mt-4 space-y-2 text-sm leading-[1.6]">
               {piece.sources.map((source, index) => (
                 <SourceItem key={source.id} source={source} number={index + 1} />
               ))}
@@ -123,10 +123,10 @@ export function ArticlePage({ piece }: { piece: Piece }) {
 
           {related.length > 0 ? (
             <section aria-labelledby="related-heading" className="mt-12">
-              <h2 id="related-heading" className="font-display text-[22px] font-medium tracking-[-0.015em]">
+              <h2 id="related-heading" className="font-display text-xl font-medium tracking-[-0.015em]">
                 Related
               </h2>
-              <ul className="mt-3 space-y-2 text-[16px]">
+              <ul className="mt-3 space-y-2 text-sm">
                 {related.map((other) => (
                   <li key={other.slug}>
                     <a href={piecePath(other)} className="underline underline-offset-2">
@@ -179,7 +179,7 @@ function BlockView({ block, numbers }: { block: Block; numbers: Map<string, numb
         </p>
       );
     case "h3":
-      return <h3 className="font-display pt-2 text-[20px] font-medium tracking-[-0.01em]">{block.text}</h3>;
+      return <h3 className="font-display pt-2 text-lg font-medium tracking-[-0.01em]">{block.text}</h3>;
     case "list": {
       const items = block.items.map((item, index) => (
         <li key={index}>
@@ -194,7 +194,7 @@ function BlockView({ block, numbers }: { block: Block; numbers: Map<string, numb
             <ul className="list-disc space-y-2 pl-6">{items}</ul>
           )}
           {block.cite ? (
-            <p className="text-muted text-[14px]">
+            <p className="text-muted text-xs">
               Sources: <Cites ids={block.cite} numbers={numbers} />
             </p>
           ) : null}
@@ -204,8 +204,8 @@ function BlockView({ block, numbers }: { block: Block; numbers: Map<string, numb
     case "table":
       return (
         <figure className="-mx-5 overflow-x-auto px-5 sm:mx-0 sm:px-0">
-          <table className="w-full min-w-[560px] border-collapse text-left text-[14.5px] leading-[1.55]">
-            <caption className="text-muted mb-2 text-left text-[14px]">
+          <table className="w-full min-w-[560px] border-collapse text-left text-sm leading-[1.55]">
+            <caption className="text-muted mb-2 text-left text-xs">
               <Inline text={block.caption} />
               <Cites ids={block.cite} numbers={numbers} />
             </caption>
@@ -247,7 +247,7 @@ function BlockView({ block, numbers }: { block: Block; numbers: Map<string, numb
       );
     case "note":
       return (
-        <p className="border-line bg-paper-2 rounded-md border px-4 py-3 text-[15.5px]">
+        <p className="border-line bg-paper-2 rounded-md border px-4 py-3 text-sm">
           <Inline text={block.text} />
         </p>
       );

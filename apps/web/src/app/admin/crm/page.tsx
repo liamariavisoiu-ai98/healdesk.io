@@ -61,9 +61,9 @@ export default async function CrmPage() {
   const sheetId = marketingSheetId();
   if (!sheetId) {
     return (
-      <main className="mx-auto w-full max-w-[1240px] px-4 py-10 sm:px-8 lg:px-14">
-        <h1 className="font-display text-[28px] leading-tight font-semibold tracking-[-0.02em]">CRM</h1>
-        <p className="text-muted mt-3 max-w-[60ch] text-[15.6px]">
+      <main className="mx-auto w-full max-w-page px-4 py-10 sm:px-8 lg:px-14">
+        <h1 className="font-display text-2xl leading-tight font-semibold tracking-[-0.02em]">CRM</h1>
+        <p className="text-muted mt-3 max-w-[60ch] text-sm">
           No lead register is configured. Set <code className="font-mono">MARKETING_SHEET_ID</code> (and{" "}
           <code className="font-mono">GOOGLE_SERVICE_ACCOUNT_JSON</code>, so the site can write to it) and
           this page will show the Sheet. See .env.example.
@@ -76,7 +76,7 @@ export default async function CrmPage() {
 
   return (
     <main className="flex min-h-0 flex-1 flex-col">
-      <p className="text-muted border-line/60 border-b px-4 py-2 text-[13.5px] leading-snug sm:px-8 lg:px-14">
+      <p className="text-muted border-line/60 border-b px-4 py-2 text-xs leading-snug sm:px-8 lg:px-14">
         The live lead register. Viewers must be signed in to the company Google account.{" "}
         <a href={base} target="_blank" rel="noreferrer" className="text-ink underline underline-offset-2">
           Open in Sheets

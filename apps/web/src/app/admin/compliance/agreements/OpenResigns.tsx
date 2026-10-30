@@ -58,7 +58,7 @@ export function OpenResigns({ resigns, now }: { resigns: OpsResult<{ resigns: Op
         <div className="mt-3 overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead>
-              <tr className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">
+              <tr className="text-muted text-xs font-bold tracking-[0.06em] uppercase">
                 <th className="py-1 pr-3">Clinic</th>
                 <th className="py-1 pr-3">Why</th>
                 <th className="py-1 pr-3">From, to</th>

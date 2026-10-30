@@ -29,7 +29,11 @@ vi.mock("next/navigation", async (importOriginal) => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
+// Next's font loader runs at build time; under test the font is a class name.
+vi.mock("next/font/google", () => ({ Lora: () => ({ variable: "hd-lora" }) }));
+
 const { default: DemoPage } = await import("./page");
+const { LegacyDemoReady } = await import("@/components/demo/LegacyDemoReady");
 
 function session(specialty: "veterinary" | "med-spa", name: string, slug: string): DemoSession {
   return {
@@ -80,7 +84,9 @@ function words(html: string): string {
 async function page(demo: DemoSession): Promise<{ said: string; ringNote: string }> {
   sessions.current = demo;
   const element = (await DemoPage({ params: Promise.resolve({ slug: demo.slug }) })) as ReactElement;
-  return { said: words(renderToStaticMarkup(element)), ringNote: propOf(element, "ringNote") ?? "" };
+  // A vet's demo is the page it had, one component down (components/demo/LegacyDemoReady.tsx).
+  const built = element.type === LegacyDemoReady ? LegacyDemoReady(element.props as Parameters<typeof LegacyDemoReady>[0]) : element;
+  return { said: words(renderToStaticMarkup(element)), ringNote: propOf(built, "ringNote") ?? "" };
 }
 
 /** The first `name` prop anywhere in the elements the page itself built. */
@@ -127,15 +133,15 @@ describe("a demo in its practice's own words", () => {
     expect(ringNote).toBe("One demo call, because you asked. Live, it only answers: it never dials a client.");
   });
 
-  test("a demo for a practice whose patients are people says patient, and the BAA, as before", async () => {
+  test("a demo for a practice whose patients are people is the owner's page (lib/demo/v2), in its own name", async () => {
     const { said, ringNote } = await page(session("med-spa", "Glow Med Spa", "glow-med-spa-k7q2mz9xwa"));
-    expect(said).toContain("Try her the way a patient would.");
-    expect(said).toContain("We sign a BAA and handle patient data under it");
-    expect(said).toContain("With a patient or on another line, the call still gets answered.");
-    expect(said).toContain("We sign a business associate agreement and handle patient data under it.");
-    expect(said).toContain("Ask me anything a patient would");
-    expect(said).toContain("please don't share real patient details");
-    expect(ringNote).toBe("One demo call, because you asked. Live, it only answers: it never dials a patient.");
+    expect(said).toContain("Glow Med Spa, answering every call and chat.");
+    expect(said).toContain("We sign a Business Associate Agreement with every plan.");
+    expect(said).toContain("Try her now. Call or message Aya like a patient would.");
+    expect(said).toContain("What are missed calls costing Glow?");
+    expect(said).not.toMatch(/Lumen/i);
+    // One way to talk on the owner's page, "Call Aya" in the browser (components/demo/PhoneCallCard.tsx): nothing rings a phone.
+    expect(ringNote).toBe("");
   });
 
   test("the redesigned close says clients and the data protection agreement for a vet, never patients or a BAA", async () => {
@@ -151,14 +157,11 @@ describe("a demo in its practice's own words", () => {
     expect(ringNote).toBe("One demo call, because you asked. Live, it only answers: it never dials a client.");
   });
 
-  test("the redesigned close says patient and the BAA for a practice whose patients are people", async () => {
+  test("both closes of a demo for people are the owner's page", async () => {
     process.env.DEMO_CLOSE_SPLIT = "close";
-    const { said, ringNote } = await page(session("med-spa", "Glow Med Spa", "glow-med-spa-k7q2mz9xwa"));
-    expect(said).toContain("message her the way a patient would.");
-    expect(said).toContain("We sign a business associate agreement and handle patient data under it.");
-    expect(said).toContain("We sign a BAA and handle patient data under it");
-    expect(said).toContain("Ask me anything a patient would");
-    expect(ringNote).toBe("One demo call, because you asked. Live, it only answers: it never dials a patient.");
+    const { said } = await page(session("med-spa", "Glow Med Spa", "glow-med-spa-k7q2mz9xwa"));
+    expect(said).toContain("Glow Med Spa, answering every call and chat.");
+    expect(said).not.toContain("Activate my AYA");
   });
 
   test("a vet's demo email says client, and its footer asks to leave out the clients' details", () => {

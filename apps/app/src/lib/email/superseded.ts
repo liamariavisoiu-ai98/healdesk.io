@@ -1,7 +1,7 @@
 import { CHANNELS, type Channel } from "@healdesk/catalog";
 import { and, eq, gt, sql } from "drizzle-orm";
 
-import { appointments, bookingRequests, clinicChannels, clinics, type ChannelWaitingOn } from "@/db/schema";
+import { appointments, bookingRequests, clinicChannels, clinics, paymentLinkTexts, type ChannelWaitingOn } from "@/db/schema";
 import { pauseEmailSuperseded } from "@/lib/channels/pause";
 import type { TenantTx } from "@/lib/tenant";
 
@@ -110,9 +110,19 @@ async function depositAlertSuperseded(tx: TenantTx, payload: unknown): Promise<s
     .where(and(eq(appointments.clinicId, tx.clinicId), eq(appointments.id, appointmentId)))
     .limit(1);
   if (!row || row.deposit === "pending_front_desk") return null;
-  return row.deposit === "pending_link"
-    ? "a payment link went out for the deposit before it could go"
-    : "the deposit was no longer the front desk's before it could go";
+  if (row.deposit === "pending_link") {
+    // A call's link counts as gone out only once its text is recorded sent:
+    // a link made for a text that never went (a crash between the link and
+    // the send) leaves the L10 to go, and the front desk to collect.
+    const [text] = await tx.db
+      .select({ status: paymentLinkTexts.status })
+      .from(paymentLinkTexts)
+      .where(and(eq(paymentLinkTexts.clinicId, tx.clinicId), eq(paymentLinkTexts.appointmentId, appointmentId)))
+      .limit(1);
+    if (text && text.status !== "sent") return null;
+    return "a payment link went out for the deposit before it could go";
+  }
+  return "the deposit was no longer the front desk's before it could go";
 }
 
 /** E4 and E5 are moot once the export is delivered, or once there is nothing left to export. */

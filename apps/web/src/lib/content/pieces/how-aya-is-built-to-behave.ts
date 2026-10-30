@@ -293,7 +293,7 @@ export const piece: Piece = {
             "AYA's prices are published on the [pricing](/pricing) page, per product and per location, with a one-time setup fee for each product. " +
             "On 19 October 2026 the page listed AYA Voice at $80 a month per 100 voice minutes, and AYA Web Chat at $40 and AYA Meta Chat at $60 per 100 conversations. " +
             "Their setup fees were $697, $259 and $697, a clinic picks its monthly step in units of 100, and annual billing is 20% off. " +
-            "Past the chosen step, each started block of 100 is billed at $104 for voice minutes, $52 for AYA Web Chat and $78 for AYA Meta Chat conversations, prices the page marks as provisional.",
+            "Past the chosen step, each started block of 100 is billed at $104 for voice minutes, $52 for AYA Web Chat and $78 for AYA Meta Chat conversations.",
           cite: ["pricing"],
         },
       ],

@@ -206,7 +206,7 @@ function ProductTable({ interval, offer }: { interval: BillingInterval; offer: S
                 Per 100 a month{interval === "year" ? ", billed yearly" : ""}
               </th>
               {OVERAGE_RATES_PROVISIONAL ? null : (
-                <th scope="col" className="py-3 pr-4">Each extra 100 (provisional)</th>
+                <th scope="col" className="py-3 pr-4">Each extra 100</th>
               )}
               <th scope="col" className="py-3">One-time setup</th>
             </tr>
@@ -260,10 +260,10 @@ function ProductTable({ interval, offer }: { interval: BillingInterval; offer: S
       </div>
       <p className="text-muted mt-4 max-w-[80ch] text-sm font-medium">
         Prices are per location, in US dollars, before any sales tax. Annual billing is{" "}
-        {annualSavingsPercent()}% off the monthly price.{" "}
+        {annualSavingsPercent()}% off the monthly price.
         {OVERAGE_RATES_PROVISIONAL
-          ? "Usage above your step is not billed until we publish those prices, and you will see them in writing before they apply."
-          : "The extra-100 prices are provisional until we have measured what a minute and a conversation cost to serve."}
+          ? " Usage above your step is not billed until we publish those prices, and you will see them in writing before they apply."
+          : null}
       </p>
     </section>
   );

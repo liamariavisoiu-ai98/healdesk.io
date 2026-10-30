@@ -354,8 +354,8 @@ function PackageCard({
  * A step for each product the package has: a native range input, so the
  * arrow keys, Home and End, and a screen reader's own slider gestures all
  * work, with the value said in words ("500 minutes a month"). Beside it the
- * product's monthly price at that step, and the price of each extra 100,
- * provisional, as a block and its price, never a per-unit rate.
+ * product's monthly price at that step, and the price of each extra 100, as
+ * a block and its price, never a per-unit rate.
  */
 function StepControls({
   pkg,
@@ -445,7 +445,7 @@ function StepSlider({
       </div>
       <p id={`${id}-extra`} className="text-muted mt-1.5 text-xs">
         {perStepLabel(product, interval)} a month.
-        {extraPrice ? ` Each extra ${STEP_UNITS} ${units}: ${extraPrice}, provisional.` : ""}
+        {extraPrice ? ` Each extra ${STEP_UNITS} ${units}: ${extraPrice}.` : ""}
       </p>
     </div>
   );

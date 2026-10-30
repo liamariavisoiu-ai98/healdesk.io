@@ -29,7 +29,7 @@ import { FIELD_LABEL, PrimaryButton, RiskLine, StepShell } from "./StepShell";
  * (the setup fee, less the one setup offer that applies) and what it pays
  * for; the plan-start sentence; for a package of more than one
  * channel, what is billed while some are not in service; what each month
- * includes, the provisional overage and what happens at the end of the
+ * includes, the overage and what happens at the end of the
  * allowance; sales tax where Stripe Tax is on; what the website read found;
  * the guarantee, in full; the signed agreement; and the terms tick-box beside
  * Pay. Every sentence is built in lib/checkout/review.ts from the catalog.

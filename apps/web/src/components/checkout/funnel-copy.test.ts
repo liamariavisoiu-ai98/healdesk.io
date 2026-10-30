@@ -498,12 +498,13 @@ describe("the package step", () => {
     expect(both[1]).toContain('aria-valuetext="300 conversations a month, $180 a month"');
   });
 
-  test("the price moves with the steps, and the extra 100 is quoted as provisional", () => {
+  test("the price moves with the steps, and the extra 100 is quoted as a block and its price", () => {
     const words = text(packageStep(initialFunnel({ plan: "voice-webchat-500-300" })));
     expect(words).toContain("AYA Voice + Web Chat, 500 minutes and 300 conversations");
     expect(words).toContain("$520/mo");
-    expect(words).toContain("Each extra 100 minutes: $104, provisional.");
-    expect(words).toContain("Each extra 100 conversations: $52, provisional.");
+    expect(words).toContain("Each extra 100 minutes: $104.");
+    expect(words).toContain("Each extra 100 conversations: $52.");
+    expect(words).not.toMatch(/provisional/i);
     const annual = text(packageStep(initialFunnel({ plan: "voice-500", interval: "year" })));
     expect(annual).toContain("$320 /mo billed annually, $3,840 a year");
   });

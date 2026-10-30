@@ -13,7 +13,7 @@ import { setupLine } from "@/lib/setup/channels";
 import { formatPhone } from "@/lib/setup/help";
 import { publicUrl } from "@/lib/public-url";
 
-import { EXTRA_BLOCKS_PROVISIONAL, extraBlockPrices, includedEachMonth } from "./billing-copy";
+import { extraBlockPrices, includedEachMonth } from "./billing-copy";
 import { compose, EmailCompositionError, type Block } from "./compose";
 import type { TemplateEntry } from "./registry";
 import type { EmailTemplate } from "./types";
@@ -24,8 +24,8 @@ import type { EmailTemplate } from "./types";
  *
  * It is the order's written record from the first day, so it carries the
  * terms the buyer agreed to: the package, the steps chosen (what it includes
- * each month) and the billing period, the extra-100 prices, marked
- * provisional (owner, 13 October 2026), the plan-start sentence and the
+ * each month) and the billing period, the extra-100 prices (as blocks, with
+ * nothing of our own costs: owner, 30 October 2026), the plan-start sentence and the
  * monthly price, the setup fee's rule and its receipt
  * (Stripe's hosted page for the paid first invoice: no separate receipt goes
  * for that invoice, contracts §3), how to cancel, and the Terms version
@@ -129,7 +129,6 @@ export const renderWelcome: EmailTemplate<WelcomePayload> = (payload, ctx) => {
         ...(payload.receiptUrl ? [["Setup fee", "Paid"] as const] : []),
       ],
     },
-    { type: "paragraph", text: EXTRA_BLOCKS_PROVISIONAL },
     ...(payload.receiptUrl
       ? [{ type: "action" as const, label: "Your setup-fee receipt", url: payload.receiptUrl }]
       : []),

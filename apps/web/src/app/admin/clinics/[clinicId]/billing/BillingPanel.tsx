@@ -540,8 +540,7 @@ function Usage({ view }: { view: View }) {
         </tbody>
       </table>
       <p className="text-muted mt-2 text-xs">
-        Overage rates are provisional until measured. Under &ldquo;stop and fall back&rdquo; nothing
-        is billed past the allowance.
+        Under &ldquo;stop and fall back&rdquo; nothing is billed past the allowance.
       </p>
     </div>
   );

@@ -51,8 +51,13 @@ import {
 // 2026-10-29.5 adds the 30-day record of calls and chats the assistant could
 // not answer to Privacy § 6 (owner, 29 October 2026), on 1.6.0's release text,
 // and replaces the live 2026-10-29.4.
-export const LEGAL_VERSION = BAA_1_6_0_RELEASED ? "2026-10-29.5" : "2026-10-29.3";
-export const LEGAL_LAST_UPDATED = "29 October 2026";
+// 2026-10-30.1 drops Terms section 3's sentence calling the block prices
+// provisional until we have measured what usage costs to serve (owner,
+// 30 October 2026: nothing client-facing talks about our costs); prices,
+// the block rule and the price-change notice of section 4 are unchanged. It
+// replaces the live 2026-10-29.5.
+export const LEGAL_VERSION = BAA_1_6_0_RELEASED ? "2026-10-30.1" : "2026-10-29.3";
+export const LEGAL_LAST_UPDATED = BAA_1_6_0_RELEASED ? "30 October 2026" : "29 October 2026";
 
 export const ENTITY = {
   /** Full legal name, e.g. "Healdesk, Inc." Empty until the founder supplies it. */

@@ -45,7 +45,8 @@ describe("the sheet, in its order", () => {
     for (const pkg of PACKAGES.filter((p) => p.voice && p.chat)) {
       expect(words, pkg.name).toContain(`$${packageSetupFeeUsd(pkg).toLocaleString("en-US")}`);
     }
-    expect(words).toContain("Each extra 100 (provisional)");
+    expect(words).toContain("Each extra 100");
+    expect(words).not.toMatch(/provisional/i);
     expect(setupFeeRangeLabel()).toBe("$259–$1,394");
   });
 

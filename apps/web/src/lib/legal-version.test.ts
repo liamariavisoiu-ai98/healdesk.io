@@ -69,10 +69,13 @@ const PINNED_BEFORE_1_6_0 = {
  * took 2026-10-29.3; none of those numbers went out). 2026-10-29.4 went live
  * on 29 October 2026. 2026-10-29.5 adds the 30-day missed-contact record to
  * Privacy § 6; Terms and the deletion page are word for word the same.
- * `replaces` records the live text this one replaces: 2026-10-29.4.
+ * 2026-10-30.1 drops Terms § 3's "provisional until we have measured what that
+ * usage costs to serve" (owner, 30 October 2026); Privacy and the deletion
+ * page are word for word 2026-10-29.5's. `replaces` records the live text this
+ * one replaces: 2026-10-29.5.
  */
 const PINNED_WITH_1_6_0 = {
-  version: "2026-10-29.5",
+  version: "2026-10-30.1",
   /**
    * Written out, not copied from the pin above: the release day is 29 October
    * 2026 or later, and LEGAL_LAST_UPDATED in src/lib/legal.ts and this value
@@ -80,15 +83,16 @@ const PINNED_WITH_1_6_0 = {
    * "29 October 2026" is what legal.ts says today; a release on a later day
    * moves both again.
    */
-  lastUpdated: "29 October 2026",
+  lastUpdated: "30 October 2026",
   /**
-   * 2026-10-29.4 is the live text this one replaces (healdesk.io/terms printed
-   * it on 29 October 2026, checked when GATEB and WEBCHAT-2 were merged).
+   * 2026-10-29.5 is the live text this one replaces (healdesk.io/terms printed
+   * it on 30 October 2026, checked when the provisional wording was dropped).
    */
-  replaces: "2026-10-29.4",
+  replaces: "2026-10-29.5",
   sha256: {
     ...PINNED_BEFORE_1_6_0.sha256,
-    "/terms": "4ac638372f90bc5d52d7a4cb705043ade7f9d8d3ccbdd2635c997fcdf4977506",
+    // 2026-10-30.1: Terms § 3 no longer calls the block prices provisional.
+    "/terms": "75931be6b23d85d3d5d11fe13cae3cb25eb7adbcbdd628bdf6f92b27fc762af5",
     // 2026-10-29.5: Privacy § 6 lists the 30-day missed-contact record.
     "/privacy": "82ff31ac73c289db7b2565be604f7162c0ad24b414ddc272ee5cce5decd6aff2",
   },

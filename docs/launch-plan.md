@@ -470,12 +470,14 @@ $120 a month; Voice at 500 is $400; Voice 500 + Web Chat 300 is $520; Voice 500 
 is $700. Setup is discounted for 48 hours: 50% on a personalised demo an operator sends, 30% on one
 a visitor builds on the homepage and to anyone else buying on the website.
 
-**Overage rates are provisional.** Each started block of 100 past the step bills at the extra-100
+**Overage rates.** Each started block of 100 past the step bills at the extra-100
 price above, set by the owner on 13 October 2026; the clinic is emailed at 90% of its step and
-can move up instead, which is always cheaper than a block. The pricing page prints them marked
-provisional, and a monthly checkout attaches each plan's metered prices
-(`OVERAGE_RATES_PROVISIONAL` is false). They are a judgement, not a measurement: measured voice
-and chat cost from pilot traffic (launch step 3.5) replaces them.
+can move up instead, which is always cheaper than a block. The pricing page prints each block
+and its price, and a monthly checkout attaches each plan's metered prices
+(`OVERAGE_RATES_PROVISIONAL` is false). Internally they are a judgement, to be checked against
+measured voice and chat cost from pilot traffic (launch step 3.5); no client-facing copy calls
+them provisional or talks about our costs (owner, 30 October 2026), and a change follows the
+Terms' price-change notice.
 
 **Why above the $295–299 cluster, not under it.** The cluster is voice-only, single-channel,
 and sold on answered calls. These packages are sold on *recovered* calls with closed-loop

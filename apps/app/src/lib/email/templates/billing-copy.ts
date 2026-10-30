@@ -186,8 +186,8 @@ export function includedEachMonth(plan: Plan): string {
 /**
  * The extra-100 price of each thing a plan meters, as the block and its price
  * and never a per-unit rate (CLAUDE.md, "Claims and copy"): "$104 for each
- * started block of 100 extra voice minutes". Always beside
- * EXTRA_BLOCKS_PROVISIONAL.
+ * started block of 100 extra voice minutes". No email says anything of our
+ * own costs beside it (owner, 30 October 2026).
  */
 export function extraBlockPrices(plan: Plan): string[] {
   const line = (rateUsd: number, many: string) =>
@@ -201,10 +201,6 @@ export function extraBlockPrices(plan: Plan): string[] {
       : []),
   ];
 }
-
-/** The overage rates are provisional until measured, and every email that prints one says so. */
-export const EXTRA_BLOCKS_PROVISIONAL =
-  "The extra-block prices are provisional until we've measured what each minute and conversation costs us.";
 
 // -----------------------------------------------------------------------------
 // Dates

@@ -355,6 +355,14 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * LEGAL_VERSION 2026-10-29.5 (29 October 2026) changes the privacy policy
  * only (the 30-day missed-contact record, its section 6); this page's text
  * is word for word as released in 2026-10-29.4.
+ *
+ * LEGAL_VERSION 2026-10-30.1 (30 October 2026, owner's decision that day)
+ * drops section 3's sentence calling the block prices provisional until we
+ * have measured what usage costs to serve: nothing client-facing talks about
+ * our costs. The block prices, the block rule and the 90% email are
+ * unchanged, and a change to any price is still governed by section 4's
+ * "Price changes" (next renewal, 30 days' email notice, cancel before it
+ * applies) and section 16, as it was before.
  */
 export default function TermsPage() {
   const products = productsForTerms();
@@ -526,7 +534,7 @@ export default function TermsPage() {
           {OVERAGE_BLOCK_UNITS} extra chat conversations is billed{" "}
           {OVERAGE_RATES_PROVISIONAL
             ? "at block prices we will give you in writing before they apply. Until then, usage above the allowance is not billed."
-            : "at that product's price for each extra 100 in the table above, so a single minute or conversation over the allowance is billed as a whole block, and the same applies above the largest step. These block prices are provisional until we have measured what that usage costs to serve. On a monthly plan the blocks are billed in arrears on the next invoice; on an annual plan they are invoiced separately, monthly in arrears, at the same prices."}{" "}
+            : "at that product's price for each extra 100 in the table above, so a single minute or conversation over the allowance is billed as a whole block, and the same applies above the largest step. On a monthly plan the blocks are billed in arrears on the next invoice; on an annual plan they are invoiced separately, monthly in arrears, at the same prices."}{" "}
           When you have used {USAGE_ALERT_PERCENT}% of an allowance we email the address on your
           account, so you can move up a step before you go over; if you do not, usage above it is
           billed as this paragraph says. Nothing else is charged for usage.

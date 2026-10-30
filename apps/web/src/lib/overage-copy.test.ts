@@ -182,22 +182,19 @@ describe("Review and pay states the package's own block prices", () => {
     if (OVERAGE_RATES_PROVISIONAL) return;
     const plan = getPlan(id)!;
     const words = reviewAndPay(plan, interval);
+    const when = interval === "year" ? "invoiced monthly" : "on your next invoice";
     const line = words.slice(
       words.indexOf("Past that:"),
-      words.indexOf("These rates are provisional"),
+      words.indexOf(when) + when.length + 1,
     );
     const parts = said(
       plan,
       (price, meter) =>
         `${price} for each started block of ${OVERAGE_BLOCK_UNITS} extra ${meter === "voiceMinutes" ? "voice minutes" : "chat conversations"}`,
     );
-    const when = interval === "year" ? "invoiced monthly" : "on your next invoice";
     expect(line.trim()).toBe(`Past that: ${parts.join(" and ")}, ${when}.`);
-    // Provisional, said beside the price, as the pricing cards' ", provisional"
-    // said it until the cards went with /pricing (CLAUDE.md, "Claims and copy").
-    expect(words).toContain(
-      `${when}. These rates are provisional until we have measured what a minute and a conversation cost to serve.`,
-    );
+    // Nothing of our own costs beside the price (owner, 30 October 2026).
+    expect(words).not.toMatch(/provisional|cost to serve|measured what/i);
   });
 });
 
@@ -243,7 +240,7 @@ describe("Terms section 3 states the block and each product's extra-100 price", 
   });
 });
 
-describe("/pricing states each product's extra-100 price, provisional", () => {
+describe("/pricing states each product's extra-100 price", () => {
   const words = text(renderToStaticMarkup(h(PricingPage)));
 
   test.each(Object.values(PRODUCTS).map((product) => [product.name, product] as const))("%s", (_name, product) => {
@@ -252,10 +249,10 @@ describe("/pricing states each product's extra-100 price, provisional", () => {
     expect(words).toContain(`${money(overageBlockCents(product.overagePerUnitUsd))} per 100 ${unit}`);
   });
 
-  test("the block rule and the word provisional", () => {
+  test("the block rule, and nothing of our costs", () => {
     if (OVERAGE_RATES_PROVISIONAL) return;
     expect(words).toContain(`each started block of ${OVERAGE_BLOCK_UNITS} past your step is billed at that product's extra-100 price`);
-    expect(words).toContain("The extra-100 prices are provisional until we have measured what a minute and a conversation cost to serve.");
+    expect(words).not.toMatch(/provisional|cost to serve|measured what/i);
   });
 });
 
@@ -286,7 +283,7 @@ describe("the demo call quotes the block and every block price the packages bill
     const words = VOICE_DEMO_PRICES.replace(/\s+/g, " ");
     const line = words.slice(
       words.indexOf("Beyond the included amount"),
-      words.indexOf(" These overage rates are provisional"),
+      words.indexOf(" Mention overage only if asked"),
     );
     const block = `each started block of ${OVERAGE_BLOCK_UNITS}`;
     expect(line).toBe(

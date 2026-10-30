@@ -79,6 +79,27 @@ export function conversationsUntilBuilt(live: readonly Channel[]): string {
   return transcripts ? `${transcripts}; ${dms}` : dms;
 }
 
+/**
+ * The one sentence under the menu for the patient screens not open yet
+ * (PortalShell.tsx, 30 October 2026; until then each was a greyed tile that
+ * looked like a button and did nothing): "Conversations and Bookings open
+ * after go-live." when that is what each says, else each screen's own line,
+ * one sentence apiece. Empty when every screen is a link.
+ */
+export function notYetLine(items: readonly NavItem[]): string {
+  const waiting = items.filter((item): item is Extract<NavItem, { href: null }> => item.href === null);
+  const opening = waiting.filter((item) => item.note === OPENS_AFTER_GO_LIVE).map((item) => item.label);
+  const parts: string[] = [];
+  if (opening.length > 0) {
+    const list = opening.length > 1 ? `${opening.slice(0, -1).join(", ")} and ${opening.at(-1)}` : opening[0]!;
+    parts.push(`${list} ${opening.length > 1 ? "open" : "opens"} after go-live.`);
+  }
+  for (const item of waiting) {
+    if (item.note !== OPENS_AFTER_GO_LIVE) parts.push(`${item.label}: ${item.note}.`);
+  }
+  return parts.join(" ");
+}
+
 /** The path of a section on a clinic's portal. */
 export function sectionPath(slug: string, section: PortalSection): string {
   const entry = SECTIONS.find((s) => s.section === section);

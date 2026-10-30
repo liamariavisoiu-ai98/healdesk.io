@@ -32,7 +32,7 @@ export function sameFields(a: ApprovalEditFields, b: ApprovalEditFields): boolea
   return (a.days ?? null) === (b.days ?? null) && (a.phrase ?? null) === (b.phrase ?? null) && (a.note ?? null) === (b.note ?? null);
 }
 
-const LABEL = "text-muted block text-[13.2px] font-bold tracking-[0.06em] uppercase";
+const LABEL = "text-muted block text-xs font-bold tracking-[0.06em] uppercase";
 const FIELD = "border-line mt-1 rounded-sm border bg-white px-3 py-2";
 
 function EditableField({ field, fields, onChange }: { field: ContactEditable; fields: ApprovalEditFields; onChange: (fields: ApprovalEditFields) => void }) {
@@ -125,7 +125,7 @@ export function ContactDraft({
 
   return (
     <div className="border-line mt-3 rounded-sm border bg-paper-2/40 p-4 text-sm">
-      <p className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">{DRAFT_HEADING}</p>
+      <p className="text-muted text-xs font-bold tracking-[0.06em] uppercase">{DRAFT_HEADING}</p>
       <p className="mt-2 font-semibold">{draft.subject}</p>
       <pre className="mt-2 font-sans whitespace-pre-wrap">{draft.body}</pre>
       {changed && !previewed ? (

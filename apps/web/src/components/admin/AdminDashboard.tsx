@@ -495,7 +495,7 @@ export function AdminDashboard({
     : "over a window that could not be read";
 
   return (
-    <main className="mx-auto w-full max-w-[1240px] flex-1 px-5 pt-8 pb-24 sm:px-8 sm:pt-10 lg:px-14">
+    <main className="mx-auto w-full max-w-page flex-1 px-5 pt-8 pb-24 sm:px-8 sm:pt-10 lg:px-14">
       <LiveIndicator
         source={changes.source}
         ok={changes.ok}
@@ -513,10 +513,10 @@ export function AdminDashboard({
 
       <div className="mt-10 flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
-          <h1 className="font-display text-[clamp(36px,5.52vw,52.8px)] leading-[1.04] font-medium tracking-[-0.028em]">
+          <h1 className="font-display text-[clamp(var(--text-3xl),5.52vw,var(--text-5xl))] leading-[1.04] font-medium tracking-[-0.028em]">
             What is changing.
           </h1>
-          <p className="text-muted mt-3 max-w-[54ch] text-[18px] font-medium">
+          <p className="text-muted mt-3 max-w-[54ch] text-base font-medium">
             Every commit to this repository as it lands, where the work is
             concentrated, and what is still queued behind it.
           </p>
@@ -649,11 +649,11 @@ function PanelHeading({
     <div>
       <h2
         id={id}
-        className="font-display text-[22.8px] leading-tight font-medium tracking-[-0.015em]"
+        className="font-display text-xl leading-tight font-medium tracking-[-0.015em]"
       >
         {title}
       </h2>
-      <p className="text-muted mt-1 text-[15.6px] font-medium">{blurb}</p>
+      <p className="text-muted mt-1 text-sm font-medium">{blurb}</p>
     </div>
   );
 }
@@ -791,14 +791,14 @@ function StatStrip({
       </dl>
 
       {measured ? null : (
-        <p className="text-muted mt-3 text-[15.6px] font-medium">
+        <p className="text-muted mt-3 text-sm font-medium">
           These are blank rather than zero because the repository could not be
           read. Nothing here says the work stopped.
         </p>
       )}
 
       {partial ? (
-        <p className="text-muted mt-3 text-[15.6px] font-medium">
+        <p className="text-muted mt-3 text-sm font-medium">
           {coverage?.from
             ? `These count the ${commits} commits this read could measure, which reach back to ${formatDay(coverage.from)}, not the whole window. Every number above can only go up.`
             : `These count the ${commits} commits this read could measure, not the whole window. Every number above can only go up.`}
@@ -821,7 +821,7 @@ function Stat({
 }) {
   return (
     <div className="border-line rounded-md border bg-white p-5">
-      <dt className="text-muted text-[12.6px] leading-none font-bold tracking-[0.16em] uppercase">
+      <dt className="text-muted text-xs leading-none font-bold tracking-[0.16em] uppercase">
         {label}
       </dt>
       <dd
@@ -829,7 +829,7 @@ function Stat({
           // Comfortably below the h1 and comfortably above the panel titles,
           // the three sizes on this page are 44 / 34 / 19, and they are meant
           // to be read in that order.
-          "font-figure mt-3 text-[clamp(31.2px,3.84vw,40.8px)] leading-none font-semibold tracking-[-0.024em] tabular-nums",
+          "font-figure mt-3 text-[clamp(var(--text-3xl),3.84vw,var(--text-4xl))] leading-none font-semibold tracking-[-0.024em] tabular-nums",
           // The gradient is for a number that was actually measured. An absence
           // rendered in brand colours would look like an achievement.
           emphasis ? "text-brand-gradient" : "",
@@ -837,7 +837,7 @@ function Stat({
       >
         {value}
       </dd>
-      <p className="text-muted mt-2.5 text-[14.4px] leading-snug font-medium">
+      <p className="text-muted mt-2.5 text-xs leading-snug font-medium">
         {hint}
       </p>
     </div>
@@ -881,7 +881,7 @@ function WindowControl({
               disabled={disabled}
               onClick={() => onChoose(choice)}
               className={[
-                "rounded-full px-4 py-2 text-[15.6px] font-bold transition-all duration-fast disabled:opacity-40",
+                "rounded-full px-4 py-2 text-sm font-bold transition-all duration-fast disabled:opacity-40",
                 isSelected
                   ? "bg-brand-gradient shadow-sm text-white"
                   : "text-muted hover:text-ink",
@@ -910,7 +910,7 @@ function SessionExpiredNotice() {
       role="alert"
       className="border-red/40 bg-paper-2 mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border px-4 py-3"
     >
-      <p className="min-w-0 text-[15.6px] leading-snug font-medium">
+      <p className="min-w-0 text-sm leading-snug font-medium">
         <span className="font-bold">This session has ended.</span>{" "}
         <span className="text-muted">
           Updates have stopped. Everything below is the last read before it
@@ -919,7 +919,7 @@ function SessionExpiredNotice() {
       </p>
       <a
         href="/admin/sign-in"
-        className="bg-brand-gradient shadow-sm ml-auto shrink-0 rounded-full px-4 py-2 text-[15.6px] font-bold text-white transition-transform duration-fast hover:-translate-y-0.5"
+        className="bg-brand-gradient shadow-sm ml-auto shrink-0 rounded-full px-4 py-2 text-sm font-bold text-white transition-transform duration-fast hover:-translate-y-0.5"
       >
         Sign in again
       </a>
@@ -1008,7 +1008,7 @@ export function SignOutButton() {
   return (
     <div className="flex items-center gap-3">
       {failed ? (
-        <span role="status" className="text-red-deep text-[14.4px] font-semibold">
+        <span role="status" className="text-red-deep text-xs font-semibold">
           Sign-out failed. You are still signed in.
         </span>
       ) : null}
@@ -1016,7 +1016,7 @@ export function SignOutButton() {
         type="button"
         onClick={() => void signOut()}
         disabled={busy}
-        className="border-line hover:border-line-strong text-muted hover:text-ink rounded-full border px-4 py-2 text-[15.6px] font-semibold transition-colors disabled:opacity-40"
+        className="border-line hover:border-line-strong text-muted hover:text-ink rounded-full border px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-40"
       >
         {busy ? "Signing out…" : "Sign out"}
       </button>

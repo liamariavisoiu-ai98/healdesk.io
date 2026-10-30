@@ -79,7 +79,7 @@ function NoteLine({ note }: { note: Note }) {
 function CodeField() {
   return (
     <label className="grid gap-1">
-      <span className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">
+      <span className="text-muted text-xs font-bold tracking-[0.06em] uppercase">
         Code from your authenticator
       </span>
       <input
@@ -104,7 +104,7 @@ export function DevicesSection({
 }) {
   return (
     <section className="border-line mt-8 rounded-md border bg-white p-5">
-      <h2 className="text-lg font-semibold">Devices</h2>
+      <h2 className="text-xl font-semibold">Devices</h2>
       <div className="mt-2">
         {!view.ok ? (
           <p className="text-red-deep text-sm font-semibold">{view.message}</p>

@@ -164,7 +164,7 @@ export function BasicsScreen(
           id={zoneId}
           value={timezone}
           onChange={(event) => setTimezone(event.target.value)}
-          className="border-line min-h-11 rounded-xl border bg-white px-4 py-2"
+          className="border-line min-h-11 rounded-md border bg-white px-4 py-2"
         >
           {options.map((zone) => (
             <option key={zone.id} value={zone.id}>
@@ -179,7 +179,7 @@ export function BasicsScreen(
         </p>
       </div>
       {disagrees ? (
-        <div className="rounded-xl border border-line bg-white px-4 py-3 text-sm">
+        <div className="rounded-md border border-line bg-white px-4 py-3 text-sm">
           <p>
             This device&rsquo;s clock says {labelOf(browserZone!)}, but we have {labelOf(timezone)}.
             Which is right for the practice?

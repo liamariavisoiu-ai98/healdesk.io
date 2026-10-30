@@ -96,7 +96,7 @@ export function NameGate({
       <div className="name-pill" data-phase={phase} role="group" aria-label="Before we start">
         <div className="name-pill__layer name-pill__loading" data-on={phase === "loading" || undefined} inert={phase !== "loading"}>
           <span aria-hidden className="name-spinner" />
-          <span role="status" className="text-[16px] font-semibold">
+          <span role="status" className="text-sm font-semibold">
             {phase === "loading" ? "Let’s start" : ""}
           </span>
         </div>
@@ -137,7 +137,7 @@ export function NameGate({
         </form>
 
         <div className="name-pill__layer name-pill__wait" data-on={phase === "waiting" || undefined} inert={phase !== "waiting"}>
-          <p role="status" aria-live="polite" className="text-[15.5px] font-semibold">
+          <p role="status" aria-live="polite" className="text-sm font-semibold">
             {phase === "waiting" ? (
               <>
                 {waitingText}
@@ -153,7 +153,7 @@ export function NameGate({
         </div>
       </div>
       {error ? (
-        <p id={errorId} role="alert" className="text-red-deep mt-2 text-[14px] font-semibold">
+        <p id={errorId} role="alert" className="text-red-deep mt-2 text-xs font-semibold">
           {error}
         </p>
       ) : null}

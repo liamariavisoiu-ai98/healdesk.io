@@ -42,7 +42,7 @@ export default function GlobalError({
       <body className="min-h-screen antialiased">
         <title>{`Something went wrong, ${site.name}`}</title>
 
-        <main className="mx-auto flex min-h-screen max-w-[1240px] flex-col px-5 py-10 sm:px-8 lg:px-14">
+        <main className="mx-auto flex min-h-screen max-w-page flex-col px-5 py-10 sm:px-8 lg:px-14">
           <a href="/" aria-label={`${site.name} home`} className="inline-block">
             <img
               src="/brand/healdesk-logo.webp"
@@ -57,11 +57,11 @@ export default function GlobalError({
             <p className="eyebrow-tag">
               Something went wrong
             </p>
-            <h1 className="mt-3 text-[clamp(36px,5.5vw,60px)] leading-[1.05] font-semibold tracking-[-0.025em]">
+            <h1 className="mt-3 text-[clamp(var(--text-3xl),5.5vw,var(--text-6xl))] leading-[1.05] font-semibold tracking-[-0.025em]">
               The page didn&rsquo;t load. {site.agent} is still answering the
               phone.
             </h1>
-            <p className="text-muted mt-5 text-[19px] font-medium">
+            <p className="text-muted mt-5 text-lg font-medium">
               An error on our side stopped this page from rendering. Reload to
               try again, or write to a person and we&rsquo;ll sort it out.
             </p>
@@ -70,26 +70,26 @@ export default function GlobalError({
               <button
                 type="button"
                 onClick={() => retry()}
-                className="bg-brand-gradient inline-flex items-center justify-center rounded-full px-7 py-3.5 text-base font-bold text-white"
+                className="bg-brand-gradient inline-flex items-center justify-center rounded-full px-7 py-3.5 text-lg font-bold text-white"
               >
                 Try again
               </button>
               <a
                 href="/"
-                className="border-line text-ink inline-flex items-center justify-center rounded-full border bg-white px-7 py-3.5 text-base font-bold"
+                className="border-line text-ink inline-flex items-center justify-center rounded-full border bg-white px-7 py-3.5 text-lg font-bold"
               >
                 Back to the homepage
               </a>
               <a
                 href={`mailto:${site.email}`}
-                className="text-muted text-base font-semibold underline underline-offset-2"
+                className="text-muted text-lg font-semibold underline underline-offset-2"
               >
                 {site.email}
               </a>
             </div>
 
             {error.digest ? (
-              <p className="text-muted mt-8 text-[13px]">
+              <p className="text-muted mt-8 text-xs">
                 Reference <code>{error.digest}</code>, in case you write in.
               </p>
             ) : null}

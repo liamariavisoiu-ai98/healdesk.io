@@ -52,7 +52,7 @@ export function SignInCard(props: {
     <section
       id="sign-in"
       aria-labelledby="sign-in-heading"
-      className="border-line scroll-mt-6 rounded-2xl border bg-white px-4 py-4 sm:px-5"
+      className="border-line scroll-mt-6 rounded-md border bg-white px-4 py-4 sm:px-5"
     >
       <h2 id="sign-in-heading" className="text-lg font-semibold">
         Sign-in
@@ -145,7 +145,7 @@ function Devices(props: {
       ) : (
         <ul className="mt-2 grid gap-2">
           {devices.map((d) => (
-            <li key={d.id} className="border-line rounded-xl border px-4 py-3 text-sm">
+            <li key={d.id} className="border-line rounded-md border px-4 py-3 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p>
                   <span className="font-semibold">{d.label}</span>
@@ -307,7 +307,7 @@ function SomeoneLeft(props: { slug: string; devices: DeviceView[] }) {
         person who has left can&rsquo;t get back in. Everyone else signs in again with a link.
       </p>
       {open ? (
-        <div className="border-line mt-3 rounded-xl border px-4 py-3 text-sm">
+        <div className="border-line mt-3 rounded-md border px-4 py-3 text-sm">
           {props.devices.length > 0 ? (
             <fieldset className="grid gap-2">
               <legend className="font-semibold">Remove these devices too</legend>
@@ -334,7 +334,7 @@ function SomeoneLeft(props: { slug: string; devices: DeviceView[] }) {
             </fieldset>
           ) : null}
           {everyDevice ? (
-            <p className="mt-2 font-semibold text-red-800">
+            <p className="mt-2 font-semibold text-problem">
               With every device removed and the backup reset, adding a device again may need our
               help: we call your clinic back, then email its address a link that adds one.
             </p>

@@ -50,14 +50,14 @@ export function LegalPage({
   return (
     <>
       <Nav />
-      <div className="mx-auto max-w-[1240px] px-5 sm:px-8 lg:grid lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-12 lg:px-14 xl:grid-cols-[15rem_minmax(0,1fr)] xl:gap-20">
+      <div className="mx-auto max-w-page px-5 sm:px-8 lg:grid lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-12 lg:px-14 xl:grid-cols-[15rem_minmax(0,1fr)] xl:gap-20">
         <LegalContents entries={contentsOf(children)} />
 
         <main className="mx-auto max-w-[760px] pt-14 pb-24 sm:pt-20 lg:mx-0">
           {!complete ? (
             <div
               role="status"
-              className="border-sun bg-sun/[0.16] mb-8 rounded-md border px-5 py-4 text-[15px] leading-relaxed"
+              className="border-sun bg-sun/[0.16] mb-8 rounded-md border px-5 py-4 text-sm leading-relaxed"
             >
               <strong>Draft.</strong> This page is complete except for the legal
               entity name, postal address and governing law, which are being
@@ -68,10 +68,10 @@ export function LegalPage({
           ) : null}
 
           <p className="eyebrow-tag">Legal</p>
-          <h1 className="font-display mt-3 text-[clamp(34px,5vw,52px)] leading-[1.05] font-medium tracking-[-0.025em]">
+          <h1 className="font-display mt-3 text-[clamp(var(--text-3xl),5vw,var(--text-5xl))] leading-[1.05] font-medium tracking-[-0.025em]">
             {title}
           </h1>
-          <p className="text-muted mt-5 max-w-[34em] text-[18px] leading-[1.6] font-medium">{intro}</p>
+          <p className="text-muted mt-5 max-w-[34em] text-base leading-[1.6] font-medium">{intro}</p>
 
           <div className="legal-prose mt-10">{children}</div>
 
@@ -93,8 +93,8 @@ type SectionProps = { id: string; title: string; children: React.ReactNode };
 export function Section({ id, title, children }: SectionProps) {
   return (
     <section id={id} className="mt-12 scroll-mt-24">
-      <h2 className="font-display text-[26px] leading-tight font-medium tracking-[-0.02em]">{title}</h2>
-      <div className="mt-4 space-y-4 text-[16.5px] leading-[1.7] [&_li]:max-w-[34em] [&_p]:max-w-[34em]">
+      <h2 className="font-display text-2xl leading-tight font-medium tracking-[-0.02em]">{title}</h2>
+      <div className="mt-4 space-y-4 text-sm leading-[1.7] [&_li]:max-w-[34em] [&_p]:max-w-[34em]">
         {children}
       </div>
     </section>

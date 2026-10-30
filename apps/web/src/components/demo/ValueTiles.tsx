@@ -87,20 +87,20 @@ export function ValueTiles({ schedule }: { schedule: WeekSchedule }) {
 
       <div className="mx-auto mt-8 grid max-w-[980px] gap-3 sm:grid-cols-3">
         <Tile label="Hours someone answers">
-          <p className="font-display text-[44px] leading-none font-medium tabular-nums">
+          <p className="font-display text-4xl leading-none font-medium tabular-nums">
             {shownOpen}
-            <span className="text-muted mx-1.5 text-[28px]">→</span>
+            <span className="text-muted mx-1.5 text-2xl">→</span>
             {HOURS_IN_A_WEEK}
           </p>
-          <p className="text-muted mt-1 text-[14.4px] font-semibold">hours a week</p>
-          <p className="mt-3 text-[15px] leading-snug font-semibold">
+          <p className="text-muted mt-1 text-xs font-semibold">hours a week</p>
+          <p className="mt-3 text-sm leading-snug font-semibold">
             Today, for {Number.isInteger(closed) ? closed : closed.toFixed(1)} hours a week, no one at {clinicName} can pick up.
           </p>
         </Tile>
 
         <Tile label="Calls and messages answered" estimate>
-          <p className="font-display text-[44px] leading-none font-medium tabular-nums">≈ {shownEnquiries}</p>
-          <p className="text-muted mt-1 text-[14.4px] font-semibold">a month</p>
+          <p className="font-display text-4xl leading-none font-medium tabular-nums">≈ {shownEnquiries}</p>
+          <p className="text-muted mt-1 text-xs font-semibold">a month</p>
           <Formula>
             {inputs.missedCallsPerWeek} missed calls + {inputs.missedMessagesPerWeek} unanswered messages a week, × 4.33 weeks. Your
             figures, not ours: change them below.
@@ -108,9 +108,9 @@ export function ValueTiles({ schedule }: { schedule: WeekSchedule }) {
         </Tile>
 
         <Tile label="Booked value" estimate highlight>
-          <p className="font-display text-[44px] leading-none font-medium tabular-nums">≈ {usd.format(shownValue)}</p>
-          <p className="mt-1 text-[14.4px] font-semibold opacity-75">a month, first visits only</p>
-          <p className="mt-3 rounded-sm bg-white/70 px-3 py-2 text-[15px] font-bold tabular-nums">
+          <p className="font-display text-4xl leading-none font-medium tabular-nums">≈ {usd.format(shownValue)}</p>
+          <p className="mt-1 text-xs font-semibold opacity-75">a month, first visits only</p>
+          <p className="mt-3 rounded-sm bg-white/70 px-3 py-2 text-sm font-bold tabular-nums">
             {site.agent}: {usd.format(rec.monthlyUsd)}/month
           </p>
           <Formula>
@@ -121,7 +121,7 @@ export function ValueTiles({ schedule }: { schedule: WeekSchedule }) {
       </div>
 
       <details className="group border-line mx-auto mt-4 max-w-[980px] rounded-md border bg-white">
-        <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between px-5 text-[15px] font-bold">
+        <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between px-5 text-sm font-bold">
           Adjust to your clinic
           <span aria-hidden className="text-muted transition-transform group-open:rotate-45">+</span>
         </summary>
@@ -162,7 +162,7 @@ export function ValueTiles({ schedule }: { schedule: WeekSchedule }) {
             format={(n) => `${n}%`}
             onChange={(n) => change({ bookingRate: n / 100 })}
           />
-          <p className="text-muted text-[13.2px] sm:col-span-2">
+          <p className="text-muted text-xs sm:col-span-2">
             The volume you set here also sets the plan&rsquo;s steps: {rec.plan.name.split(", ")[1] ?? rec.plan.name}, at{" "}
             {usd.format(rec.monthlyUsd)} a month.
           </p>
@@ -185,10 +185,10 @@ function Tile({
 }) {
   return (
     <div className={`rounded-md px-5 py-6 ${highlight ? "bg-[#e5f6dc] text-[#172a3a]" : "border-line border bg-white"}`}>
-      <p className="flex items-center gap-2 text-[12.6px] font-bold tracking-[0.1em] uppercase opacity-70">
+      <p className="flex items-center gap-2 text-xs font-bold tracking-[0.1em] uppercase opacity-70">
         {label}
         {estimate ? (
-          <span className="border-current/30 rounded-full border px-1.5 py-px text-[10.8px] tracking-[0.06em]">Estimate</span>
+          <span className="border-current/30 rounded-full border px-1.5 py-px text-xs tracking-[0.06em]">Estimate</span>
         ) : null}
       </p>
       <div className="mt-3">{children}</div>
@@ -198,7 +198,7 @@ function Tile({
 
 function Formula({ children }: { children: React.ReactNode }) {
   return (
-    <details className="mt-3 text-[13.2px]">
+    <details className="mt-3 text-xs">
       <summary className="cursor-pointer font-semibold underline underline-offset-2 opacity-75">How this is worked out</summary>
       <p className="mt-1.5 leading-snug opacity-80">{children}</p>
     </details>
@@ -224,9 +224,9 @@ function Slider({
 }) {
   return (
     <label className="block">
-      <span className="flex items-baseline justify-between text-[14.4px] font-semibold">
+      <span className="flex items-baseline justify-between text-xs font-semibold">
         {label}
-        <span className="font-display text-[18px] tabular-nums">{format(value)}</span>
+        <span className="font-display text-base tabular-nums">{format(value)}</span>
       </span>
       <input
         type="range"

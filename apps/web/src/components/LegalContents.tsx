@@ -97,7 +97,7 @@ export function LegalContents({ entries }: { entries: readonly LegalContentsEntr
                   // One weight in both states: a bolder current entry would
                   // re-wrap its title, and the rail would shift as it moved.
                   className={[
-                    "block border-l-2 py-1 pl-4 text-[14px] leading-snug font-medium transition-colors duration-fast",
+                    "block border-l-2 py-1 pl-4 text-xs leading-snug font-medium transition-colors duration-fast",
                     current
                       ? "border-red text-ink"
                       : "border-line text-muted hover:border-line-strong hover:text-ink",

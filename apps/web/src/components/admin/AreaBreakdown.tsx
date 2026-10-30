@@ -151,10 +151,10 @@ export function AreaBreakdown({
     <figure className="border-line rounded-md border bg-white p-5 sm:p-6">
       <figcaption className="flex flex-wrap items-baseline justify-between gap-x-5 gap-y-2">
         <div>
-          <h3 className="font-display text-[22.8px] leading-tight font-medium">
+          <h3 className="font-display text-xl leading-tight font-medium">
             Where the change landed
           </h3>
-          <p className="text-muted mt-1 text-[15.6px] font-medium">
+          <p className="text-muted mt-1 text-sm font-medium">
             {complete
               ? "Lines changed per area of the repo, biggest first."
               : "Lines changed per area, biggest first, across the commits this read counted rather than the whole window."}
@@ -169,7 +169,7 @@ export function AreaBreakdown({
       </figcaption>
 
       {model.rows.length === 0 ? (
-        <p className="border-line text-muted mt-5 rounded-md border border-dashed px-4 py-10 text-center text-[16.8px] font-semibold">
+        <p className="border-line text-muted mt-5 rounded-md border border-dashed px-4 py-10 text-center text-base font-semibold">
           {!ok
             ? "This is blank because the repository could not be read, not because nothing was touched"
             : areas.length === 0
@@ -198,8 +198,8 @@ export function AreaBreakdown({
                 ].join(" ")}
               >
                 <div className="flex items-baseline justify-between gap-4">
-                  <span className="text-[16.8px] font-semibold">{row.area}</span>
-                  <span className="text-[16.8px] font-semibold tabular-nums">
+                  <span className="text-base font-semibold">{row.area}</span>
+                  <span className="text-base font-semibold tabular-nums">
                     {NUMBER.format(churn)}
                   </span>
                 </div>
@@ -287,7 +287,7 @@ function KeyItem({ fill, label }: { fill: string; label: string }) {
         className="block h-2.5 w-2.5 rounded-sm"
         style={{ backgroundColor: fill }}
       />
-      <span className="text-muted text-[13.2px] font-bold tracking-[0.08em] uppercase">
+      <span className="text-muted text-xs font-bold tracking-[0.08em] uppercase">
         {label}
       </span>
     </span>
@@ -320,16 +320,16 @@ function Tooltip({
         } ${below ? "translateY(8px)" : "translateY(-8px)"}`,
       }}
     >
-      <p className="text-[13.2px] font-semibold whitespace-nowrap opacity-70">
+      <p className="text-xs font-semibold whitespace-nowrap opacity-70">
         {volume.area}
       </p>
-      <p className="text-[18px] leading-tight font-semibold whitespace-nowrap tabular-nums">
+      <p className="text-base leading-tight font-semibold whitespace-nowrap tabular-nums">
         {NUMBER.format(volume.commits)}{" "}
-        <span className="text-[14.4px] font-medium opacity-70">
+        <span className="text-xs font-medium opacity-70">
           {volume.commits === 1 ? "commit" : "commits"}
         </span>
       </p>
-      <p className="mt-0.5 text-[14.4px] font-semibold whitespace-nowrap tabular-nums">
+      <p className="mt-0.5 text-xs font-semibold whitespace-nowrap tabular-nums">
         +{NUMBER.format(volume.additions)}
         <span className="mx-1 opacity-40">/</span>
         <span className="opacity-70">−{NUMBER.format(volume.deletions)}</span>
@@ -340,7 +340,7 @@ function Tooltip({
 
 function Footnote({ lead, areas }: { lead: string; areas: AreaVolume[] }) {
   return (
-    <p className="text-muted mt-4 text-[15px] font-medium">
+    <p className="text-muted mt-4 text-sm font-medium">
       {lead}{" "}
       <span className="text-ink font-semibold">
         {areas.map((area) => area.area).join(", ")}

@@ -47,12 +47,12 @@ export default async function CompliancePacksPage() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-[1240px] px-4 py-10 sm:px-8 lg:px-14">
+    <main className="mx-auto w-full max-w-page px-4 py-10 sm:px-8 lg:px-14">
       <a href="/admin/compliance" className="text-muted text-sm underline underline-offset-2">
         ← Compliance
       </a>
-      <h1 className="font-display mt-2 text-[28px] leading-tight font-semibold tracking-[-0.02em]">Compliance packs</h1>
-      <p className="text-muted mt-2 max-w-[68ch] text-[15.6px]">
+      <h1 className="font-display mt-2 text-2xl leading-tight font-semibold tracking-[-0.02em]">Compliance packs</h1>
+      <p className="text-muted mt-2 max-w-[68ch] text-sm">
         One week&rsquo;s answer to whether we kept the agreements&rsquo; promises: incidents, re-signs, patient-rights requests, vendor
         agreements, transcript copies, access events and the approval inbox, read from the host&rsquo;s records and stored once.
       </p>

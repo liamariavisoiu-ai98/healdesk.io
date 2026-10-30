@@ -41,5 +41,5 @@ export function Throttled() {
 
 export function Notice({ tone, children }: { tone: "problem" | "info"; children: ReactNode }) {
   const border = tone === "problem" ? "border-[color:var(--color-ink)]" : "border-[color:var(--color-line)]";
-  return <div className={`mt-6 rounded-lg border ${border} px-4 py-3 text-[15px]`}>{children}</div>;
+  return <div className={`mt-6 rounded-sm border ${border} px-4 py-3 text-[15px]`}>{children}</div>;
 }

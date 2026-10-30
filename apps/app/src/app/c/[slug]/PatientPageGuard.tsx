@@ -192,7 +192,7 @@ export function PatientPageGuard(props: {
     <div>
       <div aria-live="assertive" aria-atomic="true" className="sticky top-0 z-10">
         {phase === "warning" ? (
-          <div className="border-line bg-tint-butter my-4 flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 text-sm">
+          <div className="border-line bg-tint-butter my-4 flex flex-wrap items-center gap-3 rounded-md border px-4 py-3 text-sm">
             <p className="flex-1">
               {capped
                 ? "This page closes in a minute: one confirmation lasts 8 hours at most, so you’ll be asked to confirm it’s you again."
@@ -208,7 +208,7 @@ export function PatientPageGuard(props: {
                 Keep open
               </button>
             )}
-            {problem ? <p className="w-full text-red-800">{problem}</p> : null}
+            {problem ? <p className="w-full text-problem">{problem}</p> : null}
           </div>
         ) : phase === "closed" ? (
           <p className="text-muted mt-6 text-sm">

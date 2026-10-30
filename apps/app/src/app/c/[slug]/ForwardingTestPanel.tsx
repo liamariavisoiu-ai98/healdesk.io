@@ -88,7 +88,7 @@ export function ForwardingTestPanel({
     : forwardingTestLine(view.state);
 
   return (
-    <div className="border-line grid gap-2 rounded-xl border px-3 py-3 text-sm">
+    <div className="border-line grid gap-2 rounded-md border px-3 py-3 text-sm">
       <p className="font-semibold">
         {forwardingTestHeading(view.state)}
       </p>
@@ -96,7 +96,7 @@ export function ForwardingTestPanel({
         {line}
       </p>
       {problem ? (
-        <p role="alert" className="text-red-800">
+        <p role="alert" className="text-problem">
           {problem}
         </p>
       ) : null}

@@ -100,7 +100,7 @@ function Done({ row, onClose, closed, onClosed }: { row: RightsRowView; onClose:
   );
 }
 
-const TH = "text-muted px-2 py-2 text-left text-[13.2px] font-bold tracking-[0.06em] uppercase";
+const TH = "text-muted px-2 py-2 text-left text-xs font-bold tracking-[0.06em] uppercase";
 const TD = "px-2 py-2 align-top";
 
 export function RightsTable({ rights, onClose }: { rights: OpsResult<RightsListView>; onClose: CloseAction }) {
@@ -109,7 +109,7 @@ export function RightsTable({ rights, onClose }: { rights: OpsResult<RightsListV
   const gone = closed.filter((c) => !rows.some((r) => r.id === c.id));
   return (
     <section className="mt-6">
-      <p className="text-[15.6px] font-semibold">{RUNS_NOTHING}</p>
+      <p className="text-sm font-semibold">{RUNS_NOTHING}</p>
       {gone.map((c) => (
         <p key={c.id} role="status" className="text-done mt-2 text-sm">
           {c.text}

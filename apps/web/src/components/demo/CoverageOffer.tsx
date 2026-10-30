@@ -26,7 +26,7 @@ import { site } from "@/lib/site";
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 
 const WAY_IN =
-  "mt-10 inline-flex items-center gap-2 rounded-full bg-white px-8 py-4 text-[18px] font-bold text-[#172a3a] shadow-md transition-all duration-fast hover:-translate-y-0.5";
+  "mt-10 inline-flex items-center gap-2 rounded-full bg-white px-8 py-4 text-base font-bold text-[#172a3a] shadow-md transition-all duration-fast hover:-translate-y-0.5";
 
 const ARROW = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" className="size-5" aria-hidden>
@@ -91,11 +91,11 @@ export function CoverageOffer({
 
   return (
     <section className="bg-ink mt-14 overflow-hidden rounded-lg px-5 py-12 text-center text-white sm:px-12 sm:py-14">
-      <p className="text-[15px] font-bold tracking-[0.12em] text-white/60 uppercase">Reachable around the clock</p>
+      <p className="text-sm font-bold tracking-[0.12em] text-white/60 uppercase">Reachable around the clock</p>
       <h2 className="heading-section mx-auto mt-3">
         From {fmt(openHours)} to {HOURS_IN_A_WEEK} hours a week.
       </h2>
-      <p className="mx-auto mt-4 max-w-[48ch] text-[18px] leading-[1.5] text-white/75">
+      <p className="mx-auto mt-4 max-w-[48ch] text-base leading-[1.5] text-white/75">
         {agent} picks up the {fmt(closed)} hours {clinicName} is closed: evenings, early mornings, weekends and holidays.
       </p>
 
@@ -103,7 +103,7 @@ export function CoverageOffer({
       <figure className="mx-auto mt-9 max-w-[820px] rounded-lg bg-white/[0.05] p-4 sm:p-6">
         <div className="flex gap-2 sm:gap-3">
           {/* Hour scale. */}
-          <div className="relative mt-7 hidden h-[260px] w-10 shrink-0 text-right text-[11.5px] text-white/45 sm:block" aria-hidden>
+          <div className="relative mt-7 hidden h-[260px] w-10 shrink-0 text-right text-xs text-white/45 sm:block" aria-hidden>
             {[0, 6, 12, 18, 24].map((h) => (
               <span key={h} className="absolute right-0 -translate-y-1/2" style={{ top: `${(h / 24) * 100}%` }}>
                 {clock(h * 60)}
@@ -115,7 +115,7 @@ export function CoverageOffer({
             const open = spans.reduce((s, [a, b]) => s + (b - a), 0) / 60;
             return (
               <div key={day} className="flex min-w-0 flex-1 flex-col items-center">
-                <span className="mb-2 h-5 text-[13.2px] font-bold text-white/80">{day}</span>
+                <span className="mb-2 h-5 text-xs font-bold text-white/80">{day}</span>
                 <div
                   className="relative h-[260px] w-full overflow-hidden rounded-md"
                   style={{ background: AYA_GREEN }}
@@ -129,7 +129,7 @@ export function CoverageOffer({
                   {spans.map(([a, b]) => (
                     <span
                       key={`${a}-${b}`}
-                      className="absolute inset-x-0 grid place-items-center bg-[#3a4b5c] text-[11px] font-semibold text-white/85"
+                      className="absolute inset-x-0 grid place-items-center bg-[#3a4b5c] text-xs font-semibold text-white/85"
                       style={{ top: `${(a / 1440) * 100}%`, height: `${((b - a) / 1440) * 100}%` }}
                     >
                       <span className="hidden px-1 leading-tight sm:block">
@@ -139,12 +139,12 @@ export function CoverageOffer({
                     </span>
                   ))}
                 </div>
-                <span className="mt-2 text-[12px] font-bold text-[#87d68d]">+{fmt(24 - open)}h</span>
+                <span className="mt-2 text-xs font-bold text-[#87d68d]">+{fmt(24 - open)}h</span>
               </div>
             );
           })}
         </div>
-        <figcaption className="mt-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13.2px] font-semibold text-white/75">
+        <figcaption className="mt-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs font-semibold text-white/75">
           <span className="flex items-center gap-2">
             <span aria-hidden className="size-3 rounded-sm bg-[#3a4b5c] ring-1 ring-white/30" />
             {legend}
@@ -159,25 +159,25 @@ export function CoverageOffer({
       {/* Now, with AYA, and the difference. */}
       <div className="mx-auto mt-5 grid max-w-[820px] gap-3 sm:grid-cols-3">
         <div className="rounded-md bg-white/[0.06] px-4 py-5">
-          <p className="text-[13.2px] font-bold tracking-[0.1em] text-white/60 uppercase">Reachable now</p>
-          <p className="font-display mt-1 text-[40px] leading-none font-medium">
+          <p className="text-xs font-bold tracking-[0.1em] text-white/60 uppercase">Reachable now</p>
+          <p className="font-display mt-1 text-4xl leading-none font-medium">
             {fmt(openHours)}
-            <span className="text-[18px] text-white/60"> hrs/wk</span>
+            <span className="text-base text-white/60"> hrs/wk</span>
           </p>
-          <p className="mt-2 text-[14.4px] text-white/60">{nowShare}% of the week</p>
+          <p className="mt-2 text-xs text-white/60">{nowShare}% of the week</p>
         </div>
         <div className="rounded-md bg-white/[0.12] px-4 py-5 ring-1 ring-white/20">
-          <p className="text-[13.2px] font-bold tracking-[0.1em] text-white/60 uppercase">With {agent}</p>
-          <p className="font-display mt-1 text-[40px] leading-none font-medium">
+          <p className="text-xs font-bold tracking-[0.1em] text-white/60 uppercase">With {agent}</p>
+          <p className="font-display mt-1 text-4xl leading-none font-medium">
             {HOURS_IN_A_WEEK}
-            <span className="text-[18px] text-white/60"> hrs/wk</span>
+            <span className="text-base text-white/60"> hrs/wk</span>
           </p>
-          <p className="mt-2 text-[14.4px] text-white/60">100% of the week</p>
+          <p className="mt-2 text-xs text-white/60">100% of the week</p>
         </div>
         <div className="rounded-md px-4 py-5 text-[#172a3a]" style={{ background: AYA_GREEN }}>
-          <p className="text-[13.2px] font-bold tracking-[0.1em] uppercase opacity-70">More time to book</p>
-          <p className="font-display mt-1 text-[40px] leading-none font-medium">+{increase}%</p>
-          <p className="mt-2 text-[14.4px] font-semibold opacity-75">+{fmt(closed)} hours a week</p>
+          <p className="text-xs font-bold tracking-[0.1em] uppercase opacity-70">More time to book</p>
+          <p className="font-display mt-1 text-4xl leading-none font-medium">+{increase}%</p>
+          <p className="mt-2 text-xs font-semibold opacity-75">+{fmt(closed)} hours a week</p>
         </div>
       </div>
 
@@ -194,8 +194,8 @@ export function CoverageOffer({
               {CHECK}
             </span>
             <span>
-              <span className="block text-[16px] font-bold">{title}</span>
-              <span className="block text-[14.4px] text-white/65">{body}</span>
+              <span className="block text-sm font-bold">{title}</span>
+              <span className="block text-xs text-white/65">{body}</span>
             </span>
           </li>
         ))}
@@ -213,7 +213,7 @@ export function CoverageOffer({
         </a>
       )}
 
-      <ul className="mx-auto mt-8 flex max-w-[720px] flex-col items-center justify-center gap-x-7 gap-y-2 text-[15.6px] font-semibold text-white/85 sm:flex-row">
+      <ul className="mx-auto mt-8 flex max-w-[720px] flex-col items-center justify-center gap-x-7 gap-y-2 text-sm font-semibold text-white/85 sm:flex-row">
         {["Already built from your website", "Set up in about 15 minutes of your time"].map((line) => (
           <li key={line} className="flex items-center gap-2">
             <span className="grid size-5 place-items-center rounded-full text-[#172a3a] [&_svg]:size-3" style={{ background: AYA_GREEN }}>
@@ -223,7 +223,7 @@ export function CoverageOffer({
           </li>
         ))}
       </ul>
-      <p className="mt-6 text-[13.2px] text-white/50">
+      <p className="mt-6 text-xs text-white/50">
         {agreementClaim(audience === "clients" ? "dpa" : "baa", audience)}.
       </p>
     </section>

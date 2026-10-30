@@ -493,7 +493,7 @@ export default function PrivacyPage() {
           website&apos;s host (section 6).
         </p>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] text-[15px]">
+          <table className="w-full min-w-[560px] text-sm">
             <thead>
               <tr className="border-line border-b text-left">
                 <th className="py-2 pr-4 font-semibold">Kind of provider</th>

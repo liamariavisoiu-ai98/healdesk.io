@@ -114,11 +114,11 @@ export function CoverageModes({
       // The soft inner glow: light from above, not a fourth shadow (lib/design-tokens.test.ts).
       style={{ backgroundImage: "radial-gradient(120% 60% at 50% 0%, rgba(255,255,255,0.06), transparent 70%)" }}
     >
-      <p className="text-center text-[13.2px] font-bold tracking-[0.12em] text-white/55 uppercase">Coverage</p>
+      <p className="text-center text-xs font-bold tracking-[0.12em] text-white/55 uppercase">Coverage</p>
       <h2 id="coverage-heading" className="heading-section mx-auto mt-3 max-w-[22ch] text-center">
         {clinicName} is closed {fmt(closed)} hours a week.
       </h2>
-      <p className="mx-auto mt-4 max-w-[46ch] text-center text-[17px] leading-[1.5] text-white/70">
+      <p className="mx-auto mt-4 max-w-[46ch] text-center text-base leading-[1.5] text-white/70">
         For those hours, no one at {clinicName} can pick up. {site.agent} can. Choose how she covers your phone:
       </p>
 
@@ -133,33 +133,33 @@ export function CoverageModes({
               role="radio"
               aria-checked={on}
               onClick={() => choose(m.id)}
-              className={`duration-slow relative min-h-12 rounded-full px-2 text-[13.2px] leading-tight font-bold transition-colors ease-out sm:text-[15px] ${
+              className={`duration-slow relative min-h-12 rounded-full px-2 text-xs leading-tight font-bold transition-colors ease-out sm:text-sm ${
                 on ? "bg-white text-[#0B1520]" : "text-white/70 hover:text-white"
               }`}
             >
               {m.label}
               {"note" in m ? (
-                <span className={`block text-[11px] font-semibold ${on ? "text-[#0B1520]/60" : "text-white/45"}`}>{m.note}</span>
+                <span className={`block text-xs font-semibold ${on ? "text-[#0B1520]/60" : "text-white/45"}`}>{m.note}</span>
               ) : null}
             </button>
           );
         })}
       </div>
-      <p className="mx-auto mt-4 max-w-[52ch] text-center text-[15px] leading-[1.5] text-white/80" aria-live="polite">
+      <p className="mx-auto mt-4 max-w-[52ch] text-center text-sm leading-[1.5] text-white/80" aria-live="polite">
         {MODE_LINE[mode](site.agent)}
       </p>
-      <p className="mt-1 text-center text-[13.2px] font-semibold text-[#87d68d]">Chat answers 24/7 in every mode.</p>
+      <p className="mt-1 text-center text-xs font-semibold text-[#87d68d]">Chat answers 24/7 in every mode.</p>
 
       {/* The week. */}
       <figure className="mx-auto mt-8 max-w-[860px] rounded-lg border border-white/[0.08] bg-white/[0.03] p-4 sm:p-6">
         <div className="mb-4 flex items-center gap-3">
           <ClinicMark size={32} />
-          <p className="min-w-0 truncate text-[15px] font-bold">{clinicName}&rsquo;s week</p>
+          <p className="min-w-0 truncate text-sm font-bold">{clinicName}&rsquo;s week</p>
         </div>
 
         {/* Columns from 640px. */}
         <div className="hidden gap-2 sm:flex">
-          <div className="relative mt-7 h-[280px] w-11 shrink-0 text-right text-[11.5px] text-white/40" aria-hidden>
+          <div className="relative mt-7 h-[280px] w-11 shrink-0 text-right text-xs text-white/40" aria-hidden>
             {[0, 6, 12, 18, 24].map((h) => (
               <span key={h} className="absolute right-0 -translate-y-1/2" style={{ top: `${(h / 24) * 100}%` }}>
                 {clockLabel((h % 24) * 60)}
@@ -168,7 +168,7 @@ export function CoverageModes({
           </div>
           {DAYS.map((day, i) => (
             <div key={day} className="flex min-w-0 flex-1 flex-col items-center">
-              <span className="mb-2 h-5 text-[13.2px] font-bold text-white/75">{day}</span>
+              <span className="mb-2 h-5 text-xs font-bold text-white/75">{day}</span>
               <DayTrack schedule={schedule} day={i} mode={mode} axis="y" label={dayLabel(schedule, i, mode, clinicName)} />
             </div>
           ))}
@@ -176,20 +176,20 @@ export function CoverageModes({
 
         {/* Rows below 640px: a compact day strip. */}
         <div className="space-y-1.5 sm:hidden">
-          <div className="ml-10 flex justify-between text-[10.8px] text-white/40" aria-hidden>
+          <div className="ml-10 flex justify-between text-xs text-white/40" aria-hidden>
             {[0, 6, 12, 18, 24].map((h) => (
               <span key={h}>{h === 24 ? "" : clockLabel(h * 60)}</span>
             ))}
           </div>
           {DAYS.map((day, i) => (
             <div key={day} className="flex items-center gap-2">
-              <span className="w-8 shrink-0 text-[12.6px] font-bold text-white/75">{day}</span>
+              <span className="w-8 shrink-0 text-xs font-bold text-white/75">{day}</span>
               <DayTrack schedule={schedule} day={i} mode={mode} axis="x" label={dayLabel(schedule, i, mode, clinicName)} />
             </div>
           ))}
         </div>
 
-        <figcaption className="mt-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13.2px] font-semibold text-white/70">
+        <figcaption className="mt-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs font-semibold text-white/70">
           <span className="flex items-center gap-2">
             <span aria-hidden className="size-3 rounded-sm" style={{ background: OPEN_FILL }} />
             {legend}
@@ -206,9 +206,9 @@ export function CoverageModes({
         {examples.map((e) => (
           <li
             key={`${mode}-${e.label}`}
-            className="hd-example rounded-md border border-white/[0.08] bg-white/[0.05] px-4 py-3 text-[14.4px] leading-snug"
+            className="hd-example rounded-md border border-white/[0.08] bg-white/[0.05] px-4 py-3 text-xs leading-snug"
           >
-            <span className="mb-1 block text-[11px] font-bold tracking-[0.1em] text-white/45 uppercase">Example</span>
+            <span className="mb-1 block text-xs font-bold tracking-[0.1em] text-white/45 uppercase">Example</span>
             {e.label}
             <span className="mt-1 block font-semibold text-[#87d68d]">{e.result} ✓</span>
           </li>
@@ -269,7 +269,7 @@ function DayTrack({
           }}
         >
           {vertical ? (
-            <span className="hidden px-1 text-center text-[10.8px] leading-tight font-semibold text-[#0B1520]/75 md:block">
+            <span className="hidden px-1 text-center text-xs leading-tight font-semibold text-[#0B1520]/75 md:block">
               {clockLabel(a)}
               <br />–{clockLabel(b)}
             </span>

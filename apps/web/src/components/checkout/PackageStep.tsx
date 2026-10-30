@@ -101,7 +101,7 @@ export function PackageStep({
     >
       {error ? (
         <p
-          className="border-red/30 bg-red/[0.06] mb-6 rounded-sm border px-4 py-3 text-[15.6px] font-semibold"
+          className="border-red/30 bg-red/[0.06] mb-6 rounded-sm border px-4 py-3 text-sm font-semibold"
           role="alert"
         >
           {error}
@@ -209,7 +209,7 @@ export function IntervalToggle({
             {option.badge ? (
               <span
                 className={[
-                  "rounded-full px-2 py-0.5 text-[11px] font-bold tracking-[0.06em] uppercase",
+                  "rounded-full px-2 py-0.5 text-xs font-bold tracking-[0.06em] uppercase",
                   on ? "bg-white/15 text-white" : "bg-sun text-ink",
                 ].join(" ")}
               >
@@ -311,9 +311,9 @@ function PackageCard({
         className="sr-only"
       />
       <span className="flex flex-wrap items-center gap-2">
-        <span className="font-display text-[20.4px] leading-tight font-medium">{pkg.name}</span>
+        <span className="font-display text-lg leading-tight font-medium">{pkg.name}</span>
         {pkg.highlight ? (
-          <span className="bg-sun text-ink rounded-full px-2 py-0.5 text-[11px] font-bold tracking-[0.06em] uppercase">
+          <span className="bg-sun text-ink rounded-full px-2 py-0.5 text-xs font-bold tracking-[0.06em] uppercase">
             {pkg.highlight}
           </span>
         ) : null}
@@ -323,14 +323,14 @@ function PackageCard({
         {packageChips(pkg).map((chip) => (
           <span
             key={chip}
-            className="bg-paper-2 text-muted rounded-full px-2 py-0.5 text-[12px] font-bold"
+            className="bg-paper-2 text-muted rounded-full px-2 py-0.5 text-xs font-bold"
           >
             {chip}
           </span>
         ))}
       </span>
 
-      <span className="mt-3 flex flex-col gap-0.5 text-[15px] font-semibold">
+      <span className="mt-3 flex flex-col gap-0.5 text-sm font-semibold">
         {productsOf(pkg).map((product) => (
           <span key={product.id}>
             {perStepLabel(product, interval)}
@@ -344,7 +344,7 @@ function PackageCard({
       </span>
 
       {closed ? (
-        <span className={`${FIELD_LABEL} text-muted mt-3 text-[12px]`}>Needs a website</span>
+        <span className={`${FIELD_LABEL} text-muted mt-3 text-xs`}>Needs a website</span>
       ) : null}
     </label>
   );
@@ -419,10 +419,10 @@ function StepSlider({
   return (
     <div>
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <label htmlFor={id} className="text-[15.6px] font-bold">
+        <label htmlFor={id} className="text-sm font-bold">
           {label}
         </label>
-        <span className="text-[15.6px] font-semibold tabular-nums">
+        <span className="text-sm font-semibold tabular-nums">
           {value.toLocaleString("en-US")} {units}
           <span className="text-muted font-medium"> · {usd.format(price)}/mo</span>
         </span>
@@ -463,8 +463,8 @@ function PlanSummary({
 }) {
   return (
     <div className="border-line bg-paper-2/50 rounded-md border px-5 py-4">
-      <p className="text-[15.6px] font-bold">{plan.name}</p>
-      <p className="font-display mt-1 text-[26.4px] leading-none font-semibold tabular-nums">
+      <p className="text-sm font-bold">{plan.name}</p>
+      <p className="font-display mt-1 text-2xl leading-none font-semibold tabular-nums">
         {usd.format(interval === "year" ? plan.annualMonthlyUsd : plan.monthlyUsd)}
         <span className="text-muted font-sans text-sm font-medium">/mo</span>
         {interval === "year" ? (

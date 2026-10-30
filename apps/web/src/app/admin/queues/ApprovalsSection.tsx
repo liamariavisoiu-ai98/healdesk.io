@@ -127,7 +127,7 @@ function ApprovalCard({
       </div>
       <p className="text-muted mt-0.5 text-sm">{APPROVAL_KIND_WORDS[item.kind]}</p>
       {packet ? (
-        <p className="mt-3 text-[15.6px]">{packet.effect}</p>
+        <p className="mt-3 text-sm">{packet.effect}</p>
       ) : (
         <p role="status" className="text-red-deep mt-3 text-sm font-semibold">
           {FACTS_NOT_READ}
@@ -246,7 +246,7 @@ export function ApprovalsSection({ approvals, incidentApprovals, history, incide
             if (group.length === 0) return null;
             return (
               <div key={family} className="mt-4 first:mt-0">
-                <h3 className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">{FAMILY_WORDS[family]}</h3>
+                <h3 className="text-muted text-xs font-bold tracking-[0.06em] uppercase">{FAMILY_WORDS[family]}</h3>
                 <ul className="mt-2 grid gap-3">
                   {group.map((w) =>
                     w.family === "incident" ? (

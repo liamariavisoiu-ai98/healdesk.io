@@ -141,10 +141,10 @@ export function SetupRequestForm({
         <div className="bg-mint text-ink mx-auto grid size-14 place-items-center rounded-full text-2xl">
           ✓
         </div>
-        <h1 className="font-display mt-6 text-[clamp(31.2px,4.32vw,45.6px)] leading-tight font-medium tracking-[-0.024em]">
+        <h1 className="font-display mt-6 text-[clamp(var(--text-3xl),4.32vw,var(--text-4xl))] leading-tight font-medium tracking-[-0.024em]">
           Thanks.
         </h1>
-        <p className="text-muted mt-4 text-[19.2px] font-medium" role="status">
+        <p className="text-muted mt-4 text-lg font-medium" role="status">
           We&apos;ll reply to <strong className="text-ink">{sent.email}</strong> by{" "}
           {sent.replyBy} with your next step.
         </p>
@@ -169,7 +169,7 @@ export function SetupRequestForm({
       onClose={onClose}
     >
       {notice ? (
-        <p className="border-red/30 bg-red/[0.06] mb-6 rounded-sm border px-4 py-3 text-[15.6px] font-semibold">
+        <p className="border-red/30 bg-red/[0.06] mb-6 rounded-sm border px-4 py-3 text-sm font-semibold">
           {LINK_NOTICES[notice]}
         </p>
       ) : null}
@@ -229,7 +229,7 @@ export function SetupRequestForm({
             errorField === "channels" ? "border-red" : "border-line",
           ].join(" ")}
         >
-          <legend className="text-[15.6px] font-bold tracking-[0.04em] uppercase">
+          <legend className="text-sm font-bold tracking-[0.04em] uppercase">
             Where should AYA answer?
           </legend>
           <p className="text-muted mt-1.5 text-sm">Pick every channel you want. You choose a package with your setup link.</p>
@@ -313,7 +313,7 @@ function TextField({
 }) {
   return (
     <label className="block">
-      <span className="text-[15.6px] font-bold tracking-[0.04em] uppercase">{label}</span>
+      <span className="text-sm font-bold tracking-[0.04em] uppercase">{label}</span>
       <input
         type={type}
         value={value}
@@ -324,7 +324,7 @@ function TextField({
         disabled={disabled}
         aria-invalid={invalid || undefined}
         className={[
-          "text-ink placeholder:text-muted mt-2 w-full rounded-sm border bg-white px-4 py-3 text-[19.2px] outline-none transition-colors disabled:opacity-50",
+          "text-ink placeholder:text-muted mt-2 w-full rounded-sm border bg-white px-4 py-3 text-lg outline-none transition-colors disabled:opacity-50",
           invalid ? "border-red" : "border-line focus:border-orange",
         ].join(" ")}
       />

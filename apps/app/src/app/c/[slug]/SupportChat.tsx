@@ -340,7 +340,7 @@ export function SupportChat(props: {
           onKeyDown={(e) => {
             if (e.key === "Escape") hide();
           }}
-          className="border-line fixed inset-x-0 bottom-0 z-30 flex max-h-[85vh] flex-col rounded-t-2xl border bg-white shadow-xl sm:inset-x-auto sm:bottom-4 sm:right-4 sm:w-[26rem] sm:rounded-2xl"
+          className="border-line fixed inset-x-0 bottom-0 z-30 flex max-h-[85vh] flex-col rounded-t-md border bg-white shadow-xl sm:inset-x-auto sm:bottom-4 sm:right-4 sm:w-[26rem] sm:rounded-md"
         >
           <header className="border-line flex items-center justify-between gap-2 border-b px-4 py-2">
             <h2 id={ids.heading} className="font-semibold">
@@ -383,7 +383,7 @@ export function SupportChat(props: {
               <li key={m.id} className={m.role === "user" ? "self-end text-right" : "self-start"}>
                 <p className="sr-only">{m.role === "user" ? "You:" : "Support:"}</p>
                 <p
-                  className={`inline-block max-w-[22rem] whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-left ${
+                  className={`inline-block max-w-[22rem] whitespace-pre-wrap break-words rounded-md px-3 py-2 text-left ${
                     m.role === "user" ? "bg-paper-2" : "border-line border bg-white"
                   }`}
                 >
@@ -430,7 +430,7 @@ export function SupportChat(props: {
                 aria-describedby={ids.rule}
                 maxLength={MAX_CHARS}
                 rows={2}
-                className="border-line min-h-11 flex-1 resize-none rounded-xl border px-3 py-2 text-sm"
+                className="border-line min-h-11 flex-1 resize-none rounded-md border px-3 py-2 text-sm"
               />
               <button
                 type="submit"

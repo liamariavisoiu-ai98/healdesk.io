@@ -1,6 +1,6 @@
 import { PRODUCTS, shortClinicName } from "@healdesk/catalog";
 
-import { demoGaps } from "../gaps";
+import { demoGaps, gapLabel } from "../gaps";
 import { weekSchedule } from "../opening-hours";
 import type { ClinicProfile } from "../profile";
 import { CHAT_SLOT_ID, VOICE_SLOT_ID } from "./slots";
@@ -121,6 +121,23 @@ function setupFees(percentOff: number) {
   return { list, after };
 }
 
+/**
+ * The note above the voice and chat cards: what a demo built from public
+ * pages cannot know, so the owner trying it reads the gaps as normal rather
+ * than as faults (owner, 30 October 2026: "write a list of things public
+ * website scrapping couldnt gather and add it as disclaimer on top of the demo
+ * voice and chat section"). The live calendar and the deposit rules are never
+ * on a public site; the rest is what this scan missed (lib/demo/gaps.ts).
+ */
+export function demoNoteHtml(profile: ClinicProfile): string {
+  const missed = demoGaps(profile)
+    .filter((gap) => gap !== "policy")
+    .map((gap) => gapLabel(gap, "patients"));
+  const items = ["your live booking calendar, so she can't see real free times yet", "your deposit and cancellation rules", ...missed];
+  const list = items.map((item) => `<li>${escapeHtml(item.charAt(0).toUpperCase() + item.slice(1))}</li>`).join("");
+  return `<aside class="hd-note" role="note"><span class="hd-note-i" aria-hidden="true">i</span><div><p class="hd-note-h">What this demo can't know yet</p><p class="hd-note-p">It was built only from your public website and Google listing, so some things are missing. That's normal: you add them at setup, and Aya uses them from then on.</p><ul class="hd-note-l">${list}</ul></div></aside>`;
+}
+
 export function renderDemoV2(input: DemoV2Input): DemoV2 {
   const ctx = demoV2Context(input);
   const name = escapeHtml(input.name);
@@ -129,6 +146,8 @@ export function renderDemoV2(input: DemoV2Input): DemoV2 {
   const link = input.url.replace(/^https?:\/\//, "");
 
   let body = DEMO_V2_BODY;
+  // What a demo from public pages cannot know, above the two cards.
+  body = swapAll(body, '<div class="demo-grid" data-show="voice">', `${demoNoteHtml(input.profile)}<div class="demo-grid" data-show="voice">`);
   // The two stand-in card bodies become slots; each card keeps its own header.
   body = swapSpan(body, '<div class="vseg-wrap">', "\n      </div>\n\n      <!-- Chat -->", `<div id="${VOICE_SLOT_ID}" class="hd-slot"></div>`);
   body = swapSpan(body, '<div class="chtabs">', "\n      </div>\n    </div>\n\n    <div class=\"live-card\"", `<div id="${CHAT_SLOT_ID}" class="hd-slot"></div>`);

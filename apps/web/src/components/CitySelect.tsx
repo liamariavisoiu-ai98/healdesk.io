@@ -132,7 +132,7 @@ export function CitySelect({
   return (
     <div className="grid gap-2.5 sm:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
       <div ref={boxRef} className="relative">
-        <label htmlFor="review-city" className="block text-[15.6px] font-bold">
+        <label htmlFor="review-city" className="block text-sm font-bold">
           City <span className="text-muted font-medium">(optional)</span>
         </label>
         <input
@@ -175,7 +175,7 @@ export function CitySelect({
               return next;
             });
           }}
-          className="border-line focus:border-orange text-ink placeholder:text-muted mt-2 w-full rounded-sm border px-4 py-3 text-[17.4px] outline-none transition-colors"
+          className="border-line focus:border-orange text-ink placeholder:text-muted mt-2 w-full rounded-sm border px-4 py-3 text-base outline-none transition-colors"
         />
 
         {open && rows > 0 ? (
@@ -192,7 +192,7 @@ export function CitySelect({
                 choose(-1);
               }}
               className={[
-                "border-line text-muted cursor-pointer border-b px-4 py-2.5 text-[15.6px] font-bold",
+                "border-line text-muted cursor-pointer border-b px-4 py-2.5 text-sm font-bold",
                 cursor === -1 ? "bg-paper-2" : "",
               ].join(" ")}
             >
@@ -212,12 +212,12 @@ export function CitySelect({
                   choose(index);
                 }}
                 className={[
-                  "flex cursor-pointer items-baseline justify-between gap-3 px-4 py-2.5 text-[16.8px]",
+                  "flex cursor-pointer items-baseline justify-between gap-3 px-4 py-2.5 text-base",
                   cursor === index ? "bg-paper-2" : "",
                 ].join(" ")}
               >
                 <span>{place.city}</span>
-                <span className="text-muted text-[14.4px] font-bold">{place.state}</span>
+                <span className="text-muted text-xs font-bold">{place.state}</span>
               </li>
             ))}
           </ul>
@@ -225,7 +225,7 @@ export function CitySelect({
       </div>
 
       <div>
-        <label htmlFor="review-state" className="block text-[15.6px] font-bold">
+        <label htmlFor="review-state" className="block text-sm font-bold">
           State
         </label>
         <select
@@ -234,7 +234,7 @@ export function CitySelect({
           required
           value={state}
           onChange={(event) => onState(event.target.value)}
-          className="border-line focus:border-orange text-ink mt-2 w-full rounded-sm border bg-white px-4 py-3 text-[17.4px] outline-none transition-colors"
+          className="border-line focus:border-orange text-ink mt-2 w-full rounded-sm border bg-white px-4 py-3 text-base outline-none transition-colors"
         >
           <option value="">Choose</option>
           {/* The code, not the name: it is what the published card shows, so

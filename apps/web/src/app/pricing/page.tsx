@@ -161,34 +161,34 @@ export default function PricingPage() {
       <Nav />
       <JsonLd data={softwareApplicationLd()} />
 
-      <main className="mx-auto max-w-[1240px] px-5 pt-16 sm:px-8 sm:pt-20 lg:px-14">
+      <main className="mx-auto max-w-page px-5 pt-16 sm:px-8 sm:pt-20 lg:px-14">
         <div className="max-w-[58ch]">
           <p className="eyebrow-tag">Pricing</p>
-          <h1 className="font-display mt-3 text-[clamp(40.8px,6vw,69.6px)] leading-[1.03] font-medium tracking-[-0.028em]">
+          <h1 className="font-display mt-3 text-[clamp(var(--text-4xl),6vw,var(--text-6xl))] leading-[1.03] font-medium tracking-[-0.028em]">
             Priced by how much she answers.
           </h1>
-          <p className="text-muted mt-5 text-[20.4px] font-medium">
+          <p className="text-muted mt-5 text-lg font-medium">
             Three products, each priced per {STEP_UNITS} minutes or conversations a month. Choose
             your step, pay a one-time setup fee of {setupFeeRangeLabel()} depending on the
             product, and your plan starts the day {site.agent} first answers a patient. Prices
             are per location; annual billing is {annualSavingsPercent()}% off.
           </p>
-          <p className="text-muted mt-4 text-[16.5px] leading-[1.6]">{priceSentence()}</p>
+          <p className="text-muted mt-4 text-sm leading-[1.6]">{priceSentence()}</p>
         </div>
 
         <section aria-labelledby="how-heading" className="mt-16">
           <h2
             id="how-heading"
-            className="font-display text-[clamp(28.8px,3.6vw,40.8px)] leading-tight font-medium tracking-[-0.024em]"
+            className="font-display text-[clamp(var(--text-2xl),3.6vw,var(--text-4xl))] leading-tight font-medium tracking-[-0.024em]"
           >
             How it works.
           </h2>
           <ol className="mt-7 grid gap-6 md:grid-cols-3">
             {HOW_IT_WORKS.map((step, i) => (
               <li key={step.title} className="border-line border-t pt-5">
-                <p className="text-red-deep font-figure text-[15px] font-bold">{i + 1}.</p>
-                <p className="mt-1 text-[20px] font-semibold">{step.title}</p>
-                <p className="text-muted mt-2 text-[16.2px] leading-[1.55] font-medium">{step.body}</p>
+                <p className="text-red-deep font-figure text-sm font-bold">{i + 1}.</p>
+                <p className="mt-1 text-lg font-semibold">{step.title}</p>
+                <p className="text-muted mt-2 text-sm leading-[1.55] font-medium">{step.body}</p>
               </li>
             ))}
           </ol>
@@ -202,11 +202,11 @@ export default function PricingPage() {
         <section aria-labelledby="over-heading" className="mt-20">
           <h2
             id="over-heading"
-            className="font-display text-[clamp(28.8px,3.6vw,40.8px)] leading-tight font-medium tracking-[-0.024em]"
+            className="font-display text-[clamp(var(--text-2xl),3.6vw,var(--text-4xl))] leading-tight font-medium tracking-[-0.024em]"
           >
             If you go over your step.
           </h2>
-          <div className="text-muted mt-5 max-w-[68ch] space-y-4 text-[18px] leading-[1.55] font-medium">
+          <div className="text-muted mt-5 max-w-[68ch] space-y-4 text-base leading-[1.55] font-medium">
             <p>
               When you have used {USAGE_ALERT_PERCENT}% of what your step includes, we send you a
               short email. You can move up a step, or do nothing.
@@ -242,16 +242,16 @@ export default function PricingPage() {
         <section aria-labelledby="locations-heading" className="mt-20">
           <h2
             id="locations-heading"
-            className="font-display text-[clamp(28.8px,3.6vw,40.8px)] leading-tight font-medium tracking-[-0.024em]"
+            className="font-display text-[clamp(var(--text-2xl),3.6vw,var(--text-4xl))] leading-tight font-medium tracking-[-0.024em]"
           >
             Prices are per location.
           </h2>
-          <p className="text-muted mt-4 max-w-[64ch] text-[18px] leading-[1.55] font-medium">
+          <p className="text-muted mt-4 max-w-[64ch] text-base leading-[1.55] font-medium">
             Every price on this page covers one location. Each further location is added to the
             same plan from Billing in your portal, at the same plan price again and its own setup
             fee, and renews on the same date, with the allowances pooled across your locations.
           </p>
-          <p className="text-muted mt-4 max-w-[64ch] text-[18px] leading-[1.55] font-medium">
+          <p className="text-muted mt-4 max-w-[64ch] text-base leading-[1.55] font-medium">
             One {site.agent} answers for all of your locations as a central assistant, like a call
             centre: one knowledge base, one price list and one sign-in, not a separate assistant
             for each location. She is designed to work out, or ask, which location someone means.
@@ -268,10 +268,10 @@ export default function PricingPage() {
             stays with a person. */}
         <section className="border-line mt-20 rounded-lg border bg-white p-7 sm:p-10">
           <p className="eyebrow-tag">A smarter way to answer the phone</p>
-          <h2 className="font-display mt-5 max-w-[22ch] text-[clamp(28.8px,3.6vw,40.8px)] leading-tight font-normal tracking-[-0.024em] text-balance">
+          <h2 className="font-display mt-5 max-w-[22ch] text-[clamp(var(--text-2xl),3.6vw,var(--text-4xl))] leading-tight font-normal tracking-[-0.024em] text-balance">
             Why pay {usd.format(wageMonthly)} a month just to keep the phone covered?
           </h2>
-          <p className="text-muted mt-4 max-w-[64ch] text-[18px] leading-[1.55] font-medium">
+          <p className="text-muted mt-4 max-w-[64ch] text-base leading-[1.55] font-medium">
             That is what a receptionist earns at the U.S. median, before payroll taxes, benefits,
             and the evenings and weekends when nobody is at the desk anyway. {site.agent} answers
             the calls and books the appointments for a fraction of it. She does not greet anyone
@@ -308,12 +308,12 @@ export default function PricingPage() {
         </section>
 
         <section className="mt-20">
-          <h2 className="font-display text-[clamp(28.8px,3.6vw,40.8px)] leading-tight font-medium tracking-[-0.024em]">
+          <h2 className="font-display text-[clamp(var(--text-2xl),3.6vw,var(--text-4xl))] leading-tight font-medium tracking-[-0.024em]">
             With every product.
           </h2>
           <ul className="mt-7 grid gap-x-10 gap-y-3 sm:grid-cols-2">
             {INCLUDED.map((item) => (
-              <li key={item} className="flex gap-2.5 text-[18px] font-medium">
+              <li key={item} className="flex gap-2.5 text-base font-medium">
                 <span aria-hidden className="text-red-deep mt-px shrink-0">
                   ✓
                 </span>
@@ -332,18 +332,18 @@ export default function PricingPage() {
         </section>
 
         <section className="mt-20">
-          <h2 className="font-display text-[clamp(28.8px,3.6vw,40.8px)] leading-tight font-medium tracking-[-0.024em]">
+          <h2 className="font-display text-[clamp(var(--text-2xl),3.6vw,var(--text-4xl))] leading-tight font-medium tracking-[-0.024em]">
             About fifteen minutes of your time.
           </h2>
-          <p className="text-muted mt-4 max-w-[62ch] text-[18px] leading-[1.55] font-medium">
+          <p className="text-muted mt-4 max-w-[62ch] text-base leading-[1.55] font-medium">
             Confirm your services, prices and hours, set how she behaves, connect your Google
             Calendar, then connect each channel you bought. Each one goes live on its own:
           </p>
           <dl className="mt-7 grid gap-x-10 gap-y-4 sm:grid-cols-2">
             {LIVE_WHEN.map((item) => (
               <div key={item.channel} className="border-line border-t pt-4">
-                <dt className="text-[18px] font-semibold">{item.channel}</dt>
-                <dd className="text-muted mt-1 text-[16.2px] font-medium">{item.when}</dd>
+                <dt className="text-base font-semibold">{item.channel}</dt>
+                <dd className="text-muted mt-1 text-sm font-medium">{item.when}</dd>
               </div>
             ))}
           </dl>
@@ -352,17 +352,17 @@ export default function PricingPage() {
         {/* The close. The calculator's button carries the plan it built; this
             one opens the buy flow in place, where the buyer chooses. */}
         <section className="mt-20 mb-24 flex flex-col items-start gap-5 sm:flex-row sm:items-center sm:justify-between">
-          <p className="font-display max-w-[30ch] text-[clamp(26px,3vw,34px)] leading-tight font-normal tracking-[-0.024em]">
+          <p className="font-display max-w-[30ch] text-[clamp(var(--text-2xl),3vw,var(--text-3xl))] leading-tight font-normal tracking-[-0.024em]">
             Hear her first, or start now.
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <a
               href={`/${site.cta.secondary.href}`}
-              className="border-line-strong text-ink hover:border-ink rounded-sm border-[1.5px] bg-white px-6 py-3.5 text-base font-semibold transition-colors"
+              className="border-line-strong text-ink hover:border-ink rounded-sm border-[1.5px] bg-white px-6 py-3.5 text-lg font-semibold transition-colors"
             >
               {site.cta.secondary.label}
             </a>
-            <BuyButton size="px-6 py-3.5 text-base" />
+            <BuyButton size="px-6 py-3.5 text-lg" />
           </div>
         </section>
       </main>
@@ -385,17 +385,17 @@ function Compare({
 }) {
   return (
     <div className="border-line border-t pt-5">
-      <p className="text-muted text-[13.2px] font-bold tracking-[0.1em] uppercase">{label}</p>
+      <p className="text-muted text-xs font-bold tracking-[0.1em] uppercase">{label}</p>
       <p
         className={[
-          "font-figure mt-2 text-[31.2px] leading-none font-semibold tabular-nums",
+          "font-figure mt-2 text-3xl leading-none font-semibold tabular-nums",
           featured ? "text-brand-gradient" : "",
         ].join(" ")}
       >
         {value}
-        <span className="text-muted font-sans text-[15.6px] font-semibold">/mo</span>
+        <span className="text-muted font-sans text-sm font-semibold">/mo</span>
       </p>
-      <p className="text-muted mt-2.5 text-[16.2px] font-medium">{note}</p>
+      <p className="text-muted mt-2.5 text-sm font-medium">{note}</p>
     </div>
   );
 }

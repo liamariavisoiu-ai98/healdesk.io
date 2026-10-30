@@ -32,7 +32,7 @@ export function ClinicTabs({ clinicId }: { clinicId: string }) {
             key={tab}
             href={clinicTabPath(clinicId, tab)}
             aria-current={current ? "page" : undefined}
-            className={`-mb-px inline-flex min-h-11 items-center border-b-2 px-3.5 text-[15.6px] font-semibold transition-colors ${
+            className={`-mb-px inline-flex min-h-11 items-center border-b-2 px-3.5 text-sm font-semibold transition-colors ${
               current ? "border-ink text-ink" : "text-muted hover:text-ink border-transparent"
             }`}
           >

@@ -37,17 +37,21 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
   return (
     <AnnounceContext.Provider value={setToast}>
       {children}
+      {/* On a phone the toast sits above the Help bubble (SupportChat.tsx:
+          fixed, bottom-4, 48px tall, at the right), which until 30 October
+          2026 it covered; from 640px the bubble is in the corner and the
+          toast in the middle, clear of each other. */}
       <div
         role="status"
         aria-live="polite"
-        className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-4 pb-4"
+        className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-4 pb-20 sm:pb-4"
       >
         {toast ? (
           <div
-            className={`pointer-events-auto flex max-w-xl items-start gap-3 rounded-2xl border px-4 py-3 text-sm shadow-lg ${
+            className={`pointer-events-auto flex max-w-xl items-start gap-3 rounded-md border px-4 py-3 text-sm shadow-lg ${
               toast.tone === "ok"
                 ? "border-line bg-ink text-white"
-                : "border-red-200 bg-white text-red-800"
+                : "border-problem-line bg-white text-problem"
             }`}
           >
             <p>

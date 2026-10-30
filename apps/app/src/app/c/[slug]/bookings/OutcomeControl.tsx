@@ -62,7 +62,7 @@ export function OutcomeControl(props: {
       {asking ? (
         <form
           action={action}
-          className="border-line bg-tint-butter mt-2 grid gap-2 rounded-xl border px-3 py-3 text-sm"
+          className="border-line bg-tint-butter mt-2 grid gap-2 rounded-md border px-3 py-3 text-sm"
         >
           <input type="hidden" name="appointmentId" value={props.appointmentId} />
           <input type="hidden" name="outcome" value="cancelled" />

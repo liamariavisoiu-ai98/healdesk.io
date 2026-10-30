@@ -187,7 +187,8 @@ describe("the Connect and Reconnect buttons", () => {
     const settings = html(rows, "settings");
     expect(settings).toContain("Reconnect Facebook");
     expect(settings).toContain("Reconnect WhatsApp");
-    expect(settings).not.toContain("text-red-800");
+    expect(settings).not.toContain("text-problem");
+    expect(settings).not.toContain("text-red-");
   });
 
   test("dropped: says why in red and offers Reconnect, on both screens", () => {

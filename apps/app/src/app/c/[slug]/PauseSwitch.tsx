@@ -76,8 +76,8 @@ export function PauseSwitch(props: { slug: string; control: AnsweringControl }) 
 
   return (
     <div
-      className={`mt-4 rounded-xl border px-4 py-3 text-sm ${
-        control.paused ? "border-amber-300 bg-amber-50" : "border-line bg-white"
+      className={`mt-4 rounded-md border px-4 py-3 text-sm ${
+        control.paused ? "border-sun bg-tint-butter" : "border-line bg-white"
       }`}
     >
       <div className="flex items-center justify-between gap-3">
@@ -168,7 +168,7 @@ export function PauseSwitch(props: { slug: string; control: AnsweringControl }) 
       <p
         role="status"
         aria-live="polite"
-        className={message?.problem ? "mt-2 text-red-800" : message ? "mt-2" : "sr-only"}
+        className={message?.problem ? "mt-2 text-problem" : message ? "mt-2" : "sr-only"}
       >
         {message?.text ?? ""}
       </p>

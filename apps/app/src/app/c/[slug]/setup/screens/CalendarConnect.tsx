@@ -58,7 +58,7 @@ export function CalendarConnect(props: {
     return (
       <section aria-label="Connect your Google Calendar" className="grid gap-4">
         {connection.accessRemovedAt ? (
-          <p className="rounded-xl border border-ink bg-white px-4 py-3 text-sm">
+          <p className="rounded-md border border-ink bg-white px-4 py-3 text-sm">
             healdesk&rsquo;s access was removed in your Google Account, so your calendar isn&rsquo;t
             connected now. Connect it again below.
           </p>
@@ -92,7 +92,7 @@ export function CalendarConnect(props: {
   );
   return (
     <section aria-label="Your Google Calendar" className="grid gap-4">
-      <div className="rounded-xl border border-line bg-white px-4 py-3">
+      <div className="rounded-md border border-line bg-white px-4 py-3">
         <p className="font-semibold">
           {broken
             ? "Your calendar connection stopped working"
@@ -128,7 +128,7 @@ export function CalendarConnect(props: {
           {reconnect}
         </>
       ) : (
-        <details className="rounded-xl border border-line bg-white px-4 py-3">
+        <details className="rounded-md border border-line bg-white px-4 py-3">
           <summary className="min-h-11 cursor-pointer py-2 font-semibold">
             Reconnect, or use another Google account
           </summary>
@@ -183,7 +183,7 @@ function BeforeYouSignIn({ account }: { account: CalendarAccount }) {
           ? " Use your practice's Workspace account: Google tells healdesk when an account is a personal one (@gmail.com), and a personal account won't connect under your agreement."
           : ""}
       </p>
-      <div className="rounded-xl border border-line bg-white px-4 py-3 text-sm">
+      <div className="rounded-md border border-line bg-white px-4 py-3 text-sm">
         <p className="font-semibold">
           Which Google account bookings go into, as your agreement with healdesk records it
         </p>
@@ -208,8 +208,8 @@ function BeforeYouSignIn({ account }: { account: CalendarAccount }) {
  */
 function GoogleWarningPicture() {
   return (
-    <figure className="rounded-xl border border-line bg-white px-4 py-3">
-      <div aria-hidden="true" className="rounded-lg border border-line bg-paper px-4 py-3 text-sm">
+    <figure className="rounded-md border border-line bg-white px-4 py-3">
+      <div aria-hidden="true" className="rounded-sm border border-line bg-paper px-4 py-3 text-sm">
         <p className="font-semibold">Google hasn&rsquo;t verified this app</p>
         <p className="text-muted mt-1">
           The app is requesting access to sensitive info in your Google Account.
@@ -252,7 +252,7 @@ function SignInForm(props: {
     <form action={props.action} className="grid gap-3">
       <input type="hidden" name="slug" value={props.slug} />
       <input type="hidden" name="disclosureVersion" value={disclosure.version} />
-      <section className="rounded-xl border border-line bg-white px-4 py-3 text-sm">
+      <section className="rounded-md border border-line bg-white px-4 py-3 text-sm">
         <h2 className="text-base font-semibold">{disclosure.heading}</h2>
         {disclosure.paragraphs.map((paragraph, index) => (
           <p key={index} className="mt-2">

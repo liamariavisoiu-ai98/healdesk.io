@@ -38,8 +38,8 @@ export default async function HomePage() {
   const liveness = await probeLiveness();
   if (liveness === "unreachable") {
     return (
-      <main className="mx-auto w-full max-w-[1240px] px-4 py-10 sm:px-8 lg:px-14">
-        <h1 className="font-display text-[28px] leading-tight font-semibold tracking-[-0.02em]">What needs you today</h1>
+      <main className="mx-auto w-full max-w-page px-4 py-10 sm:px-8 lg:px-14">
+        <h1 className="font-display text-2xl leading-tight font-semibold tracking-[-0.02em]">What needs you today</h1>
         <HostStandbyNotice what="What needs you" />
       </main>
     );
@@ -55,8 +55,8 @@ export default async function HomePage() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-[1240px] px-4 py-10 sm:px-8 lg:px-14">
-      <h1 className="font-display text-[28px] leading-tight font-semibold tracking-[-0.02em]">What needs you today</h1>
+    <main className="mx-auto w-full max-w-page px-4 py-10 sm:px-8 lg:px-14">
+      <h1 className="font-display text-2xl leading-tight font-semibold tracking-[-0.02em]">What needs you today</h1>
       <InboxList inbox={inbox} run={run} />
     </main>
   );

@@ -69,7 +69,7 @@ export function HomeExperience() {
           <h2 className="heading-section text-ink mx-auto mt-5">
             One assistant, every channel, 24/7
           </h2>
-          <p className="text-muted mx-auto mt-4 max-w-[60ch] text-[clamp(17px,1.25vw,19px)] leading-[1.55] font-medium">
+          <p className="text-muted mx-auto mt-4 max-w-[60ch] text-[clamp(var(--text-base),1.25vw,var(--text-lg))] leading-[1.55] font-medium">
             {site.agent} 3.0 answers your phone, website chat, Instagram, Facebook Messenger and
             WhatsApp, 24/7. She books into your calendar during the conversation, and in chat
             sends a deposit link through your own checkout. Try her below.

@@ -81,7 +81,7 @@ export function TranscriptsPanel({
       </nav>
 
       <section className="border-line mt-6 rounded-md border bg-white p-5" aria-labelledby="receipts-counts">
-        <h2 id="receipts-counts" className="text-[13.2px] font-bold tracking-[0.06em] uppercase">
+        <h2 id="receipts-counts" className="text-xs font-bold tracking-[0.06em] uppercase">
           Last {v.sinceDays} days
         </h2>
         <p className={`mt-2 text-sm font-semibold ${attention > 0 ? "text-red-deep" : "text-done"}`}>
@@ -93,14 +93,14 @@ export function TranscriptsPanel({
           {ORDER.map((status) => (
             <div key={status}>
               <dt className={`text-xs ${toneClass(LABELS[status].tone)}`}>{LABELS[status].name}</dt>
-              <dd className="text-lg font-semibold">{v.counts[status]}</dd>
+              <dd className="text-xl font-semibold">{v.counts[status]}</dd>
             </div>
           ))}
         </dl>
       </section>
 
       <section className="border-line mt-6 rounded-md border bg-white p-5" aria-labelledby="receipts-list">
-        <h2 id="receipts-list" className="text-[13.2px] font-bold tracking-[0.06em] uppercase">
+        <h2 id="receipts-list" className="text-xs font-bold tracking-[0.06em] uppercase">
           Newest receipts
         </h2>
         {v.receipts.length === 0 ? (

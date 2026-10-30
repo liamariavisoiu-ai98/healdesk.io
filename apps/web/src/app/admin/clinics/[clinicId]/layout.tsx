@@ -41,13 +41,13 @@ export default async function ClinicLayout({ params, children }: { params: Promi
   const stage = row ? stageChip(row.stage) : null;
 
   return (
-    <main className="mx-auto w-full max-w-[1240px] px-4 py-10 sm:px-8 lg:px-14">
+    <main className="mx-auto w-full max-w-page px-4 py-10 sm:px-8 lg:px-14">
       <header>
         <a href="/admin/clinics" className="text-muted text-sm underline underline-offset-2">
           ← Clinics
         </a>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
-          <h1 className="font-display text-[28px] leading-tight font-semibold tracking-[-0.02em]">{row?.name ?? "Clinic"}</h1>
+          <h1 className="font-display text-2xl leading-tight font-semibold tracking-[-0.02em]">{row?.name ?? "Clinic"}</h1>
           {stage ? <Chip tone={stage.tone}>{stage.words}</Chip> : null}
           {/* Only the strip can say a clinic is synthetic (clinic-rows.ts): a clinic in setup is not a demo. */}
           {row?.synthetic ? <Chip tone="muted">synthetic</Chip> : null}

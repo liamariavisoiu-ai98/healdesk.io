@@ -15,7 +15,7 @@ export function AnswerAttentionCard(props: { slug: string; attention: AnswerAtte
       <h2 id="answer-attention-heading" className="text-lg font-semibold">
         Needs your attention
       </h2>
-      <div className="border-line mt-3 grid gap-2 rounded-xl border bg-white px-4 py-3">
+      <div className="border-line mt-3 grid gap-2 rounded-md border bg-white px-4 py-3">
         {outageOpen ? (
           <p>AYA isn&rsquo;t able to answer right now. We&rsquo;re working on it.</p>
         ) : null}

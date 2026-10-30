@@ -63,6 +63,16 @@ describe("the terms describe v1 as the spec defines it", () => {
       "There is one optional exception, which is off unless you turn it on: after a booking by phone, if the caller says yes and reads their number back, the agent is designed to send that caller one text with your Practice's own payment link, in fixed words that name no treatment, time or amount. It is sent once, for that call, and never again.",
     );
     expect(text).toContain("Payment-link texts. If you turn on the payment-link text");
+    // Softened on 30 October 2026 (owner, LEGAL_VERSION 2026-10-30.1): no
+    // sender is chosen, so the Terms promise neither a carrier registration
+    // nor how long one takes, only the steps the carriers require.
+    expect(text).toContain(
+      "Payment-link texts. If you turn on the payment-link text, you agree that it is designed to go out under your Practice's name, and that we may take the steps the phone carriers require before it can be sent. You can turn it off at any time, and it stops on the next call.",
+    );
+    expect(text).not.toContain("the text goes out under your Practice's name");
+    expect(text).not.toMatch(/register your Practice/i);
+    expect(text).not.toMatch(/one to four weeks/i);
+    expect(text).not.toMatch(/carrier registration/i);
     expect(text).toContain(
       "or, if you have turned on the payment-link text, is designed to offer to text the caller your Practice's payment link.",
     );

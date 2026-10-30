@@ -1,5 +1,6 @@
 import {
   agreementKindOfVersion,
+  DPA_1_1_0_RELEASED,
   DPA_VERSION_PREFIX,
   FORWARDING_PASS_THROUGH_DAYS,
   type AgreementKind,
@@ -287,6 +288,13 @@ export const DESTRUCTION_RULES: Readonly<Record<AgreementKind, Readonly<Record<s
     "0.1.0-draft": "thirty_days",
   },
   dpa: {
+    // DPA 1.1.0, released by the owner on 30 October 2026: its Term clause is
+    // 1.0.0's own object, and states the same rule. Listed only while the
+    // owner's release stands (DPA_1_1_0_RELEASED in dpa.ts), so the map names
+    // nothing the catalog does not. Its release migration (drizzle/0140)
+    // added it to app_destruction_rule() in the same commit
+    // (tests/dpa-release-1-1-0.test.ts).
+    ...(DPA_1_1_0_RELEASED ? { "1.1.0": "export_or_ninety" as const } : {}),
     "1.0.0": "export_or_ninety",
   },
 };

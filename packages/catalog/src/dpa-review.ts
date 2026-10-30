@@ -5,7 +5,16 @@ import {
   type CalendarAccount,
   type CalendarElectionVariables,
 } from "./calendar-terms";
-import { currentDpaTemplate, DPA_PRACTICE_DESCRIPTORS, prepareDpa, type DpaVariables } from "./dpa";
+import {
+  DPA_NO_SMS_1_0,
+  DPA_NO_SMS_1_1,
+  DPA_PRACTICE_DESCRIPTORS,
+  DPA_TEMPLATE_1_1_0_DRAFT,
+  getDpaTemplate,
+  prepareDpa,
+  type DpaTemplate,
+  type DpaVariables,
+} from "./dpa";
 import { currentDpaCalendarElection, prepareDpaCalendarElection } from "./dpa-calendar-election";
 import { regimeFor, specialties } from "./specialties";
 import { wrap } from "./wrap";
@@ -20,7 +29,20 @@ import { wrap } from "./wrap";
  * longer change: a clause the DPA shares with the BAA that moves would move
  * this file and the golden hashes, and dpa.test.ts fails on both, because a
  * change to a released agreement is a new version.
+ *
+ * docs/dpa-v1.1.0.txt is the first revision, released 30 October 2026
+ * (dpaDraft110ReviewDocument, below), written by the same command and held to
+ * the renderer the same way. Both files render a named version, never
+ * "whatever is current", so releasing 1.1.0 moves neither file's agreement
+ * text.
  */
+
+/** dpa/1.0.0, the released text docs/dpa-v1.0.0.txt prints whatever is current. */
+function template100(): DpaTemplate {
+  const template = getDpaTemplate("dpa/1.0.0");
+  if (!template) throw new Error("dpa/1.0.0 is not registered.");
+  return template;
+}
 
 /** The sample practice: a med spa that answered "No", on Mindbody, with a personal Google account. */
 export const DPA_REVIEW_SAMPLE: DpaVariables = {
@@ -59,11 +81,11 @@ const LIVE_SYSTEMS =
 
 type Entry = {
   caption: string;
-  body: () => string;
+  body: (template?: DpaTemplate) => string;
 };
 
-function render(overrides: Partial<DpaVariables>): string {
-  return prepareDpa(currentDpaTemplate(), { ...DPA_REVIEW_SAMPLE, ...overrides }).text;
+function render(overrides: Partial<DpaVariables>, template: DpaTemplate = template100()): string {
+  return prepareDpa(template, { ...DPA_REVIEW_SAMPLE, ...overrides }).text;
 }
 
 /** One numbered clause of a rendered agreement, from its heading to the next clause's. */
@@ -75,8 +97,12 @@ function clause(text: string, heading: string): string {
   return (next === -1 ? rest : rest.slice(0, next + 1)).trimEnd();
 }
 
-function clauses(overrides: Partial<DpaVariables>, headings: readonly string[]): string {
-  const text = render(overrides);
+function clauses(
+  overrides: Partial<DpaVariables>,
+  headings: readonly string[],
+  template?: DpaTemplate,
+): string {
+  const text = render(overrides, template);
   return headings.map((h) => clause(text, h)).join("\n\n");
 }
 
@@ -84,24 +110,32 @@ const STATE_LAW = `5. ${STATE_LAW_CLAUSE_HEADING.toUpperCase()}`;
 const DATA_SOURCES = "7. WHAT HEALDESK READS FROM YOUR SYSTEMS";
 const CALENDAR = `8. ${CALENDAR_CLAUSE_HEADING.toUpperCase()}`;
 
-function dataSources(bookingSystem: BookingSystemId): string {
-  return clauses({ bookingSystem }, [DATA_SOURCES]);
+function dataSources(bookingSystem: BookingSystemId, template?: DpaTemplate): string {
+  return clauses({ bookingSystem }, [DATA_SOURCES], template);
 }
 
-function calendar(bookingSystem: BookingSystemId, calendarAccount: CalendarAccount): string {
-  return clauses({ bookingSystem, calendarAccount }, [CALENDAR]);
+function calendar(
+  bookingSystem: BookingSystemId,
+  calendarAccount: CalendarAccount,
+  template?: DpaTemplate,
+): string {
+  return clauses({ bookingSystem, calendarAccount }, [CALENDAR], template);
 }
 
 const ENTRIES: readonly Entry[] = [
   {
     caption: `A veterinary practice ("${VET_PRACTICE}"; replaces clause 2 and changes clauses 1, 10 and 14; its preamble describes the practice as "${DPA_PRACTICE_DESCRIPTORS.veterinary}"):`,
-    body: () =>
-      clauses({ specialty: "veterinary", clinicLegalName: VET_PRACTICE }, [
-        "1. DEFINITIONS",
-        "2. PRACTICE'S STATUS",
-        "10. MINIMUM NECESSARY, AND WHO RECEIVES CLIENT INFORMATION",
-        "14. CONFIDENTIALITY",
-      ]),
+    body: (template) =>
+      clauses(
+        { specialty: "veterinary", clinicLegalName: VET_PRACTICE },
+        [
+          "1. DEFINITIONS",
+          "2. PRACTICE'S STATUS",
+          "10. MINIMUM NECESSARY, AND WHO RECEIVES CLIENT INFORMATION",
+          "14. CONFIDENTIALITY",
+        ],
+        template,
+      ),
   },
   {
     caption: "How the preamble describes the practice, by specialty (the sample's is the first):",
@@ -119,44 +153,44 @@ const ENTRIES: readonly Entry[] = [
     // The shared state-law clause follows the booking sync, as in BAA 1.3.0:
     // the sample's booking system does not read Google Calendar.
     caption: `A booking system that reads Google Calendar (${LIVE_SYSTEMS}), whatever the Google account (replaces clause 5):`,
-    body: () => clauses({ bookingSystem: "google_calendar" }, [STATE_LAW]),
+    body: (template) => clauses({ bookingSystem: "google_calendar" }, [STATE_LAW], template),
   },
   {
     caption: 'Bookings in "Google Calendar only" or "No booking system yet" (replaces clause 7):',
-    body: () => dataSources("none"),
+    body: (template) => dataSources("none", template),
   },
-  { caption: 'Bookings in "Calendly" (replaces clause 7):', body: () => dataSources("calendly") },
-  { caption: 'Bookings in "Cal.com" (replaces clause 7):', body: () => dataSources("calcom") },
+  { caption: 'Bookings in "Calendly" (replaces clause 7):', body: (template) => dataSources("calendly", template) },
+  { caption: 'Bookings in "Cal.com" (replaces clause 7):', body: (template) => dataSources("calcom", template) },
   {
     caption: 'Bookings in "HighLevel" (replaces clause 7):',
-    body: () => dataSources("gohighlevel"),
+    body: (template) => dataSources("gohighlevel", template),
   },
-  { caption: 'Bookings in "Boulevard" (replaces clause 7):', body: () => dataSources("boulevard") },
+  { caption: 'Bookings in "Boulevard" (replaces clause 7):', body: (template) => dataSources("boulevard", template) },
   {
     caption: 'Bookings in "Something else" (replaces clause 7):',
-    body: () => dataSources("other"),
+    body: (template) => dataSources("other", template),
   },
   {
     caption: `A booking system that reads Google Calendar (${LIVE_SYSTEMS}), with a Google Workspace account whose administrator has accepted Google's business associate agreement (covered; replaces clause 8):`,
-    body: () => calendar("google_calendar", "workspace_baa"),
+    body: (template) => calendar("google_calendar", "workspace_baa", template),
   },
   {
     caption: `A booking system that reads Google Calendar (${LIVE_SYSTEMS}), with a Google Workspace account without that agreement, or not sure (uncovered; replaces clause 8):`,
-    body: () => calendar("google_calendar", "workspace_no_baa"),
+    body: (template) => calendar("google_calendar", "workspace_no_baa", template),
   },
   {
     caption: `A booking system that reads Google Calendar (${LIVE_SYSTEMS}), with a personal Google account (uncovered; replaces clause 8):`,
-    body: () => calendar("google_calendar", "personal"),
+    body: (template) => calendar("google_calendar", "personal", template),
   },
   {
     caption:
       'Bookings in "Boulevard", which does not read Google Calendar, or is not confirmed to, whatever the Google account (not used; replaces clause 8):',
-    body: () => calendar("boulevard", "personal"),
+    body: (template) => calendar("boulevard", "personal", template),
   },
   {
     caption:
       'Bookings in "Something else", which is not confirmed to read Google Calendar, whatever the Google account (not used; replaces clause 8):',
-    body: () => calendar("other", "personal"),
+    body: (template) => calendar("other", "personal", template),
   },
 ];
 
@@ -171,7 +205,7 @@ function formatDay(iso: string): string {
 }
 
 function header(): string {
-  const template = currentDpaTemplate();
+  const template = template100();
   const sample = prepareDpa(template, DPA_REVIEW_SAMPLE);
   const published = formatDay(template.publishedOn);
   return [
@@ -197,20 +231,54 @@ function electionAppendix(): string {
   ].join("\n\n");
 }
 
+/** Appendix A for one version: every clause that renders only for some practices. */
+function variantAppendix(template: DpaTemplate): string {
+  return ENTRIES.map(
+    (entry, i) => `${wrap(`A${i + 1}. ${entry.caption}`, "")}\n\n${entry.body(template)}`,
+  ).join("\n\n");
+}
+
 /** The whole file, exactly as docs/dpa-v1.0.0.txt must hold it. */
 export function dpaReviewDocument(): string {
-  const appendix = ENTRIES.map(
-    (entry, i) => `${wrap(`A${i + 1}. ${entry.caption}`, "")}\n\n${entry.body()}`,
-  ).join("\n\n");
+  const template = template100();
   return [
     header(),
     RULE,
-    render({}).trimEnd(),
+    render({}, template).trimEnd(),
     RULE,
     `APPENDIX A — CLAUSES THAT RENDER ONLY FOR SOME PRACTICES\n(not part of the sample above)`,
-    appendix,
+    variantAppendix(template),
     RULE,
     electionAppendix(),
+  ]
+    .join("\n\n")
+    .concat("\n");
+}
+
+/** docs/dpa-v1.1.0.txt's header: what the version is, what changed against 1.0.0, and who it applies to. */
+function header110(): string {
+  const template = DPA_TEMPLATE_1_1_0_DRAFT;
+  const sample = prepareDpa(template, DPA_REVIEW_SAMPLE);
+  const was = prepareDpa(template100(), DPA_REVIEW_SAMPLE);
+  return [
+    `healdesk Data Protection Agreement — version ${template.version}, RELEASED, drafted and released ${formatDay(template.publishedOn)}. Released by the owner, on the owner's own instruction ("release DPA 1.1.0 as well") and without external counsel: DPA_1_1_0_RELEASED is true in packages/catalog/src/dpa.ts, so DPA_TEMPLATES holds dpa/1.1.0 first and dpa/1.0.0 after it, checkout offers dpa/1.1.0, and app_dpa_version_released lists it (apps/app drizzle/0140_dpa_release_1_1_0). It applies to practices that sign from the release on. A practice that signed dpa/1.0.0 stays on dpa/1.0.0: the product has no way for it to re-sign a newer DPA, and no payment-link text may go to a caller of a practice whose accepted agreement is older than this version. Drafted by an AI assistant on the owner's instruction and AI-reviewed; counsel has not reviewed it (docs/counsel/agreement-changes.md §21). It is frozen now: a change is a new version, never an edit.`,
+    `What changed against dpa/1.0.0, and nothing else: the version line of the preamble, and the last two sentences of clause 9 (Safeguards), the telephone exception. dpa/1.0.0 says "${DPA_NO_SMS_1_0}" This version says "${DPA_NO_SMS_1_1}" The words are BAA 1.6.0's for the same text (packages/catalog/src/baa.ts, SAFEGUARDS_1_6), with the DPA's own "places no calls". Every other clause is 1.0.0's own, in 1.0.0's order, and renders byte for byte as docs/dpa-v1.0.0.txt prints it.`,
+    `Rendered for the same sample practice as docs/dpa-v1.0.0.txt: a med spa that answered "No"; bookings in Mindbody; a personal Google account. From the title line on, the sample is exactly what packages/catalog/src/dpa.test.ts freezes as ${template.version} / sample (SHA-256 ${sample.hash}; dpa/1.0.0's is ${was.hash}). The clauses that render only for some practices follow in Appendix A, numbered as they render; none of them changed. The calendar election that names this agreement is Appendix B of docs/dpa-v1.0.0.txt (calendar-election-dpa/1.0.0), unchanged, which amends this version as it amends 1.0.0. Source: packages/catalog/src/dpa.ts (DPA_TEMPLATE_1_1_0_DRAFT, released through dpaTemplatesFor); written by npm run dpa:review -w @healdesk/catalog.`,
+  ]
+    .map((p) => wrap(p, ""))
+    .join("\n\n");
+}
+
+/** The whole file, exactly as docs/dpa-v1.1.0.txt must hold it: 1.1.0, rendered from its template. */
+export function dpaDraft110ReviewDocument(): string {
+  const template = DPA_TEMPLATE_1_1_0_DRAFT;
+  return [
+    header110(),
+    RULE,
+    render({}, template).trimEnd(),
+    RULE,
+    `APPENDIX A — CLAUSES THAT RENDER ONLY FOR SOME PRACTICES\n(not part of the sample above)`,
+    variantAppendix(template),
   ]
     .join("\n\n")
     .concat("\n");

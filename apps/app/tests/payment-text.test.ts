@@ -533,6 +533,33 @@ describeDb("the call flow and the one send, against the database", { timeout: 30
     expect(sent).toEqual([]);
   });
 
+  test("an unknown outcome for a deposit already paid queues no 'may be paid' email", async () => {
+    const { clinicId, appointmentId } = await clinicWithBooking("text-unknown-paid");
+    const t = paymentTextTools(
+      { clinicId, callId: "call_paid" },
+      {
+        offered: async () => true,
+        env: ENV,
+        notify,
+        realCalls: true,
+        smsDeadlineMs: 50,
+        // The caller pays the link while AWS has not answered.
+        transport: async () => {
+          await inTenant(clinicId, (client) => client.query(`update appointments set deposit_status = 'paid' where id = $1`, [appointmentId]));
+          return new Promise<{ MessageId?: string }>(() => undefined);
+        },
+      },
+    );
+    const state: BookingToolState = {
+      ...EMPTY_TOOL_STATE,
+      text: { stage: "confirming", appointmentId, number: CALLER, optedInAt: LATER(5).toISOString(), unanswered: 0 },
+    };
+    await t.step({ state, answer: { paymentText: { confirmed: true } }, now: LATER(15) });
+    expect(await depositStatus(clinicId, appointmentId)).toBe("paid");
+    const alerts = await inTenant(clinicId, (client) => client.query(`select 1 from billing_notices where kind = 'deposit_to_collect'`));
+    expect(alerts.rows).toEqual([]);
+  });
+
   test("a definite refusal is not 'unknown': the plain front-desk path", () => {
     expect(smsFailureCode({ name: "ValidationException", Reason: "INVALID_PHONE_NUMBER" })).toBe("invalid_number");
     expect(smsFailureCode({ name: "ConflictException", Reason: "DESTINATION_PHONE_NUMBER_OPTED_OUT" })).toBe("opted_out");

@@ -620,6 +620,15 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
           .returning({ id: appointments.id });
         if (moved.length > 0) {
           tx.audit.record({ action: "update", resourceType: "appointment", resourceId: appointmentId, metadata: { outcome: "deposit_to_front_desk", reason: "payment_text_unknown" } });
+        } else {
+          // Nothing moved: only a deposit still the front desk's is worth the
+          // email; one already paid or waived is nobody's to collect.
+          const [now_] = await tx.db
+            .select({ status: appointments.depositStatus })
+            .from(appointments)
+            .where(and(eq(appointments.id, appointmentId), eq(appointments.clinicId, tx.clinicId)))
+            .limit(1);
+          if (now_?.status !== "pending_front_desk") return;
         }
         await notifyBookingAlert(tx, "deposit_to_collect", { appointmentId, mayBePaid: true });
         await tx.db

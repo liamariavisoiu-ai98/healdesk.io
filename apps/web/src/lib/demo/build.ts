@@ -287,7 +287,7 @@ async function emailWithoutFailing(done: DemoSession): Promise<DemoSession> {
     console.error("[healdesk] demo email threw; the demo stays ready", { slug: done.slug, error: why });
   }
   if (why === null) return (await getDemoSession(done.slug, { fresh: true }).catch(() => null)) ?? done;
-  const note = `Ready, but the link was not emailed to the prospect: ${why.slice(0, 240)}. Copy the link and send it by hand.`;
+  const note = `Ready, but the link was not emailed to the prospect: ${why.slice(0, 240).replace(/\.$/, "")}. Copy the link and send it by hand.`;
   return (await updateDemoSession(done.slug, { buildNote: note }).catch(() => null)) ?? done;
 }
 

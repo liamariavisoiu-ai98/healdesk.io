@@ -100,8 +100,8 @@ export default async function DemoPage({ params }: Props) {
       <Shell colour={FALLBACK_COLOUR}>
         <RefreshWhileBuilding everyMs={4_000} />
         <main className="mx-auto flex w-full max-w-[640px] flex-1 flex-col items-center justify-center px-5 py-20 text-center">
-          <h1 className="font-display text-[34px] leading-tight font-medium tracking-[-0.02em]">Your demo is loading</h1>
-          <p className="text-muted mt-4 text-[17px]">This takes a few seconds. The page opens by itself.</p>
+          <h1 className="font-display text-3xl leading-tight font-medium tracking-[-0.02em]">Your demo is loading</h1>
+          <p className="text-muted mt-3 text-base font-medium">This takes a few seconds. The page opens by itself.</p>
         </main>
       </Shell>
     );

@@ -1,0 +1,59 @@
+name: Retell demo agents (apply the repo's prompt)
+
+# Applies the demo prompt in apps/web/src/lib/voice-demo-prompt.ts to the two
+# Retell-hosted marketing demo agents (the call an owner asks for on the site,
+# and the demo line), by running apps/web/scripts/retell-demo-agent.ts. Started
+# by hand from the Actions tab, from main, by the owner. It exists so the owner
+# does not need Node or a checkout on a computer: the three values below are
+# stored once as GitHub repository secrets.
+#
+#   dry_run  (default on) prints what would be sent and calls Retell with
+#            nothing; run it first, then again with it off.
+#
+# The script creates a NEW agent when an id is unset, so the first step stops
+# the run unless both ids are set. RETELL_DEMO_FROM_NUMBER is deliberately not
+# passed: this never touches the number binding.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Only print what would change; call Retell with nothing (run this first)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    if: github.ref == 'refs/heads/main' && github.actor == 'liamariavisoiu-ai98'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RETELL_API_KEY: ${{ secrets.RETELL_API_KEY }}
+      RETELL_DEMO_AGENT_ID: ${{ secrets.RETELL_DEMO_AGENT_ID }}
+      RETELL_DEMO_INBOUND_AGENT_ID: ${{ secrets.RETELL_DEMO_INBOUND_AGENT_ID }}
+    steps:
+      - name: Stop unless the key and both agent ids are set
+        run: |
+          test -n "$RETELL_API_KEY" || { echo "Secret RETELL_API_KEY is not set."; exit 1; }
+          test -n "$RETELL_DEMO_AGENT_ID" || { echo "Secret RETELL_DEMO_AGENT_ID is not set: the script would create a new agent."; exit 1; }
+          test -n "$RETELL_DEMO_INBOUND_AGENT_ID" || { echo "Secret RETELL_DEMO_INBOUND_AGENT_ID is not set: the script would create a new agent."; exit 1; }
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Dry run
+        if: ${{ inputs.dry_run }}
+        run: npm run retell:demo -w @healdesk/web -- --dry-run
+
+      - name: Apply
+        if: ${{ !inputs.dry_run }}
+        run: npm run retell:demo -w @healdesk/web

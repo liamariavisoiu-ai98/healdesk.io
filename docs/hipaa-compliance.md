@@ -103,7 +103,7 @@ by scoping.
 | Patient-bearing email, if any | AWS SES | Covered by the AWS agreement; configuration set `healdesk-phi` with `TlsPolicy=REQUIRE` |
 | Voice agent (marketing demo) | Retell (a demo agent, separate from the product's) | Not needed: `apps/web` only, talks to clinic owners, no PHI path |
 | Calendar write | ~~Cal.com~~ | **Not a v1 write target.** Google Calendar is the only one; Cal.com writes are phase two |
-| Telephony | ~~Twilio~~ | **Not used.** Retell supplies the numbers; no SMS channel in v1. The one optional payment-link text after a call has no sender chosen yet and is handled by scoping, not a BAA (owner, 28 October 2026) |
+| Telephony | ~~Twilio~~ | **Not used.** Retell supplies the numbers; no SMS channel in v1. The one optional payment-link text after a call is handled by scoping, not a BAA (owner, 28 October 2026), and is to be sent by AWS End User Messaging SMS, a HIPAA eligible service under the AWS agreement, from one toll-free number healdesk registers once (owner, 30 October 2026); nothing sends it yet |
 | Auth | ~~Clerk~~ | **Not used.** The operator console is a scrypt hash + TOTP, both checked on `apps/web` against Vercel environment variables (since 14 October 2026; signing in calls nothing in `apps/app`); the clinic portal will use Better Auth, a library inside `apps/app`, not a vendor |
 | Error tracking | ~~Sentry~~ | **Not used.** No error tracker is installed |
 

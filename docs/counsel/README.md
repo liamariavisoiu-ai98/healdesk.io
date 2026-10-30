@@ -73,6 +73,14 @@ close and that no clinic yet raises; and each of those points has a named
 trigger in `brief.md` at which a lawyer is engaged, state by state or
 counterparty by counterparty, instead of up front.
 
+**The decision is permanent (owner, 30 October 2026: "I won't hire a
+lawyer").** The triggers in `brief.md` no longer promise that a lawyer will
+be engaged. Each one marks the point where the owner looks at that risk
+again. The same day, the owner declined liability insurance for now and a
+separate US agent for service of process, and confirmed that the trade
+licence, Meta's healthcare rule and call-transcription consent are covered
+(`brief.md`, "Decisions taken (30 October 2026)").
+
 What that decision costs, stated plainly: the documents were drafted and
 reviewed by an AI assistant, not a licensed attorney. A defect in the BAA
 makes both healdesk and the clinic non-compliant. Several statutes in the

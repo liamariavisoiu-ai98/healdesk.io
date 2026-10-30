@@ -49,6 +49,20 @@ October decision still holds for every other practice that signs the BAA
 while not covered, and the state-law clause stays in BAA 1.3.0 for them;
 dpa.md § 7 records the narrowing.
 
+## Decisions taken (30 October 2026)
+
+The owner, after the legal status review of that day (in chat):
+
+| Decision | What it changes |
+| --- | --- |
+| **No lawyer will be engaged.** "I won't hire a lawyer." | The "Trigger that forces a lawyer" column below now marks when the owner looks at that risk again, not a promise to engage counsel. Every agreement and page stays released on the owner's word, as each has been since 1 October, and says so where it already does |
+| **No liability insurance yet** ("I'm only a startup") | Row 3 stands as it is: BAA clause 18 keeps saying healdesk carries no liability insurance |
+| **No separate US agent for service of process.** Viixi FZC keeps its Delaware mailing address (`ENTITY` in `apps/web/src/lib/legal.ts`) | Row 5's "appoint the Delaware registered agent" recommendation is declined |
+| **The SPC trade licence covers the business**, owner-confirmed | Row 5's licence check is closed on the owner's word. No licence or filing is in the repo |
+| **Meta's healthcare-conversation rule is covered**, owner-confirmed (Meta Developer Support's green light, 5 October 2026) | Row 1 is closed on the owner's word until App Review answers. Saving Meta's written reply to the compliance file is still worth doing |
+| **Call-transcription consent (Washington, Connecticut, California § 631) is covered**, owner-confirmed | Row 4 is closed on the owner's word. The opening line keeps announcing transcription on every call |
+| **Breach notice and the new-subcontractor notice are tightened** ("adjust whatever's needed") | Rows 13 and 14: a new BAA version (1.7.0) and DPA version (1.1.0) shorten the outer breach-notice limit and lengthen the subcontractor notice. They are drafted first and offered only once the owner releases them (`agreement-changes.md` § 21) |
+
 ## Open risks, ranked by exposure
 
 | # | Risk | Owner | Mitigation in place | Trigger that forces a lawyer |

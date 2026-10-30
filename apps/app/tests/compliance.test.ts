@@ -3,7 +3,9 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
   HEALTHCARE_EXEMPTION,
   OUTBOUND_CONTACT_ENABLED,
+  PAYMENT_LINK_TEXT_CONSENT_MS,
   canContact,
+  canSendPaymentLinkText,
   isStopRequest,
   recordAttempt,
   suppress,
@@ -18,6 +20,7 @@ import {
 } from "@/lib/compliance/disclosure";
 import { consentRecords } from "@/db/schema";
 import { guardReply } from "@/lib/meta/front-door";
+import { paymentLinkTextBody } from "@/lib/sms/send";
 import { assertNoPhiInReport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
@@ -524,5 +527,80 @@ describe("inbound-only", () => {
       recipientTimezone: "America/Los_Angeles",
     });
     expect(decision).toMatchObject({ allowed: false, code: "outbound_disabled" });
+  });
+
+  test("canContact refuses every text and call, the payment-link text's own wording included", async () => {
+    for (const channel of ["sms", "voice"] as const) {
+      for (const purpose of ["reminder", "missed_call_callback", "reactivation", "transactional"] as const) {
+        const decision = await canContact(null as never, {
+          clinicId: "00000000-0000-0000-0000-000000000000",
+          phone: "+14155550100",
+          channel,
+          purpose,
+          recipientTimezone: "America/Los_Angeles",
+          now: new Date("2026-10-30T18:00:00Z"),
+        });
+        expect(decision, `${channel} ${purpose}`).toMatchObject({ allowed: false, code: "outbound_disabled" });
+      }
+    }
+  });
+});
+
+describe("the one designed exception: the payment-link text after a call", () => {
+  const NOW = new Date("2026-10-30T18:00:00Z");
+  const LINK = "https://checkout.stripe.com/c/pay/cs_test_a1B2c3";
+  const yes = new Date(NOW.getTime() - 60_000);
+  const readBack = new Date(NOW.getTime() - 30_000);
+  const ok = {
+    channel: "sms" as const,
+    purpose: "payment_link_text" as const,
+    body: paymentLinkTextBody(LINK),
+    link: LINK,
+    bookedOnThisCall: true,
+    optedInAt: yes,
+    confirmedAt: readBack,
+    alreadyTexted: false,
+    now: NOW,
+  };
+
+  test("allows exactly that text, once agreed and read back on this call", () => {
+    expect(canSendPaymentLinkText(ok)).toMatchObject({ allowed: true });
+  });
+
+  test("refuses any other channel or purpose, as inbound-only requires", () => {
+    expect(canSendPaymentLinkText({ ...ok, channel: "voice" })).toMatchObject({ allowed: false, code: "not_the_one_text" });
+    for (const purpose of ["reminder", "missed_call_callback", "reactivation", "transactional"] as const) {
+      expect(canSendPaymentLinkText({ ...ok, purpose }), purpose).toMatchObject({ allowed: false, code: "not_the_one_text" });
+    }
+  });
+
+  test("refuses any other words: a reminder, a follow-up, a treatment, or the link alone", () => {
+    for (const body of [
+      `Reminder: your appointment is tomorrow. ${LINK}`,
+      `${paymentLinkTextBody(LINK)} See you for your Botox!`,
+      LINK,
+      "We miss you! Book again.",
+      paymentLinkTextBody("https://checkout.stripe.com/c/pay/cs_test_other"),
+    ]) {
+      expect(canSendPaymentLinkText({ ...ok, body }), body).toMatchObject({ allowed: false, code: "not_the_one_text" });
+    }
+    // An http link is no link at all.
+    expect(canSendPaymentLinkText({ ...ok, link: "http://checkout.stripe.com/x", body: ok.body })).toMatchObject({
+      allowed: false,
+      code: "not_the_one_text",
+    });
+  });
+
+  test("refuses without a booking on this call, a yes, a read-back, or with a stale yes", () => {
+    expect(canSendPaymentLinkText({ ...ok, bookedOnThisCall: false })).toMatchObject({ allowed: false, code: "not_the_one_text" });
+    expect(canSendPaymentLinkText({ ...ok, optedInAt: null })).toMatchObject({ allowed: false, code: "no_consent" });
+    expect(canSendPaymentLinkText({ ...ok, confirmedAt: null })).toMatchObject({ allowed: false, code: "no_consent" });
+    expect(canSendPaymentLinkText({ ...ok, confirmedAt: new Date(yes.getTime() - 1) })).toMatchObject({ allowed: false, code: "no_consent" });
+    const stale = new Date(NOW.getTime() - PAYMENT_LINK_TEXT_CONSENT_MS - 1);
+    expect(canSendPaymentLinkText({ ...ok, optedInAt: stale, confirmedAt: stale })).toMatchObject({ allowed: false, code: "no_consent" });
+  });
+
+  test("refuses a second text for the same booking", () => {
+    expect(canSendPaymentLinkText({ ...ok, alreadyTexted: true })).toMatchObject({ allowed: false, code: "already_texted" });
   });
 });

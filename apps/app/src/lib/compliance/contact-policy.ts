@@ -2,6 +2,7 @@ import { and, count, eq, gte, isNull, or, sql } from "drizzle-orm";
 
 import type { Transaction } from "@/db";
 import { consentRecords, contactAttempts, suppressions } from "@/db/schema";
+import { paymentLinkTextBody } from "@/lib/sms/send";
 
 /**
  * The gate every outbound call and text must pass.
@@ -43,10 +44,13 @@ export type ContactDecision =
  * reminders, no missed-call callbacks, no call-backs, no reactivation. The
  * one designed exception (owner, 28 October 2026; spec "Payment by text
  * after a call, and full payment") is a single optional text with the
- * clinic's payment link, sent only if a caller who just booked agrees; it is
- * not built, nothing sends it (paymentLinkTextOffered() is false), and this
- * gate refuses it like every other contact (the copy sweep of 29 October
- * 2026 changed this wording only, not what the gate allows). The consented
+ * clinic's payment link, sent only if a caller who just booked agrees and
+ * confirms the number read back. canContact() refuses it like every other
+ * contact; it passes only through its own gate, canSendPaymentLinkText()
+ * below, which allows that one text and nothing else: the SMS channel, the
+ * fixed words of lib/sms/send.ts around an https link and nothing more, a
+ * booking made on this call, the caller's yes and read-back recorded on it
+ * minutes ago, and no text yet for the booking. The consented
  * call-back of 23 September 2026 was removed for v1. The gate below is kept,
  * as phase-two groundwork, because it is correct and because outbound is
  * scoped for phase two; while this is false it refuses every request before
@@ -58,6 +62,10 @@ export const OUTBOUND_CONTACT_ENABLED = false;
 
 export type ContactRefusalCode =
   | "outbound_disabled"
+  /** Anything but the one payment-link text: another channel, purpose or wording. */
+  | "not_the_one_text"
+  /** The one text, but this booking was already texted (or declined it). */
+  | "already_texted"
   | "suppressed"
   | "no_consent"
   | "needs_written_consent"
@@ -310,6 +318,69 @@ export async function canContact(
     allowed: true,
     basis: `Consent on file (${consents.map((c) => c.consentType).join(", ")}), within frequency caps.`,
   };
+}
+
+/**
+ * How recent the caller's yes and read-back must be: the text answers the
+ * call it was agreed on, never a later one.
+ */
+export const PAYMENT_LINK_TEXT_CONSENT_MS = 15 * 60 * 1000;
+
+/**
+ * The gate for the ONE designed exception to inbound-only (see the header):
+ * the payment-link text after a call. Pure, so the decision can be read
+ * without a database; the tool layer (lib/sms/payment-text.ts) passes what
+ * it read under the ledger's lock, and sends only on `allowed`.
+ *
+ * Fails closed on every field. Anything that is not exactly that text is
+ * `not_the_one_text`, whatever else about it would be fine, so no other
+ * text can borrow this path: no other channel, no other purpose, and no
+ * words but paymentLinkTextBody's around an https link.
+ */
+export function canSendPaymentLinkText(input: {
+  channel: ContactChannel;
+  purpose: ContactPurpose | "payment_link_text";
+  /** The exact message about to be sent. */
+  body: string;
+  /** The checkout link inside it. */
+  link: string;
+  /** A booking was written on this call, and the text is for it. */
+  bookedOnThisCall: boolean;
+  /** When the caller said yes to the text, on this call; null if they did not. */
+  optedInAt: Date | null;
+  /** When the caller confirmed the number read back to them; null if they did not. */
+  confirmedAt: Date | null;
+  /** The booking's ledger already holds a text (sent, failed, opted out or declined). */
+  alreadyTexted: boolean;
+  now: Date;
+}): ContactDecision {
+  const refuse = (code: ContactRefusalCode, reason: string): ContactDecision => ({ allowed: false, code, reason });
+  if (input.channel !== "sms" || input.purpose !== "payment_link_text") {
+    return refuse("not_the_one_text", "The only text healdesk sends is the payment link after a call booking; nothing else is ever texted.");
+  }
+  let expected: string | null;
+  try {
+    expected = paymentLinkTextBody(input.link);
+  } catch {
+    expected = null;
+  }
+  if (expected === null || input.body !== expected) {
+    return refuse("not_the_one_text", "The text must be the fixed payment-link wording around an https link, and nothing else.");
+  }
+  if (!input.bookedOnThisCall) {
+    return refuse("not_the_one_text", "The text goes only for a booking made on this call.");
+  }
+  if (!input.optedInAt || !input.confirmedAt || input.confirmedAt.getTime() < input.optedInAt.getTime()) {
+    return refuse("no_consent", "The caller must say yes and then confirm the number read back to them, on this call.");
+  }
+  const age = input.now.getTime() - input.optedInAt.getTime();
+  if (age < 0 || age > PAYMENT_LINK_TEXT_CONSENT_MS || input.confirmedAt.getTime() > input.now.getTime()) {
+    return refuse("no_consent", "The caller's yes must be from this call, minutes ago.");
+  }
+  if (input.alreadyTexted) {
+    return refuse("already_texted", "This booking has had its one text; it is never sent again.");
+  }
+  return { allowed: true, basis: "The caller agreed on this call and confirmed the number read back: one fixed-wording payment-link text." };
 }
 
 /**

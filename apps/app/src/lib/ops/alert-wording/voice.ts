@@ -205,17 +205,18 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // lib/sms/payment-text.ts, at most once an hour per clinic: after a caller
   // who booked said yes to the payment-link text and confirmed the number
   // read back, the text did not go for a reason that is ours to look at
-  // (code: not_configured, throttled, error, link_unavailable, refused).
-  // `error` covers both a failed send (AWS's error, or no answer inside the
-  // deadline) and our own record of the text that could not be written
-  // before anything was sent. A number that opted out or that AWS refused as
+  // (code: not_configured, throttled, error, unknown, link_unavailable,
+  // refused).
+  // `error` covers both a failed send (AWS's error) and our own record of
+  // the text that could not be written before anything was sent; `unknown`
+  // is no answer from AWS inside the deadline, so the text may have gone. A number that opted out or that AWS refused as
   // invalid raises nothing. The booking stands and its deposit is left for
   // the clinic's front desk.
   payment_text_not_sent: {
     title: "A payment-link text after a call did not go",
     headline: "Payment-link text for {clinicName} not sent ({code})",
     whatHappened:
-      "A caller of {clinicName} booked on a call and asked for the deposit link by text, and the text did not go: it was refused or failed on our side or at AWS, or, for the code error, our record of the text may not have been written, in which case nothing was sent. The caller was told on the call that the front desk will call about the deposit. The booking stands, and the deposit is left for the clinic's team, as for any call booking.",
+      "A caller of {clinicName} booked on a call and asked for the deposit link by text, and the text did not go, or may not have: it was refused or failed on our side or at AWS; for the code error, our record of the text may not have been written, in which case nothing was sent; for the code unknown, AWS did not answer in time, so the text may have gone and the link may be paid, and the clinic's alert tells its team to check Stripe before collecting. The caller was told the front desk will call about the deposit (for unknown: will check whether it is paid). The booking stands, and the deposit is left for the clinic's team.",
     whyItMatters:
       "Callers after this one will likely hit the same failure until it is fixed, and each waits for the front desk instead of paying from the link. The code in the headline says where to look: the texting number's setting, AWS's sending limits, the clinic's Stripe, or our own refusal.",
     steps: [

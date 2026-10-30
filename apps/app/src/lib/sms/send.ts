@@ -52,10 +52,12 @@ export type SmsSendResult =
        * `opted_out`: the number replied STOP, and AWS will not text it.
        * `invalid_number`: AWS refused the number (not a mobile, malformed).
        * `throttled`: a rate or spending limit.
+       * `unknown`: no answer inside our deadline (or the request timed out or
+       *   was aborted): AWS may have accepted the text, so it may have gone.
        * `not_configured`: healdesk's number is not set (never sent).
        * `error`: anything else, the network included.
        */
-      code: "opted_out" | "invalid_number" | "throttled" | "not_configured" | "error";
+      code: "opted_out" | "invalid_number" | "throttled" | "not_configured" | "error" | "unknown";
     };
 
 /** One message to AWS, as SendTextMessage takes it. */
@@ -132,6 +134,9 @@ export function smsFailureCode(error: unknown): Extract<SmsSendResult, { status:
   const name = typeof named?.name === "string" ? named.name : "";
   const reason = typeof named?.Reason === "string" ? named.Reason : "";
   if (reason === "DESTINATION_PHONE_NUMBER_OPTED_OUT") return "opted_out";
+  // Our deadline, the SDK's request timeout or an abort: the request may
+  // have reached AWS, so whether the text went is not known.
+  if (name === "TimeoutError" || name === "AbortError" || name === "RequestTimeout") return "unknown";
   if (name === "ThrottlingException" || name === "ServiceQuotaExceededException") return "throttled";
   if (name === "ValidationException" && /PHONE|DESTINATION|COUNTRY/.test(reason)) return "invalid_number";
   return "error";

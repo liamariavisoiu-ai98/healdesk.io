@@ -96,6 +96,8 @@ export type PaymentTextLines = {
   askAgain: string;
   sent: string;
   notSent: string;
+  /** AWS did not answer in time: the text may have gone, so nothing is promised either way. */
+  unsure: string;
   optedOut: string;
   declined: string;
 };
@@ -107,6 +109,8 @@ export const PAYMENT_TEXT_LINES_EN: PaymentTextLines = {
   askAgain: "No problem. What's the right mobile number?",
   sent: "Done. The secure link is on its way by text.",
   notSent: "Sorry, I couldn't send that text. Your booking stands, and the front desk will call you about the deposit.",
+  unsure:
+    "Sorry, I couldn't confirm that the text went through. Your booking stands, and the front desk will check whether the deposit is paid and call you if it isn't.",
   optedOut:
     "That number has opted out of our texts, so I can't send it there. Your booking stands, and the front desk will call you about the deposit.",
   declined: "No problem. The front desk will call you about the deposit.",
@@ -119,6 +123,8 @@ export const PAYMENT_TEXT_LINES_ES: PaymentTextLines = {
   askAgain: "No hay problema. ¿Cuál es el número de celular correcto?",
   sent: "Listo. El enlace seguro va en camino por mensaje de texto.",
   notSent: "Lo siento, no pude enviar ese mensaje. Su cita sigue en pie, y la recepción le llamará por el depósito.",
+  unsure:
+    "Lo siento, no pude confirmar que el mensaje se envió. Su cita sigue en pie, y la recepción verificará si el depósito está pagado y le llamará si no lo está.",
   optedOut:
     "Ese número pidió no recibir nuestros mensajes, así que no puedo enviarlo ahí. Su cita sigue en pie, y la recepción le llamará por el depósito.",
   declined: "No hay problema. La recepción le llamará por el depósito.",
@@ -164,7 +170,7 @@ export function callRefHash(callId: string): string {
 }
 
 /** What a send came to, for the line said and the tests. */
-export type PaymentTextOutcome = "sent" | "failed" | "opted_out" | "declined";
+export type PaymentTextOutcome = "sent" | "failed" | "unknown" | "opted_out" | "declined";
 
 export type PaymentTextDeps = {
   /** paymentLinkTextOffered, unless a test passes its own. */
@@ -342,7 +348,17 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
       confirmedAt: now,
       now,
     });
-    return done(outcome === "sent" ? L.sent : outcome === "opted_out" ? L.optedOut : outcome === "declined" ? L.declined : L.notSent);
+    return done(
+      outcome === "sent"
+        ? L.sent
+        : outcome === "opted_out"
+          ? L.optedOut
+          : outcome === "declined"
+            ? L.declined
+            : outcome === "unknown"
+              ? L.unsure
+              : L.notSent,
+    );
   }
 
   /** The one send for the booking. Never throws; returns where it ended (or had ended before). */
@@ -374,7 +390,7 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
           return { claimed: row, earlier: null, inFlight: false };
         }
         const [existing] = await tx.db
-          .select({ status: paymentLinkTexts.status })
+          .select({ status: paymentLinkTexts.status, code: paymentLinkTexts.failureCode })
           .from(paymentLinkTexts)
           .where(eq(paymentLinkTexts.appointmentId, appointmentId))
           .limit(1);
@@ -382,7 +398,12 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
         const status = existing?.status ?? "failed";
         return {
           claimed: null,
-          earlier: status === "queued" ? ("failed" as const) : (status as PaymentTextOutcome),
+          earlier:
+            status === "queued"
+              ? ("failed" as const)
+              : existing?.code === "unknown"
+                ? ("unknown" as const)
+                : (status as PaymentTextOutcome),
           inFlight: status === "queued",
         };
       }));
@@ -394,7 +415,7 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
     if (!claimed) {
       // An attempt still in flight owns the outcome, the deposit's state and
       // the held L10 with it: this one changes nothing.
-      if (earlier !== "sent" && !inFlight) await toFrontDesk(appointmentId, null, now);
+      if (earlier !== "sent" && earlier !== "unknown" && !inFlight) await toFrontDesk(appointmentId, null, now);
       return earlier ?? "failed";
     }
 
@@ -470,6 +491,13 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
       await toFrontDesk(appointmentId, null, now);
       return "opted_out";
     }
+    if (sent.code === "unknown") {
+      // AWS may have accepted it: the texted link may be paid. The front desk
+      // is told to check Stripe before collecting, never plainly to collect.
+      await settle(claimed.id, { status: "failed", failureCode: "unknown", depositPaymentId: link.depositId }, now);
+      await toFrontDeskMaybePaid(appointmentId, now);
+      return "unknown";
+    }
     await settle(claimed.id, { status: "failed", failureCode: sent.code, depositPaymentId: link.depositId }, now);
     // A number AWS refused is the caller's; the rest are ours to look at.
     await toFrontDesk(appointmentId, sent.code === "invalid_number" ? null : sent.code, now);
@@ -535,6 +563,50 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
     // The L10 held while the text was offered goes now.
     await deskAlertDueAt(appointmentId, now);
     if (opsCode) await (deps.notify ?? notifyOps)("payment_text_not_sent", { clinicId: context.clinicId, code: opsCode });
+  }
+
+  /**
+   * The text may have gone (no answer from AWS in time): the deposit is the
+   * front desk's, with the possibly-paid L10 (its own key, ":unchecked"),
+   * whose email says to check Stripe before asking for the deposit. The
+   * plain L10 held while the text was offered is closed unsent, as the
+   * outbox closes a superseded notice, so staff are never told plainly to
+   * collect a deposit that may already be paid. Ids only.
+   */
+  async function toFrontDeskMaybePaid(appointmentId: string, now: Date): Promise<void> {
+    try {
+      await withTenant({ clinicId: context.clinicId, actor }, async (tx) => {
+        const moved = await tx.db
+          .update(appointments)
+          .set({ depositStatus: "pending_front_desk" })
+          .where(
+            and(
+              eq(appointments.id, appointmentId),
+              eq(appointments.clinicId, tx.clinicId),
+              inArray(appointments.depositStatus, ["none", "pending_link"]),
+            ),
+          )
+          .returning({ id: appointments.id });
+        if (moved.length > 0) {
+          tx.audit.record({ action: "update", resourceType: "appointment", resourceId: appointmentId, metadata: { outcome: "deposit_to_front_desk", reason: "payment_text_unknown" } });
+        }
+        await notifyBookingAlert(tx, "deposit_to_collect", { appointmentId, mayBePaid: true });
+        await tx.db
+          .update(billingNotices)
+          .set({ sentAt: now, recipientsCount: 0, lastError: "not sent: the payment-link text may have gone; the possibly-paid alert replaces it" })
+          .where(
+            and(
+              eq(billingNotices.clinicId, tx.clinicId),
+              eq(billingNotices.kind, "deposit_to_collect"),
+              eq(billingNotices.dedupeKey, dedupeKey("deposit_to_collect", { appointmentId })),
+              isNull(billingNotices.sentAt),
+            ),
+          );
+      });
+    } catch (error) {
+      log.error("payment-link text: a possibly-sent text not handed to the front desk", { clinicId: context.clinicId, error: describeError(error) });
+    }
+    await (deps.notify ?? notifyOps)("payment_text_not_sent", { clinicId: context.clinicId, code: "unknown" });
   }
 
   const note = (state: BookingToolState) => (live(state) ? paymentTextNote(state.text!) : null);

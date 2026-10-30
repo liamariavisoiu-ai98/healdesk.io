@@ -4925,6 +4925,8 @@ export const PAYMENT_LINK_TEXT_FAILURES = [
   "error",
   "link_unavailable",
   "refused",
+  /** AWS did not answer inside our deadline: the text may or may not have gone. */
+  "unknown",
 ] as const;
 export type PaymentLinkTextFailure = (typeof PAYMENT_LINK_TEXT_FAILURES)[number];
 

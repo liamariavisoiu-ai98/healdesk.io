@@ -117,7 +117,8 @@ describe("one attempt, inside a deadline", () => {
       transport: hung,
       deadlineMs: 50,
     });
-    expect(result).toEqual({ status: "failed", code: "error" });
+    // Not "error": AWS may have accepted it, so whether it went is unknown.
+    expect(result).toEqual({ status: "failed", code: "unknown" });
     expect(calls).toHaveLength(1);
     expect(calls[0]!.signal?.aborted).toBe(true);
     expect(Date.now() - started).toBeLessThan(2_000);
@@ -472,8 +473,10 @@ describeDb("the call flow and the one send, against the database", { timeout: 30
     expect(sent).toHaveLength(1);
   });
 
-  test("a send that times out is recorded failed, goes to the front desk and is never sent again", async () => {
+  test("a send that times out: outcome unknown, the front desk told to check Stripe first, never a plain 'collect', never sent again", async () => {
     const { clinicId, appointmentId } = await clinicWithBooking("text-timeout");
+    // The booking's plain L10, queued when the call booked it.
+    await withTenant({ clinicId, actor: ACTOR }, (tx) => notifyBookingAlert(tx, "deposit_to_collect", { appointmentId }));
     let attempts = 0;
     const hung = async () => {
       attempts += 1;
@@ -488,15 +491,34 @@ describeDb("the call flow and the one send, against the database", { timeout: 30
       text: { stage: "confirming", appointmentId, number: CALLER, optedInAt: LATER(5).toISOString(), unanswered: 0 },
     };
     const done = await t.step({ state, answer: { paymentText: { confirmed: true } }, now: LATER(15) });
-    expect(done.reply).toBe(PAYMENT_TEXT_LINES_EN.notSent);
+    // The caller is not told it failed: it may have gone.
+    expect(done.reply).toBe(PAYMENT_TEXT_LINES_EN.unsure);
+    expect(PAYMENT_TEXT_LINES_EN.unsure).not.toMatch(/couldn't send/);
     expect(attempts).toBe(1);
-    expect((await ledger(clinicId)).map((r) => [r.status, r.failure_code])).toEqual([["failed", "error"]]);
+    expect((await ledger(clinicId)).map((r) => [r.status, r.failure_code])).toEqual([["failed", "unknown"]]);
     expect(await depositStatus(clinicId, appointmentId)).toBe("pending_front_desk");
-    expect(notified).toEqual([{ event: "payment_text_not_sent", fields: { clinicId, code: "error" } }]);
-    // The same confirmation again (a retried tool call): the first outcome, no second attempt.
+    const alerts = await inTenant(clinicId, (client) =>
+      client.query<{ dedupe_key: string; sent_at: Date | null; recipients_count: number | null; payload: Record<string, unknown> }>(
+        `select dedupe_key, sent_at, recipients_count, payload from billing_notices where kind = 'deposit_to_collect' order by created_at`,
+      ),
+    ).then((r) => r.rows);
+    // The plain "collect" email is closed unsent; the possibly-paid one replaces it.
+    expect(alerts.map((a) => [a.dedupe_key, a.sent_at !== null, a.recipients_count, a.payload.isPossiblyPaid])).toEqual([
+      [dedupeKey("deposit_to_collect", { appointmentId }), true, 0, false],
+      [dedupeKey("deposit_to_collect", { appointmentId, mayBePaid: true }), false, null, true],
+    ]);
+    expect(notified).toEqual([{ event: "payment_text_not_sent", fields: { clinicId, code: "unknown" } }]);
+    // The same confirmation again (a retried tool call): the same answer, no second attempt.
     const again = await t.step({ state, answer: { paymentText: { confirmed: true } }, now: LATER(20) });
-    expect(again.reply).toBe(PAYMENT_TEXT_LINES_EN.notSent);
+    expect(again.reply).toBe(PAYMENT_TEXT_LINES_EN.unsure);
     expect(attempts).toBe(1);
+  });
+
+  test("a definite refusal is not 'unknown': the plain front-desk path", () => {
+    expect(smsFailureCode({ name: "ValidationException", Reason: "INVALID_PHONE_NUMBER" })).toBe("invalid_number");
+    expect(smsFailureCode({ name: "ConflictException", Reason: "DESTINATION_PHONE_NUMBER_OPTED_OUT" })).toBe("opted_out");
+    expect(smsFailureCode({ name: "TimeoutError" })).toBe("unknown");
+    expect(smsFailureCode({ name: "AbortError" })).toBe("unknown");
   });
 
   test("the one-text gate reads the ledger: a claim settled elsewhere before the send sends nothing", async () => {
@@ -790,6 +812,8 @@ describe("the ops alert for a text that did not go", () => {
     // `error` is raised for a ledger row that could not be written too, before anything was sent.
     expect(w.whatHappened).toMatch(/record of the text may not have been written, in which case nothing was sent/);
     expect(w.whatHappened).not.toMatch(/confirmed their number, and the text did not go/);
+    // For an unknown outcome it never claims the text did not go.
+    expect(w.whatHappened).toMatch(/for the code unknown, AWS did not answer in time, so the text may have gone/);
     // The web tier reads the texting number too, so a restart covers both.
     expect(w.steps[0]).toMatch(/web tier and the voice line both read it/);
     expect(w.steps[0]).not.toMatch(/redeploy the voice line\.$/);

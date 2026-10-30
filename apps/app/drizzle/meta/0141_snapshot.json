@@ -11073,7 +11073,7 @@
         },
         "payment_link_texts_failure_check": {
           "name": "payment_link_texts_failure_check",
-          "value": "(\"payment_link_texts\".\"status\" = 'failed') = (\"payment_link_texts\".\"failure_code\" is not null) and (\"payment_link_texts\".\"failure_code\" is null or \"payment_link_texts\".\"failure_code\" in ('invalid_number', 'throttled', 'not_configured', 'error', 'link_unavailable', 'refused'))"
+          "value": "(\"payment_link_texts\".\"status\" = 'failed') = (\"payment_link_texts\".\"failure_code\" is not null) and (\"payment_link_texts\".\"failure_code\" is null or \"payment_link_texts\".\"failure_code\" in ('invalid_number', 'throttled', 'not_configured', 'error', 'link_unavailable', 'refused', 'unknown'))"
         },
         "payment_link_texts_ref_check": {
           "name": "payment_link_texts_ref_check",

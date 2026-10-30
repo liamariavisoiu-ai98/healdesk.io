@@ -13,7 +13,7 @@ CREATE TABLE "payment_link_texts" (
 	"settled_at" timestamp with time zone,
 	CONSTRAINT "payment_link_texts_appointment_key" UNIQUE("appointment_id"),
 	CONSTRAINT "payment_link_texts_status_check" CHECK ("payment_link_texts"."status" in ('queued', 'sent', 'failed', 'opted_out', 'declined')),
-	CONSTRAINT "payment_link_texts_failure_check" CHECK (("payment_link_texts"."status" = 'failed') = ("payment_link_texts"."failure_code" is not null) and ("payment_link_texts"."failure_code" is null or "payment_link_texts"."failure_code" in ('invalid_number', 'throttled', 'not_configured', 'error', 'link_unavailable', 'refused'))),
+	CONSTRAINT "payment_link_texts_failure_check" CHECK (("payment_link_texts"."status" = 'failed') = ("payment_link_texts"."failure_code" is not null) and ("payment_link_texts"."failure_code" is null or "payment_link_texts"."failure_code" in ('invalid_number', 'throttled', 'not_configured', 'error', 'link_unavailable', 'refused', 'unknown'))),
 	CONSTRAINT "payment_link_texts_ref_check" CHECK ("payment_link_texts"."call_ref_hash" ~ '^[0-9a-f]{64}$'),
 	CONSTRAINT "payment_link_texts_evidence_check" CHECK (("payment_link_texts"."status" = 'declined') = ("payment_link_texts"."opted_in_at" is null) and ("payment_link_texts"."opted_in_at" is null) = ("payment_link_texts"."confirmed_at" is null) and ("payment_link_texts"."confirmed_at" is null or "payment_link_texts"."confirmed_at" >= "payment_link_texts"."opted_in_at")),
 	CONSTRAINT "payment_link_texts_message_check" CHECK (("payment_link_texts"."status" = 'sent') = ("payment_link_texts"."aws_message_id" is not null) and ("payment_link_texts"."aws_message_id" is null or "payment_link_texts"."aws_message_id" ~ '^[A-Za-z0-9-]{1,100}$')),

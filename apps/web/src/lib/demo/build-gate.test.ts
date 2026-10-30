@@ -101,6 +101,33 @@ describe("the handoff gate", () => {
   });
   afterEach(() => __setSheetsClientForTests(null));
 
+  it("keeps a passed demo ready when its email cannot go, and says why", async () => {
+    // Miami Skin & Vein, 30 October 2026: built and audited 82/100, then shown
+    // as failed with "see the server log" by a throw after the audit.
+    auditDemo.mockImplementation(async (input) => report(88, input));
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("HEALDESK_GATE_SECRET", "");
+    try {
+      const demo = await newDemo();
+      const done = await runDemoBuild(demo.slug);
+      expect(done?.status).toBe("ready");
+      expect(done?.auditScore).toBe(88);
+      expect(done?.emailSentAt).toBeNull();
+      expect(done?.buildNote).toMatch(/^Ready, but the link was not emailed to the prospect: HEALDESK_GATE_SECRET is required/);
+      expect((await getDemoSession(demo.slug, { fresh: true }))?.status).toBe("ready");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("says which step failed and why, not 'see the server log'", async () => {
+    structureProfile.mockRejectedValueOnce(new Error("overloaded_error"));
+    const demo = await newDemo();
+    const done = await runDemoBuild(demo.slug);
+    expect(done?.status).toBe("failed");
+    expect(done?.buildNote).toBe("The build failed while building the profile: overloaded_error");
+  });
+
   it("opens and mails a demo only once the audit passes it", async () => {
     auditDemo.mockImplementation(async (input) => report(88, input));
     const demo = await newDemo();

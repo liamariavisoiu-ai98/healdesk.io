@@ -150,6 +150,10 @@ export async function runDemoBuild(slug: string, options: { sendEmail?: boolean 
   // The brand reaches the row as soon as the homepage has been read, so the
   // waiting screen shows the clinic's own logo and colour while the rest is built.
   let brandWrite: Promise<unknown> = Promise.resolve();
+  // What the build was doing, for the console when it fails: "see the server
+  // log" sent the team to a log they could not open (Miami Skin & Vein,
+  // 30 October 2026, failed after an 82/100 audit with no cause shown).
+  let stage = "reading the website";
   try {
     // The Google listing needs only the name and the domain, and is merged in
     // only after the extraction, so it runs beside both, until just before the
@@ -177,6 +181,7 @@ export async function runDemoBuild(slug: string, options: { sendEmail?: boolean 
       return withListing(grounded.profile, await listing, session.clinicName);
     };
 
+    stage = "building the profile";
     const profile = await extract();
     await brandWrite;
     if (!isUsableProfile(profile)) {
@@ -215,24 +220,43 @@ export async function runDemoBuild(slug: string, options: { sendEmail?: boolean 
       services: profile.services.length,
     });
 
+    stage = "auditing the demo";
     const gated = await auditWithRepair(session, scraped.pages, profile, extract, started + AUDIT_BY_MS);
+    stage = "saving the audit";
     const done = await recordVerdict(slug, gated);
     const emailWanted = options.sendEmail || session.emailRequested;
-    if (done?.status === "ready" && emailWanted && !done.emailSentAt) await sendDemoEmail(done);
+    if (done?.status === "ready" && emailWanted && !done.emailSentAt) return await emailWithoutFailing(done);
     return done;
   } catch (error) {
     // Its write reads and rewrites the whole row: let it land before this one, never after.
     await brandWrite;
+    const message = error instanceof Error ? error.message : String(error);
     const reason =
       error instanceof ScrapeError || (error instanceof Error && error.name === "StructureError")
-        ? error.message
-        : "The build failed unexpectedly; see the server log.";
-    console.error("[healdesk] demo build failed", {
-      slug,
-      error: error instanceof Error ? error.message : String(error),
-    });
+        ? message
+        : `The build failed while ${stage}: ${message.slice(0, 240)}`;
+    console.error("[healdesk] demo build failed", { slug, stage, error: message });
     return updateDemoSession(slug, { status: "failed", buildNote: reason, retryCount: 0 }).catch(() => null);
   }
+}
+
+/**
+ * The demo-ready email, after a demo has passed: a demo that is built and
+ * audited stays ready whatever happens to its email, and the console's note
+ * says why the email did not go, so the team can send the link by hand.
+ */
+async function emailWithoutFailing(done: DemoSession): Promise<DemoSession> {
+  let why: string | null;
+  try {
+    const result = await sendDemoEmail(done);
+    why = result.status === "sent" ? null : result.reason;
+  } catch (error) {
+    why = error instanceof Error ? error.message : String(error);
+    console.error("[healdesk] demo email threw; the demo stays ready", { slug: done.slug, error: why });
+  }
+  if (why === null) return (await getDemoSession(done.slug, { fresh: true }).catch(() => null)) ?? done;
+  const note = `Ready, but the link was not emailed to the prospect: ${why.slice(0, 240)}. Copy the link and send it by hand.`;
+  return (await updateDemoSession(done.slug, { buildNote: note }).catch(() => null)) ?? done;
 }
 
 export type Gated =

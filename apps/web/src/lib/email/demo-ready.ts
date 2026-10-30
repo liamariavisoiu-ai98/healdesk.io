@@ -78,7 +78,10 @@ export function demoEmail(
         "",
         demoUrl(session.slug),
         "",
-        `On that page you can talk to the voice assistant from your browser, have it ring your phone, and chat with the website assistant. Both answer as ${name}, with the services, hours and FAQs from your site.`,
+        // A vet's page still has "have it ring your phone"; everyone else's has one way to talk, "Call Aya" (owner, 30 October 2026).
+        audience === "clients"
+          ? `On that page you can talk to the voice assistant from your browser, have it ring your phone, and chat with the website assistant. Both answer as ${name}, with the services, hours and FAQs from your site.`
+          : `On that page you can call the voice assistant from your browser and chat with the website assistant. Both answer as ${name}, with the services, hours and FAQs from your site.`,
         "",
         `It runs in demo mode: it doesn't have your booking calendar or a confirmed price list yet, so it will tell you where it would book or quote for real. Try it the way a ${audience === "clients" ? "client" : "patient"} would: ask what a treatment costs, when you're open, or to book a consult.`,
         "",

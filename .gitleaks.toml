@@ -59,6 +59,16 @@ regexTarget = "line"
 paths = ['''^apps/app/tests/ops-console-links\.test\.ts$''']
 regexes = ['''^\s*const token = "aB3dEfGhIjKlMnOpQrStUvWxYz0123456789_-AbCdE";$''']
 
+# The portal pages test once set STRIPE_SECRET_KEY to a made-up stand-in
+# (commit dfeecc4, since removed from the file but still in history, so the
+# scan finds it on every run). Stripe never issued it.
+[[allowlists]]
+description = "Portal pages test: made-up STRIPE_SECRET_KEY stand-in, never issued"
+targetRules = ["stripe-access-token"]
+condition = "AND"
+paths = ['''^apps/app/tests/portal-pages\.test\.tsx$''']
+regexes = ['''^sk_test_portalpages$''']
+
 # --- Test-only shared secrets for the voice endpoint and key derivation ----
 # "test-retell-llm-secret-..." is the made-up value the voice server tests
 # pass to createVoiceServer(); the production secret comes from Parameter

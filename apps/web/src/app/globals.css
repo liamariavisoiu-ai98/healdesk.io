@@ -5386,6 +5386,10 @@
   }
   50% {
     transform: translateY(-4px);
+  }
+}
+
+/* =============================================================================
    The pricing sheet's product table on a phone (pricing/PricingSheet.tsx)
    =============================================================================
    The table is four columns, which a phone cannot show without a sideways

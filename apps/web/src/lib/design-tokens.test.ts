@@ -88,6 +88,12 @@ describe("the type scale", () => {
     }
   });
 
+  test("the stylesheet's braces balance, so a bad merge cannot ship an unclosed block", () => {
+    const opens = CSS.split("{").length - 1;
+    const closes = CSS.split("}").length - 1;
+    expect(opens).toBe(closes);
+  });
+
   test("the scale is the conventional one, 12px to 96px, and Tailwind's own is cleared", () => {
     expect(CSS).toMatch(/--text-\*: initial;/);
     const expected: Record<string, string> = {

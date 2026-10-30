@@ -886,6 +886,7 @@ export const NOT_KEYS: Readonly<Record<string, string>> = {
   // Set by the platform.
   NODE_ENV: "Set by Node: development or production.",
   NEXT_PHASE: "Set by Next while it builds.",
+  NEXT_RUNTIME: "Set by Next: which runtime (nodejs or edge) is loading the start-up hook.",
   VERCEL_ENV: "Set by Vercel: production or preview.",
   PORT: "Set by the AWS task: which port to listen on.",
   HOSTNAME: "Set by the AWS task: which address to listen on.",

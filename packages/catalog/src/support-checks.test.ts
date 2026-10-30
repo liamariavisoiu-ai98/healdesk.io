@@ -31,6 +31,12 @@ describe("support reply word lists", () => {
     expect(promise("live_by").pattern.test("you'll be live by Friday")).toBe(true);
     expect(promise("go_live_date").pattern.test("WhatsApp will be live on Monday")).toBe(true);
     expect(promise("go_live_date").pattern.test("WhatsApp goes live once the payment method is added")).toBe(false);
+    expect(promise("timed_contact").pattern.test("We'll call you on Monday")).toBe(true);
+    expect(promise("timed_contact").pattern.test("a person at healdesk will email you tomorrow")).toBe(true);
+    expect(promise("timed_contact").pattern.test("Someone will call you at 3pm")).toBe(true);
+    expect(promise("timed_contact").pattern.test("A person will reply by Wednesday")).toBe(false);
+    expect(promise("timed_contact").pattern.test("A person at healdesk will call you.")).toBe(false);
+    expect(promise("timed_contact").pattern.test("Set call forwarding by Monday")).toBe(false);
     expect(promise("response_time").pattern.test("we'll reply within 24 hours")).toBe(true);
     expect(promise("response_time").pattern.test("within two days")).toBe(true);
   });

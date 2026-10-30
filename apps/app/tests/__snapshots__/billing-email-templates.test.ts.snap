@@ -110,7 +110,7 @@ exports[`every branch of every billing template > cancel_scheduled: auto-renew o
   "subject": "Your healdesk plan ends on 6 November",
   "text": "Auto-renew is off, so your healdesk plan ends on Friday 6 November. AYA keeps answering until then.
 
-Because you turned it off within 14 days of your plan starting, your first period's fee is due back to you in full. We'll email you by Wednesday 7 October to arrange the refund.
+Because you turned it off within 14 days of your plan starting, your first period's fee is due back to you in full. We'll email you to arrange the refund.
 
 Changed your mind? Turn auto-renew back on in Billing before then, and nothing changes.
 
@@ -481,7 +481,7 @@ exports[`every branch of every billing template > overage_invoiced: overage on b
 - 1 voice minute, billed as 1 block of 100 voice minutes at $104
 - 201 chat conversations, billed as 3 blocks of 100 chat conversations at $52 each
 
-Overage is billed for each started block of 100, so that comes to $260, charged to the card on file. The rates are provisional until we've measured what each minute and conversation costs us.
+Overage is billed for each started block of 100, so that comes to $260, charged to the card on file.
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.
@@ -499,7 +499,7 @@ exports[`every branch of every billing template > overage_invoiced: overage on v
 
 - 30 voice minutes, billed as 1 block of 100 voice minutes at $104
 
-Overage is billed for each started block of 100, so that comes to $104, charged to the card on file. The rates are provisional until we've measured what each minute and conversation costs us.
+Overage is billed for each started block of 100, so that comes to $104, charged to the card on file.
 
 View the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
@@ -521,7 +521,7 @@ exports[`every branch of every billing template > overage_invoiced: overage the 
 
 - 30 voice minutes, billed as 1 block of 100 voice minutes at $104
 
-Overage is billed for each started block of 100, so that comes to $104. The invoice for it is due now. The rates are provisional until we've measured what each minute and conversation costs us.
+Overage is billed for each started block of 100, so that comes to $104. The invoice for it is due now.
 
 Pay the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
@@ -1351,7 +1351,7 @@ exports[`every branch of every billing template > usage_80: 90% of the voice min
 If it runs out before then, you can:
 
 - Move up a step in Billing, for a bigger monthly allowance: it costs less than paying for extra blocks.
-- Do nothing. AYA keeps answering, and each started block of 100 extra voice minutes is billed at $104. That price is provisional until we've measured what each minute and conversation costs us.
+- Do nothing. AYA keeps answering, and each started block of 100 extra voice minutes is billed at $104.
 
 Open Billing: https://app.healdesk.test/
 
@@ -1367,7 +1367,7 @@ exports[`every branch of every billing template > usage_100: all the chat conver
 {
   "preheader": "Extra blocks of 100 bill at $52 until 6 November.",
   "subject": "You've used all of this month's chat conversations",
-  "text": "AYA has used all 300 chat conversations in this month's allowance. She keeps answering, and until Friday 6 November, when your allowance resets, each started block of 100 extra chat conversations is billed at $52. That price is provisional until we've measured what each minute and conversation costs us.
+  "text": "AYA has used all 300 chat conversations in this month's allowance. She keeps answering, and until Friday 6 November, when your allowance resets, each started block of 100 extra chat conversations is billed at $52.
 
 Move up a step in Billing, for a bigger monthly allowance: it costs less than paying for extra blocks.
 
@@ -1387,7 +1387,7 @@ exports[`every branch of every billing template > usage_100: all the voice minut
   "subject": "You've used all of this month's voice minutes",
   "text": "AYA has used all 1,000 voice minutes in this month's allowance. You chose “Stop and fall back”, so until Sunday 10 January 2027, when your allowance resets, AYA doesn't answer new calls: they go to your direct line. Nothing extra is billed.
 
-To keep AYA answering, move up a step in Billing, or switch to “Keep going and bill the extra”. Then each started block of 100 extra voice minutes is billed at $104. That price is provisional until we've measured what each minute and conversation costs us.
+To keep AYA answering, move up a step in Billing, or switch to “Keep going and bill the extra”. Then each started block of 100 extra voice minutes is billed at $104.
 
 Open Billing: https://app.healdesk.test/
 

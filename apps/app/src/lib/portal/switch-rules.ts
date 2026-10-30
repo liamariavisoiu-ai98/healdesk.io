@@ -14,8 +14,9 @@ import { smsSenderConfigured } from "@/lib/sms/config";
  * The text switch stays locked while healdesk's texting number is not ready
  * (smsSenderConfigured, lib/sms/config.ts: the owner pastes the approved
  * toll-free number's identity into config, and nothing else turns it on;
- * CLAUDE.md: "the setting stays unavailable until a compliant sender ...
- * exist[s]"). Until 29 October 2026 a voice clinic with Stripe could turn it
+ * CLAUDE.md, "Inbound only"). The sender needs no business associate
+ * agreement (owner, 30 October 2026): the text is fixed words and a link, no
+ * treatment, time or amount. Until 29 October 2026 a voice clinic with Stripe could turn it
  * on, which made BAA 1.6.0's "where Practice has chosen that option" a
  * promise nobody keeps; while the number is not ready it cannot be turned
  * on, and a value already on reads as off on the Settings page and in the

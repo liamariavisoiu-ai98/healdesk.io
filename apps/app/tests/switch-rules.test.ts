@@ -53,7 +53,7 @@ describe("switchRules", () => {
   });
 
   // BAA 1.6.0 promises the offer "where Practice has chosen that option", and
-  // CLAUDE.md keeps the setting unavailable until a compliant sender exists:
+  // CLAUDE.md keeps the setting unavailable until a sender is chosen and built:
   // a voice clinic with Stripe must not be able to choose what nothing does.
   test("the text cannot be chosen while healdesk's number is not ready, whatever the clinic has connected", () => {
     for (const f of [READY, facts({ textPaymentLinkOn: true })]) {

@@ -59,7 +59,7 @@ function FacebookConnect({ slug, from, view }: { slug: string; from: "setup" | "
           Connected: {names.join(", ")}. Sign in again to change the Page or to refresh the connection.
         </p>
       ) : state === "needs_reconnect" ? (
-        <p className="text-red-800">
+        <p className="text-problem">
           Facebook dropped the connection to {names.join(" and ")}, so AYA can&rsquo;t reply there. Sign in with
           Facebook again to bring it back.
         </p>
@@ -98,7 +98,7 @@ function WhatsAppConnectLink({ slug, from, view }: { slug: string; from: "setup"
       {state === "connected" ? (
         <p>Connected: WhatsApp.</p>
       ) : state === "needs_reconnect" ? (
-        <p className="text-red-800">
+        <p className="text-problem">
           Meta dropped the WhatsApp connection, so AYA can&rsquo;t reply there. Sign up again to bring it back.
         </p>
       ) : (

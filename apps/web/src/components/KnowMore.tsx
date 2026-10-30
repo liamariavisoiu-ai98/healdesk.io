@@ -169,7 +169,7 @@ export function KnowMore() {
               {"list" in faq ? (
                 <ul className="mt-3 max-w-[62ch] space-y-2">
                   {faq.list.map((item) => (
-                    <li key={item} className="text-muted flex gap-2.5 text-[18px] leading-[1.55] font-medium">
+                    <li key={item} className="text-muted flex gap-2.5 text-base leading-[1.55] font-medium">
                       <span aria-hidden className="text-red-deep shrink-0">
                         ✓
                       </span>
@@ -178,7 +178,7 @@ export function KnowMore() {
                   ))}
                 </ul>
               ) : null}
-              <p className="text-muted mt-3 max-w-[62ch] text-[18px] leading-[1.55] font-medium">
+              <p className="text-muted mt-3 max-w-[62ch] text-base leading-[1.55] font-medium">
                 {faq.a}
               </p>
             </FaqItem>

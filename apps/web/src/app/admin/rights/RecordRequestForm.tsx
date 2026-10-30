@@ -38,7 +38,7 @@ const ASKED_FOR = Object.keys(ASKED_FOR_WORDS) as RightsAskedFor[];
 
 export const NO_CLINICS = "The clinic list could not be read, so no request can be recorded here until it can.";
 
-const LABEL = "text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase";
+const LABEL = "text-muted text-xs font-bold tracking-[0.06em] uppercase";
 const FIELD = "border-line rounded-sm border bg-white px-3 py-2.5";
 
 function newKey(): string {

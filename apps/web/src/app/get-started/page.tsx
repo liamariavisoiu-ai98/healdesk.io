@@ -151,7 +151,7 @@ export default async function GetStartedPage({
   return (
     <div className="min-h-screen">
       <header className="border-line/60 border-b">
-        <div className="mx-auto flex max-w-[1240px] items-center px-5 py-4 sm:px-8 lg:px-14">
+        <div className="mx-auto flex max-w-page items-center px-5 py-4 sm:px-8 lg:px-14">
           <Brand />
           {/* A buyer from their demo goes back to it, not to the homepage
               (owner, 13 October 2026), from here and from Stripe's cancel page. */}
@@ -253,7 +253,7 @@ function WhatHappensNext({ replyBy }: { replyBy: string }) {
       <div className="rounded-md bg-white p-6 shadow-md sm:p-7">
         <h2
           id="next-heading"
-          className="font-display text-ink text-[26px] leading-tight font-normal tracking-[-0.02em]"
+          className="font-display text-ink text-2xl leading-tight font-normal tracking-[-0.02em]"
         >
           What happens next
         </h2>
@@ -262,13 +262,13 @@ function WhatHappensNext({ replyBy }: { replyBy: string }) {
             <li key={step.title} className="flex gap-4 py-4 last:pb-0">
               <span
                 aria-hidden
-                className="bg-tint-peach text-red-deep mt-0.5 grid size-7 shrink-0 place-items-center rounded-full text-[13px] font-bold tabular-nums"
+                className="bg-tint-peach text-red-deep mt-0.5 grid size-7 shrink-0 place-items-center rounded-full text-xs font-bold tabular-nums"
               >
                 {index + 1}
               </span>
               <div>
-                <p className="text-ink text-[16.5px] leading-snug font-semibold">{step.title}</p>
-                <p className="text-muted mt-1 text-[15px] leading-[1.5] font-medium">{step.body}</p>
+                <p className="text-ink text-sm leading-snug font-semibold">{step.title}</p>
+                <p className="text-muted mt-1 text-sm leading-[1.5] font-medium">{step.body}</p>
               </div>
             </li>
           ))}

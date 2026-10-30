@@ -26,7 +26,7 @@ export default function WhyWaitPage() {
     <BuyModalProvider>
       <TrackView event="why_wait_viewed" />
       <Nav />
-      <main className="mx-auto max-w-[1240px] px-5 sm:px-8 lg:px-14">
+      <main className="mx-auto max-w-page px-5 sm:px-8 lg:px-14">
         <WhyWaitExperience />
       </main>
       <Footer />

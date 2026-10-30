@@ -60,7 +60,7 @@ export function HoursEditor(props: {
           const ranges = hours[day];
           const open = ranges.length > 0;
           return (
-            <fieldset key={day} className="border-line rounded-xl border bg-white px-4 py-3">
+            <fieldset key={day} className="border-line rounded-md border bg-white px-4 py-3">
               <legend className="sr-only">{label}</legend>
               <div className="flex flex-wrap items-center gap-3">
                 <label className="flex min-h-11 w-36 items-center gap-2 font-semibold">
@@ -88,7 +88,7 @@ export function HoursEditor(props: {
                             ) as Range[],
                           )
                         }
-                        className="border-line min-h-11 rounded-lg border px-2"
+                        className="border-line min-h-11 rounded-sm border px-2"
                       />
                       <span aria-hidden="true">to</span>
                       <input
@@ -103,7 +103,7 @@ export function HoursEditor(props: {
                             ) as Range[],
                           )
                         }
-                        className="border-line min-h-11 rounded-lg border px-2"
+                        className="border-line min-h-11 rounded-sm border px-2"
                       />
                     </span>
                   ))
@@ -154,7 +154,7 @@ export function HoursEditor(props: {
                 min={props.today}
                 value={closure.closedOn}
                 onChange={(event) => setClosure(i, { closedOn: event.target.value })}
-                className="border-line min-h-11 rounded-lg border bg-white px-2"
+                className="border-line min-h-11 rounded-sm border bg-white px-2"
               />
               <input
                 type="text"
@@ -163,7 +163,7 @@ export function HoursEditor(props: {
                 maxLength={80}
                 value={closure.label}
                 onChange={(event) => setClosure(i, { label: event.target.value })}
-                className="border-line min-h-11 flex-1 rounded-lg border bg-white px-3"
+                className="border-line min-h-11 flex-1 rounded-sm border bg-white px-3"
               />
               <button
                 type="button"
@@ -270,7 +270,7 @@ export function ServicesEditor(props: {
   return (
     <div className="grid gap-3">
       {rows.map((row, i) => (
-        <fieldset key={i} className="border-line grid gap-2 rounded-xl border bg-white px-4 py-3">
+        <fieldset key={i} className="border-line grid gap-2 rounded-md border bg-white px-4 py-3">
           <legend className="sr-only">Service {i + 1}</legend>
           <input
             aria-label={`Service ${i + 1} name`}
@@ -278,7 +278,7 @@ export function ServicesEditor(props: {
             value={row.name}
             maxLength={120}
             onChange={(event) => update(i, { name: event.target.value })}
-            className="border-line min-h-11 rounded-lg border px-3 font-semibold"
+            className="border-line min-h-11 rounded-sm border px-3 font-semibold"
           />
           <div className="flex flex-wrap items-center gap-2">
             <select
@@ -287,7 +287,7 @@ export function ServicesEditor(props: {
               onChange={(event) =>
                 update(i, { priceKind: (event.target.value || null) as ServiceRow["priceKind"] })
               }
-              className="border-line min-h-11 rounded-lg border bg-white px-2"
+              className="border-line min-h-11 rounded-sm border bg-white px-2"
             >
               {PRICE_KINDS.map(([id, label]) => (
                 <option key={id} value={id}>
@@ -305,7 +305,7 @@ export function ServicesEditor(props: {
                   inputMode="decimal"
                   value={row.price}
                   onChange={(event) => update(i, { price: event.target.value })}
-                  className="border-line min-h-11 w-24 rounded-lg border px-2"
+                  className="border-line min-h-11 w-24 rounded-sm border px-2"
                 />
               </span>
             ) : null}
@@ -317,7 +317,7 @@ export function ServicesEditor(props: {
                   inputMode="decimal"
                   value={row.maxPrice}
                   onChange={(event) => update(i, { maxPrice: event.target.value })}
-                  className="border-line min-h-11 w-24 rounded-lg border px-2"
+                  className="border-line min-h-11 w-24 rounded-sm border px-2"
                 />
               </span>
             ) : null}
@@ -330,7 +330,7 @@ export function ServicesEditor(props: {
                   value={row.unit}
                   maxLength={40}
                   onChange={(event) => update(i, { unit: event.target.value })}
-                  className="border-line min-h-11 w-28 rounded-lg border px-2"
+                  className="border-line min-h-11 w-28 rounded-sm border px-2"
                 />
               </span>
             ) : null}
@@ -341,7 +341,7 @@ export function ServicesEditor(props: {
                 placeholder="Length"
                 value={row.duration}
                 onChange={(event) => update(i, { duration: event.target.value })}
-                className="border-line min-h-11 w-20 rounded-lg border px-2"
+                className="border-line min-h-11 w-20 rounded-sm border px-2"
               />
               <span aria-hidden="true" className="text-muted text-sm">
                 min
@@ -358,7 +358,7 @@ export function ServicesEditor(props: {
                   placeholder="None"
                   value={row.deposit ?? ""}
                   onChange={(event) => update(i, { deposit: event.target.value })}
-                  className="border-line min-h-11 w-24 rounded-lg border px-2"
+                  className="border-line min-h-11 w-24 rounded-sm border px-2"
                 />
               </span>
             ) : null}

@@ -22,7 +22,7 @@ export function HelpPanel({ audience }: { audience: "patients" | "clients" }) {
     <aside
       id="help"
       aria-labelledby="help-heading"
-      className="border-line mt-12 scroll-mt-6 rounded-2xl border bg-white px-5 py-4 text-sm"
+      className="border-line mt-12 scroll-mt-6 rounded-md border bg-white px-5 py-4 text-sm"
     >
       <h2 id="help-heading" className="font-semibold">
         Help
@@ -54,6 +54,7 @@ export function HelpPanel({ audience }: { audience: "patients" | "clients" }) {
               target="_blank"
             >
               Book a five-minute call
+              <span className="sr-only"> (opens in a new tab)</span>
             </a>{" "}
             and we&rsquo;ll set it up with you.
           </li>

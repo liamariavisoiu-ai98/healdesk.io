@@ -1,27 +1,27 @@
-# Turning on the payment-link text: what is needed (28 October 2026)
+# Turning on the payment-link text: what is left (30 October 2026)
 
-For the owner. Plain words.
+For the owner. Plain words. The decisions themselves are in `payment-link-text-route-scope.md`.
 
-## Where it stands today
+## Where it stands
 
-- Each clinic can save the choice "text the payment link after a call". It is off by default. The switch works once the clinic has bought phone and connected Stripe.
-- Nothing sends a text. No sender is chosen, and the code that decides whether the assistant may offer a text (`paymentLinkTextOffered()` in `apps/app/src/lib/portal/switch-resets.ts`) always says no. So turning the switch on changes nothing a caller hears.
-- The launch register has an item for it, `payment-link-text`, marked Being built and blocking go-live. Operators can also see and set the switch for a clinic from the clinic's Setup page in /admin.
+- A clinic can see the choice "text the payment link after a call", but the switch is locked ("Texting the payment link is not available yet.") until a sender is ready. One flag, `PAYMENT_LINK_TEXT_SENDER_READY` in `apps/app/src/lib/portal/switch-rules.ts`, holds it. A 29 October session locked it so a clinic cannot "choose" an option that does nothing, which BAA 1.6.0's wording would otherwise promise.
+- Nothing sends a text, and `paymentLinkTextOffered()` in `switch-resets.ts` always says no, so the assistant never offers one.
+- The Terms, Privacy and the checkout box describe the text as designed. The launch register item `payment-link-text` is Being built and does not block go-live.
 
-## What your decision of 28 October 2026 settles
+## Decided (owner, 28 to 30 October)
 
-- The sender does not need a business associate agreement. It is handled by scoping, like Meta and Stripe: the text is fixed words plus the clinic's own checkout link, and nothing else. No treatment, time or amount in the words.
-- Registration with the phone carriers is still needed for each clinic that turns the text on, and takes one to four weeks. A clinic that never turns it on registers nothing.
+- No separate agreement with the sender; the text is scoped to fixed words and the clinic's own checkout link.
+- Sender: AWS End User Messaging SMS, in healdesk's own account, one US toll-free number registered once by healdesk (the route scope has the AWS facts and what is still unverified). AWS handles STOP and HELP.
+- No text goes to a caller of a clinic whose accepted agreement is older than the one that carries the exception: BAA 1.6.0 (released in code; it reaches clinics when `apps/app` is deployed and its migration runs) and DPA 1.1.0 (released by your word on 30 October).
 
 ## What is left, in order
 
-1. **You choose a sender.** A company that sends texts for us. This is the one thing only you can do. Nothing is chosen yet.
-2. **Per-clinic registration.** Decide how each clinic is registered with the carriers (whose tax ID, who files, who pays) and how the portal knows a clinic is registered. The switch should only be usable for a registered clinic.
-3. **Build the sending** in the tool layer (Claude Code). Fixed words and the clinic's own checkout link only. Only after the caller says yes and reads the number back. Once, to that number, for that call. If it fails, the booking stands and staff are told about the deposit. Then `paymentLinkTextOffered()` can say yes, but only when the sender is ready, the clinic's switch is on and the clinic is registered.
-4. **Legal wording.** Terms, Privacy and "How AYA is built to behave" still say AYA sends no texts. They must change before the first text goes. The exact sentences and what has to change with them are in `legal-wording-proposal-payment-text.md` for you to approve.
-5. **Test it** on a real call with a test clinic, from yes on the call to the text arriving, and the failure case.
-6. **Flip the register item** `payment-link-text` to On in the same commit that makes production send the text, and record the sender in `docs/hipaa-compliance.md`, `/admin/map` and the spec's vendor table.
+1. **File the toll-free registration with AWS** (you, in the AWS console, for Viixi FZC). Up to 15 business days. It needs the company name, address, a registry ID, a privacy policy link and a terms link, and an opt-in script as evidence. Whether one registration may send for many clinics, and whether a payment-link message fits the use categories, is only answered by filing.
+2. **Deploy `apps/app`** so BAA 1.6.0 and DPA 1.1.0 reach clinics.
+3. **Build the sending** in the tool layer (Claude Code, one lane of work). Fixed words and the clinic's own checkout link only, after the caller says yes and reads the number back, once per booking, only for a clinic on an agreement that covers it. It has its own Terraform plan, which needs your approval as every infrastructure change does.
+4. **Test it** on a real call with a test clinic, from yes on the call to the text arriving, and the failure case.
+5. **Unlock the switch and flip the register item** `payment-link-text` to On in the same commit that makes production send the text. Record the sender in `docs/hipaa-compliance.md`, `/admin/map` and the spec's vendor table, and change the other copy that says AYA sends no texts only where it is no longer true.
 
 ## Not part of this
 
-Support requests by email that become actions (lane D) are not built yet.
+Support requests by email that become actions are built and on `main`, and they only run once the `support-draft` job is switched on. They are not live-verified.

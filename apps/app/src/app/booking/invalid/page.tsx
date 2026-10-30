@@ -27,7 +27,7 @@ export default function InvalidBookingLinkPage() {
       <p className="mt-6">
         <a
           href="/sign-in"
-          className="inline-flex min-h-11 items-center rounded-full bg-[color:var(--color-fg,#111)] px-5 font-semibold text-white"
+          className="bg-ink inline-flex min-h-11 items-center rounded-full px-5 font-semibold text-white"
         >
           Sign in
         </a>

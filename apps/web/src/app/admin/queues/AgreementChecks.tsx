@@ -118,7 +118,7 @@ function AgreementCheckRow({ review, decide, ask }: { review: AgreementReview; d
   return (
     <li className="border-line rounded-md border bg-white p-5">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h3 className="text-[19.2px] font-bold">{review.clinicName}</h3>
+        <h3 className="text-lg font-bold">{review.clinicName}</h3>
         <span className="text-muted text-sm">{review.clinicSlug}</span>
         <span className="text-muted text-sm">
           {open

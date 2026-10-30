@@ -13,8 +13,8 @@
 export function HostStandbyNotice({ what }: { what?: string }) {
   return (
     <section role="status" className="border-line mt-6 rounded-md border bg-white p-5">
-      <h2 className="text-[19.2px] font-bold">The AWS host is in standby.</h2>
-      <p className="mt-2 max-w-[68ch] text-[15.6px]">
+      <h2 className="text-lg font-bold">The AWS host is in standby.</h2>
+      <p className="mt-2 max-w-[68ch] text-sm">
         {what ? `${what} lives` : "What this page shows lives"} on the AWS host, and in standby its database,
         load balancer and services are switched off to save their cost. Nothing here can be read or changed until it is
         on again.
@@ -35,13 +35,13 @@ export function HostStandbyNotice({ what }: { what?: string }) {
 /** The notice as a whole page, for the pages whose heading lives in their panel. */
 export function HostStandbyPage({ title, back }: { title: string; back?: { href: string; label: string } }) {
   return (
-    <main className="mx-auto w-full max-w-[1240px] px-4 py-10 sm:px-8 lg:px-14">
+    <main className="mx-auto w-full max-w-page px-4 py-10 sm:px-8 lg:px-14">
       {back ? (
         <a href={back.href} className="text-muted text-sm underline">
           {back.label}
         </a>
       ) : null}
-      <h1 className="font-display mt-2 text-[28px] leading-tight font-semibold tracking-[-0.02em]">{title}</h1>
+      <h1 className="font-display mt-2 text-2xl leading-tight font-semibold tracking-[-0.02em]">{title}</h1>
       <HostStandbyNotice />
     </main>
   );

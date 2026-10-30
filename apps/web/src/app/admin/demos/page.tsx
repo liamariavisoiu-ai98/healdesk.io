@@ -86,7 +86,7 @@ function AuditSummary({ session }: { session: DemoSession }) {
   if (!report) return null;
   const fixes = report.findings.filter((f) => f.severity === "fix");
   return (
-    <details className="mt-2 text-[14.4px]" open={session.status === "held"}>
+    <details className="mt-2 text-xs" open={session.status === "held"}>
       <summary className="cursor-pointer font-semibold">
         Audit {report.overall}/100
         {report.blockers.length > 0 ? ` · ${report.blockers.length} blocker${report.blockers.length === 1 ? "" : "s"}` : ""}
@@ -159,14 +159,14 @@ export default async function DemosPage() {
   ].filter(Boolean) as string[];
 
   return (
-    <main className="mx-auto w-full max-w-[1240px] px-4 py-10 sm:px-8 lg:px-14">
+    <main className="mx-auto w-full max-w-page px-4 py-10 sm:px-8 lg:px-14">
       <RefreshWhileAnyBuilding active={sessions.some(isRunning)} />
-      <h1 className="font-display text-[28px] leading-tight font-semibold tracking-[-0.02em]">Demos</h1>
-      <p className="text-muted mt-2 max-w-[70ch] text-[15.6px]">
+      <h1 className="font-display text-2xl leading-tight font-semibold tracking-[-0.02em]">Demos</h1>
+      <p className="text-muted mt-2 max-w-[70ch] text-sm">
         When a prospect asks for the AI demo, paste their website here. You get a private link to a page where their clinic&rsquo;s voice
         agent and website chat sit side by side, built from their own site, live for seven days.
       </p>
-      <p className="text-muted mt-2 max-w-[70ch] text-[14.4px]">
+      <p className="text-muted mt-2 max-w-[70ch] text-xs">
         Claude Opus 5.5 audits every demo against the clinic&rsquo;s site before the link opens or is emailed. It ships at{" "}
         {AUDIT_THRESHOLDS.ship}/100 with no blockers, gets one repair round from {AUDIT_THRESHOLDS.repairFrom}, ships with a Slack flag from{" "}
         {AUDIT_THRESHOLDS.floor}, and is held for you below that or with any blocker.
@@ -176,13 +176,13 @@ export default async function DemosPage() {
       {funnel ? <CloseReport rows={funnel} /> : null}
 
       {!configured ? (
-        <p className="bg-tint-peach mt-6 rounded-md px-4 py-3 text-[15px] font-medium">
+        <p className="bg-tint-peach mt-6 rounded-md px-4 py-3 text-sm font-medium">
           The marketing Sheet is not configured, so demos have nowhere to live. Set <code className="font-mono">MARKETING_SHEET_ID</code> and{" "}
           <code className="font-mono">GOOGLE_SERVICE_ACCOUNT_JSON</code>.
         </p>
       ) : null}
       {missing.length > 0 ? (
-        <div className="bg-tint-butter mt-6 rounded-md px-4 py-3 text-[14.4px] font-medium">
+        <div className="bg-tint-butter mt-6 rounded-md px-4 py-3 text-xs font-medium">
           <p className="font-semibold">Not set on this deployment:</p>
           <ul className="mt-1 list-disc pl-5">
             {missing.map((m) => (
@@ -196,9 +196,9 @@ export default async function DemosPage() {
         <DemoBuilder />
       </div>
 
-      <h2 className="font-display mt-10 text-[22px] font-semibold tracking-[-0.01em]">Recent demos</h2>
-      {loadError ? <p className="text-red-deep mt-2 text-[15px] font-semibold">Couldn&rsquo;t read the register: {loadError}</p> : null}
-      {configured && !loadError && sessions.length === 0 ? <p className="text-muted mt-2 text-[15px]">None yet.</p> : null}
+      <h2 className="font-display mt-10 text-xl font-semibold tracking-[-0.01em]">Recent demos</h2>
+      {loadError ? <p className="text-red-deep mt-2 text-sm font-semibold">Couldn&rsquo;t read the register: {loadError}</p> : null}
+      {configured && !loadError && sessions.length === 0 ? <p className="text-muted mt-2 text-sm">None yet.</p> : null}
 
       <ul className="mt-3 space-y-3">
         {sessions.map((session) => {
@@ -207,13 +207,13 @@ export default async function DemosPage() {
           return (
             <li key={session.id} className="border-line rounded-md border bg-white px-4 py-4 sm:px-5">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span className="text-[16.8px] font-semibold">{displayName(session)}</span>
-                <span className={`rounded-full px-2.5 py-0.5 text-[12.6px] font-bold ${status.tone}`}>{status.label}</span>
-                <a href={session.websiteUrl} target="_blank" rel="noreferrer" className="text-muted truncate text-[14.4px] underline-offset-2 hover:underline">
+                <span className="text-base font-semibold">{displayName(session)}</span>
+                <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${status.tone}`}>{status.label}</span>
+                <a href={session.websiteUrl} target="_blank" rel="noreferrer" className="text-muted truncate text-xs underline-offset-2 hover:underline">
                   {session.websiteUrl.replace(/^https?:\/\//, "")}
                 </a>
               </div>
-              <p className="text-muted mt-1 text-[13.8px]">
+              <p className="text-muted mt-1 text-xs">
                 {session.leadEmail ?? "no email"} · created {when(session.createdAt)} by {session.createdBy ?? "?"} · expires {when(session.expiresAt)}
                 {session.emailSentAt ? ` · emailed ${when(session.emailSentAt)}` : ""}
                 {profile ? ` · ${profile.services.length} services, ${profile.faqs.length} FAQs` : ""}
@@ -221,7 +221,7 @@ export default async function DemosPage() {
               </p>
               {/* A demo is not a clinic: it has no clinic id until someone buys and is provisioned, and this site has no database to look one up in. Its own id is what to quote here; the clinic's id is on its row under Clinics. */}
               {session.id ? (
-                <p className="text-muted mt-1 text-[13px]">
+                <p className="text-muted mt-1 text-xs">
                   <CopyValue label="Demo id" value={session.id} />
                   {session.claimed ? (
                     <>
@@ -234,17 +234,17 @@ export default async function DemosPage() {
                   ) : null}
                 </p>
               ) : null}
-              {session.buildNote ? <p className="mt-1.5 text-[14.4px] font-medium">{session.buildNote}</p> : null}
+              {session.buildNote ? <p className="mt-1.5 text-xs font-medium">{session.buildNote}</p> : null}
               <AuditSummary session={session} />
               <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-2">
-                <a href={demoUrl(session.slug)} target="_blank" rel="noreferrer" className="text-red-deep hover:text-red text-[14.4px] font-bold">
+                <a href={demoUrl(session.slug)} target="_blank" rel="noreferrer" className="text-red-deep hover:text-red text-xs font-bold">
                   Open
                 </a>
                 <CopyLink url={demoUrl(session.slug)} />
                 {handoffBlocker(session) === null && session.leadEmail && !isDemoExpired(session) ? (
                   <form action={emailDemoAction}>
                     <input type="hidden" name="slug" value={session.slug} />
-                    <button type="submit" className="text-red-deep hover:text-red text-[14.4px] font-bold">
+                    <button type="submit" className="text-red-deep hover:text-red text-xs font-bold">
                       {session.emailSentAt ? "Email again" : "Email the link"}
                     </button>
                   </form>
@@ -252,7 +252,7 @@ export default async function DemosPage() {
                 {session.status === "held" && profile && !isDemoExpired(session) ? (
                   <form action={releaseDemoAction}>
                     <input type="hidden" name="slug" value={session.slug} />
-                    <button type="submit" className="text-red-deep hover:text-red text-[14.4px] font-bold">
+                    <button type="submit" className="text-red-deep hover:text-red text-xs font-bold">
                       Release anyway
                     </button>
                   </form>
@@ -260,7 +260,7 @@ export default async function DemosPage() {
                 {!isRunning(session) ? (
                   <form action={retryDemoAction}>
                     <input type="hidden" name="slug" value={session.slug} />
-                    <button type="submit" className="text-muted hover:text-ink text-[14.4px] font-bold">
+                    <button type="submit" className="text-muted hover:text-ink text-xs font-bold">
                       {session.status === "failed" || isDemoBuildStalled(session) ? "Retry build" : "Rebuild and re-audit"}
                     </button>
                   </form>
@@ -283,15 +283,15 @@ function CloseReport({ rows }: { rows: CloseFunnelRow[] }) {
   const pct = (n: number, of: number) => (of > 0 ? `${Math.round((n / of) * 100)}%` : "—");
   return (
     <section className="border-line mt-6 rounded-md border bg-white p-5" aria-labelledby="close-report">
-      <h2 id="close-report" className="text-[17px] font-bold">
+      <h2 id="close-report" className="text-base font-bold">
         Demo close: redesign against the old page
       </h2>
-      <p className="text-muted mt-1 text-[13.8px]">
+      <p className="text-muted mt-1 text-xs">
         Each demo shows one close, by its slug. Counted per demo, from the first time it was opened after 26 October 2026.
       </p>
       <div className="mt-4 overflow-x-auto">
-        <table className="w-full min-w-[560px] text-left text-[14.4px] tabular-nums">
-          <thead className="text-muted text-[12.6px] font-bold tracking-[0.06em] uppercase">
+        <table className="w-full min-w-[560px] text-left text-xs tabular-nums">
+          <thead className="text-muted text-xs font-bold tracking-[0.06em] uppercase">
             <tr>
               <th className="py-2 pr-4">Close</th>
               <th className="py-2 pr-4">Opened</th>

@@ -148,7 +148,7 @@ export function NoticesBoard({
   return (
     <main className="mx-auto max-w-[1000px] px-5 py-10 sm:px-8">
       <a href="/admin/compliance" className="text-muted text-sm underline underline-offset-2">← Compliance</a>
-      <h1 className="font-display mt-2 text-[28px] font-semibold tracking-[-0.02em]">Notices</h1>
+      <h1 className="font-display mt-2 text-2xl font-semibold tracking-[-0.02em]">Notices</h1>
       <p className="text-muted mt-3 max-w-[72ch] text-sm">
         The emails we send a practice by hand, each written from a fixed choice: nothing typed here reaches a practice.
         Incident reports are sent from{" "}

@@ -65,7 +65,7 @@ export function ForwardingStepsPanel({
             setPhoneSystem(next);
             void save({ phoneSystem: next, carrier });
           }}
-          className="border-line min-h-11 rounded-xl border bg-white px-3"
+          className="border-line min-h-11 rounded-md border bg-white px-3"
         >
           {PHONE_SYSTEM_OPTIONS.map((o) => (
             <option key={o.id} value={o.id}>
@@ -88,7 +88,7 @@ export function ForwardingStepsPanel({
               setCarrier(next);
               void save({ phoneSystem, carrier: next });
             }}
-            className="border-line min-h-11 rounded-xl border bg-white px-3"
+            className="border-line min-h-11 rounded-md border bg-white px-3"
           >
             {view.carriers.map((c) => (
               <option key={c.id} value={c.id}>
@@ -102,7 +102,7 @@ export function ForwardingStepsPanel({
         id={savedId}
         role="status"
         aria-live="polite"
-        className={saved ? (saved.ok ? "text-muted" : "text-red-800") : "sr-only"}
+        className={saved ? (saved.ok ? "text-muted" : "text-problem") : "sr-only"}
       >
         {saved?.message ?? ""}
       </p>

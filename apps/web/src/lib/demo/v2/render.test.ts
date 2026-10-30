@@ -96,6 +96,18 @@ describe("the owner's demo page, filled for one clinic", () => {
     expect(script).toContain("fetch(HD.callback");
   });
 
+  it("says above the two cards what a demo from public pages cannot know", () => {
+    const { body } = render();
+    const note = body.indexOf('class="hd-note"');
+    expect(note).toBeGreaterThan(-1);
+    expect(note).toBeLessThan(body.indexOf('class="demo-grid"'));
+    expect(body).toContain("What this demo can't know yet");
+    expect(body).toContain("<li>Your live booking calendar, so she can&#39;t see real free times yet</li>");
+    expect(body).toContain("<li>Your deposit and cancellation rules</li>");
+    // This profile lists no team, so the scan's own gap is listed too.
+    expect(body).toContain("<li>Your team</li>");
+  });
+
   it("cannot close its own script tag with the clinic's data", () => {
     const { script } = render();
     expect(script.slice(0, script.indexOf(";\n"))).not.toContain("</");

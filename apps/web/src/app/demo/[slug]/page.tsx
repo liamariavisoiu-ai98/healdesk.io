@@ -125,10 +125,10 @@ export default async function DemoPage({ params }: Props) {
             {/* Every four seconds: a building row is cached for five (lib/demo/sessions.ts), so the demo opens within seconds of being ready. */}
             {expired ? null : <RefreshWhileBuilding everyMs={4_000} />}
             <main className="mx-auto flex w-full max-w-[640px] flex-1 flex-col items-center justify-center px-5 py-20 text-center">
-              <h1 className="font-display text-[34px] leading-tight font-medium tracking-[-0.02em]">
+              <h1 className="font-display text-3xl leading-tight font-medium tracking-[-0.02em]">
                 We&rsquo;re building {name}&rsquo;s demo
               </h1>
-              <p className="text-muted mt-3 mb-10 text-[17px] font-medium">
+              <p className="text-muted mt-3 mb-10 text-sm font-medium">
                 Your voice and chat assistants, from {host}.
               </p>
               <DemoBuildWait stage={state} elapsedMs={demoBuildElapsedMs(session)} host={host} name={name} logoUrl={session.logoUrl} />
@@ -136,10 +136,10 @@ export default async function DemoPage({ params }: Props) {
           </>
         ) : (
           <main className="mx-auto flex w-full max-w-[640px] flex-1 flex-col items-center justify-center px-5 py-24 text-center">
-            <h1 className="font-display text-[34px] leading-tight font-medium tracking-[-0.02em]">
+            <h1 className="font-display text-3xl leading-tight font-medium tracking-[-0.02em]">
               We&rsquo;re preparing {name}&rsquo;s demo
             </h1>
-            <p className="text-muted mt-3 text-[17px] font-medium">
+            <p className="text-muted mt-3 text-base font-medium">
               {isSelfServeDemo(session)
                 ? `Our team is putting the finishing touches on it, and we'll email you the moment it's ready. Questions: ${site.email}.`
                 : "Our team is putting the finishing touches on it. Check back shortly, or reply to our email and we'll let you know the moment it's ready."}

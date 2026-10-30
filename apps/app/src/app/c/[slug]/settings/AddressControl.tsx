@@ -57,7 +57,7 @@ export function AddressControl(props: { slug: string; open: OpenAddressChange | 
 
   if (props.open) {
     return (
-      <div className="border-line mt-2 rounded-xl border px-4 py-3 text-sm">
+      <div className="border-line mt-2 rounded-md border px-4 py-3 text-sm">
         <p>
           Changing to <span className="font-semibold">{props.open.newEmail}</span>.{" "}
           {props.open.state}
@@ -109,7 +109,7 @@ export function AddressControl(props: { slug: string; open: OpenAddressChange | 
         required
         value={value}
         onChange={(event) => setValue(event.target.value)}
-        className="border-line w-full rounded-xl border px-4 py-3 text-base"
+        className="border-line w-full rounded-md border px-4 py-3 text-base"
       />
       <p className="text-muted">
         We email it a link to confirm. The change takes effect 72 hours after it&rsquo;s used, and

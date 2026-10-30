@@ -122,7 +122,7 @@ export type CaseViewProps = {
   actions: CaseActions;
 };
 
-const LABEL = "text-muted block text-[13.2px] font-bold tracking-[0.06em] uppercase";
+const LABEL = "text-muted block text-xs font-bold tracking-[0.06em] uppercase";
 const SELECT = "border-line mt-1 rounded-sm border bg-white px-3 py-2.5";
 const NOTE = "text-muted mt-1 max-w-[68ch] text-sm";
 
@@ -167,18 +167,18 @@ export function CaseView({ view, item, waitingRead, clinics, now, actions }: Cas
       <div className="border-line rounded-md border bg-white p-5">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           {c.clinicId ? (
-            <a href={clinicTabPath(c.clinicId, "care")} className="text-[19.2px] font-bold underline underline-offset-2">
+            <a href={clinicTabPath(c.clinicId, "care")} className="text-lg font-bold underline underline-offset-2">
               {c.clinicName ?? "A clinic with no printable name"}
             </a>
           ) : (
-            <span className="text-[19.2px] font-bold">No clinic yet</span>
+            <span className="text-lg font-bold">No clinic yet</span>
           )}
-          <code className="font-mono text-[15px] select-all">{c.ref}</code>
+          <code className="font-mono text-sm select-all">{c.ref}</code>
           <Tag tone={URGENCY_TONE[c.urgency]}>{URGENCY_WORDS[c.urgency]}</Tag>
           <Tag tone={closed ? "muted" : "info"}>{STATE_WORDS[c.state]}</Tag>
         </div>
         {c.clinicId ? <ClinicId id={c.clinicId} /> : null}
-        <p className="mt-3 text-[15.6px]">{topicWords(c.category, c.symptom)}</p>
+        <p className="mt-3 text-sm">{topicWords(c.category, c.symptom)}</p>
         <p className="text-muted mt-1 text-sm">
           {SOURCE_WORDS[c.source]} · {inboundWords(c)} · {ageWords(c.ageHours)} ({whenWords(c.openedAt)}) ·{" "}
           <span className={c.pastDue ? "text-red-deep font-semibold" : undefined}>{replyByWords(c)}</span>
@@ -214,7 +214,7 @@ export function CaseView({ view, item, waitingRead, clinics, now, actions }: Cas
                 ))}
               </dl>
             )}
-            <h3 className="text-muted mt-4 text-[13.2px] font-bold tracking-[0.06em] uppercase">Alerts in the last {view.facts.days} days</h3>
+            <h3 className="text-muted mt-4 text-xs font-bold tracking-[0.06em] uppercase">Alerts in the last {view.facts.days} days</h3>
             {view.facts.alerts === null ? (
               <p role="status" className="text-red-deep mt-1 text-sm font-semibold">
                 {FACTS_NOT_READ.alerts}
@@ -228,7 +228,7 @@ export function CaseView({ view, item, waitingRead, clinics, now, actions }: Cas
                 ))}
               </ul>
             )}
-            <h3 className="text-muted mt-4 text-[13.2px] font-bold tracking-[0.06em] uppercase">Transcript emails in the last {view.facts.days} days</h3>
+            <h3 className="text-muted mt-4 text-xs font-bold tracking-[0.06em] uppercase">Transcript emails in the last {view.facts.days} days</h3>
             {view.facts.transcripts === null ? (
               <p role="status" className="text-red-deep mt-1 text-sm font-semibold">
                 {FACTS_NOT_READ.transcripts}
@@ -292,14 +292,14 @@ export function CaseView({ view, item, waitingRead, clinics, now, actions }: Cas
                 readOnly={!editable}
                 onChange={(event) => setText(event.target.value)}
                 rows={8}
-                className="border-line mt-1 w-full rounded-sm border bg-white px-3 py-2 font-sans text-[15.6px]"
+                className="border-line mt-1 w-full rounded-sm border bg-white px-3 py-2 font-sans text-sm"
               />
             </label>
             <p className={NOTE}>
               {SIGN_OFF_NOTE} {length.toLocaleString("en-US")} of {MAX_REPLY_CHARS.toLocaleString("en-US")} characters.
             </p>
 
-            <h3 className="text-muted mt-4 text-[13.2px] font-bold tracking-[0.06em] uppercase">
+            <h3 className="text-muted mt-4 text-xs font-bold tracking-[0.06em] uppercase">
               Checks {checks.from === "draft" ? "on the draft as written" : checks.from === "check" ? "from Check just now" : "from the save just now"}
             </h3>
             {checks.list.length === 0 ? (
@@ -316,7 +316,7 @@ export function CaseView({ view, item, waitingRead, clinics, now, actions }: Cas
 
             {draft && draft.questionsForOps.length > 0 ? (
               <>
-                <h3 className="text-muted mt-4 text-[13.2px] font-bold tracking-[0.06em] uppercase">{QUESTIONS_HEADING}</h3>
+                <h3 className="text-muted mt-4 text-xs font-bold tracking-[0.06em] uppercase">{QUESTIONS_HEADING}</h3>
                 <ul className="mt-1 grid gap-0.5 text-sm">
                   {draft.questionsForOps.map((q, i) => (
                     <li key={i}>{q}</li>

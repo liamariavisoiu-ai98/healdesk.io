@@ -83,7 +83,7 @@ export function ToneScreen(
           <h2 className="text-sm font-semibold">
             {g.kind === "phone" ? GREETING_LABELS.phone : GREETING_LABELS.chat}
           </h2>
-          <p className="text-muted rounded-xl border border-line bg-paper-2 px-4 py-3 text-sm">
+          <p className="text-muted rounded-md border border-line bg-paper-2 px-4 py-3 text-sm">
             {g.lockedLine}
             <span className="mt-1 block text-xs">
               Always said first, on every {g.kind === "phone" ? "call" : "website chat"}. It
@@ -100,7 +100,7 @@ export function ToneScreen(
               multiline
             />
           ) : (
-            <div className="rounded-xl border border-line bg-white px-4 py-3">
+            <div className="rounded-md border border-line bg-white px-4 py-3">
               <p>{texts[g.kind]}</p>
               <button
                 type="button"
@@ -289,7 +289,7 @@ export function DepositsScreen(
             {props.services.map((service) => (
               <label
                 key={service.name}
-                className="border-line flex min-h-11 items-center justify-between gap-3 rounded-xl border bg-white px-4 py-2"
+                className="border-line flex min-h-11 items-center justify-between gap-3 rounded-md border bg-white px-4 py-2"
               >
                 <span className="font-semibold">{service.name}</span>
                 <span className="flex items-center gap-1">
@@ -302,7 +302,7 @@ export function DepositsScreen(
                     onChange={(event) =>
                       setAmounts((a) => ({ ...a, [service.name]: event.target.value }))
                     }
-                    className="border-line min-h-11 w-24 rounded-lg border px-2"
+                    className="border-line min-h-11 w-24 rounded-sm border px-2"
                   />
                 </span>
               </label>
@@ -372,12 +372,12 @@ export function DepositsScreen(
  */
 function StripeConnect({ stripe }: { stripe: SetupStripeView }) {
   return (
-    <div className="border-line rounded-xl border bg-white px-4 py-3 text-sm">
+    <div className="border-line rounded-md border bg-white px-4 py-3 text-sm">
       <p className="font-semibold">Deposits paid in chat</p>
       {stripe.outcome ? (
         <p
           role="status"
-          className={`mt-2 rounded-lg border px-3 py-2 ${stripe.outcome.ok ? "border-line bg-tint-mint" : "border-red-200 text-red-800"}`}
+          className={`mt-2 rounded-sm border px-3 py-2 ${stripe.outcome.ok ? "border-line bg-tint-mint" : "border-problem-line text-problem"}`}
         >
           {stripe.outcome.text}
         </p>
@@ -489,7 +489,7 @@ export function UrgentScreen(
         />
       )}
       {props.teamAlerted ? null : (
-        <div className="rounded-xl border border-line bg-white px-4 py-3 text-sm">
+        <div className="rounded-md border border-line bg-white px-4 py-3 text-sm">
           <p className="font-semibold">Urgent alerts are not switched on yet</p>
           <p className="text-muted mt-1">
             Until they are, AYA does not alert your team about an urgent message and does not say
@@ -498,7 +498,7 @@ export function UrgentScreen(
           </p>
         </div>
       )}
-      <div className="rounded-xl border border-line bg-white px-4 py-3 text-sm">
+      <div className="rounded-md border border-line bg-white px-4 py-3 text-sm">
         <p className="font-semibold">Where alerts go</p>
         <p className="text-muted mt-1">
           Urgent alerts, booking requests and everything else go to{" "}

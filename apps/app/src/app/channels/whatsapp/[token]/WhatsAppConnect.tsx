@@ -193,7 +193,7 @@ export function WhatsAppConnect({
 
   return (
     <div className="mt-8">
-      {message ? <p className="mb-4 rounded-lg border border-[color:var(--color-ink)] px-4 py-3 text-[15px]">{message}</p> : null}
+      {message ? <p className="mb-4 rounded-sm border border-[color:var(--color-ink)] px-4 py-3 text-[15px]">{message}</p> : null}
       <button
         type="button"
         onClick={start}

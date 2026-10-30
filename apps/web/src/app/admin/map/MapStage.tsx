@@ -267,10 +267,10 @@ function Bands() {
               className={`absolute z-[1] flex items-baseline gap-2 rounded-sm px-1.5 py-0.5 ${band === "shared" ? "top-[18px] left-[18px] max-w-[260px] flex-col gap-1" : "top-3 left-[18px]"}`}
               style={{ background: BAND_PAPER[band] }}
             >
-              <span className="text-[11.5px] font-bold tracking-[0.14em] uppercase" style={{ color: accent.ink }}>
+              <span className="text-xs font-bold tracking-[0.14em] uppercase" style={{ color: accent.ink }}>
                 {area.title}
               </span>
-              <span className="text-[12.5px]" style={{ color: accent.ink, opacity: 0.8 }}>
+              <span className="text-xs" style={{ color: accent.ink, opacity: 0.8 }}>
                 {area.note}
               </span>
             </div>
@@ -279,7 +279,7 @@ function Bands() {
       })}
       {/* The patient-data line itself: where the patient side ends. */}
       <div
-        className="absolute flex items-center gap-1.5 rounded-full border bg-white px-2.5 py-1 text-[11.5px] font-bold shadow-sm"
+        className="absolute flex items-center gap-1.5 rounded-full border bg-white px-2.5 py-1 text-xs font-bold shadow-sm"
         style={{ left: BANDS.shared.x + 24, top: BANDS.shared.y - 13, color: BAND_ACCENT.patient.ink, borderColor: BAND_ACCENT.patient.edge }}
       >
         <Icon name="shield" className="size-3.5" strokeWidth={2.2} />
@@ -495,15 +495,15 @@ function HubCard({
           <Icon name={tool.icon} className="size-6" />
         </span>
         <span className="min-w-0">
-          <span className="block text-[20px] leading-tight font-bold tracking-[-0.01em]">{tool.name}</span>
-          <span className="block text-[12.5px] text-white/70">{tool.role}</span>
+          <span className="block text-lg leading-tight font-bold tracking-[-0.01em]">{tool.name}</span>
+          <span className="block text-xs text-white/70">{tool.role}</span>
         </span>
-        <span className="ml-auto flex shrink-0 items-center gap-1.5 self-start text-[12.5px] font-semibold whitespace-nowrap text-white/85" title={`${working} of ${total} connected`}>
+        <span className="ml-auto flex shrink-0 items-center gap-1.5 self-start text-xs font-semibold whitespace-nowrap text-white/85" title={`${working} of ${total} connected`}>
           <span className="inline-block size-2 rounded-full" style={{ background: healthy ? "#4ade80" : "#fbbf24" }} />
           {working}/{total}
         </span>
       </span>
-      <span className="mt-3 flex items-center gap-2 text-[12px] font-semibold">
+      <span className="mt-3 flex items-center gap-2 text-xs font-semibold">
         <span className="flex items-center gap-1.5 rounded-full bg-white/12 px-2.5 py-1 whitespace-nowrap ring-1 ring-white/15">
           <Icon name={patient ? "shield" : "store"} className="size-3.5" strokeWidth={2.2} />
           {patient ? "Holds patient data, under BAAs" : "Never holds patient data"}
@@ -570,8 +570,8 @@ function GroupCard({
           <span className="grid size-7 shrink-0 place-items-center rounded-sm" style={{ background: accent.tint, color: accent.ink }}>
             <Icon name={group.icon} className="size-4" strokeWidth={2} />
           </span>
-          <span className="min-w-0 truncate text-[14.5px] font-bold text-[#172a3a]">{group.name}</span>
-          <span className="ml-auto flex shrink-0 items-center gap-1.5 text-[12px] font-semibold text-[#5c6e7e]" title={`${working} of ${total} connected`}>
+          <span className="min-w-0 truncate text-sm font-bold text-[#172a3a]">{group.name}</span>
+          <span className="ml-auto flex shrink-0 items-center gap-1.5 text-xs font-semibold text-[#5c6e7e]" title={`${working} of ${total} connected`}>
             <span className="inline-block size-2 rounded-full" style={{ background: STATUS_STYLE[status].stroke }} />
             {working}/{total}
           </span>
@@ -593,7 +593,7 @@ function GroupCard({
                 style={{ height: CARD.chip, opacity: toolLit(tool.id) ? 1 : 0.4 }}
               >
                 <Icon name={tool.icon} className={`size-4 shrink-0 ${chosen ? "text-white" : "text-[#5c6e7e]"}`} />
-                <span className="min-w-0 truncate text-[13px] font-semibold">{tool.name}</span>
+                <span className="min-w-0 truncate text-xs font-semibold">{tool.name}</span>
                 {own ? <span className="ml-auto inline-block size-2 shrink-0 rounded-full" style={{ background: STATUS_STYLE[own].stroke }} /> : null}
               </button>
             );

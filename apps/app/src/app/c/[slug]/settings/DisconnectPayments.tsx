@@ -47,7 +47,7 @@ export function DisconnectPayments({ slug }: { slug: string }) {
     );
   }
   return (
-    <div className="border-line mt-3 rounded-xl border px-4 py-3 text-sm">
+    <div className="border-line mt-3 rounded-md border px-4 py-3 text-sm">
       <p>
         Deposits switch off at once and open payment links stop working. AYA books without asking
         for a deposit until you connect an account again.

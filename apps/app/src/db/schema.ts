@@ -4895,7 +4895,7 @@ export const depositPayments = pgTable(
     uniqueIndex("deposit_payments_open_appointment_idx")
       .on(t.clinicId, t.appointmentId)
       .where(sql`${t.status} in ('creating', 'open') and ${t.appointmentId} is not null`),
-    // 'voice': the link texted after a call (drizzle/0140, lib/sms/payment-text.ts).
+    // 'voice': the link texted after a call (drizzle/0141, lib/sms/payment-text.ts).
     check("deposit_payments_channel_check", sql`${t.channel} in ('web', 'meta', 'voice')`),
     check("deposit_payments_amount_check", sql`${t.amountCents} > 0`),
     check(
@@ -4908,7 +4908,7 @@ export const depositPayments = pgTable(
 export type DepositPayment = typeof depositPayments.$inferSelect;
 
 /**
- * Where the one payment-link text of a booking stands (drizzle/0140). `queued`
+ * Where the one payment-link text of a booking stands (drizzle/0141). `queued`
  * is written before AWS is asked, so a crash mid-send leaves the row and no
  * second text ever follows; the other three are where a send ended.
  * `declined`: offered on the call and turned down (or never confirmed), so it
@@ -6794,7 +6794,7 @@ export const TENANT_SCOPED_TABLES = [
   "answer_outages",
   "miss_cases",
   "missed_contacts",
-  // The payment-link text's ledger (drizzle/0140).
+  // The payment-link text's ledger (drizzle/0141).
   "payment_link_texts",
 ] as const;
 

@@ -69,7 +69,7 @@ export default async function SettingsPage({
     return (
       <PortalShell {...shell}>
         <h1 className="text-2xl font-semibold">Settings</h1>
-        <p className="border-line mt-6 rounded-xl border bg-white px-4 py-3">
+        <p className="border-line mt-6 rounded-md border bg-white px-4 py-3">
           This account has closed, so there is nothing left to change.
         </p>
       </PortalShell>
@@ -189,7 +189,7 @@ function LocationsCard(props: {
     <section
       id="locations"
       aria-labelledby="locations-heading"
-      className="border-line scroll-mt-6 rounded-2xl border bg-white px-5 py-4"
+      className="border-line scroll-mt-6 rounded-md border bg-white px-5 py-4"
     >
       <h2 id="locations-heading" className="text-lg font-semibold">
         Locations
@@ -205,7 +205,7 @@ function LocationsCard(props: {
         {props.locations.map((l) => (
           <li
             key={l.id}
-            className="border-line flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3"
+            className="border-line flex flex-wrap items-center justify-between gap-3 rounded-md border px-4 py-3"
           >
             <span>
               <span className="block font-semibold">{l.name}</span>

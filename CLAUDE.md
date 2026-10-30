@@ -231,8 +231,10 @@ enforceable rather than aspirational.
    second one" is read in code from the items she just listed, and the
    role-play keeps its booking so nothing is asked twice (test call
    72dc66b7; owner, 26 October 2026). She says deposit links come in website
-   chat, Instagram, Messenger and WhatsApp as design, never on a call
-   (`DEPOSIT_CLAIM`; LAUNCH_PROMISES `deposit-link-meta`). On every call
+   chat, Instagram, Messenger and WhatsApp as design, never during a call,
+   where she books and flags the deposit; a clinic can turn on one optional text
+   with its payment link after a booking call, designed to go only if the
+   caller agrees (`DEPOSIT_CLAIM`; LAUNCH_PROMISES `deposit-link-meta`). On every call
    the code says no filler while the model thinks (`ACKNOWLEDGEMENTS` is
    empty), and takes the caller's name out as a form of address after two
    uses and a reflex "sorry" after the call's first apology
@@ -464,19 +466,16 @@ a rule already holds, and treat a gap as a bug, not a precedent.
   back, one fixed-wording text carries the clinic's own hosted payment link,
   sent once, never resent, naming no treatment, time or amount, only when the
   clinic's payment gateway is connected, and sent by the fixed tool layer,
-  never the model. The sender is AWS End User Messaging SMS (owner, 30 October
-  2026), built in code (`lib/sms/send.ts`, `lib/sms/payment-text.ts`, the
-  `payment_link_texts` ledger, the contact policy's `canSendPaymentLinkText`),
-  and nothing sends a text yet: the switch unlocks, and
-  `paymentLinkTextOffered()` answers yes, only once the owner pastes the
-  toll-free number's identity into `HEALDESK_SMS_ORIGINATION_IDENTITY`, which
-  is `__unset__` everywhere, with phone bought, Stripe connected, real calls
-  on and the clinic under the BAA (DPA 1.0.0 still says no SMS); the one
-  toll-free registration, healdesk's own, is still to be filed. The sender needs no business associate
+  never the model. The clinic's switch stays locked ("Texting the payment link is not
+  available yet.", `PAYMENT_LINK_TEXT_SENDER_READY` in `switch-rules.ts`) and
+  nothing sends a text yet: the sender is AWS End
+  User Messaging SMS (owner, 30 October 2026) and is not built,
+  `paymentLinkTextOffered()` is false so the assistant never offers one, and
+  one toll-free registration, healdesk's own, is still to be filed. The sender needs no business associate
   agreement (owner, 28 October 2026): like Meta and Stripe it is handled by
   scoping, so the text is fixed words and the link and nothing else, never a
   treatment, a time, an amount or anything said on the call. The carriers'
-  registration is one number healdesk registers once, not one per clinic. Anything beyond that one text stays
+  registration is one number healdesk registers once, not one per clinic. No text goes to a caller of a clinic whose accepted agreement is older than the one that carries the exception (BAA 1.6.0, DPA 1.1.0). Anything beyond that one text stays
   forbidden. One thing is not contact "after
   a conversation ends" (owner's ruling, 21 October 2026): a window-gated reply
   to a patient's open request, such as the fixed line telling a person on Meta

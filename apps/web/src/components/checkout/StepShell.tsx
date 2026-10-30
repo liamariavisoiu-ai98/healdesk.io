@@ -37,11 +37,11 @@ function BrandEyebrow({ brand }: { brand: CheckoutBrand }) {
             <img src={brand.logoUrl} alt="" className="max-h-[70%] max-w-[80%] object-contain" />
           </span>
         ) : (
-          <span aria-hidden className="bg-ink font-display grid size-8 shrink-0 place-items-center rounded-full text-[15px] font-semibold text-white">
+          <span aria-hidden className="bg-ink font-display grid size-8 shrink-0 place-items-center rounded-full text-sm font-semibold text-white">
             {brand.clinicName.trim().charAt(0).toUpperCase()}
           </span>
         )}
-        <span className="text-ink truncate text-[14.4px] font-bold">{activateTitle(brand.clinicName)}</span>
+        <span className="text-ink truncate text-xs font-bold">{activateTitle(brand.clinicName)}</span>
       </span>
       {brand.offer ? <OfferBadge offer={brand.offer} onEnd={brand.onOfferEnd} /> : null}
     </div>
@@ -118,7 +118,7 @@ export function StepShell({
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="text-muted hover:text-ink -mr-2 grid size-11 shrink-0 place-items-center rounded-full text-lg leading-none transition-colors"
+              className="text-muted hover:text-ink -mr-2 grid size-11 shrink-0 place-items-center rounded-full text-xl leading-none transition-colors"
             >
               <span aria-hidden>&times;</span>
             </button>
@@ -152,12 +152,12 @@ export function StepShell({
       <h1
         ref={headingRef}
         tabIndex={-1}
-        className="font-display mt-2 text-[clamp(31.2px,4.32vw,48px)] leading-[1.06] font-medium tracking-[-0.024em] outline-none"
+        className="font-display mt-2 text-[clamp(var(--text-3xl),4.32vw,var(--text-5xl))] leading-[1.06] font-medium tracking-[-0.024em] outline-none"
       >
         {title}
       </h1>
       {subtitle ? (
-        <p className="text-muted mt-3 text-[19.2px] font-medium">{subtitle}</p>
+        <p className="text-muted mt-3 text-lg font-medium">{subtitle}</p>
       ) : null}
 
       <div className="mt-8">{children}</div>
@@ -204,7 +204,7 @@ export function PrimaryButton({
       type={type}
       disabled={disabled}
       onClick={onClick}
-      className="bg-brand-gradient-deep shadow-sm inline-flex min-h-12 items-center gap-2 rounded-full px-8 py-4 text-base font-bold text-white transition-all duration-fast motion-safe:hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-40"
+      className="bg-brand-gradient-deep shadow-sm inline-flex min-h-12 items-center gap-2 rounded-full px-8 py-4 text-lg font-bold text-white transition-all duration-fast motion-safe:hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-40"
     >
       {children}
     </button>
@@ -252,11 +252,11 @@ export function ChoiceCard({
 
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-center gap-2">
-            <span className="font-display text-[22.8px] leading-tight font-medium">
+            <span className="font-display text-xl leading-tight font-medium">
               {title}
             </span>
             {badge ? (
-              <span className="bg-paper-2 text-muted rounded-full px-2.5 py-1 text-[13.2px] font-bold tracking-[0.06em] uppercase">
+              <span className="bg-paper-2 text-muted rounded-full px-2.5 py-1 text-xs font-bold tracking-[0.06em] uppercase">
                 {badge}
               </span>
             ) : null}
@@ -273,7 +273,7 @@ export function ChoiceCard({
 }
 
 /** The small caps label every field and group in the flow carries. */
-export const FIELD_LABEL = "text-[15.6px] font-bold tracking-[0.04em] uppercase";
+export const FIELD_LABEL = "text-sm font-bold tracking-[0.04em] uppercase";
 
 export type RadioOption<T extends string> = {
   id: T;
@@ -433,7 +433,7 @@ export function TextField({
           invalid ? "border-red" : "border-line focus:border-orange",
           // The type size is the caller's when it styles the input at all, so
           // two font sizes never compete in one class list.
-          inputClassName ?? "text-[19.2px]",
+          inputClassName ?? "text-lg",
         ].join(" ")}
       />
       {hint ? (

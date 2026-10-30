@@ -64,7 +64,7 @@ const MITIGATIONS = Object.entries(INCIDENT_MITIGATIONS) as [IncidentMitigation,
 const STEPS = Object.entries(INCIDENT_PATIENT_STEPS) as [IncidentPatientStep, string][];
 const RECOMMENDATIONS = Object.entries(INCIDENT_RECOMMENDATIONS) as [IncidentRecommendation, string][];
 
-const LABEL = "text-muted block text-[13.2px] font-bold tracking-[0.06em] uppercase";
+const LABEL = "text-muted block text-xs font-bold tracking-[0.06em] uppercase";
 const FIELD = "border-line mt-1 rounded-sm border bg-white px-3 py-2";
 
 function Facts({ lines }: { lines: [string, string][] }) {
@@ -97,7 +97,7 @@ function BatchFacts({ facts }: { facts: IncidentBatchFacts }) {
       <div className="mt-3 overflow-x-auto">
         <table className="w-full text-left text-sm">
           <thead>
-            <tr className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">
+            <tr className="text-muted text-xs font-bold tracking-[0.06em] uppercase">
               <th className="py-1 pr-3">Clinic</th>
               <th className="py-1 pr-3">Conversations in the window</th>
               <th className="py-1 pr-3">Agreement</th>
@@ -148,7 +148,7 @@ function ReportChoices({
   const toggle = <T extends string>(list: T[], code: T, on: boolean): T[] => (on ? [...new Set([...list, code])] : list.filter((c) => c !== code));
   return (
     <div className="border-line mt-3 grid gap-4 rounded-sm border p-4 text-sm">
-      <p className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">The report&rsquo;s choices: fixed lists only, nothing typed</p>
+      <p className="text-muted text-xs font-bold tracking-[0.06em] uppercase">The report&rsquo;s choices: fixed lists only, nothing typed</p>
       <label>
         <span className={LABEL}>What happened</span>
         <select name="event" value={choices.event ?? ""} onChange={(event) => onChange({ ...choices, event: event.target.value === "" ? null : (event.target.value as IncidentReportEvent) })} className={`${FIELD} w-full`}>
@@ -271,7 +271,7 @@ export function IncidentCard({
       </div>
       <p className="text-muted mt-0.5 text-sm">{APPROVAL_KIND_WORDS[item.kind]}</p>
       {packet ? (
-        <p className="mt-3 text-[15.6px]">{packet.effect}</p>
+        <p className="mt-3 text-sm">{packet.effect}</p>
       ) : (
         <p role="status" className="text-red-deep mt-3 text-sm font-semibold">
           {FACTS_NOT_READ}

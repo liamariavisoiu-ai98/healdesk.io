@@ -149,14 +149,14 @@ export function SystemMap({ view, recordRotation }: { view: MapView; recordRotat
                   setStory(null);
                   setLens(option.id);
                 }}
-                className="min-h-10 rounded-full px-3.5 text-[13.5px] font-bold text-[#5c6e7e] transition-colors hover:text-[#172a3a] aria-pressed:bg-white aria-pressed:text-[#172a3a] aria-pressed:shadow-sm"
+                className="min-h-10 rounded-full px-3.5 text-xs font-bold text-[#5c6e7e] transition-colors hover:text-[#172a3a] aria-pressed:bg-white aria-pressed:text-[#172a3a] aria-pressed:shadow-sm"
               >
                 {option.label}
               </button>
             ))}
           </div>
           <div className="flex flex-wrap items-center gap-1.5 lg:ml-auto">
-            <span className="mr-1 text-[12px] font-bold tracking-[0.1em] text-[#5c6e7e] uppercase">Play a story</span>
+            <span className="mr-1 text-xs font-bold tracking-[0.1em] text-[#5c6e7e] uppercase">Play a story</span>
             {STORIES.map((entry) => (
               <button
                 key={entry.id}
@@ -166,7 +166,7 @@ export function SystemMap({ view, recordRotation }: { view: MapView; recordRotat
                   setSelection(null);
                   setStory({ id: entry.id, step: 0, playing: true });
                 }}
-                className="flex min-h-10 items-center gap-1.5 rounded-full border border-[rgb(23_42_58/0.12)] px-3 text-[13px] font-bold text-[#172a3a] hover:border-[rgb(23_42_58/0.3)] aria-pressed:border-[#172a3a] aria-pressed:bg-[#172a3a] aria-pressed:text-white"
+                className="flex min-h-10 items-center gap-1.5 rounded-full border border-[rgb(23_42_58/0.12)] px-3 text-xs font-bold text-[#172a3a] hover:border-[rgb(23_42_58/0.3)] aria-pressed:border-[#172a3a] aria-pressed:bg-[#172a3a] aria-pressed:text-white"
               >
                 <Icon name="play" className="size-3" />
                 {entry.title}
@@ -198,7 +198,7 @@ export function SystemMap({ view, recordRotation }: { view: MapView; recordRotat
           />
         ) : null}
 
-        <p className="px-4 pt-3 text-[13px] font-semibold text-[#5c6e7e] sm:hidden">Swipe sideways to see the whole map, or use the lists below.</p>
+        <p className="px-4 pt-3 text-xs font-semibold text-[#5c6e7e] sm:hidden">Swipe sideways to see the whole map, or use the lists below.</p>
         <div className="p-2 sm:p-3">
           <MapStage
             bridges={bridges}
@@ -221,7 +221,7 @@ export function SystemMap({ view, recordRotation }: { view: MapView; recordRotat
         <MapLists view={view} tools={tools} onSelect={select} recordRotation={recordRotation} />
       </div>
 
-      <p className="max-w-[80ch] text-[13.5px] text-[#5c6e7e]">
+      <p className="max-w-[80ch] text-xs text-[#5c6e7e]">
         <strong className="text-[#172a3a]">Retired, and not on the map:</strong> Synthflow (replaced by Retell on 5 October 2026)
         and its two secrets, HEALDESK_VOICE_WEBHOOK_SECRET and HEALDESK_VOICE_TOOLS_SECRET; Twilio and Deepgram, still listed in
         .env.example but read by nothing. Delete any of these wherever they are still set.
@@ -285,12 +285,12 @@ function Overview({
       <div className="flex items-center gap-5 rounded-lg border border-[rgb(23_42_58/0.1)] bg-white p-5">
         <HealthRing counts={view.counts} total={total} />
         <div className="min-w-0">
-          <p className="text-[12.5px] font-bold tracking-[0.1em] text-[#5c6e7e] uppercase">Connections working</p>
-          <p className="font-display mt-1 text-[38px] leading-none font-semibold text-[#172a3a]">
+          <p className="text-xs font-bold tracking-[0.1em] text-[#5c6e7e] uppercase">Connections working</p>
+          <p className="font-display mt-1 text-4xl leading-none font-semibold text-[#172a3a]">
             {working}
-            <span className="text-[20px] text-[#5c6e7e]"> of {total}</span>
+            <span className="text-lg text-[#5c6e7e]"> of {total}</span>
           </p>
-          <p className="mt-2.5 flex items-start gap-2 text-[13px] font-semibold" style={{ color: host.ink }} title={view.host.text}>
+          <p className="mt-2.5 flex items-start gap-2 text-xs font-semibold" style={{ color: host.ink }} title={view.host.text}>
             <span className="relative mt-1 inline-flex size-2.5 shrink-0">
               {view.host.state === "answered" ? (
                 <span className="absolute inset-0 animate-ping rounded-full opacity-50 motion-reduce:hidden" style={{ background: host.dot, animationDuration: "2.4s" }} />
@@ -299,7 +299,7 @@ function Overview({
             </span>
             {host.label}
           </p>
-          <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-[#5c6e7e]" aria-live="polite">
+          <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#5c6e7e]" aria-live="polite">
             <span>
               {refreshing ? "Checking now…" : `Checked ${clock(view.checkedAt)} UTC`} · refreshes every 5 minutes
             </span>
@@ -330,10 +330,10 @@ function Overview({
               style={{ background: n > 0 ? style.tint : "#ffffff", borderColor: n > 0 ? `${style.stroke}40` : "rgb(23 42 58 / 0.1)" }}
             >
               <span className="flex items-center justify-between" style={{ color: n > 0 ? style.ink : "#9aa8b5" }}>
-                <span className="text-[30px] leading-none font-bold tabular-nums">{n}</span>
+                <span className="text-3xl leading-none font-bold tabular-nums">{n}</span>
                 <Icon name={style.icon} className="size-[18px]" strokeWidth={2.2} />
               </span>
-              <span className="text-[13.5px] font-bold" style={{ color: n > 0 ? style.ink : "#5c6e7e" }}>
+              <span className="text-xs font-bold" style={{ color: n > 0 ? style.ink : "#5c6e7e" }}>
                 {STATUS_WORDS[tile]}
               </span>
             </button>
@@ -348,10 +348,10 @@ function Overview({
           }}
         >
           <span className="flex items-center justify-between" style={{ color: view.rotationsDue > 0 ? STATUS_STYLE["needs-key"].ink : "#9aa8b5" }}>
-            <span className="text-[30px] leading-none font-bold tabular-nums">{view.rotationsDue}</span>
+            <span className="text-3xl leading-none font-bold tabular-nums">{view.rotationsDue}</span>
             <Icon name="clock" className="size-[18px]" strokeWidth={2.2} />
           </span>
-          <span className="text-[13.5px] font-bold" style={{ color: view.rotationsDue > 0 ? STATUS_STYLE["needs-key"].ink : "#5c6e7e" }}>
+          <span className="text-xs font-bold" style={{ color: view.rotationsDue > 0 ? STATUS_STYLE["needs-key"].ink : "#5c6e7e" }}>
             Keys to rotate soon
           </span>
         </a>
@@ -430,13 +430,13 @@ function StoryBar({
         @media (prefers-reduced-motion: reduce) { .hdm-caption { animation: none; } }
       `}</style>
       <div className="min-w-0 flex-1 basis-[420px]" role="status" aria-live="polite">
-        <p className="text-[12px] font-bold tracking-[0.12em] text-white/60 uppercase">
+        <p className="text-xs font-bold tracking-[0.12em] text-white/60 uppercase">
           {title} · step {step + 1} of {steps.length}
         </p>
-        <p key={step} className="hdm-caption mt-1 text-[17px] leading-snug font-semibold">
+        <p key={step} className="hdm-caption mt-1 text-base leading-snug font-semibold">
           {current.text}
         </p>
-        <p className="mt-1.5 flex items-start gap-1.5 text-[13.5px]" style={{ color: ok ? "#86efac" : "#fcd34d" }}>
+        <p className="mt-1.5 flex items-start gap-1.5 text-xs" style={{ color: ok ? "#86efac" : "#fcd34d" }}>
           <Icon name={ok ? "check" : STATUS_STYLE[current.status].icon} className="mt-0.5 size-4 shrink-0" strokeWidth={2.4} />
           <span>{ok ? "This step works today." : `This step can't happen yet. ${current.statusText}`}</span>
         </p>
@@ -477,7 +477,7 @@ function StoryBar({
         >
           <Icon name="next" className="size-4" strokeWidth={2.4} />
         </button>
-        <button type="button" onClick={onOpen} className="ml-1 min-h-11 rounded-full bg-white/10 px-4 text-[13.5px] font-bold hover:bg-white/20">
+        <button type="button" onClick={onOpen} className="ml-1 min-h-11 rounded-full bg-white/10 px-4 text-xs font-bold hover:bg-white/20">
           Details
         </button>
         <button type="button" onClick={onClose} className="grid size-11 place-items-center rounded-full hover:bg-white/10" aria-label="End the story">
@@ -490,7 +490,7 @@ function StoryBar({
 
 function Legend() {
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-[rgb(23_42_58/0.08)] px-4 py-3 text-[13px] sm:px-5">
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-[rgb(23_42_58/0.08)] px-4 py-3 text-xs sm:px-5">
       {LEGEND_ORDER.map((status) => (
         <span key={status} className="flex items-center gap-2" title={STATUS_MEANING[status]}>
           <svg width="30" height="10" aria-hidden="true">

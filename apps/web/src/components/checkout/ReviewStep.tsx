@@ -103,7 +103,7 @@ export function ReviewStep({
     >
       {notice ? (
         <p
-          className="border-line bg-paper-2/60 mb-6 rounded-sm border px-4 py-3 text-[15.6px] font-semibold"
+          className="border-line bg-paper-2/60 mb-6 rounded-sm border px-4 py-3 text-sm font-semibold"
           role="status"
         >
           {notice}
@@ -121,7 +121,7 @@ export function ReviewStep({
         className="border-line mt-4 rounded-md border bg-white p-5"
         aria-label="What you pay"
       >
-        <p className="font-display text-[26.4px] leading-tight font-medium">{fee.headline}</p>
+        <p className="font-display text-2xl leading-tight font-medium">{fee.headline}</p>
         {offer ? (
           <p className="mt-1 text-sm font-semibold text-[#2f7d3a]">{offerLine(plan, offer)}</p>
         ) : null}
@@ -138,7 +138,7 @@ export function ReviewStep({
           .
         </p>
 
-        <p className="mt-4 text-[15.6px] font-semibold">
+        <p className="mt-4 text-sm font-semibold">
           {planStartLine(plan, interval, specialty)}
         </p>
         {inService ? <p className="text-muted mt-2 text-sm">{inService}</p> : null}
@@ -168,7 +168,7 @@ export function ReviewStep({
         <h2 id="guarantee-heading" className={FIELD_LABEL}>
           {GUARANTEE_TEXT.heading}
         </h2>
-        <div className="text-muted mt-3 space-y-2.5 text-[13.5px] leading-relaxed">
+        <div className="text-muted mt-3 space-y-2.5 text-xs leading-relaxed">
           {GUARANTEE_TEXT.paragraphs.map((paragraph) => (
             <p key={paragraph.lead}>
               <strong className="text-ink">{paragraph.lead}</strong> {paragraph.body}
@@ -188,7 +188,7 @@ export function ReviewStep({
         {copyLink}
       </div>
       {!agreement.approvedByCounsel ? (
-        <p className="border-red/30 bg-red/[0.06] mt-4 rounded-sm border px-4 py-3 text-[15.6px] font-semibold">
+        <p className="border-red/30 bg-red/[0.06] mt-4 rounded-sm border px-4 py-3 text-sm font-semibold">
           This agreement is a draft pending legal review. Until it is finalised, accounts are
           created for synthetic data only and cannot receive real patient information.
         </p>

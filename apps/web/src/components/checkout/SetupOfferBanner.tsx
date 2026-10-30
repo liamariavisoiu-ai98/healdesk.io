@@ -32,20 +32,20 @@ export function SetupOfferBanner({
   return (
     <div className="bg-brand-gradient shadow-sm mb-5 flex flex-wrap items-center justify-between gap-3 rounded-md px-5 py-4 text-white">
       <span>
-        <span className="block text-[12px] font-bold tracking-[0.12em] uppercase opacity-85">
+        <span className="block text-xs font-bold tracking-[0.12em] uppercase opacity-85">
           {offer.kind === "demo" ? "Demo offer" : offer.kind === "site" ? "Website offer" : "Setup credit"}
         </span>
-        <span className="font-display block text-[24px] leading-tight font-semibold">
+        <span className="font-display block text-xl leading-tight font-semibold">
           {offerHeadline(offer)}
         </span>
         {plan && due !== null && due < plan.setupFeeUsd ? (
-          <span className="mt-1 block text-[15px] font-semibold tabular-nums">
+          <span className="mt-1 block text-sm font-semibold tabular-nums">
             Setup <s className="opacity-75">{usd.format(plan.setupFeeUsd)}</s> {usd.format(due)} · you save{" "}
             {usd.format(plan.setupFeeUsd - due)}
           </span>
         ) : null}
       </span>
-      <span className="rounded-sm bg-white/15 px-3 py-2 text-[14.4px] font-semibold">
+      <span className="rounded-sm bg-white/15 px-3 py-2 text-xs font-semibold">
         Ends in <OfferCountdown endsAt={offer.endsAt} onEnd={onEnd} />
       </span>
     </div>
@@ -56,7 +56,7 @@ export function SetupOfferBanner({
 export function OfferBadge({ offer, onEnd }: { offer: SetupOffer; onEnd?: () => void }) {
   const percent = offerCredit(offer).percentOfSetupFee;
   return (
-    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-[13.2px] font-semibold tabular-nums">
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold tabular-nums">
       <span className="rounded-full bg-[#87d68d] px-2.5 py-0.5 font-bold text-[#172a3a]">
         {percent >= 100 ? "Setup on us" : `${percent}% off setup`}
       </span>
@@ -103,10 +103,10 @@ export function OfferCountdown({ endsAt, onEnd }: { endsAt: string; onEnd?: () =
 
   const cell = (value: number | null, label: string) => (
     <span className="inline-flex items-baseline gap-0.5">
-      <span className="font-display text-[17px] font-semibold tabular-nums">
+      <span className="font-display text-base font-semibold tabular-nums">
         {value === null ? "--" : value.toString().padStart(2, "0")}
       </span>
-      <span className="text-[12px] font-bold opacity-75">{label}</span>
+      <span className="text-xs font-bold opacity-75">{label}</span>
     </span>
   );
   const left = now === null ? null : parts(end - now);

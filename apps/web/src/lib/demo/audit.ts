@@ -4,7 +4,7 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { HEALDESK_PRODUCT_FACTS } from "@/lib/demo-prompt";
 
-import { demoChatParams, finalText } from "./chat-model";
+import { demoChatParams, demoUrgentReply, finalText } from "./chat-model";
 import { createBy } from "./fast";
 import { chatGreeting, clinicVoiceVariables } from "./clinic-prompts";
 import { profileToKnowledge, type ClinicProfile } from "./profile";
@@ -392,6 +392,9 @@ export async function runProbes(client: AuditClient, profile: ClinicProfile, dea
   const signal = AbortSignal.timeout(Math.max(1, budget(deadline - ANSWERS_GRADE_RESERVE_MS, 60_000)));
   return Promise.all(
     buildProbes(profile).map(async (probe): Promise<ProbeResult> => {
+      // The prospect's chat answers an urgent message in code, so the test does too.
+      const urgent = demoUrgentReply(profile, probe.question);
+      if (urgent) return { ...probe, answer: urgent, outcome: "ok" };
       let response: Anthropic.Beta.Messages.BetaMessage;
       try {
         response = await client.beta.messages.create(demoChatParams(profile, [{ role: "user", content: probe.question }]), {

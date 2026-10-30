@@ -63,7 +63,7 @@ function Tile({ children, label, caption }: { children: React.ReactNode; label: 
       <div className="grid size-[72px] place-items-center overflow-hidden rounded-lg bg-white p-2.5 shadow-md ring-1 ring-black/[0.06] sm:size-20" aria-label={label} role="img">
         {children}
       </div>
-      <div className="flex h-4 max-w-full items-center justify-center text-[12.5px] font-semibold text-black/55">{caption}</div>
+      <div className="flex h-4 max-w-full items-center justify-center text-xs font-semibold text-black/55">{caption}</div>
     </div>
   );
 }
@@ -76,7 +76,7 @@ function ScanScene({ host }: { host: string }) {
         <span className="size-2 rounded-full bg-[#ff5f57]" />
         <span className="size-2 rounded-full bg-[#febc2e]" />
         <span className="size-2 rounded-full bg-[#28c840]" />
-        <span className="ml-2 truncate rounded-full bg-black/[0.05] px-3 py-0.5 text-[11.5px] font-medium text-black/55">{host}</span>
+        <span className="ml-2 truncate rounded-full bg-black/[0.05] px-3 py-0.5 text-xs font-medium text-black/55">{host}</span>
       </div>
       <div className="relative flex-1 overflow-hidden px-4 py-3.5">
         <div className="space-y-2.5">
@@ -94,7 +94,7 @@ function ScanScene({ host }: { host: string }) {
         <span className="dw-scan" />
         <div className="absolute inset-x-0 bottom-3 flex flex-wrap justify-center gap-1.5 px-3">
           {FOUND.map((label, i) => (
-            <span key={label} className="dw-chip rounded-full bg-white px-2.5 py-1 text-[11.5px] font-semibold shadow-md ring-1 ring-black/[0.06]" style={{ animationDelay: `${i * 0.7}s` }}>
+            <span key={label} className="dw-chip rounded-full bg-white px-2.5 py-1 text-xs font-semibold shadow-md ring-1 ring-black/[0.06]" style={{ animationDelay: `${i * 0.7}s` }}>
               <span className="mr-1 inline-block size-1.5 rounded-full align-middle" style={{ background: "var(--clinic)" }} />
               {label}
             </span>
@@ -111,12 +111,12 @@ function TestScene() {
     <div className="dw-scene absolute inset-0 overflow-hidden px-3.5 py-3.5" aria-hidden>
       {TESTS.map((t, i) => (
         <div key={t.q} className="dw-test absolute inset-x-3.5 top-3.5 space-y-2" style={{ animationDelay: `${i * 3}s` }}>
-          <div className="ml-auto w-fit max-w-[80%] rounded-lg rounded-br-sm bg-[#0a84ff] px-3 py-1.5 text-[12.5px] font-medium text-white">{t.q}</div>
+          <div className="ml-auto w-fit max-w-[80%] rounded-lg rounded-br-sm bg-[#0a84ff] px-3 py-1.5 text-xs font-medium text-white">{t.q}</div>
           <div className="flex items-end gap-1.5">
             <img src="/hero-frames-2/g_20.webp" alt="" className="size-6 shrink-0 rounded-full object-cover" style={{ objectPosition: "50% 30%" }} />
-            <div className="w-fit max-w-[78%] rounded-lg rounded-bl-sm bg-black/[0.06] px-3 py-1.5 text-[12.5px] text-black/80">{t.a}</div>
+            <div className="w-fit max-w-[78%] rounded-lg rounded-bl-sm bg-black/[0.06] px-3 py-1.5 text-xs text-black/80">{t.a}</div>
           </div>
-          <div className="dw-check ml-8 flex w-fit items-center gap-1 rounded-full bg-[#e8f8ee] px-2 py-0.5 text-[11px] font-semibold text-[#1f8a4c]">
+          <div className="dw-check ml-8 flex w-fit items-center gap-1 rounded-full bg-[#e8f8ee] px-2 py-0.5 text-xs font-semibold text-[#1f8a4c]">
             <svg viewBox="0 0 24 24" className="size-3" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
               <path d="M5 12.5l4.5 4.5L19 7.5" />
             </svg>
@@ -171,7 +171,7 @@ export function DemoBuildWait({
           {logoUrl ? (
             <img src={logoUrl} alt="" className="max-h-full max-w-full object-contain" />
           ) : (
-            <span className="font-display grid size-full place-items-center rounded-md text-[30px] font-medium" style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}>
+            <span className="font-display grid size-full place-items-center rounded-md text-2xl font-medium" style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}>
               {initial}
             </span>
           )}
@@ -196,7 +196,7 @@ export function DemoBuildWait({
       </div>
 
       {/* The step under way, and where it sits among the three. */}
-      <p key={shown.step} className="dw-step mt-8 text-[17px] font-semibold" aria-live="polite">
+      <p key={shown.step} className="dw-step mt-8 text-sm font-semibold" aria-live="polite">
         {stepLabel(shown.step, host)}
       </p>
       <div className="mt-3 flex gap-2" aria-hidden>
@@ -215,7 +215,7 @@ export function DemoBuildWait({
       <div className="mt-6 h-1 w-full max-w-[280px] overflow-hidden rounded-full bg-black/[0.08]" role="progressbar" aria-label="Building your demo" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(share * 100)}>
         <span className="dw-bar block h-full rounded-full" style={{ width: `${share * 100}%`, background: "var(--clinic)" }} />
       </div>
-      <p className="text-muted mt-4 text-[15px] font-medium">Usually about two minutes. Your demo opens on this page by itself.</p>
+      <p className="text-muted mt-4 text-xs font-medium">Usually about two minutes. Your demo opens on this page by itself.</p>
     </div>
   );
 }

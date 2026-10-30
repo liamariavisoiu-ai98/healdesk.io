@@ -40,15 +40,15 @@ export default function NotFound() {
     <>
       <Nav />
 
-      <main className="mx-auto max-w-[1240px] px-5 pt-16 pb-24 sm:px-8 sm:pt-24 lg:px-14">
+      <main className="mx-auto max-w-page px-5 pt-16 pb-24 sm:px-8 sm:pt-24 lg:px-14">
         <div className="max-w-[52ch]">
           <p className="eyebrow-tag">
             404
           </p>
-          <h1 className="font-display mt-3 text-[clamp(40.8px,6vw,69.6px)] leading-[1.03] font-medium tracking-[-0.028em]">
+          <h1 className="font-display mt-3 text-[clamp(var(--text-4xl),6vw,var(--text-6xl))] leading-[1.03] font-medium tracking-[-0.028em]">
             {site.agent} picks up when your desk can&rsquo;t. This page, she can&rsquo;t find.
           </h1>
-          <p className="text-muted mt-5 text-[20.4px] font-medium">
+          <p className="text-muted mt-5 text-lg font-medium">
             The link you followed is missing a piece, or points somewhere that
             has moved. Everything on the site starts from one of these.
           </p>
@@ -63,19 +63,19 @@ export default function NotFound() {
           <div className="mt-9 grid w-full max-w-[480px] grid-cols-1 gap-3 sm:grid-cols-2">
             <a
               href="/"
-              className="bg-red hover:bg-red-deep inline-flex h-[54px] w-full items-center justify-center gap-2 rounded-sm px-6 text-base font-semibold whitespace-nowrap text-white transition-colors duration-fast"
+              className="bg-red hover:bg-red-deep inline-flex h-[54px] w-full items-center justify-center gap-2 rounded-sm px-6 text-lg font-semibold whitespace-nowrap text-white transition-colors duration-fast"
             >
               Meet {site.agent}
             </a>
             <a
               href={site.cta.primary.href}
-              className="btn-outline h-[54px] w-full px-6 text-base whitespace-nowrap"
+              className="btn-outline h-[54px] w-full px-6 text-lg whitespace-nowrap"
             >
               {site.cta.primary.label}
             </a>
           </div>
 
-          <p className="text-muted mt-8 text-[15.6px]">
+          <p className="text-muted mt-8 text-sm">
             If you typed the address from an email or an ad and landed here,
             tell us at{" "}
             <a

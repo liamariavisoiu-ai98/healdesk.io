@@ -696,7 +696,7 @@ function Complete({ email, onClose }: { email: string; onClose?: () => void }) {
       <div className="bg-mint text-ink mx-auto grid size-14 place-items-center rounded-full text-2xl">
         ✓
       </div>
-      <h1 className="font-display mt-6 text-[clamp(31.2px,4.32vw,45.6px)] leading-tight font-medium tracking-[-0.024em]">
+      <h1 className="font-display mt-6 text-[clamp(var(--text-3xl),4.32vw,var(--text-4xl))] leading-tight font-medium tracking-[-0.024em]">
         You&apos;re set up.
       </h1>
       {/* Reached only on the unpaid development path (no Stripe keys), where
@@ -704,7 +704,7 @@ function Complete({ email, onClose }: { email: string; onClose?: () => void }) {
           leaves for Stripe and comes back to this site's /welcome
           (app/welcome/route.ts), which hands them on to apps/app's once the
           account exists. */}
-      <p className="text-muted mt-4 text-[19.2px] font-medium">
+      <p className="text-muted mt-4 text-lg font-medium">
         Your agreement is signed and on file, and we&apos;ve emailed a copy to{" "}
         <strong className="text-ink">{email}</strong>.
       </p>

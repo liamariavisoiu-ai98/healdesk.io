@@ -17,6 +17,9 @@
   --color-orange: #ff761e;
   /* The logo red, darkened just enough to clear 4.5:1 as small text. */
   --color-red-deep: #da191a;
+  /* The logo orange, darkened to 3.69:1 on the ground: the focus ring, and
+     nothing under 24px (the site's note on the same token). */
+  --color-orange-deep: #e05800;
 
   /* Ground and ink: Deep Space Blue on a neutral near-white. */
   --color-ink: #172a3a;
@@ -36,6 +39,29 @@
   --color-tint-mint: #e5f6dc;
   --color-tint-butter: #fff3bf;
   --color-tint-peach: #ffe9de;
+
+  /* A problem (30 October 2026): the one red for a line that says something
+     went wrong, the hairline round its box, and the box's fill. Until then
+     each screen reached for Tailwind's own reds and ambers (`text-red-800`,
+     `border-red-200`, `bg-amber-50`), colours from no palette of ours. The
+     text is the site's deep red, 4.5:1 on the ground and on the tint; the
+     fill is that red at a twentieth, which beside tint-peach reads as a
+     warning rather than a warm panel. A paused switch is `tint-butter` with
+     a `sun` border, the site's own "highlight" pair. */
+  --color-problem: #da191a;
+  --color-problem-line: rgb(218 25 26 / 0.3);
+  --color-tint-problem: #fdeaea;
+
+  /* The site's three corner radii (its globals.css, "Shape"): `sm` is a
+     control, a field, a tag, a small notice; `md` a card, a tile, a toast;
+     `lg` a panel. Tailwind's own scale is cleared so a stray `rounded-xl`
+     builds nothing rather than a fourth size. Until 30 October 2026 the
+     portal used Tailwind's 8, 12 and 16px; each moved to the nearest of
+     these. */
+  --radius-*: initial;
+  --radius-sm: 6px;
+  --radius-md: 16px;
+  --radius-lg: 28px;
 }
 
 /* The gradient, deep enough for white text on top of it (the site's
@@ -45,6 +71,12 @@
 }
 
 @layer base {
+  html {
+    /* The palette is light-only: without this a dark-mode phone draws the
+       form controls dark on the portal's white cards. */
+    color-scheme: light;
+  }
+
   body {
     background-color: var(--color-paper);
     color: var(--color-ink);
@@ -53,8 +85,10 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  /* The deep orange: the logo's is 2.67:1 on the ground, under the 3:1 a
+     focus ring needs to be seen. */
   :focus-visible {
-    outline: 3px solid var(--color-orange);
+    outline: 3px solid var(--color-orange-deep);
     outline-offset: 3px;
   }
 }

@@ -104,7 +104,7 @@ export const READONLY_WITHHELD: Record<string, "patient" | "credential" | "unrev
   missed_contacts: "patient",
   meta_inbound_messages: "patient",
   patient_requests: "patient",
-  // The payment-link text ledger (drizzle/0140): no number and no words, but
+  // The payment-link text ledger (drizzle/0141): no number and no words, but
   // the record that a patient of the clinic was texted about their booking.
   payment_link_texts: "patient",
   reconciliation_exceptions: "patient",

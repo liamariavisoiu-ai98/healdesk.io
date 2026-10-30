@@ -53,15 +53,15 @@ export default function ContactPage() {
     <BuyModalProvider>
       <Nav />
 
-      <main className="mx-auto max-w-[1240px] px-5 pt-16 pb-24 sm:px-8 sm:pt-20 lg:px-14">
+      <main className="mx-auto max-w-page px-5 pt-16 pb-24 sm:px-8 sm:pt-20 lg:px-14">
         <div className="max-w-[52ch]">
           <p className="eyebrow-tag">
             Contact us
           </p>
-          <h1 className="font-display mt-3 text-[clamp(40.8px,6vw,69.6px)] leading-[1.03] font-medium tracking-[-0.028em]">
+          <h1 className="font-display mt-3 text-[clamp(var(--text-4xl),6vw,var(--text-6xl))] leading-[1.03] font-medium tracking-[-0.028em]">
             A real person, usually within a day.
           </h1>
-          <p className="text-muted mt-5 text-[20.4px] font-medium">
+          <p className="text-muted mt-5 text-lg font-medium">
             Tell us the specialty and where your phone drops, and we&apos;ll tell
             you what {site.agent} would have answered. If you&apos;d rather just
             hear her, call her on{" "}
@@ -80,22 +80,22 @@ export default function ContactPage() {
           <ContactCard />
 
           <div>
-            <h2 className="font-display text-[clamp(26.4px,3.12vw,36px)] leading-tight font-medium tracking-[-0.024em]">
+            <h2 className="font-display text-[clamp(var(--text-2xl),3.12vw,var(--text-3xl))] leading-tight font-medium tracking-[-0.024em]">
               What we do with what you give us.
             </h2>
 
             {COMMITMENTS.map((item) => (
               <div key={item.q} className="border-line mt-6 border-t pt-5">
-                <h3 className="font-display text-[21.6px] leading-snug font-medium tracking-[-0.015em]">
+                <h3 className="font-display text-xl leading-snug font-medium tracking-[-0.015em]">
                   {item.q}
                 </h3>
-                <p className="text-muted mt-2.5 max-w-[62ch] text-[18px] leading-[1.55] font-medium">
+                <p className="text-muted mt-2.5 max-w-[62ch] text-base leading-[1.55] font-medium">
                   {item.a}
                 </p>
               </div>
             ))}
 
-            <p className="text-muted mt-8 max-w-[62ch] text-[15.6px]">
+            <p className="text-muted mt-8 max-w-[62ch] text-sm">
               Prefer email? {site.email}. Pricing figures anywhere on this site
               are approximate industry ranges, not quotes.
             </p>

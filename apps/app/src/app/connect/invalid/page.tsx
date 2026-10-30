@@ -22,7 +22,7 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "This link is no longer valid",
-  // Overridden: the root layout describes this app as a "Clinic console". It
+  // Overridden: the root layout describes this app as the clinic's portal. It
   // also says nothing about why the link failed — this page is never told, and
   // its metadata is not a back door for telling it. (Phase two: in v1 every
   // connect link lands here, because the read-back handover is fenced off.)

@@ -247,7 +247,7 @@ describeDb(
     test("the ledger refuses a link for any channel but website chat, Meta and the one text after a call", async () => {
       // BAA 1.3.0 release gate 10 (docs/counsel/agreement-changes.md § 12.14):
       // links only in website chat and on Meta; BAA 1.6.0 (§ 20) adds the one
-      // optional text after a call, `voice` (drizzle/0140), which only
+      // optional text after a call, `voice` (drizzle/0141), which only
       // lib/sms/payment-text.ts asks for. The type allows only those three;
       // this is the check behind it, and createDepositLink's first write meets
       // it before Stripe is called.

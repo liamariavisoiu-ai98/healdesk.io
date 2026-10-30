@@ -16,7 +16,7 @@ import type { ReactNode } from "react";
  * (`ErrorState` takes no error object on purpose).
  */
 
-const BOX = "border-line rounded-xl border bg-white px-4 py-4";
+const BOX = "border-line rounded-md border bg-white px-4 py-4";
 
 /** Something that has nothing in it yet, and why, with at most one next step. */
 export function EmptyState(props: {
@@ -76,7 +76,7 @@ export function LoadingState(props: { label?: string; rows?: number }) {
       <span className="sr-only">{props.label ?? "Loading"}</span>
       <div aria-hidden="true" className="grid gap-2">
         {Array.from({ length: rows }, (_, i) => (
-          <div key={i} className="bg-paper-2 h-14 rounded-xl motion-safe:animate-pulse" />
+          <div key={i} className="bg-paper-2 h-14 rounded-md motion-safe:animate-pulse" />
         ))}
       </div>
     </div>

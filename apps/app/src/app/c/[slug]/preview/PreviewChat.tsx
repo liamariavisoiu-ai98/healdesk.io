@@ -127,11 +127,11 @@ export function PreviewChat(props: { slug: string; opening: string; homeHref: st
   }
 
   return (
-    <div className="border-line mt-6 rounded-2xl border bg-white px-4 py-4 sm:px-5">
+    <div className="border-line mt-6 rounded-md border bg-white px-4 py-4 sm:px-5">
       <ol aria-label="Conversation" aria-live="polite" className="grid gap-3">
         <li className="grid gap-1">
           <p className="text-muted text-xs font-semibold">AYA</p>
-          <p className="bg-paper-2 rounded-2xl px-4 py-3">{props.opening}</p>
+          <p className="bg-paper-2 rounded-md px-4 py-3">{props.opening}</p>
         </li>
         {lines.map((line, i) => (
           <li
@@ -142,7 +142,7 @@ export function PreviewChat(props: { slug: string; opening: string; homeHref: st
               {line.speaker === "person" ? "You" : "AYA"}
             </p>
             <p
-              className={`whitespace-pre-wrap rounded-2xl px-4 py-3 ${
+              className={`whitespace-pre-wrap rounded-md px-4 py-3 ${
                 line.speaker === "person" ? "bg-ink text-white" : "bg-paper-2"
               }`}
             >
@@ -151,7 +151,7 @@ export function PreviewChat(props: { slug: string; opening: string; homeHref: st
             {line.notes?.map((note) => (
               <p
                 key={note}
-                className="text-muted border-line rounded-xl border border-dashed px-3 py-2 text-sm"
+                className="text-muted border-line rounded-md border border-dashed px-3 py-2 text-sm"
               >
                 {note}
               </p>
@@ -163,7 +163,7 @@ export function PreviewChat(props: { slug: string; opening: string; homeHref: st
       {stopped ? (
         <p
           role="status"
-          className="border-line bg-tint-butter mt-4 rounded-xl border px-4 py-3 text-sm"
+          className="border-line bg-tint-butter mt-4 rounded-md border px-4 py-3 text-sm"
         >
           {stopped.line}
           {stopped.home ? (
@@ -191,7 +191,7 @@ export function PreviewChat(props: { slug: string; opening: string; homeHref: st
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
           disabled={working || ended}
-          className="border-line-strong min-h-11 rounded-xl border px-3 py-2"
+          className="border-line-strong min-h-11 rounded-md border px-3 py-2"
         />
         <div className="flex flex-wrap items-center gap-2">
           <button

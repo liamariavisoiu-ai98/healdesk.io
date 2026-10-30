@@ -40,7 +40,7 @@ export function DemoVoiceAgent({ onSync }: { onSync: SyncDemoAgent }) {
         className="mt-4 flex flex-wrap items-end gap-3"
       >
         <label className="min-w-[260px] flex-1">
-          <span className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">Retell agent id</span>
+          <span className="text-muted text-xs font-bold tracking-[0.06em] uppercase">Retell agent id</span>
           <input
             name="agentId"
             required

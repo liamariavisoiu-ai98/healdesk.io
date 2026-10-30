@@ -93,7 +93,11 @@ export function WhyWaitExperience() {
 
   return (
     <>
+      {/* The calculator opens the page, so its heading is the page's h1:
+          until 30 October 2026 /why-wait had none, and a screen reader's
+          heading list started at the second level. */}
       <WhyGoSmart
+        heading="h1"
         specialty={selected}
         onSelectSpecialty={setSelectedId}
         callsPerWeek={callsPerWeek}
@@ -118,7 +122,7 @@ export function WhyWaitExperience() {
             >
               Talk to {site.agent} for {DEMO_ACCESS_DAYS} days before you decide.
             </h2>
-            <p className="text-muted mt-5 max-w-[46ch] text-[clamp(17px,1.25vw,19px)] leading-[1.55] font-medium">
+            <p className="text-muted mt-5 max-w-[46ch] text-[clamp(var(--text-base),1.25vw,var(--text-lg))] leading-[1.55] font-medium">
               Ask her what a patient would ask, or what you would ask a supplier. Unlock the demo
               with your work email and it stays open to you for {DEMO_ACCESS_DAYS} days. Then
               decide.
@@ -126,7 +130,7 @@ export function WhyWaitExperience() {
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <a
                 href={`/${site.cta.secondary.href}`}
-                className="bg-red hover:bg-red-deep inline-flex items-center justify-center gap-2 rounded-sm px-6 py-3.5 text-base font-semibold text-white transition-colors"
+                className="bg-red hover:bg-red-deep inline-flex items-center justify-center gap-2 rounded-sm px-6 py-3.5 text-lg font-semibold text-white transition-colors"
               >
                 {site.cta.secondary.label}
               </a>
@@ -136,19 +140,19 @@ export function WhyWaitExperience() {
                   card below. */}
               <a
                 href="/pricing"
-                className="border-line-strong text-ink hover:border-ink inline-flex items-center justify-center rounded-sm border-[1.5px] bg-white px-6 py-3.5 text-base font-semibold transition-colors"
+                className="border-line-strong text-ink hover:border-ink inline-flex items-center justify-center rounded-sm border-[1.5px] bg-white px-6 py-3.5 text-lg font-semibold transition-colors"
               >
                 See pricing
               </a>
             </div>
 
             <div className="border-line mt-10 border-t pt-6">
-              <p className="text-muted text-[12.5px] font-bold tracking-[0.12em] uppercase">
+              <p className="text-muted text-xs font-bold tracking-[0.12em] uppercase">
                 In the demo, today
               </p>
               <ul className="mt-3 space-y-2.5">
                 {IN_THE_DEMO.map((line) => (
-                  <li key={line} className="text-muted flex gap-2.5 text-[16px] leading-snug font-medium">
+                  <li key={line} className="text-muted flex gap-2.5 text-sm leading-snug font-medium">
                     <span aria-hidden className="bg-line-strong mt-[9px] inline-block h-1.5 w-1.5 shrink-0 rounded-full" />
                     {line}
                   </li>
@@ -161,7 +165,7 @@ export function WhyWaitExperience() {
           <div className="demo-field-warm rounded-lg p-3 sm:p-5">
             <div className="rounded-md bg-white p-6 shadow-lg sm:p-8">
               <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                <h3 className="font-display text-ink text-[clamp(26px,2.6vw,34px)] leading-tight font-normal tracking-[-0.025em]">
+                <h3 className="font-display text-ink text-[clamp(var(--text-2xl),2.6vw,var(--text-3xl))] leading-tight font-normal tracking-[-0.025em]">
                   When she&apos;s yours
                 </h3>
               </div>
@@ -171,24 +175,24 @@ export function WhyWaitExperience() {
                   <li key={item.title} className="flex gap-4 py-4 first:pt-0 last:pb-0">
                     <span
                       aria-hidden
-                      className="bg-tint-peach text-red-deep mt-0.5 grid size-7 shrink-0 place-items-center rounded-full text-[13px] font-bold"
+                      className="bg-tint-peach text-red-deep mt-0.5 grid size-7 shrink-0 place-items-center rounded-full text-xs font-bold"
                     >
                       ✓
                     </span>
                     <div>
-                      <p className="text-ink text-[17.5px] leading-snug font-semibold">{item.title}</p>
-                      <p className="text-muted mt-1 text-[15.5px] leading-[1.5] font-medium">{item.body}</p>
+                      <p className="text-ink text-base leading-snug font-semibold">{item.title}</p>
+                      <p className="text-muted mt-1 text-sm leading-[1.5] font-medium">{item.body}</p>
                     </div>
                   </li>
                 ))}
               </ol>
 
               <div className="border-line mt-7 flex flex-wrap items-center justify-between gap-4 border-t pt-6">
-                <p className="text-muted max-w-[34ch] text-[14.5px] leading-snug font-medium">
+                <p className="text-muted max-w-[34ch] text-sm leading-snug font-medium">
                   Choose a product and how much of it you need, from 100 minutes or conversations
                   a month, and see the price before you pay; cancel at the end of any period.
                 </p>
-                <BuyButton className="px-6 py-3.5 text-base" />
+                <BuyButton className="px-6 py-3.5 text-lg" />
               </div>
             </div>
           </div>

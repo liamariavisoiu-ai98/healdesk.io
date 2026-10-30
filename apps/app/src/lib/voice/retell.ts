@@ -516,6 +516,22 @@ const CALL_DETAILS_WAIT_MS = 1_500;
 const DEMO_CALL_DETAILS_WAIT_MS = 3_000;
 
 /** The caller's words since the agent last spoke, from Retell's transcript. */
+/** Where a demo call's role-plays sit in its turns: the one open, from its opener, and those done, as [from, to). */
+export type DemoTrail = { open: number | null; spans: readonly (readonly [number, number])[] };
+
+/**
+ * The turns the model is shown on a demo call. In a role-play, only the
+ * role-play, from its opener: the front desk never sees the pitch it was
+ * mixing into its answers. Outside one, everything but the role-plays: the
+ * pitch never sees the front desk's lines, and its note carries a recap of
+ * them (demo-facts.ts). Indices past a turn that was undone simply fall away.
+ */
+export function demoHistory(turns: readonly TranscriptTurn[], stage: DemoStage, trail: DemoTrail): TranscriptTurn[] {
+  if (stage === "roleplay" && trail.open !== null) return turns.slice(Math.min(trail.open, turns.length));
+  if (trail.spans.length === 0) return [...turns];
+  return turns.filter((_, i) => !trail.spans.some(([from, to]) => i >= from && i < to));
+}
+
 export function latestCallerWords(transcript: unknown): string {
   if (!Array.isArray(transcript)) return "";
   const entries = transcript as RetellTranscriptEntry[];
@@ -723,7 +739,16 @@ export class RetellCallSession {
    * record's length then: a reply dropped unheard (heardTurns) takes back
    * what it moved, so a "Ring ring!" nobody heard starts no role-play.
    */
-  private demoBefore: { at: number; stage: DemoStage; progress: DemoProgress }[] = [];
+  private demoBefore: { at: number; stage: DemoStage; progress: DemoProgress; trail: DemoTrail }[] = [];
+  /**
+   * Where the role-plays sit in `turns`, so each part of a demo call shows the
+   * model only its own conversation (owner, 30 October 2026: Aya mixed the
+   * pitch and the front desk): the role-play sees only itself, from its
+   * opener; the pitch sees everything but the role-plays, with a recap of
+   * them in its note (demo-facts.ts). Restored with the stage when a turn is
+   * undone.
+   */
+  private demoTrail: DemoTrail = { open: null, spans: [] };
   /** When the model was last asked anything on this call, a warm included (Date.now()). */
   private lastModelAt = 0;
   /** A turn is with the model: no warm goes alongside it. */
@@ -1434,6 +1459,7 @@ export class RetellCallSession {
       if (undone >= 0) {
         this.demoStage = this.demoBefore[undone]!.stage;
         this.demoProgress = this.demoBefore[undone]!.progress;
+        this.demoTrail = this.demoBefore[undone]!.trail;
         this.demoBefore.length = undone;
       }
     }
@@ -1605,7 +1631,7 @@ export class RetellCallSession {
           }
         : null,
       interruptedAt: cutIn,
-      history: this.turns,
+      history: this.demoContext ? demoHistory(this.turns, this.demoStage, this.demoTrail) : this.turns,
       text: words,
       capture: this.capture,
       responder,
@@ -1653,7 +1679,7 @@ export class RetellCallSession {
     this.callLanguage = language;
     this.acknowledgedLastTurn = acknowledgement !== null;
 
-    if (this.demoContext) this.demoBefore.push({ at: this.turns.length, stage: this.demoStage, progress: this.demoProgress });
+    if (this.demoContext) this.demoBefore.push({ at: this.turns.length, stage: this.demoStage, progress: this.demoProgress, trail: this.demoTrail });
     this.turns.push({ speaker: "person", text: turn.personText });
     this.capture = turn.capture;
     this.toolState = turn.toolState;
@@ -1692,6 +1718,12 @@ export class RetellCallSession {
         progress.roleplayTurns,
       );
       this.demoProgress = afterDemoReply(progress, stageBefore, this.demoStage, update, words);
+      // The reply about to be said opens or closes a role-play (demoHistory).
+      if (stageBefore !== "roleplay" && this.demoStage === "roleplay") {
+        this.demoTrail = { ...this.demoTrail, open: this.turns.length };
+      } else if (stageBefore === "roleplay" && this.demoStage !== "roleplay" && this.demoTrail.open !== null) {
+        this.demoTrail = { open: null, spans: [...this.demoTrail.spans, [this.demoTrail.open, this.turns.length + 1]] };
+      }
       // The scripted lines, word for word, by the call: the opener carries the
       // AI notice the owner is meant to hear, and the exit line comes only
       // after a role-play that ran.

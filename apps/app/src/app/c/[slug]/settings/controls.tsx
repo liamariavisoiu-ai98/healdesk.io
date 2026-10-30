@@ -197,7 +197,7 @@ export function ChoiceSetting<T extends string>(props: {
           <label
             key={option.id}
             htmlFor={id}
-            className={`border-line flex min-h-11 gap-3 rounded-xl border bg-white px-4 py-3 ${
+            className={`border-line flex min-h-11 gap-3 rounded-md border bg-white px-4 py-3 ${
               option.disabled && value !== option.id ? "opacity-60" : "cursor-pointer"
             }`}
           >
@@ -269,7 +269,7 @@ export function TextSetting(props: {
     maxLength: props.maxLength,
     placeholder: props.placeholder,
     "aria-describedby": describedBy,
-    className: "border-line w-full rounded-xl border bg-white px-4 py-3 text-base",
+    className: "border-line w-full rounded-md border bg-white px-4 py-3 text-base",
   };
   return (
     <form
@@ -369,7 +369,7 @@ export function ChecklistSetting(props: {
             <label
               key={option.id}
               htmlFor={id}
-              className="border-line flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border bg-white px-3 py-2"
+              className="border-line flex min-h-11 cursor-pointer items-center gap-2 rounded-md border bg-white px-3 py-2"
             >
               <input
                 id={id}

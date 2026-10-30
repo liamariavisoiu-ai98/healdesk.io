@@ -160,14 +160,14 @@ export default async function AdminLayout({
               the size a thumb can hit; the nav is deliberately not a menu
               behind a button, because five links fit and a menu hides the
               one you want. */}
-          <div className="mx-auto flex w-full max-w-[1240px] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:px-8 sm:py-4 lg:px-14">
+          <div className="mx-auto flex w-full max-w-page flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:px-8 sm:py-4 lg:px-14">
             {/* The gradient utility rather than the marketing `Brand`'s two
                 coloured spans: `Brand` links to `#top`, which is an anchor on
                 the landing page and a no-op here. */}
             <a
               href="/admin"
               aria-label="healdesk admin"
-              className="font-display flex min-h-11 shrink-0 items-center text-[27px] leading-none font-semibold tracking-[-0.02em] sm:text-[33.6px]"
+              className="font-display flex min-h-11 shrink-0 items-center text-2xl leading-none font-semibold tracking-[-0.02em] sm:text-3xl"
             >
               <span className="text-brand-gradient">healdesk</span>
               <span className="text-muted text-[0.6em] font-medium">.io</span>
@@ -180,7 +180,7 @@ export default async function AdminLayout({
                 /* The address, not a greeting. It is the account every action
                    below is attributed to, so seeing which one is signed in is
                    the point rather than a pleasantry. */
-                <span className="text-muted hidden max-w-[220px] truncate text-[15.6px] font-medium sm:inline">
+                <span className="text-muted hidden max-w-[220px] truncate text-sm font-medium sm:inline">
                   {operator}
                 </span>
               ) : null}
@@ -188,7 +188,7 @@ export default async function AdminLayout({
               <form action={signOut}>
                 <button
                   type="submit"
-                  className="border-line hover:border-line-strong text-muted hover:text-ink inline-flex min-h-11 shrink-0 items-center rounded-full border px-4 py-2 text-[15.6px] font-semibold transition-colors"
+                  className="border-line hover:border-line-strong text-muted hover:text-ink inline-flex min-h-11 shrink-0 items-center rounded-full border px-4 py-2 text-sm font-semibold transition-colors"
                 >
                   Sign out
                 </button>

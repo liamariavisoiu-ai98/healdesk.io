@@ -85,7 +85,7 @@ export function CalendarScreen(
             {props.notice ? (
               <p
                 role="status"
-                className={`rounded-xl border bg-white px-4 py-3 text-sm ${
+                className={`rounded-md border bg-white px-4 py-3 text-sm ${
                   props.notice.tone === "done" ? "border-line text-green" : "border-ink"
                 }`}
               >
@@ -100,7 +100,7 @@ export function CalendarScreen(
       backHref={props.backHref}
       payload={() => (system ? { bookingSystem: system } : {})}
     >
-      <div className="rounded-xl border border-line bg-white px-4 py-3">
+      <div className="rounded-md border border-line bg-white px-4 py-3">
         <p className="text-sm font-semibold">Where your bookings live today</p>
         {changing ? (
           <div className="mt-2 grid gap-1">
@@ -111,7 +111,7 @@ export function CalendarScreen(
               id={selectId}
               value={system}
               onChange={(event) => setSystem(event.target.value)}
-              className="border-line min-h-11 rounded-lg border bg-white px-2"
+              className="border-line min-h-11 rounded-sm border bg-white px-2"
             >
               <option value="" disabled>
                 Choose one
@@ -137,7 +137,7 @@ export function CalendarScreen(
         )}
         {manual ? <p className="text-muted mt-2 text-sm">{manual}</p> : null}
       </div>
-      <div className="rounded-xl border border-line bg-white px-4 py-3">
+      <div className="rounded-md border border-line bg-white px-4 py-3">
         <p className="flex items-center justify-between gap-3 text-sm font-semibold">
           <span>Auto-confirm bookings</span>
           <span className="shrink-0 rounded-full bg-paper-2 px-3 py-1 text-xs">
@@ -331,7 +331,7 @@ function ProviderRowFields(props: {
   const { row } = props;
   const who = row.displayName.trim() || `Provider ${props.index + 1}`;
   return (
-    <fieldset className="border-line grid gap-3 rounded-xl border bg-white px-4 py-3">
+    <fieldset className="border-line grid gap-3 rounded-md border bg-white px-4 py-3">
       <legend className="sr-only">{who}</legend>
       <Field
         label="Name"
@@ -347,7 +347,7 @@ function ProviderRowFields(props: {
           id={selectId}
           value={row.calendarId ?? ""}
           onChange={(event) => props.onChange({ calendarId: event.target.value || null })}
-          className="border-line min-h-11 rounded-lg border bg-white px-2"
+          className="border-line min-h-11 rounded-sm border bg-white px-2"
         >
           <option value="" disabled>
             Choose a calendar

@@ -123,7 +123,7 @@ export function ResignStep(props: {
   if (signed) {
     return (
       <div ref={signedRef} tabIndex={-1} role="status" className="outline-none">
-        <section className="border-line rounded-2xl border bg-white">
+        <section className="border-line rounded-md border bg-white">
           <div className="border-line flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3">
             <span className="text-sm font-bold">
               <span aria-hidden className="text-red-deep">
@@ -169,7 +169,7 @@ export function ResignStep(props: {
   return (
     <>
       {/* Why */}
-      <section className="border-line bg-paper-2/50 rounded-2xl border p-5 sm:p-6">
+      <section className="border-line bg-paper-2/50 rounded-md border p-5 sm:p-6">
         <h2 className="text-xl font-semibold">{explainer.heading}</h2>
         <p className="text-muted mt-3 text-sm leading-relaxed">{explainer.lead}</p>
         <p className="text-muted mt-3 text-sm leading-relaxed">{explainer.objection}</p>
@@ -207,7 +207,7 @@ export function ResignStep(props: {
 
       {/* The document: inline below 640px, in a scroll box above. */}
       <section className="mt-8">
-        <div className="border-line rounded-2xl border bg-white">
+        <div className="border-line rounded-md border bg-white">
           <div className="border-line flex items-center justify-between gap-3 border-b px-5 py-3">
             <span className="text-sm font-bold">{copy.title}</span>
             <span className="text-muted text-xs font-semibold">
@@ -256,7 +256,7 @@ export function ResignStep(props: {
               autoComplete="name"
               maxLength={120}
               disabled={submitting}
-              className="border-line-strong min-h-11 rounded-xl border bg-white px-3 font-serif text-xl font-normal italic"
+              className="border-line-strong min-h-11 rounded-md border bg-white px-3 font-serif text-xl font-normal italic"
             />
           </label>
           <label className="grid gap-1.5 text-sm font-semibold">
@@ -267,7 +267,7 @@ export function ResignStep(props: {
               autoComplete="organization-title"
               maxLength={120}
               disabled={submitting}
-              className="border-line-strong min-h-11 rounded-xl border bg-white px-3 font-normal"
+              className="border-line-strong min-h-11 rounded-md border bg-white px-3 font-normal"
             />
           </label>
         </div>

@@ -89,7 +89,7 @@ export default async function PortalWhatsAppPage({
           graphVersion={GRAPH_VERSION}
         />
       ) : (
-        <p className="border-line mt-8 rounded-xl border bg-white px-4 py-3 text-sm">
+        <p className="border-line mt-8 rounded-md border bg-white px-4 py-3 text-sm">
           Connecting WhatsApp isn&rsquo;t available here yet. Email hello@healdesk.io and we&rsquo;ll connect it with
           you.
         </p>

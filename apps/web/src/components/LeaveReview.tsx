@@ -112,10 +112,10 @@ export function LeaveReview() {
         onClick={open}
         className="group text-center sm:text-left"
       >
-        <span className="text-muted block font-sans text-[16.5px] leading-none font-semibold tracking-[0.005em]">
+        <span className="text-muted block font-sans text-sm leading-none font-semibold tracking-[0.005em]">
           Already a customer?
         </span>
-        <span className="text-red-deep group-hover:text-red font-display mt-2 flex items-center justify-center gap-1.5 text-[22.8px] leading-tight font-medium tracking-[-0.02em] transition-colors sm:justify-start">
+        <span className="text-red-deep group-hover:text-red font-display mt-2 flex items-center justify-center gap-1.5 text-xl leading-tight font-medium tracking-[-0.02em] transition-colors sm:justify-start">
           Leave a review
           <svg
             viewBox="0 0 24 24"
@@ -352,21 +352,21 @@ function ReviewForm({ onClose }: { onClose: () => void }) {
       <div className="mx-auto max-w-[560px] py-6 text-center">
         <span
           aria-hidden
-          className="bg-mint text-ink mx-auto grid size-14 place-items-center rounded-full text-[28.8px] leading-none font-bold"
+          className="bg-mint text-ink mx-auto grid size-14 place-items-center rounded-full text-2xl leading-none font-bold"
         >
           ✓
         </span>
-        <h2 className="font-display mt-6 text-[31.2px] leading-tight font-medium tracking-[-0.02em]">
+        <h2 className="font-display mt-6 text-3xl leading-tight font-medium tracking-[-0.02em]">
           Thank you. That means a lot.
         </h2>
-        <p className="text-muted mx-auto mt-3 max-w-[42ch] text-[18px] leading-[1.55] font-medium">
+        <p className="text-muted mx-auto mt-3 max-w-[42ch] text-base leading-[1.55] font-medium">
           A person reads every review before it goes on the site, so give us a day or
           two. If we need to check anything with you first, we&apos;ll get in touch.
         </p>
         <button
           type="button"
           onClick={onClose}
-          className="bg-brand-gradient shadow-sm mt-7 rounded-full px-8 py-3.5 text-[18px] font-bold text-white transition-transform duration-fast hover:-translate-y-px"
+          className="bg-brand-gradient shadow-sm mt-7 rounded-full px-8 py-3.5 text-base font-bold text-white transition-transform duration-fast hover:-translate-y-px"
         >
           Close
         </button>
@@ -386,7 +386,7 @@ function ReviewForm({ onClose }: { onClose: () => void }) {
           token in globals.css. This heading never drops below 24px, which is
           the condition the darkened one clears.
         */}
-        <h2 className="font-display text-orange-deep text-[clamp(28.8px,4.08vw,38.4px)] leading-[1.08] font-medium tracking-[-0.025em]">
+        <h2 className="font-display text-orange-deep text-[clamp(var(--text-2xl),4.08vw,var(--text-4xl))] leading-[1.08] font-medium tracking-[-0.025em]">
           Tell another clinic what we were like
         </h2>
       </div>
@@ -396,7 +396,7 @@ function ReviewForm({ onClose }: { onClose: () => void }) {
         onMouseLeave={() => setHovered(0)}
         aria-describedby={errorField === "rating" ? "review-error" : undefined}
       >
-        <legend className="text-[15.6px] font-bold">
+        <legend className="text-sm font-bold">
           Your rating <Required />
         </legend>
         <div className="mt-2.5 flex items-center gap-1.5">
@@ -482,10 +482,10 @@ function ReviewForm({ onClose }: { onClose: () => void }) {
           className="share-toggle group flex w-full items-center justify-between gap-4 text-left"
         >
           <span>
-            <span className="font-display text-orange-deep block text-[22.8px] leading-tight font-medium tracking-[-0.02em]">
+            <span className="font-display text-orange-deep block text-xl leading-tight font-medium tracking-[-0.02em]">
               Would you like to share your experience?
             </span>
-            <span className="text-muted mt-1 block text-[15px] font-medium">
+            <span className="text-muted mt-1 block text-sm font-medium">
               {expanded
                 ? "A headline and a few words. Both are needed to publish it."
                 : "Add a headline and a few words. It takes a minute."}
@@ -538,7 +538,7 @@ function ReviewForm({ onClose }: { onClose: () => void }) {
             </div>
 
             <div className="mt-6">
-              <label htmlFor="review-body" className="block text-[15.6px] font-bold">
+              <label htmlFor="review-body" className="block text-sm font-bold">
                 Write a review <Required />
               </label>
               <textarea
@@ -550,9 +550,9 @@ function ReviewForm({ onClose }: { onClose: () => void }) {
                 onChange={(event) => setBody(event.target.value)}
                 placeholder="What changed at your front desk?"
                 aria-invalid={errorField === "body" || undefined}
-                className="border-line focus:border-orange text-ink placeholder:text-muted mt-2 w-full resize-y rounded-sm border px-4 py-3 text-[17.4px] leading-[1.55] outline-none transition-colors"
+                className="border-line focus:border-orange text-ink placeholder:text-muted mt-2 w-full resize-y rounded-sm border px-4 py-3 text-base leading-[1.55] outline-none transition-colors"
               />
-              <p className="text-muted mt-1.5 text-right text-[14.4px] font-medium tabular-nums">
+              <p className="text-muted mt-1.5 text-right text-xs font-medium tabular-nums">
                 {body.length} / {MAX_REVIEW_CHARS}
               </p>
             </div>
@@ -584,10 +584,10 @@ function ReviewForm({ onClose }: { onClose: () => void }) {
               </button>
 
               <div className="min-w-0 flex-1">
-                <p className="text-[15.6px] font-bold">
+                <p className="text-sm font-bold">
                   Add a photo <span className="text-muted font-medium">(optional)</span>
                 </p>
-                <p className="text-muted mt-0.5 text-[15px] leading-snug font-medium">
+                <p className="text-muted mt-0.5 text-sm leading-snug font-medium">
                   {photo
                     ? "Tap the picture to choose a different one."
                     : "A face makes a review land harder."}
@@ -598,7 +598,7 @@ function ReviewForm({ onClose }: { onClose: () => void }) {
                 <button
                   type="button"
                   onClick={() => setPhoto(null)}
-                  className="text-muted hover:text-ink shrink-0 text-[15.6px] font-bold transition-colors"
+                  className="text-muted hover:text-ink shrink-0 text-sm font-bold transition-colors"
                 >
                   Remove
                 </button>
@@ -625,7 +625,7 @@ function ReviewForm({ onClose }: { onClose: () => void }) {
               <button
                 type="button"
                 onClick={clear}
-                className="text-muted hover:text-red-deep text-[15px] font-bold transition-colors"
+                className="text-muted hover:text-red-deep text-sm font-bold transition-colors"
               >
                 Clear and close
               </button>
@@ -646,7 +646,7 @@ function ReviewForm({ onClose }: { onClose: () => void }) {
       />
 
       {error ? (
-        <p id="review-error" role="alert" className="text-red-deep mt-4 text-[15.6px] font-semibold">
+        <p id="review-error" role="alert" className="text-red-deep mt-4 text-sm font-semibold">
           {error}
         </p>
       ) : null}
@@ -655,7 +655,7 @@ function ReviewForm({ onClose }: { onClose: () => void }) {
           less than people expect: a first name and an initial, a job title and
           a city. The wall carries no surnames and no specialty, so promising
           more here would be promising something the section cannot show. */}
-      <p className="text-muted mt-5 text-[15px] leading-[1.5] font-medium">
+      <p className="text-muted mt-5 text-sm leading-[1.5] font-medium">
         We only publish your first name, your surname initial, and your photo if
         you added one. Your surname and customer ID remain private. Upon
         submission, someone from our team will proof-read the review for privacy
@@ -666,14 +666,14 @@ function ReviewForm({ onClose }: { onClose: () => void }) {
         <button
           type="button"
           onClick={onClose}
-          className="text-muted hover:text-ink px-2 py-3 text-[16.8px] font-bold transition-colors"
+          className="text-muted hover:text-ink px-2 py-3 text-base font-bold transition-colors"
         >
           Cancel
         </button>
         <button
           type="submit"
           disabled={status === "sending"}
-          className="bg-brand-gradient shadow-sm flex-1 rounded-full px-6 py-3.5 text-[18px] font-bold text-white transition-transform duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-50"
+          className="bg-brand-gradient shadow-sm flex-1 rounded-full px-6 py-3.5 text-base font-bold text-white transition-transform duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-50"
         >
           {status === "sending"
             ? "Sending…"
@@ -733,7 +733,7 @@ function Field({
 
   return (
     <div>
-      <label htmlFor={id} className="block text-[15.6px] font-bold">
+      <label htmlFor={id} className="block text-sm font-bold">
         {label} {required ? <Required /> : null}
         {optional ? <span className="text-muted font-medium">(optional)</span> : null}
       </label>
@@ -749,7 +749,7 @@ function Field({
         aria-invalid={invalid || undefined}
         className={[
           "text-ink placeholder:text-muted mt-2 w-full rounded-sm border px-4 py-3",
-          "text-[17.4px] outline-none transition-colors focus:border-orange",
+          "text-base outline-none transition-colors focus:border-orange",
           invalid ? "border-red-deep" : "border-line",
         ].join(" ")}
       />

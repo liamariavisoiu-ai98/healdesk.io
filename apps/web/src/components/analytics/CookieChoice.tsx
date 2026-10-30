@@ -25,7 +25,7 @@ export function CookieChoice() {
     <button
       type="button"
       onClick={() => setConsent(off ? "granted" : "denied")}
-      className="border-line-strong text-ink hover:border-ink rounded-full border px-3 py-1 text-[14px] font-bold transition-colors"
+      className="border-line-strong text-ink hover:border-ink rounded-full border px-3 py-1 text-xs font-bold transition-colors"
     >
       {off ? "Analytics is off. Turn it back on" : "Turn analytics off"}
     </button>

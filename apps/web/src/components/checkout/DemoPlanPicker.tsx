@@ -76,27 +76,27 @@ export function DemoPlanPicker({
           </span>
           <span className="min-w-0 flex-1">
             <span className="flex flex-wrap items-center gap-2">
-              <span className="font-display text-[18.6px] leading-tight font-medium">{pkg.name}</span>
+              <span className="font-display text-base leading-tight font-medium">{pkg.name}</span>
               {pkg.id === recommended ? (
-                <span className="bg-sun text-ink rounded-full px-2 py-0.5 text-[10.8px] font-bold tracking-[0.06em] uppercase">
+                <span className="bg-sun text-ink rounded-full px-2 py-0.5 text-xs font-bold tracking-[0.06em] uppercase">
                   Recommended for {clinicName}
                 </span>
               ) : null}
             </span>
-            <span className="text-muted block text-[13.2px]">{closed ? "Needs a website" : packageChips(pkg).join(" · ")}</span>
+            <span className="text-muted block text-xs">{closed ? "Needs a website" : packageChips(pkg).join(" · ")}</span>
           </span>
-          <span className="font-display text-right text-[22px] leading-none font-semibold tabular-nums">
+          <span className="font-display text-right text-xl leading-none font-semibold tabular-nums">
             {usd.format(interval === "year" ? plan.annualMonthlyUsd : plan.monthlyUsd)}
-            <span className="text-muted text-[13px] font-medium">/mo</span>
+            <span className="text-muted text-xs font-medium">/mo</span>
           </span>
         </button>
         {open ? (
-          <div className="border-line border-t px-4 py-4 text-[14.4px]">
+          <div className="border-line border-t px-4 py-4 text-xs">
             <p className="text-ink font-semibold">{includedLine(plan)}</p>
             <p className="text-muted mt-1">
               Setup: <SetupFigure plan={plan} offer={offer} suffix=" once" />
             </p>
-            <p className="text-ink mt-1 text-[13px] font-semibold">{includes}</p>
+            <p className="text-ink mt-1 text-xs font-semibold">{includes}</p>
           </div>
         ) : null}
       </div>

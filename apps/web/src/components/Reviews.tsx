@@ -254,7 +254,7 @@ function Portrait({ review, size }: { review: Review; size: number }) {
     <span
       aria-hidden
       style={box}
-      className="text-ink ring-line grid shrink-0 place-items-center rounded-full bg-white text-[14.5px] font-semibold tracking-[0.02em] ring-1"
+      className="text-ink ring-line grid shrink-0 place-items-center rounded-full bg-white text-sm font-semibold tracking-[0.02em] ring-1"
     >
       {initials(review.name)}
     </span>
@@ -284,19 +284,19 @@ function ReviewCard({ review, column }: { review: Review; column: number }) {
         <Stars rating={review.rating} size={15} />
 
         {/* Quoted, because the headline is the reviewer's line rather than ours. */}
-        <p className="font-display mt-3 text-[20.4px] leading-[1.22] font-normal tracking-[-0.02em]">
+        <p className="font-display mt-3 text-lg leading-[1.22] font-normal tracking-[-0.02em]">
           &ldquo;{review.headline}&rdquo;
         </p>
 
-        <blockquote className="text-muted mt-3 text-[15.6px] leading-[1.55] font-medium lg:text-[14.8px] lg:leading-[1.5]">
+        <blockquote className="text-muted mt-3 text-sm leading-[1.55] font-medium lg:text-sm lg:leading-[1.5]">
           <p>{review.body}</p>
         </blockquote>
 
         <figcaption className="mt-auto flex items-center gap-3 pt-6">
           <Portrait review={review} size={40} />
           <span className="min-w-0">
-            <span className="block text-[16.2px] leading-tight font-semibold">{review.name}</span>
-            <span className="text-muted mt-0.5 block text-[14.4px] leading-snug font-medium">{attribution(review)}</span>
+            <span className="block text-sm leading-tight font-semibold">{review.name}</span>
+            <span className="text-muted mt-0.5 block text-xs leading-snug font-medium">{attribution(review)}</span>
           </span>
         </figcaption>
       </figure>
@@ -342,7 +342,7 @@ function DistributionBar({
 
   return (
     <div className="flex items-center gap-3">
-      <span className="text-muted flex w-7 shrink-0 items-center gap-0.5 text-[14.4px] font-bold tabular-nums">
+      <span className="text-muted flex w-7 shrink-0 items-center gap-0.5 text-xs font-bold tabular-nums">
         {stars}
         <svg
           viewBox="0 0 24 24"
@@ -372,7 +372,7 @@ function DistributionBar({
         />
       </span>
 
-      <span className="text-muted w-8 shrink-0 text-left text-[14.4px] font-medium tabular-nums">
+      <span className="text-muted w-8 shrink-0 text-left text-xs font-medium tabular-nums">
         {count}
       </span>
     </div>
@@ -415,7 +415,7 @@ function RatingHeader({ summary }: { summary: ReviewSummary }) {
             and the tight tracking set that box's right edge inside the bowl of
             the 9, which came out shaved flat ("not full", owner, 9 October
             2026). The padding gives every glyph room inside the box. */}
-        <p className="font-figure text-brand-gradient -mx-[0.08em] -my-[0.12em] inline-block px-[0.08em] py-[0.12em] text-[clamp(67.2px,9.6vw,100.8px)] leading-[0.86] font-semibold tracking-[-0.04em]">
+        <p className="font-figure text-brand-gradient -mx-[0.08em] -my-[0.12em] inline-block px-[0.08em] py-[0.12em] text-[clamp(var(--text-6xl),9.6vw,var(--text-8xl))] leading-[0.86] font-semibold tracking-[-0.04em]">
           <span className="sr-only">Rated </span>
           {average.toFixed(1)}
           <span className="sr-only"> out of 5</span>
@@ -672,7 +672,7 @@ export function Reviews({ summary }: { summary: ReviewSummary }) {
         />
       </div>
 
-      <p className="text-muted mt-7 text-center text-[15.6px] font-medium">
+      <p className="text-muted mt-7 text-center text-sm font-medium">
         Browse through {reviews.length} of our latest reviews.
       </p>
     </section>

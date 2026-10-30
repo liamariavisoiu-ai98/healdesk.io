@@ -56,13 +56,13 @@ function CaseRow({ row, replyWaiting }: { row: SupportCaseRowView; replyWaiting:
         ) : (
           <span className="font-semibold">No clinic yet</span>
         )}
-        <code className="font-mono text-[15px] select-all">{row.ref}</code>
+        <code className="font-mono text-sm select-all">{row.ref}</code>
         <Tag tone={URGENCY_TONE[row.urgency]}>{URGENCY_WORDS[row.urgency]}</Tag>
         <a href={`/admin/support/${row.id}`} className="text-sm font-semibold underline underline-offset-2">
           Open case
         </a>
       </div>
-      <p className="mt-1 text-[15.6px]">{topicWords(row.category, row.symptom)}</p>
+      <p className="mt-1 text-sm">{topicWords(row.category, row.symptom)}</p>
       <p className="text-muted mt-1 text-sm">
         {SOURCE_WORDS[row.source]} · {STATE_WORDS[row.state]} · {ageWords(row.ageHours)} ·{" "}
         <span className={row.pastDue ? "text-red-deep font-semibold" : undefined}>{replyByWords(row)}</span>

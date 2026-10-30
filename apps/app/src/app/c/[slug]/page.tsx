@@ -93,7 +93,7 @@ export default async function ClinicHome({
           timeZone={shell.timeZone}
           now={now}
         />
-        <p className="border-line mt-6 rounded-xl border bg-white px-4 py-3">
+        <p className="border-line mt-6 rounded-md border bg-white px-4 py-3">
           This account has closed.
         </p>
       </PortalShell>
@@ -201,7 +201,7 @@ export default async function ClinicHome({
             {tracker.stages.map((stage) => (
               <li
                 key={stage.id}
-                className="border-line rounded-xl border bg-white px-4 py-3"
+                className="border-line rounded-md border bg-white px-4 py-3"
               >
                 <p className="flex items-center justify-between gap-3 font-semibold">
                   <span>{stage.label}</span>
@@ -223,7 +223,7 @@ export default async function ClinicHome({
               </li>
             ))}
           </ol>
-          <div className="border-line mt-4 rounded-xl border bg-white px-4 py-4">
+          <div className="border-line mt-4 rounded-md border bg-white px-4 py-4">
             {/* Talk to your AYA, the preview (/c/[slug]/preview). Until every
                 blocking stage is done the button stays locked and names what
                 is left; once they are, it is a link to the preview, which
@@ -287,7 +287,7 @@ export default async function ClinicHome({
             return (
               <li
                 key={c.channel}
-                className="border-line rounded-xl border bg-white px-4 py-3"
+                className="border-line rounded-md border bg-white px-4 py-3"
               >
                 <p className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-semibold">

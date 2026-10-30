@@ -63,6 +63,7 @@ const currency = new Intl.NumberFormat("en-US", {
  * share an edge. Below 1024px nothing moved.
  */
 export function WhyGoSmart({
+  heading: Heading = "h2",
   specialty,
   onSelectSpecialty,
   callsPerWeek,
@@ -70,6 +71,8 @@ export function WhyGoSmart({
   missedPercent,
   onMissedPercent,
 }: {
+  /** The heading's level: h1 where the section opens its page (/why-wait). */
+  heading?: "h1" | "h2";
   specialty: Specialty;
   onSelectSpecialty: (id: string) => void;
   callsPerWeek: number;
@@ -103,11 +106,11 @@ export function WhyGoSmart({
     >
       <div data-reveal="stagger" className="max-w-[760px] lg:sticky lg:top-28">
         <p className="eyebrow-tag">Why go smart?</p>
-        <h2 className="heading-section mt-5">
+        <Heading className="heading-section mt-5">
           The calls you never hear about are the ones{" "}
           <span className="text-brand-gradient">worth the most</span>.
-        </h2>
-        <p className="text-muted mt-4 text-[20.4px] font-medium">
+        </Heading>
+        <p className="text-muted mt-4 text-base font-medium">
           Not a lost call, a lost case. Answer {site.agent}&apos;s four
           questions and see what a full front desk could be worth to you.
         </p>
@@ -135,7 +138,7 @@ export function WhyGoSmart({
                     aria-pressed={active}
                     onClick={() => onSelectSpecialty(option.id)}
                     className={[
-                      "rounded-full border px-3.5 py-2 text-[15.6px] font-semibold transition-colors",
+                      "rounded-full border px-3.5 py-2 text-sm font-semibold transition-colors",
                       active
                         ? "border-orange/60 bg-orange/[0.10] text-ink"
                         : "border-line text-muted hover:border-orange/40 hover:text-ink",
@@ -197,7 +200,7 @@ export function WhyGoSmart({
           </Ask>
 
           {/* The assumptions. Quiet, but never hidden, see the note above. */}
-          <dl className="border-line text-muted space-y-2 border-t pt-6 text-[15.6px]">
+          <dl className="border-line text-muted space-y-2 border-t pt-6 text-sm">
             <Assumption label="Booking rate assumed">
               {Math.round(specialty.economics.bookingRate * 100)}%
             </Assumption>
@@ -217,7 +220,7 @@ export function WhyGoSmart({
             <p className="text-muted text-xs font-bold tracking-[0.14em] uppercase">
               Would stay in the practice, at your {recoveryPercent}%
             </p>
-            <p className="font-figure text-brand-gradient mt-3 text-[clamp(50.4px,7.68vw,81.6px)] leading-none font-semibold tracking-[-0.03em] tabular-nums">
+            <p className="font-figure text-brand-gradient mt-3 text-[clamp(var(--text-5xl),7.68vw,var(--text-7xl))] leading-none font-semibold tracking-[-0.03em] tabular-nums">
               {currency.format(result.annualRecovered)}
             </p>
             <p className="text-muted mt-3 text-sm font-semibold">
@@ -226,7 +229,7 @@ export function WhyGoSmart({
           </div>
 
           {/* AYA's read of the numbers, in her own voice. */}
-          <p className="font-display mx-auto max-w-[34ch] text-[20.4px] leading-[1.45] font-medium tracking-[-0.01em] italic">
+          <p className="font-display mx-auto max-w-[34ch] text-lg leading-[1.45] font-medium tracking-[-0.01em] italic">
             &ldquo;About{" "}
             <span className="not-italic">
               {Math.round(result.missedPerMonth).toLocaleString()}
@@ -261,7 +264,7 @@ function Ask({
 }) {
   return (
     <div>
-      <p className="font-display mb-3.5 text-[21.6px] leading-snug font-medium tracking-[-0.015em]">
+      <p className="font-display mb-3.5 text-xl leading-snug font-medium tracking-[-0.015em]">
         {question}
       </p>
       {children}
@@ -297,10 +300,10 @@ function Dial({
   return (
     <div>
       <div className="flex items-baseline gap-3">
-        <span className="font-figure text-[40.8px] leading-none font-semibold tracking-[-0.02em] tabular-nums">
+        <span className="font-figure text-4xl leading-none font-semibold tracking-[-0.02em] tabular-nums">
           {display}
         </span>
-        <span className="text-muted text-[15.6px] font-medium">{unit}</span>
+        <span className="text-muted text-sm font-medium">{unit}</span>
       </div>
       <input
         type="range"
@@ -380,10 +383,10 @@ function Ring({ share }: { share: number }) {
       </svg>
       <div className="pointer-events-none absolute inset-0 grid place-items-center">
         <div>
-          <p className="font-figure text-[36px] leading-none font-semibold tabular-nums">
+          <p className="font-figure text-3xl leading-none font-semibold tabular-nums">
             {percent}%
           </p>
-          <p className="text-muted mt-1.5 text-[13.2px] font-bold tracking-[0.1em] uppercase">
+          <p className="text-muted mt-1.5 text-xs font-bold tracking-[0.1em] uppercase">
             recovered
           </p>
         </div>

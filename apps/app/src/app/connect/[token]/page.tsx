@@ -180,7 +180,7 @@ export default async function ConnectPage({
       </p>
 
       {personalised.vendorRequestNeeded ? (
-        <p className="mt-6 rounded-xl border border-[color:var(--color-red)]/30 bg-[color:var(--color-red)]/[0.06] px-4 py-3 text-[15px] font-medium">
+        <p className="mt-6 rounded-md border border-[color:var(--color-red)]/30 bg-[color:var(--color-red)]/[0.06] px-4 py-3 text-[15px] font-medium">
           {personalised.vendorRequestNeeded}
         </p>
       ) : null}
@@ -301,7 +301,7 @@ function Shell({
  */
 function Boundaries({ guide }: { guide: ConnectionGuide }) {
   return (
-    <section className="mt-8 rounded-2xl border border-[color:var(--color-line)] bg-white p-5 sm:p-6">
+    <section className="mt-8 rounded-md border border-[color:var(--color-line)] bg-white p-5 sm:p-6">
       <h2 className="text-[13px] font-bold tracking-[0.04em] uppercase">
         What you&apos;re handing over
       </h2>
@@ -321,7 +321,7 @@ function Boundaries({ guide }: { guide: ConnectionGuide }) {
           </ul>
         </div>
 
-        <div className="rounded-xl border border-[color:var(--color-red)]/25 bg-[color:var(--color-red)]/[0.05] p-4">
+        <div className="rounded-md border border-[color:var(--color-red)]/25 bg-[color:var(--color-red)]/[0.05] p-4">
           <p className="text-sm font-bold">It never gives us</p>
           <ul className="mt-2.5 space-y-2 text-[15px]">
             {guide.doesNotGrant.map((item) => (
@@ -369,7 +369,7 @@ function Steps({
         admitting the screen may have moved.
       */}
       {!guide.verified ? (
-        <p className="mt-3 rounded-xl border border-[color:var(--color-line)] bg-[color:var(--color-paper-2)] px-4 py-3 text-sm">
+        <p className="mt-3 rounded-md border border-[color:var(--color-line)] bg-[color:var(--color-paper-2)] px-4 py-3 text-sm">
           {platformName} may have moved these screens since we last checked
           them, so treat the steps below as a guide rather than gospel. If
           something doesn&apos;t match what you see, don&apos;t go hunting.
@@ -382,7 +382,7 @@ function Steps({
         {guide.steps.map((step, index) => (
           <li
             key={step.title}
-            className="rounded-2xl border border-[color:var(--color-line)] bg-white p-4 sm:p-5"
+            className="rounded-md border border-[color:var(--color-line)] bg-white p-4 sm:p-5"
           >
             <div className="flex items-start gap-3">
               <span

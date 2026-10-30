@@ -29,7 +29,7 @@ export function MissedRow(props: {
 }) {
   const { contact, slug, timeZone, now } = props;
   return (
-    <li id={`missed-${contact.id}`} className="border-line rounded-xl border bg-white px-4 py-4">
+    <li id={`missed-${contact.id}`} className="border-line rounded-md border bg-white px-4 py-4">
       <p className="font-semibold">
         {CHANNEL_WORDS[contact.channel]} · {portalMoment(new Date(contact.missedAt), timeZone, now)}
       </p>

@@ -238,7 +238,7 @@ export function CircleExpandCard({
       <span
         className={[
           "font-display relative block leading-[1.08] font-medium tracking-[-0.025em] text-white transition-[font-size] duration-slow ease-out",
-          compact && !expanded ? "text-[19px] sm:text-[24px]" : "text-[26px] sm:text-[31.2px]",
+          compact && !expanded ? "text-lg sm:text-xl" : "text-2xl sm:text-3xl",
         ].join(" ")}
       >
         {title}
@@ -261,7 +261,7 @@ export function CircleExpandCard({
           <span
             className={[
               "mt-2 block leading-[1.45] font-medium text-white/85 opacity-0 transition-opacity duration-base group-hover:opacity-100 group-focus-visible:opacity-100 group-data-[expanded]:opacity-100",
-              compact && !expanded ? "text-[15.6px]" : "text-[16.2px]",
+              compact && !expanded ? "text-sm" : "text-sm",
             ].join(" ")}
           >
             {body}

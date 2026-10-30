@@ -214,7 +214,7 @@ function EntryForm({
       }}
     >
       <label className="grid gap-1">
-        <span className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">
+        <span className="text-muted text-xs font-bold tracking-[0.06em] uppercase">
           {withdraw
             ? "Why, or where it is recorded"
             : "Where the document is kept, or what the check was"}
@@ -229,7 +229,7 @@ function EntryForm({
       </label>
       <div className="flex flex-wrap gap-3">
         <label className="grid gap-1">
-          <span className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">
+          <span className="text-muted text-xs font-bold tracking-[0.06em] uppercase">
             Effective (UTC)
           </span>
           <input
@@ -241,7 +241,7 @@ function EntryForm({
         </label>
         {canAttest ? (
           <label className="grid gap-1">
-            <span className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">
+            <span className="text-muted text-xs font-bold tracking-[0.06em] uppercase">
               Lapses on (optional)
             </span>
             <input
@@ -252,7 +252,7 @@ function EntryForm({
           </label>
         ) : null}
         <label className="grid gap-1">
-          <span className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">
+          <span className="text-muted text-xs font-bold tracking-[0.06em] uppercase">
             Code from your authenticator
           </span>
           <input

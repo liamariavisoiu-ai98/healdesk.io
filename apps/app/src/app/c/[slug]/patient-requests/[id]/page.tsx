@@ -66,7 +66,7 @@ export default async function PatientRequestPage({
           like this: your team answers it, and healdesk tells them it has passed it to you.
         </p>
 
-        <dl className="border-line mt-6 grid gap-3 rounded-xl border bg-white px-4 py-4">
+        <dl className="border-line mt-6 grid gap-3 rounded-md border bg-white px-4 py-4">
           <div>
             <dt className="text-muted text-sm">What they asked</dt>
             <dd className="mt-1">{PATIENT_REQUEST_KIND_LABELS[request.kind]}</dd>

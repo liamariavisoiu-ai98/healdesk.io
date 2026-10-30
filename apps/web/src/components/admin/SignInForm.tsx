@@ -150,7 +150,7 @@ export function SignInForm() {
   return (
     <form onSubmit={submit} className="mt-8">
       <label className="block">
-        <span className="text-[15.6px] font-bold tracking-[0.04em] uppercase">
+        <span className="text-sm font-bold tracking-[0.04em] uppercase">
           Email
         </span>
         <input
@@ -169,7 +169,7 @@ export function SignInForm() {
       </label>
 
       <label className="mt-4 block">
-        <span className="text-[15.6px] font-bold tracking-[0.04em] uppercase">
+        <span className="text-sm font-bold tracking-[0.04em] uppercase">
           Password
         </span>
         <input
@@ -186,7 +186,7 @@ export function SignInForm() {
       </label>
 
       <label className="mt-4 block">
-        <span className="text-[15.6px] font-bold tracking-[0.04em] uppercase">
+        <span className="text-sm font-bold tracking-[0.04em] uppercase">
           Authenticator code
         </span>
         <input
@@ -208,14 +208,14 @@ export function SignInForm() {
           className={field(error !== null)}
         />
       </label>
-      <p id="admin-code-hint" className="text-muted mt-2 text-[15.6px]">
+      <p id="admin-code-hint" className="text-muted mt-2 text-sm">
         Six digits from your authenticator app.
       </p>
 
       <button
         type="submit"
         disabled={submitting || email.trim().length === 0 || password.length === 0}
-        className="bg-brand-gradient shadow-sm mt-5 w-full rounded-full px-8 py-3.5 text-[18px] font-bold text-white transition-all duration-fast hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-40"
+        className="bg-brand-gradient shadow-sm mt-5 w-full rounded-full px-8 py-3.5 text-base font-bold text-white transition-all duration-fast hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-40"
       >
         {submitting ? "Checking…" : "Enter"}
       </button>
@@ -226,7 +226,7 @@ export function SignInForm() {
         id="admin-sign-in-error"
         role="status"
         aria-live="polite"
-        className="text-red-deep mt-3 min-h-5 text-[15.6px] font-semibold"
+        className="text-red-deep mt-3 min-h-5 text-sm font-semibold"
       >
         {error}
       </p>
@@ -247,7 +247,7 @@ export function SignInForm() {
  */
 function field(invalid: boolean): string {
   return [
-    "text-ink placeholder:text-muted mt-2 w-full rounded-sm border bg-white px-4 py-3 text-[19.2px] transition-colors",
+    "text-ink placeholder:text-muted mt-2 w-full rounded-sm border bg-white px-4 py-3 text-lg transition-colors",
     invalid ? "border-red" : "border-line focus:border-orange",
   ].join(" ");
 }

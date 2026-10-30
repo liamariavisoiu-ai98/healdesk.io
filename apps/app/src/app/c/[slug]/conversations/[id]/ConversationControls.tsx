@@ -90,7 +90,7 @@ export function FlagAnswer(props: {
         placeholder="e.g. Do you open on Saturdays?"
         aria-describedby="flag-correction-note"
         aria-invalid={problem?.field === "question" ? true : undefined}
-        className="border-line min-h-11 rounded-xl border bg-white px-3"
+        className="border-line min-h-11 rounded-md border bg-white px-3"
       />
       <label htmlFor="flag-answer" className="text-sm font-semibold">
         What AYA should answer
@@ -103,11 +103,11 @@ export function FlagAnswer(props: {
         rows={3}
         aria-describedby="flag-correction-note"
         aria-invalid={problem?.field === "answer" ? true : undefined}
-        className="border-line rounded-xl border bg-white px-3 py-2"
+        className="border-line rounded-md border bg-white px-3 py-2"
       />
       {problem ? (
-        <div className="rounded-xl border border-red-200 bg-white px-4 py-3 text-sm">
-          <p className="text-red-800">{problem.message}</p>
+        <div className="rounded-md border border-problem-line bg-white px-4 py-3 text-sm">
+          <p className="text-problem">{problem.message}</p>
           {problem.rewrite ? (
             <button
               type="button"
@@ -213,7 +213,7 @@ export function PersonExport(props: {
         id="person-export-who"
         value={requestedBy}
         onChange={(e) => setRequestedBy(e.target.value)}
-        className="border-line mt-1 min-h-11 w-full rounded-xl border bg-white px-3"
+        className="border-line mt-1 min-h-11 w-full rounded-md border bg-white px-3"
       >
         {props.requesters.map((r) => (
           <option key={r.value} value={r.value}>

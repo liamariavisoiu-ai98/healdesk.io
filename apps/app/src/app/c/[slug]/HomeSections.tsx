@@ -15,7 +15,7 @@ export function NeedsYou({ items, answering }: { items: readonly NeedItem[]; ans
         Needs you
       </h2>
       {items.length === 0 ? (
-        <p className="border-line text-muted mt-3 rounded-xl border bg-white px-4 py-3">
+        <p className="border-line text-muted mt-3 rounded-md border bg-white px-4 py-3">
           {needsYouEmptyLine(answering)}
         </p>
       ) : (
@@ -23,7 +23,7 @@ export function NeedsYou({ items, answering }: { items: readonly NeedItem[]; ans
           {items.map((item) => (
             <li
               key={item.key}
-              className="border-line flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white px-4 py-3"
+              className="border-line flex flex-wrap items-center justify-between gap-3 rounded-md border bg-white px-4 py-3"
             >
               <span className="min-w-0">{item.text}</span>
               {item.action ? (
@@ -51,7 +51,7 @@ export function WhatAyaDid({ headline, lines }: { headline: string; lines: reado
       <p className="mt-1">{headline}</p>
       <p className="text-muted mt-1 text-sm">The last 7 days.</p>
       {lines.length > 1 ? (
-        <dl className="border-line mt-3 grid gap-2 rounded-xl border bg-white px-4 py-3">
+        <dl className="border-line mt-3 grid gap-2 rounded-md border bg-white px-4 py-3">
           {lines.map((line) => (
             <div key={line.label} className="flex flex-wrap items-baseline justify-between gap-x-3">
               <dt className="text-muted">{line.label}</dt>
@@ -67,7 +67,7 @@ export function WhatAyaDid({ headline, lines }: { headline: string; lines: reado
 /** Shown in place of the page when Home's numbers could not be read. */
 export function HomeUnavailable() {
   return (
-    <div role="alert" className="border-line mt-6 rounded-xl border bg-white px-4 py-3">
+    <div role="alert" className="border-line mt-6 rounded-md border bg-white px-4 py-3">
       <p className="font-semibold">We could not load Home just now.</p>
       <p className="text-muted mt-1 text-sm">
         Nothing is wrong with AYA because of this. Reload the page in a minute; the other screens in

@@ -36,10 +36,10 @@ export function SignInForm({ next, linkMinutes }: { next: string | null; linkMin
         required
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? "email-error" : "email-hint"}
-        className="border-line w-full rounded-xl border px-4 py-3 text-base"
+        className="border-line w-full rounded-md border px-4 py-3 text-base"
       />
       {error ? (
-        <p id="email-error" role="alert" className="text-sm text-red-700">
+        <p id="email-error" role="alert" className="text-sm text-problem">
           {error}
         </p>
       ) : (
@@ -50,7 +50,7 @@ export function SignInForm({ next, linkMinutes }: { next: string | null; linkMin
       <button
         type="submit"
         disabled={pending}
-        className="bg-ink rounded-full px-6 py-3 text-sm font-bold text-white disabled:opacity-60"
+        className="bg-ink min-h-11 rounded-full px-6 py-3 text-sm font-bold text-white disabled:opacity-60"
       >
         {pending ? "Sending…" : "Email me a sign-in link"}
       </button>
@@ -93,7 +93,7 @@ function Sent({
         <button
           type="submit"
           disabled={pending || waiting}
-          className="border-line rounded-full border px-6 py-3 text-sm font-bold disabled:opacity-60"
+          className="border-line min-h-11 rounded-full border px-6 py-3 text-sm font-bold disabled:opacity-60"
         >
           {waiting ? `Send again in ${Math.ceil(waitMs / 1000)} s` : "Send again"}
         </button>

@@ -131,8 +131,8 @@ export default async function QueuesPage({ searchParams }: { searchParams: Promi
   }
 
   return (
-    <main className="mx-auto w-full max-w-[1240px] px-4 py-10 sm:px-8 lg:px-14">
-      <h1 className="font-display text-[28px] leading-tight font-semibold tracking-[-0.02em]">Queues</h1>
+    <main className="mx-auto w-full max-w-page px-4 py-10 sm:px-8 lg:px-14">
+      <h1 className="font-display text-2xl leading-tight font-semibold tracking-[-0.02em]">Queues</h1>
       <nav aria-label="Queues" className="mt-4 flex flex-wrap gap-2">
         {SECTIONS.map((s) => (
           <a key={s.id} href={`#${s.id}`} className="border-line-strong hover:border-ink inline-flex min-h-9 items-center rounded-full border px-3.5 text-sm font-semibold transition-colors">

@@ -52,7 +52,7 @@ export function proposedWords(outcome: Extract<IncidentProposalOutcome, { status
   return `Proposed: one item${outcome.clinics !== null ? ` for ${outcome.clinics} ${outcome.clinics === 1 ? "clinic" : "clinics"}` : ""} is ${WAITS_UNDER}.`;
 }
 
-const LABEL = "text-muted block text-[13.2px] font-bold tracking-[0.06em] uppercase";
+const LABEL = "text-muted block text-xs font-bold tracking-[0.06em] uppercase";
 const FIELD = "border-line mt-1 rounded-sm border bg-white px-3 py-2";
 
 const EMPTY_FORM: ScopeForm = {
@@ -105,7 +105,7 @@ export function IncidentScope({ now, onRead, onPropose }: { now: string; onRead:
 
   return (
     <div className="mt-4">
-      <h3 className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">Find a scope</h3>
+      <h3 className="text-muted text-xs font-bold tracking-[0.06em] uppercase">Find a scope</h3>
       <form
         className="mt-2 grid gap-3 text-sm"
         onSubmit={(event) => {
@@ -237,7 +237,7 @@ function ScopeResult({ view, query, canPropose, onPropose }: { view: IncidentSco
         <div className="mt-3 overflow-x-auto">
           <table className="w-full text-left">
             <thead>
-              <tr className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">
+              <tr className="text-muted text-xs font-bold tracking-[0.06em] uppercase">
                 <th className="py-1 pr-3">Clinic</th>
                 {view.channels.map((channel) => (
                   <th key={channel} className="py-1 pr-3">

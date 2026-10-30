@@ -46,7 +46,7 @@ export function AdminNav() {
             key={section.href}
             href={section.href}
             aria-current={on ? "page" : undefined}
-            className={`inline-flex min-h-11 items-center rounded-full px-3.5 py-2 text-[15.6px] font-semibold transition-colors ${
+            className={`inline-flex min-h-11 items-center rounded-full px-3.5 py-2 text-sm font-semibold transition-colors ${
               on ? "bg-ink text-white" : "text-muted hover:text-ink hover:bg-paper-2"
             }`}
           >

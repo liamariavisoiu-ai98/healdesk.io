@@ -236,10 +236,10 @@ export function ChatDemo() {
 
   const emailAsk = needsEmail ? (
     <form onSubmit={unlock} className="border-line border-t px-4 py-4">
-      <p className="text-[16.2px] font-semibold">
+      <p className="text-sm font-semibold">
         Where should {site.agent} send her answer?
       </p>
-      <p className="text-muted mt-1 text-[15px] font-medium">
+      <p className="text-muted mt-1 text-sm font-medium">
         Drop your email and she&apos;ll reply right here.
       </p>
 
@@ -253,12 +253,12 @@ export function ChatDemo() {
           placeholder="you@yourclinic.com"
           aria-label="Work email"
           autoComplete="email"
-          className="border-line text-ink placeholder:text-muted min-w-0 flex-1 rounded-full border px-4 py-2.5 text-[16px] outline-none transition-colors focus:border-[var(--clinic)]"
+          className="border-line text-ink placeholder:text-muted min-w-0 flex-1 rounded-full border px-4 py-2.5 text-sm outline-none transition-colors focus:border-[var(--clinic)]"
         />
         <button
           type="submit"
           disabled={unlocking}
-          className="shrink-0 rounded-full px-5 py-2.5 text-[15.6px] font-bold transition-opacity disabled:opacity-45"
+          className="shrink-0 rounded-full px-5 py-2.5 text-sm font-bold transition-opacity disabled:opacity-45"
           style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
         >
           {unlocking ? "…" : "Send"}
@@ -266,11 +266,11 @@ export function ChatDemo() {
       </div>
 
       {gateError ? (
-        <p className="text-red-deep mt-2 text-[15.6px] font-semibold" role="alert">
+        <p className="text-red-deep mt-2 text-sm font-semibold" role="alert">
           {gateError}
         </p>
       ) : (
-        <p className="text-muted mt-2 text-[13.2px] leading-relaxed">
+        <p className="text-muted mt-2 text-xs leading-relaxed">
           {CHAT_EMAIL_NOTE}
         </p>
       )}
@@ -279,13 +279,13 @@ export function ChatDemo() {
           unticked by default and is never required: unlocking the demo is
           the service asked for, not consent to be marketed to. The label
           is rendered verbatim from the constant the server stores. */}
-      <p className="text-muted mt-3 text-[12.6px] leading-relaxed">
+      <p className="text-muted mt-3 text-xs leading-relaxed">
         {GATE_NOTICE}{" "}
         <a href="/privacy" className="text-red-deep underline underline-offset-2">
           Privacy policy
         </a>
       </p>
-      <label className="mt-2 flex cursor-pointer items-start gap-2 text-[13.2px] leading-relaxed">
+      <label className="mt-2 flex cursor-pointer items-start gap-2 text-xs leading-relaxed">
         <input
           type="checkbox"
           checked={marketingConsent}

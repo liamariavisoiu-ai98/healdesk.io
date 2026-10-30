@@ -12,7 +12,7 @@ export default function BookingsError({ retry }: { error: Error; retry: () => vo
   return (
     <main id="main" className="mx-auto max-w-2xl px-4 py-10">
       <h1 className="text-2xl font-semibold">Bookings</h1>
-      <div role="alert" className="border-line mt-4 rounded-xl border bg-white px-4 py-3">
+      <div role="alert" className="border-line mt-4 rounded-md border bg-white px-4 py-3">
         <p className="font-semibold">We couldn&rsquo;t load your bookings.</p>
         <p className="text-muted mt-1 text-sm">
           Nothing was changed. Try again in a moment.

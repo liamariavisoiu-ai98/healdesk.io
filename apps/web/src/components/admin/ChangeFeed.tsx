@@ -285,7 +285,7 @@ function TruncationNote({
   counted: number;
 }) {
   return (
-    <p className="border-line text-muted mt-1 ml-7 rounded-md border border-dashed px-4 py-3 text-[15px] leading-snug font-medium">
+    <p className="border-line text-muted mt-1 ml-7 rounded-md border border-dashed px-4 py-3 text-sm leading-snug font-medium">
       Listing the newest {NUMBER.format(listed)} of {NUMBER.format(counted)}{" "}
       commits in this window. The older {NUMBER.format(counted - listed)} are
       not listed here, but they are counted in the totals and the chart above.
@@ -336,7 +336,7 @@ function ChangeEntry({
           isFresh ? "hd-change-fresh" : "border-transparent",
         ].join(" ")}
       >
-        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[14.4px]">
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs">
           <Sha change={change} />
 
           <span className="text-muted font-semibold">{change.authorName}</span>
@@ -358,12 +358,12 @@ function ChangeEntry({
           </span>
 
           {isFresh ? (
-            <span className="bg-brand-gradient rounded-full px-2 py-[2px] text-[12px] font-bold tracking-[0.1em] text-white uppercase">
+            <span className="bg-brand-gradient rounded-full px-2 py-[2px] text-xs font-bold tracking-[0.1em] text-white uppercase">
               new
             </span>
           ) : null}
 
-          <span className="ml-auto shrink-0 font-mono text-[14.4px] tabular-nums">
+          <span className="ml-auto shrink-0 font-mono text-xs tabular-nums">
             <span className="text-ink font-semibold">
               +{NUMBER.format(change.additions)}
             </span>
@@ -375,7 +375,7 @@ function ChangeEntry({
           </span>
         </div>
 
-        <h3 className="font-display mt-1.5 text-[19.8px] leading-snug font-medium tracking-[-0.012em]">
+        <h3 className="font-display mt-1.5 text-lg leading-snug font-medium tracking-[-0.012em]">
           {change.subject}
         </h3>
 
@@ -384,7 +384,7 @@ function ChangeEntry({
             {change.areas.map((area) => (
               <li
                 key={area}
-                className="bg-paper-2 text-ink rounded-full px-2 py-[3px] text-[13.2px] font-semibold"
+                className="bg-paper-2 text-ink rounded-full px-2 py-[3px] text-xs font-semibold"
               >
                 {area}
               </li>
@@ -394,7 +394,7 @@ function ChangeEntry({
 
         {hasBody || hasFileDetail || change.filesChanged > 0 ? (
           <details className="group mt-2.5">
-            <summary className="text-muted hover:text-ink flex w-fit cursor-pointer list-none items-center gap-1.5 text-[14.4px] font-bold transition-colors [&::-webkit-details-marker]:hidden">
+            <summary className="text-muted hover:text-ink flex w-fit cursor-pointer list-none items-center gap-1.5 text-xs font-bold transition-colors [&::-webkit-details-marker]:hidden">
               <span
                 aria-hidden
                 className="inline-block transition-transform group-open:rotate-90"
@@ -409,7 +409,7 @@ function ChangeEntry({
                 // Preformatted, so the paragraph breaks and lists the commit
                 // message was written with survive. Never truncated: the whole
                 // point of the disclosure is that the reasoning is readable.
-                <pre className="border-line text-ink font-sans text-[16.2px] leading-relaxed font-medium break-words whitespace-pre-wrap border-l-2 pl-3.5">
+                <pre className="border-line text-ink font-sans text-sm leading-relaxed font-medium break-words whitespace-pre-wrap border-l-2 pl-3.5">
                   {change.body.trim()}
                 </pre>
               ) : null}
@@ -422,7 +422,7 @@ function ChangeEntry({
                     ))}
                   </ul>
                   {undisclosedFiles > 0 ? (
-                    <p className="text-muted mt-1.5 text-[14.4px] font-semibold">
+                    <p className="text-muted mt-1.5 text-xs font-semibold">
                       {NUMBER.format(undisclosedFiles)} more{" "}
                       {undisclosedFiles === 1 ? "file" : "files"} in this commit,
                       not listed.
@@ -430,7 +430,7 @@ function ChangeEntry({
                   ) : null}
                 </div>
               ) : change.filesChanged > 0 ? (
-                <p className="text-muted text-[15px] font-medium">
+                <p className="text-muted text-sm font-medium">
                   {NUMBER.format(change.filesChanged)}{" "}
                   {change.filesChanged === 1 ? "file" : "files"} changed. The
                   per-file breakdown was not in this payload.
@@ -457,7 +457,7 @@ function disclosureLabel(hasBody: boolean, filesChanged: number): string {
 
 function Sha({ change }: { change: Change }) {
   const className =
-    "font-mono text-[14.4px] font-semibold tracking-[0.02em] tabular-nums";
+    "font-mono text-xs font-semibold tracking-[0.02em] tabular-nums";
 
   // A local checkout has no web URL. An anchor with nowhere to go is a promise
   // the page cannot keep, so it renders as text and says why on hover.
@@ -488,9 +488,9 @@ function FileRow({ file }: { file: ChangedFile }) {
   const status = FILE_STATUS[file.status];
 
   return (
-    <li className="flex items-baseline gap-2 text-[14.4px]">
+    <li className="flex items-baseline gap-2 text-xs">
       <span
-        className="bg-paper-2 text-ink grid size-[18px] shrink-0 place-items-center rounded-sm font-mono text-[12px] font-bold"
+        className="bg-paper-2 text-ink grid size-[18px] shrink-0 place-items-center rounded-sm font-mono text-xs font-bold"
         title={status.label}
       >
         <span aria-hidden>{status.mark}</span>
@@ -535,8 +535,8 @@ function EmptyFeed({ ok, warnings }: { ok: boolean; warnings?: string[] }) {
 
   return (
     <div className="border-line rounded-md border border-dashed px-5 py-8 text-center">
-      <p className="font-display text-[21.6px] font-medium">{heading}</p>
-      <p className="text-muted mx-auto mt-2 max-w-[46ch] text-[16.2px] font-medium">
+      <p className="font-display text-xl font-medium">{heading}</p>
+      <p className="text-muted mx-auto mt-2 max-w-[46ch] text-sm font-medium">
         {body}
       </p>
     </div>

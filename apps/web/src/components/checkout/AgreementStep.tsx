@@ -352,7 +352,7 @@ export function AgreementStep({
       headingRef={headingRef}
     >
       {notice ? (
-        <p className="border-red/30 bg-red/[0.06] mb-6 rounded-sm border px-4 py-3 text-[15.6px] font-semibold">
+        <p className="border-red/30 bg-red/[0.06] mb-6 rounded-sm border px-4 py-3 text-sm font-semibold">
           {notice}
         </p>
       ) : null}
@@ -369,7 +369,7 @@ export function AgreementStep({
 
   if (!choice.ok || !copy) {
     return shell(
-      <p className="border-line rounded-md border bg-white px-5 py-6 text-[15.6px]">
+      <p className="border-line rounded-md border bg-white px-5 py-6 text-sm">
         We can&apos;t offer an agreement for this practice here. Go back and check your
         specialty, or email{" "}
         <a href={`mailto:${site.email}`} className="font-semibold underline underline-offset-4">
@@ -392,7 +392,7 @@ export function AgreementStep({
           <span className="text-muted text-xs font-semibold">Version {versionLabel(signed.version)}</span>
         </div>
         <div className="scroll-subtle px-5 py-4 sm:max-h-80 sm:overflow-y-auto" tabIndex={0} role="region" aria-label={`${copy.title} you signed`}>
-          <pre className="text-muted font-sans text-[15.6px] leading-relaxed whitespace-pre-wrap">{signed.text}</pre>
+          <pre className="text-muted font-sans text-sm leading-relaxed whitespace-pre-wrap">{signed.text}</pre>
         </div>
         <div className="border-line border-t px-5 py-3">{copyLink}</div>
         <div className="border-line flex flex-wrap items-center gap-4 border-t px-5 py-5">
@@ -413,7 +413,7 @@ export function AgreementStep({
     <>
       {/* ---------------- Why ---------------- */}
       <section className="border-line bg-paper-2/50 rounded-md border p-5 sm:p-6">
-        <h2 className="font-display text-[22.8px] leading-tight font-medium">
+        <h2 className="font-display text-xl leading-tight font-medium">
           {copy.explainer.heading}
         </h2>
         <p className="text-muted mt-3 text-sm leading-relaxed font-medium">{copy.explainer.lead}</p>
@@ -494,7 +494,7 @@ export function AgreementStep({
               aria-label={`${copy.title} text`}
               className="scroll-subtle px-5 py-4 sm:max-h-80 sm:overflow-y-auto"
             >
-              <pre className="text-muted font-sans text-[15.6px] leading-relaxed whitespace-pre-wrap">
+              <pre className="text-muted font-sans text-sm leading-relaxed whitespace-pre-wrap">
                 {shownText}
               </pre>
               <div ref={setEndMarker} aria-hidden className="h-px" data-agreement-end />
@@ -531,7 +531,7 @@ export function AgreementStep({
             autoComplete="name"
             maxLength={120}
             disabled={signedWithoutCopy !== null || submitting}
-            inputClassName="font-serif text-[21.6px] italic"
+            inputClassName="font-serif text-xl italic"
           />
           <TextField
             label="Your title at the practice"
@@ -576,8 +576,8 @@ export function AgreementStep({
             1.0.0) does not, so the box still says the text waits for an
             agreement that covers it. */}
         <div className="border-line bg-paper-2/50 mt-6 rounded-sm border p-4">
-          <p className="text-[15.6px] font-bold">Inbound only</p>
-          <p className="text-muted mt-1.5 text-[15.6px] leading-relaxed">
+          <p className="text-sm font-bold">Inbound only</p>
+          <p className="text-muted mt-1.5 text-sm leading-relaxed">
             {/* In the practice's word (audienceFor): the covered-entity question is
                 skipped exactly where HIPAA cannot reach, a vet's, whose people are clients. */}
             healdesk only answers. It never calls your {asks ? "patients" : "clients"} or texts them
@@ -590,7 +590,7 @@ export function AgreementStep({
         </div>
 
         {!copy.released ? (
-          <p className="border-red/30 bg-red/[0.06] mt-4 rounded-sm border px-4 py-3 text-[15.6px] font-semibold">
+          <p className="border-red/30 bg-red/[0.06] mt-4 rounded-sm border px-4 py-3 text-sm font-semibold">
             This agreement is a draft pending legal review. Until it is finalised, accounts are
             created for synthetic data only and cannot receive real patient information.
           </p>
@@ -603,18 +603,18 @@ export function AgreementStep({
             role="status"
             className="border-line bg-paper-2/50 mt-5 rounded-md border p-5 outline-none"
           >
-            <p className="text-[15.6px] font-bold">✓ Your agreement is signed and on file.</p>
+            <p className="text-sm font-bold">✓ Your agreement is signed and on file.</p>
             <div className="mt-3 flex gap-2.5">
               <span aria-hidden className="text-red-deep mt-px shrink-0 font-bold">
                 ·
               </span>
-              <p className="text-[15.6px] leading-relaxed font-semibold">{signedWithoutCopy.reason}</p>
+              <p className="text-sm leading-relaxed font-semibold">{signedWithoutCopy.reason}</p>
             </div>
-            <p className="text-muted mt-3 text-[15.6px] leading-relaxed">
+            <p className="text-muted mt-3 text-sm leading-relaxed">
               This changes nothing about your signature. We recorded the agreement exactly as it
               appears above, and it stands whether or not the email reaches you.
             </p>
-            <p className="text-muted mt-3 text-[15.6px] leading-relaxed">
+            <p className="text-muted mt-3 text-sm leading-relaxed">
               We have a record that your copy is outstanding. Email{" "}
               <a
                 href="mailto:hello@healdesk.io?subject=My%20signed%20agreement"

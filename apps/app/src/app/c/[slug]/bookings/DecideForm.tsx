@@ -39,7 +39,7 @@ export function DecideForm(props: {
   useEffect(() => {
     setOffset(String(new Date().getTimezoneOffset()));
   }, []);
-  const field = "border-line min-h-11 rounded-xl border bg-white px-3 py-2";
+  const field = "border-line min-h-11 rounded-md border bg-white px-3 py-2";
   const label = "text-muted text-xs font-bold tracking-[0.06em] uppercase";
   const option = "flex min-h-11 items-center gap-2";
   const writable = props.calendar?.writable === true;
@@ -56,7 +56,7 @@ export function DecideForm(props: {
         <input type="hidden" name="requestId" value={id} />
         <input type="hidden" name="tzOffsetMinutes" value={offset} />
 
-        <details className="border-line rounded-xl border bg-white p-3">
+        <details className="border-line rounded-md border bg-white p-3">
           <summary className="flex min-h-11 cursor-pointer items-center font-semibold">
             Confirm a time
           </summary>
@@ -80,7 +80,7 @@ export function DecideForm(props: {
                     Your calendar didn&rsquo;t return any free times just now. Type one below.
                   </p>
                 ) : (
-                  <div className="border-line grid max-h-64 gap-1 overflow-y-auto rounded-xl border p-2">
+                  <div className="border-line grid max-h-64 gap-1 overflow-y-auto rounded-md border p-2">
                     {slots.map((s) => (
                       <label key={s.at} className={option}>
                         <input type="radio" name="slotAt" value={s.at} />
@@ -134,7 +134,7 @@ export function DecideForm(props: {
           </div>
         </details>
 
-        <details className="border-line rounded-xl border bg-white p-3">
+        <details className="border-line rounded-md border bg-white p-3">
           <summary className="flex min-h-11 cursor-pointer items-center font-semibold">
             {props.mode === "rescheduling" ? "Propose different times" : "Propose other times"}
           </summary>
@@ -207,7 +207,7 @@ export function DecideForm(props: {
           {state.status === "failed" ? (
             <p
               role="alert"
-              className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 font-medium"
+              className="rounded-md border border-problem-line bg-tint-problem px-4 py-3 font-medium"
             >
               {state.message}
             </p>
@@ -219,7 +219,7 @@ export function DecideForm(props: {
         // exact time Google showed busy, never a time typed afterwards.
         <form
           action={action}
-          className="border-line mt-3 grid gap-3 rounded-xl border bg-white p-3 text-sm"
+          className="border-line mt-3 grid gap-3 rounded-md border bg-white p-3 text-sm"
         >
           <input type="hidden" name="requestId" value={id} />
           <input type="hidden" name="tzOffsetMinutes" value={offset} />

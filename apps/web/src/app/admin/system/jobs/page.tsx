@@ -38,11 +38,11 @@ export default async function JobsPage() {
   if (isHostUnreachable(jobs)) return <HostStandbyPage title="Jobs" back={{ href: "/admin/system", label: "← System" }} />;
 
   return (
-    <main className="mx-auto w-full max-w-[1240px] px-4 py-10 sm:px-8 lg:px-14">
+    <main className="mx-auto w-full max-w-page px-4 py-10 sm:px-8 lg:px-14">
       <a href="/admin/system" className="text-muted text-sm underline underline-offset-2">
         ← System
       </a>
-      <h1 className="font-display mt-2 text-[28px] leading-tight font-semibold tracking-[-0.02em]">Jobs</h1>
+      <h1 className="font-display mt-2 text-2xl leading-tight font-semibold tracking-[-0.02em]">Jobs</h1>
       <JobsTable jobs={jobs} onToggle={toggleJob} />
     </main>
   );

@@ -88,7 +88,7 @@ function OutageRow({ outage }: { outage: OutageView }) {
   return (
     <li className="border-line rounded-md border bg-white p-5">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="text-[15px] font-semibold">{outage.status === "open" ? "Not answering" : "Answering again"}</span>
+        <span className="text-xs font-semibold">{outage.status === "open" ? "Not answering" : "Answering again"}</span>
         <span className="text-muted text-sm">
           since {when(outage.startedAt)} · {channels(outage.channels)}
         </span>
@@ -130,7 +130,7 @@ function MissCaseRow({ c }: { c: MissCaseView }) {
   return (
     <li className="border-line rounded-md border bg-white p-5">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="font-mono text-[15px] font-semibold">{c.ref}</span>
+        <span className="font-mono text-xs font-semibold">{c.ref}</span>
         <span className="text-sm font-semibold">{STATUS_WORDS[c.status]}</span>
         <span className="text-muted text-sm">
           {CHANNEL_WORDS[c.channel] ?? c.channel} · {c.missCount} missed on {c.missedOn}, first {when(c.firstMissedAt)}
@@ -193,7 +193,7 @@ export default async function AnswerCasesSection({ searchParams }: { searchParam
       </p>
 
       {result && RESULTS[result] ? (
-        <p className="border-line mt-3 rounded-sm border bg-white px-4 py-3 text-[15.6px] font-semibold" role="status">
+        <p className="border-line mt-3 rounded-sm border bg-white px-4 py-3 text-xs font-semibold" role="status">
           {RESULTS[result]}
         </p>
       ) : null}
@@ -205,11 +205,11 @@ export default async function AnswerCasesSection({ searchParams }: { searchParam
       ) : (
         <>
           {loaded.data.unreadClinics > 0 ? (
-            <p className="text-red-deep mt-2 text-[15.6px] font-semibold">
+            <p className="text-red-deep mt-2 text-xs font-semibold">
               {loaded.data.unreadClinics} clinic(s) could not be read, so their cases are missing below.
             </p>
           ) : null}
-          <h3 className="mt-4 text-[17px] font-bold">Outages ({openOutages.length} open)</h3>
+          <h3 className="mt-4 text-sm font-bold">Outages ({openOutages.length} open)</h3>
           {loaded.data.outages.length === 0 ? (
             <p className="text-muted mt-2 text-sm">No outage has been recorded.</p>
           ) : (
@@ -219,7 +219,7 @@ export default async function AnswerCasesSection({ searchParams }: { searchParam
               ))}
             </ul>
           )}
-          <h3 className="mt-6 text-[17px] font-bold">Miss cases ({openCases.length} open)</h3>
+          <h3 className="mt-6 text-sm font-bold">Miss cases ({openCases.length} open)</h3>
           {loaded.data.missCases.length === 0 ? (
             <p className="text-muted mt-2 text-sm">No miss has been recorded.</p>
           ) : (

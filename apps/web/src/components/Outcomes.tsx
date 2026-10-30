@@ -250,7 +250,7 @@ function useLockScreen(track: React.RefObject<HTMLDivElement | null>) {
       const read = () => {
         frame = 0;
         // How far the pinned screen has travelled down its track, in steps.
-        // Both from the same rectangles, so the site's zoom cancels out.
+        // Both from the same rectangles, so neither depends on the page's scale.
         const box = el.getBoundingClientRect();
         const pinned = screen.getBoundingClientRect();
         const range = box.height - pinned.height;

@@ -69,7 +69,7 @@ export default async function IncidentPage({
         </p>
 
         {sizes.pending || (sizes.gone && list.total === 0) ? (
-          <p className="border-line mt-6 rounded-xl border bg-white px-4 py-3">
+          <p className="border-line mt-6 rounded-md border bg-white px-4 py-3">
             {sizes.pending ?? sizes.gone}
           </p>
         ) : null}
@@ -77,7 +77,7 @@ export default async function IncidentPage({
           <>
             <p className="mt-6 font-semibold">{sizes.heading}</p>
             {sizes.gone ? <p className="text-muted mt-2 text-sm">{sizes.gone}</p> : null}
-            <div className="border-line mt-3 overflow-x-auto rounded-xl border bg-white">
+            <div className="border-line mt-3 overflow-x-auto rounded-md border bg-white">
               <table className="w-full text-left text-sm">
                 <thead className="text-muted border-line border-b">
                   <tr>

@@ -165,7 +165,7 @@ export function GetInTouch({ className = "" }: { className?: string }) {
         </svg>
         {/* Its name is whichever label shows, so what is read out is what is
             on screen. */}
-        <span className="text-[10.5px] leading-none min-[480px]:hidden">Contact</span>
+        <span className="text-xs leading-none min-[480px]:hidden">Contact</span>
         <span className="hidden min-[480px]:inline">{site.meeting.label}</span>
       </a>
 
@@ -205,7 +205,7 @@ export function GetInTouch({ className = "" }: { className?: string }) {
               type="button"
               onClick={close}
               aria-label="Close"
-              className="text-muted hover:text-ink -mr-1 grid size-7 shrink-0 place-items-center rounded-full text-lg leading-none transition-colors"
+              className="text-muted hover:text-ink -m-2 grid size-11 shrink-0 place-items-center rounded-full text-lg leading-none transition-colors"
             >
               <span aria-hidden>×</span>
             </button>

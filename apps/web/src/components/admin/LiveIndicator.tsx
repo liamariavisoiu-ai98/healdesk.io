@@ -259,7 +259,7 @@ export function LiveIndicator({
           />
         </span>
 
-        <p className="min-w-0 text-[15.6px] leading-snug">
+        <p className="min-w-0 text-sm leading-snug">
           {/* No separator between them: every `qualifier` above opens with the
               colon that joins it to the headline, so a space here would render
               "Reading your local checkout : includes unpushed work". */}
@@ -267,7 +267,7 @@ export function LiveIndicator({
           <span className="text-muted font-medium">{qualifier}</span>
         </p>
 
-        <span className="text-muted ml-auto shrink-0 text-[15.6px] font-semibold tabular-nums">
+        <span className="text-muted ml-auto shrink-0 text-sm font-semibold tabular-nums">
           {fetchedMs === null ? (
             // The server stamped something we cannot parse. Say that; do not
             // silently substitute the current time.
@@ -283,7 +283,7 @@ export function LiveIndicator({
         </span>
 
         {isRefreshing ? (
-          <span className="text-muted shrink-0 text-[12px] font-bold tracking-[0.14em] uppercase">
+          <span className="text-muted shrink-0 text-xs font-bold tracking-[0.14em] uppercase">
             refreshing
           </span>
         ) : null}
@@ -294,7 +294,7 @@ export function LiveIndicator({
           role="status"
           className="border-line-strong bg-paper-2 mt-3 rounded-sm border px-3 py-2.5"
         >
-          <p className="text-[13.2px] font-bold tracking-[0.12em] uppercase">
+          <p className="text-xs font-bold tracking-[0.12em] uppercase">
             {warnings.length === 1
               ? "1 thing did not read cleanly"
               : `${warnings.length} things did not read cleanly`}
@@ -303,7 +303,7 @@ export function LiveIndicator({
             {warnings.map((warning, index) => (
               <li
                 key={`${index}-${warning}`}
-                className="flex gap-2 text-[15.6px] leading-relaxed font-medium"
+                className="flex gap-2 text-sm leading-relaxed font-medium"
               >
                 <span aria-hidden className="text-red-deep shrink-0 font-bold">
                   !
@@ -312,7 +312,7 @@ export function LiveIndicator({
               </li>
             ))}
           </ul>
-          <p className="text-muted mt-2 text-[14.4px] font-medium">
+          <p className="text-muted mt-2 text-xs font-medium">
             {/* Scoped to the repository figures, because `ok` is only
                 `ChangesPayload.ok`. The roadmap board below has its own `ok`
                 and is frequently fine while this one is not, a blanket

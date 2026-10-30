@@ -72,7 +72,7 @@ export function SendStepsForm(
           onChange={(event) => setTo(event.target.value)}
           placeholder={web ? "web@example.com" : "office@yourpractice.com"}
           aria-describedby={statusId}
-          className="border-line min-h-11 min-w-0 flex-1 rounded-xl border bg-white px-4 py-2 text-base"
+          className="border-line min-h-11 min-w-0 flex-1 rounded-md border bg-white px-4 py-2 text-base"
         />
         <button
           type="submit"
@@ -83,7 +83,7 @@ export function SendStepsForm(
         </button>
       </div>
       <p id={statusId} role="status" aria-live="polite" className="text-sm">
-        {result ? <span className={result.ok ? "" : "text-red-800"}>{result.message}</span> : null}
+        {result ? <span className={result.ok ? "" : "text-problem"}>{result.message}</span> : null}
       </p>
     </form>
   );

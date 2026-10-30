@@ -56,7 +56,7 @@ export function Shell({
 export function Archived() {
   return (
     <div className="bg-paper/80 absolute inset-0 grid place-items-center backdrop-blur-[2px]">
-      <p className="bg-ink rounded-full px-4 py-2 text-[14.4px] font-semibold text-white">Archived</p>
+      <p className="bg-ink rounded-full px-4 py-2 text-xs font-semibold text-white">Archived</p>
     </div>
   );
 }

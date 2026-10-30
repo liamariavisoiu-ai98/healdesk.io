@@ -60,7 +60,7 @@ export type DecisionSubject = {
 
 const REJECT_REASONS = Object.keys(REJECT_REASON_WORDS) as RejectReason[];
 
-const LABEL = "text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase";
+const LABEL = "text-muted text-xs font-bold tracking-[0.06em] uppercase";
 const SELECT = "border-line rounded-sm border bg-white px-3 py-2.5";
 
 /** The tab where the kind's subject is acted on: billing for money, setup for the setup window, care for agreements and incidents. */

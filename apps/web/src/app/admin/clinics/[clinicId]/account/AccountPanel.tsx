@@ -194,7 +194,7 @@ function ChangeForm({ onChange }: { onChange: Actions["changeEmail"] }) {
         page is evidence, not enough on its own.
       </p>
       <label className="grid gap-1">
-        <span className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">
+        <span className="text-muted text-xs font-bold tracking-[0.06em] uppercase">
           New address
         </span>
         <input
@@ -210,7 +210,7 @@ function ChangeForm({ onChange }: { onChange: Actions["changeEmail"] }) {
         number, and it confirmed this address.
       </label>
       <label className="grid gap-1">
-        <span className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">
+        <span className="text-muted text-xs font-bold tracking-[0.06em] uppercase">
           Code from your authenticator
         </span>
         <input

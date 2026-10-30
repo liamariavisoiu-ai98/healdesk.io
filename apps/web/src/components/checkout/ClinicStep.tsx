@@ -125,7 +125,7 @@ export function ClinicStep({
     >
       {error ? (
         <p
-          className="border-red/30 bg-red/[0.06] mb-6 rounded-sm border px-4 py-3 text-[15.6px] font-semibold"
+          className="border-red/30 bg-red/[0.06] mb-6 rounded-sm border px-4 py-3 text-sm font-semibold"
           role="alert"
         >
           {error.message}
@@ -136,7 +136,7 @@ export function ClinicStep({
         {confirmed ? (
           <div className="border-line flex flex-wrap items-center justify-between gap-3 rounded-md border bg-white px-5 py-4">
             <span>
-              <span className="block text-[15.6px] font-bold">{state.clinicName}</span>
+              <span className="block text-sm font-bold">{state.clinicName}</span>
               <span className="text-muted block text-sm">{state.website.replace(/^https?:\/\//, "").replace(/\/$/, "")}</span>
               <span className="text-muted block text-xs">From your demo. This is the name on your agreement.</span>
             </span>

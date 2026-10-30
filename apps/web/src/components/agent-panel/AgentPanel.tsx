@@ -74,8 +74,8 @@ export function AgentPanel({
       <div className={`border-line flex items-center gap-3 border-b px-5 ${mark === false ? "py-4" : mark ? "py-3" : "py-3.5"}`}>
         {mark === false ? null : (mark ?? <AgentMark name={name} logoUrl={logoUrl} size={28} />)}
         <div className="min-w-0">
-          <p className="text-muted text-[12px] font-bold tracking-[0.1em] uppercase">{label}</p>
-          {title ? <p className="truncate text-[15.6px] font-semibold">{title}</p> : null}
+          <p className="text-muted text-xs font-bold tracking-[0.1em] uppercase">{label}</p>
+          {title ? <p className="truncate text-sm font-semibold">{title}</p> : null}
         </div>
       </div>
       {children}

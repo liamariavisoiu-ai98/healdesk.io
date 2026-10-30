@@ -84,7 +84,7 @@ function DetailField(props: {
         value={value}
         aria-describedby={hintId}
         onChange={(event) => setValue(event.target.value)}
-        className="border-line w-full rounded-xl border bg-white px-4 py-3 text-base"
+        className="border-line w-full rounded-md border bg-white px-4 py-3 text-base"
       />
       <p id={hintId} className="text-muted text-sm">
         {props.hint}
@@ -150,7 +150,7 @@ export function LocationDetailsForm(props: {
     <div className="mt-6 grid gap-6">
       <section
         aria-labelledby="where-heading"
-        className="border-line rounded-2xl border bg-white px-5 py-4"
+        className="border-line rounded-md border bg-white px-5 py-4"
       >
         <h2 id="where-heading" className="text-lg font-semibold">
           Where it is
@@ -169,7 +169,7 @@ export function LocationDetailsForm(props: {
 
       <section
         aria-labelledby="hours-heading"
-        className="border-line rounded-2xl border bg-white px-5 py-4"
+        className="border-line rounded-md border bg-white px-5 py-4"
       >
         <h2 id="hours-heading" className="text-lg font-semibold">
           Opening hours
@@ -200,7 +200,7 @@ export function LocationDetailsForm(props: {
 
       <section
         aria-labelledby="numbers-heading"
-        className="border-line rounded-2xl border bg-white px-5 py-4"
+        className="border-line rounded-md border bg-white px-5 py-4"
       >
         <h2 id="numbers-heading" className="text-lg font-semibold">
           Phone numbers
@@ -237,7 +237,7 @@ export function LocationDetailsForm(props: {
 
       <section
         aria-labelledby="confirm-heading"
-        className="border-line rounded-2xl border bg-white px-5 py-4"
+        className="border-line rounded-md border bg-white px-5 py-4"
       >
         <h2 id="confirm-heading" className="text-lg font-semibold">
           {confirmed ? "Confirmed" : "Confirm these details"}

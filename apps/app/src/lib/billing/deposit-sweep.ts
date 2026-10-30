@@ -150,10 +150,16 @@ export async function sweepUnlinkedDeposits(
   for (const clinicId of ids) {
     try {
       summary.flagged += await flagUnlinkedDepositsFor(clinicId, now);
-      summary.flagged += await flagStaleOpenDepositsFor(clinicId, now);
     } catch (error) {
       summary.failures += 1;
       log.error("unlinked deposits not swept", { clinicId, error: describeError(error) });
+    }
+    // On its own, so a failure of the first never skips it.
+    try {
+      summary.flagged += await flagStaleOpenDepositsFor(clinicId, now);
+    } catch (error) {
+      summary.failures += 1;
+      log.error("expired open deposit links not swept", { clinicId, error: describeError(error) });
     }
   }
   if (summary.flagged > 0) {

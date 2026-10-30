@@ -41,12 +41,13 @@ the code, the repo or the mailbox named.
 - **The database is chosen:** Amazon RDS for PostgreSQL 17, under the AWS
   agreement accepted on 22 September 2026 (`infra/aws/rds.tf`). The Neon
   option in §2 is closed.
-- **BAA 1.6.0 is released** (owner, 29 October 2026). §2's "BAA 1.6.0,
-  drafted" and clause references to 1.5.1 should read 1.6.0.
-- **T4's notice period is 24 hours, not 15 days**, in BAA 1.3.0 to 1.6.0 and
-  DPA 1.0.0. BAA 1.7.0 and DPA 1.1.0, drafted on 30 October 2026, give 15
-  days and a 10-day outer limit for breach reports. They change nothing until
-  the owner releases them.
+- **BAA 1.7.0 and DPA 1.1.0 are released** (owner, 30 October 2026), after
+  1.6.0 the day before. §2's "BAA 1.6.0, drafted" and clause references to
+  1.5.1 should read 1.7.0. Both report a breach or security incident in no
+  case later than 10 calendar days after discovery, where 1.2.2 to 1.6.0 said
+  60. Production holds the release once migration 0140 is deployed.
+- **T4's notice period is 15 days** under BAA 1.7.0 and DPA 1.1.0. It was 24
+  hours in BAA 1.3.0 to 1.6.0 and DPA 1.0.0, which no real clinic signed.
 - **Still open, owner only:** the Security Official's name
   (`policies/security-official.md`), the Security Official's read and
   signature of this analysis and the policies (`policies/training-log.md`),

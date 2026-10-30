@@ -84,15 +84,22 @@ The owner, after the legal status review of that day (in chat):
 
 ## Actions for the lead outside this folder
 
-1. `docs/incident-response.md` and BAA clause 2 cite the FTC Health Breach
-   Notification Rule for non-covered clinics; 16 CFR 318.2 does not reach a
-   clinic's booking records. Replace with state breach-notification law.
-2. Terms § 9 and `/subprocessors`: add the flagged-content exception to the
-   Anthropic sentence (A3).
-3. `GUARANTEE_TEXT`: carry the eight tightening changes; render the block on
-   `/pricing`; nothing about the guarantee there until it renders.
-4. `disclosure.ts`: drop "Anything about payment" from the Meta prohibitions.
-5. Fill the Security Official's name before the first agreement is signed.
+Status checked against the code on 30 October 2026.
+
+1. **Done (1 October 2026).** `docs/incident-response.md` and BAA clause 2
+   cited the FTC Health Breach Notification Rule for non-covered clinics,
+   which 16 CFR 318.2 does not reach. The procedure now names state
+   breach-notification law, and BAA 1.2.1 on carries no such sentence
+   (finding A1).
+2. **Done.** Terms and the agreements print the catalog's Anthropic
+   retention sentences, which carry the flagged-content exception
+   (`packages/catalog/src/model-retention.ts`). `/subprocessors` is gone.
+3. **Holds as written.** `GUARANTEE_TEXT` renders in the checkout's review
+   step and terms § 5. `/pricing` says nothing about the guarantee.
+4. **Done.** "Anything about payment" is no longer in `disclosure.ts`.
+5. **Open, owner only.** Fill the Security Official's name
+   (`docs/policies/security-official.md`) before the first agreement is
+   signed.
 
 ## Review log (2026-10-01)
 

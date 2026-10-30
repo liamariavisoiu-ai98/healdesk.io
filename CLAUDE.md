@@ -479,16 +479,13 @@ a rule already holds, and treat a gap as a bug, not a precedent.
   adapter only inside the 24-hour window the patient opened and is dropped
   outside it, names no treatment, and is never a reminder or a follow-up the
   patient did not ask for (`lib/meta/booking-requests.ts`,
-  `lib/booking/reschedule.ts`, `sendMetaReply`). One more exception, a clinic
-  setting that is off by default (owner, 28 October 2026; spec, "Payment by
-  text after a call, and full payment"): after a booking made on a call, the
-  agent may text the caller one hosted payment link, only if the caller
-  agrees and reads the number back, once per booking, in fixed wording with no
-  treatment, time or amount, sent by the fixed tool layer and never by the
-  model. Nothing else is ever texted: no reminder, resend or follow-up. The
-  sender must be on the BAA chain (a caller's number next to a clinic is
-  health information), so the setting stays unavailable until a compliant
-  sender and the clinic's sender registration exist.
+  `lib/booking/reschedule.ts`, `sendMetaReply`). The payment-link text above
+  is the only text (spec, "Payment by text after a call, and full payment"):
+  nothing else is ever texted, no reminder, resend or follow-up. Its sender is
+  handled by scoping, not a BAA (owner, 28 October 2026; the spec's vendor
+  table), so what keeps it in bounds is the fixed words and the link alone.
+  The assistant does not offer it until a sender is chosen and the clinic's
+  carrier registration exists.
 - **The assistant says it is an AI assistant in its opening line, on every
   channel.** On calls the same line says the call is transcribed, and nothing
   about retention (owner, 24 October 2026: the consent laws ask that a caller

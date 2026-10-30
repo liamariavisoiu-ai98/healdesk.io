@@ -46,8 +46,10 @@ general. The console's `ftc_notify_by` column is kept as a second clock, 30
 days from discovery: California's deadline for the clinic, as the owner of
 the data, to notify the people affected (Cal. Civ. Code 1798.82(a)(2)(A); the
 column held 60 days until 3 October 2026), so a non-covered breach is never
-left with only the contractual deadline. The 24-hour BAA clock applies to them
-as to every clinic.
+left with only the contractual deadline. healdesk's internal 24-hour target
+applies to them as to every clinic; it is an operating target, never a
+promise, and the agreement's own outer limit is the one in its Reporting
+clause.
 
 ## Who decides
 

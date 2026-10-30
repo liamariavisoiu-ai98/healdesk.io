@@ -28,8 +28,11 @@ Responsibilities, in order of importance:
    [hipaa-compliance.md](../hipaa-compliance.md), which is the internal
    register, matching them. There is no public subprocessor page: answer a
    signed clinic's written request for the current list from that table, and
-   send each clinic its notice before a new subcontractor handles PHI (fifteen
-   days under BAA 1.2.2). Make sure every vendor's notice address reaches you
+   send each clinic its notice before a new subcontractor handles PHI, as far
+   ahead as the version it signed promises: 24 hours under BAA 1.3.0 to 1.6.0
+   and DPA 1.0.0, fifteen days under 1.2.1 and 1.2.2, and under BAA 1.7.0 and
+   DPA 1.1.0 once released (the console's notices read each clinic's rule from
+   `apps/app/src/lib/incidents/reporting-rules.ts`). Make sure every vendor's notice address reaches you
    (incident-response.md, "Notices from our vendors"), and that
    hello@healdesk.io, the only address the agreements name, does too.
 3. Run the breach and incident procedure when it is needed, on the BAA's clock.

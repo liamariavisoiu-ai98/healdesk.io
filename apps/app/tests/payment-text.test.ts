@@ -780,6 +780,18 @@ describeDb("the call flow and the one send, against the database", { timeout: 30
       expect(await flagStaleOpenDepositsFor(clinicId, later)).toBe(0);
     });
 
+    test("the possibly-paid email is never closed by the queued-text rule, even when a later link moves the deposit back", async () => {
+      const { clinicId, appointmentId } = await bookedWithAlert("text-desk-pp");
+      await leftQueued(clinicId, appointmentId);
+      const [held] = await deskAlerts(clinicId);
+      await withTenant({ clinicId, actor: ACTOR }, (tx) => supersededReason(tx, "deposit_to_collect", held!.payload));
+      const possiblyPaid = (await deskAlerts(clinicId))[1]!;
+      expect(possiblyPaid.payload.isPossiblyPaid).toBe(true);
+      // A later link moves the deposit pending_front_desk -> pending_link while the text row is still queued.
+      await inTenant(clinicId, (client) => client.query(`update appointments set deposit_status = 'pending_link' where id = $1`, [appointmentId]));
+      expect(await withTenant({ clinicId, actor: ACTOR }, (tx) => supersededReason(tx, "deposit_to_collect", possiblyPaid.payload))).toBeNull();
+    });
+
     test("an expired open link with no word from Stripe is swept to the desk as possibly paid, once", async () => {
       const { clinicId, appointmentId } = await clinicWithBooking("text-desk-sweep");
       const depositId = await inTenant(clinicId, async (client) => {

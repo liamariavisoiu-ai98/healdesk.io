@@ -120,7 +120,11 @@ async function depositAlertSuperseded(tx: TenantTx, payload: unknown): Promise<s
       .from(paymentLinkTexts)
       .where(and(eq(paymentLinkTexts.clinicId, tx.clinicId), eq(paymentLinkTexts.appointmentId, appointmentId)))
       .limit(1);
-    if (text?.status === "queued") {
+    // The possibly-paid email itself is decided on the deposit's own state:
+    // were it sent here, its own key already exists, nothing new would be
+    // queued, and closing it would leave neither email to go.
+    const possiblyPaid = (payload as { isPossiblyPaid?: unknown } | null)?.isPossiblyPaid === true;
+    if (text?.status === "queued" && !possiblyPaid) {
       // Claimed and never settled: the process died, or the outcome could
       // not be recorded, possibly after AWS accepted the text. The texted
       // link may be paid, so the front desk is told to check Stripe first

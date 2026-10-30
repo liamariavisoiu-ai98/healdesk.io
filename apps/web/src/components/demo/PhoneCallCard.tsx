@@ -22,7 +22,32 @@ import { getFirstName } from "@/lib/demo/first-name";
  * Mute and the red button work; the other round buttons are the phone's
  * furniture and do nothing: speaker drawn lit, the rest dimmed so they do not
  * invite a tap.
+ *
+ * Her face sits in a bubble above "Call Aya", and the call is drawn the way
+ * iOS draws one now (owner, 30 October 2026: "re-add Aya's face in a bubble
+ * just above call Aya ... make sure it looks like iOS"): the system font,
+ * glass buttons over her photograph blurred as the contact poster.
  */
+
+/** Her face as the voice card shows it at rest (components/agent-panel/AyaPortrait.tsx). */
+const AYA_FACE = "/hero-frames-2/g_20.webp";
+
+/** Apple's own font on Apple devices, the system font elsewhere. */
+const IOS_FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif';
+
+/** The light catching the top of a glass button. */
+function Sheen() {
+  return <span aria-hidden className="pointer-events-none absolute inset-0 rounded-full bg-gradient-to-b from-white/45 via-white/5 to-transparent" />;
+}
+
+/** Her face in a round bubble. */
+function FaceBubble({ size, className = "" }: { size: number; className?: string }) {
+  return (
+    <span className={`relative block shrink-0 overflow-hidden rounded-full bg-white shadow-lg ring-4 ring-white/80 ${className}`} style={{ width: size, height: size }}>
+      <img src={AYA_FACE} alt="Aya" className="size-full object-cover" style={{ objectPosition: "50% 30%" }} />
+    </span>
+  );
+}
 
 type CallState = "idle" | "connecting" | "live" | "ended" | "error";
 
@@ -114,13 +139,14 @@ function RoundKey({
       disabled={!live}
       aria-pressed={live ? lit : undefined}
       tabIndex={live ? 0 : -1}
-      className={`flex flex-col items-center gap-1.5 ${live ? "cursor-pointer" : "cursor-default"} ${live || lit ? "" : "opacity-40"}`}
+      className={`flex flex-col items-center gap-1.5 ${live ? "cursor-pointer" : "cursor-default"} ${live || lit ? "" : "opacity-45"}`}
     >
       <span
-        className={`grid size-[64px] place-items-center rounded-full transition-colors [&_svg]:size-[26px] ${
-          lit ? "bg-white text-black" : "bg-white/[0.16] text-white backdrop-blur-sm"
+        className={`relative grid size-[66px] place-items-center rounded-full ring-1 ring-inset transition-colors [&_svg]:relative [&_svg]:size-[27px] ${
+          lit ? "bg-white/90 text-black ring-white/70" : "bg-white/[0.14] text-white ring-white/25 backdrop-blur-xl"
         } ${live && !lit ? "hover:bg-white/25" : ""}`}
       >
+        <Sheen />
         {icon}
       </span>
       <span className="text-[12.5px] font-medium text-white/90">{label}</span>
@@ -212,18 +238,30 @@ export function PhoneCallCard({ clinic, callRoute, locked = false }: { clinic: s
 
   if (!onCall) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-lg bg-[#f2f1ef] px-4 py-10 text-center">
+      <div
+        className="relative flex flex-1 flex-col items-center justify-center overflow-hidden rounded-lg px-4 py-10 text-center"
+        style={{ fontFamily: IOS_FONT, background: "linear-gradient(180deg, #f7f6f4 0%, #edece9 100%)" }}
+      >
+        {/* Soft colour behind the glass, as iOS lays its controls over a wallpaper. */}
+        <span aria-hidden className="pointer-events-none absolute -top-24 left-1/2 size-80 -translate-x-1/2 rounded-full bg-[#f6c9b6]/45 blur-3xl" />
+        <span aria-hidden className="pointer-events-none absolute -bottom-28 -left-16 size-72 rounded-full bg-[#c9d8f4]/40 blur-3xl" />
+
+        <FaceBubble size={116} className="relative" />
+        <div className="relative mt-3 text-[21px] font-semibold tracking-[-0.02em] text-[#1c1c1e]">Aya</div>
+        <div className="relative text-[13.5px] text-[#6e6e73]">{clinic}</div>
+
         <button
           type="button"
           onClick={startCall}
           disabled={locked}
           aria-label={`Call Aya at ${clinic}`}
-          className="grid size-[88px] place-items-center rounded-full bg-white text-black shadow-md transition-transform hover:scale-[1.04] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:size-[34px]"
+          className="relative mt-7 grid size-[80px] place-items-center rounded-full bg-white/75 text-black shadow-lg ring-1 ring-black/5 backdrop-blur-xl transition-transform hover:scale-[1.04] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:relative [&_svg]:size-[32px]"
         >
+          <Sheen />
           {ICON.phone}
         </button>
-        <span className="text-[19px] font-medium text-[#6b6763]">Call Aya</span>
-        <p className="max-w-[300px] text-[13px] leading-snug text-[#8a8580]" aria-live="polite">
+        <span className="relative mt-2.5 text-[17px] font-medium text-[#3a3a3c]">Call Aya</span>
+        <p className="relative mt-1.5 max-w-[300px] text-[13px] leading-snug text-[#8e8e93]" aria-live="polite">
           {locked
             ? "This demo has expired."
             : error
@@ -238,17 +276,23 @@ export function PhoneCallCard({ clinic, callRoute, locked = false }: { clinic: s
 
   return (
     <div
-      className="relative flex flex-1 flex-col items-center overflow-hidden rounded-lg px-5 pt-9 pb-4 text-white"
-      style={{ background: "radial-gradient(120% 80% at 50% 0%, #5b5048 0%, #3d3530 55%, #2a2421 100%)" }}
+      className="relative flex flex-1 flex-col items-center overflow-hidden rounded-lg px-5 pt-8 pb-4 text-white"
+      style={{ fontFamily: IOS_FONT, background: "#2b2522" }}
       role="region"
       aria-label={`Call with Aya at ${clinic}`}
     >
-      <div className="text-center text-[27px] leading-tight font-normal tracking-[-0.01em] [text-wrap:balance]">Aya · {clinic}</div>
-      <div className="mt-1 text-[15px] text-white/70 tabular-nums" aria-live="polite">
+      {/* Her photograph, blurred, as the contact poster behind the call. */}
+      <img src={AYA_FACE} alt="" aria-hidden className="pointer-events-none absolute inset-0 size-full scale-125 object-cover opacity-80 blur-2xl" />
+      <span aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/25 via-black/35 to-black/60" />
+
+      <FaceBubble size={84} className="relative ring-white/30" />
+      <div className="relative mt-3 text-center text-[28px] leading-tight font-semibold tracking-[-0.02em] [text-wrap:balance]">Aya</div>
+      <div className="relative text-[15px] text-white/75">{clinic}</div>
+      <div className="relative mt-1 text-[15px] text-white/70 tabular-nums" aria-live="polite">
         {state === "live" ? formatElapsed(elapsed) : "calling…"}
       </div>
 
-      <div className="mt-auto grid grid-cols-3 gap-x-7 gap-y-5 pt-10">
+      <div className="relative mt-auto grid grid-cols-3 gap-x-7 gap-y-5 pt-9">
         <RoundKey label="mute" icon={ICON.mute} onClick={toggleMute} lit={muted} />
         <RoundKey label="keypad" icon={ICON.keypad} />
         {/* Lit, as on the phone: her voice does come out of the speakers. */}
@@ -262,11 +306,12 @@ export function PhoneCallCard({ clinic, callRoute, locked = false }: { clinic: s
         type="button"
         onClick={endCall}
         aria-label="End call"
-        className="mt-8 grid size-[72px] place-items-center rounded-full bg-[#eb5545] text-white transition-colors hover:bg-[#d94a3b] [&_svg]:size-[30px]"
+        className="relative mt-8 grid size-[72px] place-items-center rounded-full bg-[#ff3b30] text-white shadow-lg ring-1 ring-inset ring-white/25 transition-colors hover:bg-[#e8352b] [&_svg]:relative [&_svg]:size-[30px]"
       >
+        <Sheen />
         {ICON.end}
       </button>
-      <span className="mt-4 h-[5px] w-[120px] rounded-full bg-white/80" aria-hidden />
+      <span className="relative mt-4 h-[5px] w-[120px] rounded-full bg-white/80" aria-hidden />
     </div>
   );
 }

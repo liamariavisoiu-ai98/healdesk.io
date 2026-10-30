@@ -134,6 +134,20 @@ export function withListing(extracted: ClinicProfile, google: GoogleListing | nu
 }
 
 /**
+ * Past this, a build is stopped and marked failed, at whatever step it is on.
+ * The steps' own deadlines end by BUILD_BUDGET_MS (lib/demo/budget.ts); this
+ * is the backstop for anything that ignores them, well inside the routes' 300 s.
+ */
+export const BUILD_HARD_STOP_MS = 150_000;
+
+class BuildTimeout extends Error {
+  constructor(ms: number) {
+    super(`the build passed its ${Math.round(ms / 1000)} s hard stop`);
+    this.name = "BuildTimeout";
+  }
+}
+
+/**
  * Scrape, structure, audit, store. Never throws: every failure ends as a
  * `failed` or `held` row with a reason, because this runs after the response
  * and an exception here would only ever reach a log.
@@ -154,79 +168,93 @@ export async function runDemoBuild(slug: string, options: { sendEmail?: boolean 
   // log" sent the team to a log they could not open (Miami Skin & Vein,
   // 30 October 2026, failed after an 82/100 audit with no cause shown).
   let stage = "reading the website";
+  const mark = (next: string) => {
+    console.info("[healdesk] demo build step", { slug, step: next, afterMs: Date.now() - started });
+    stage = next;
+  };
+  // A hard stop, whatever hangs: the waiting page promises about a minute,
+  // and a build that never wrote its end left the prospect watching "Testing
+  // AYA's answers" for ten minutes (Miami Skin & Vein, 30 October 2026).
+  let stopTimer: ReturnType<typeof setTimeout> | undefined;
+  const stop = new Promise<never>((_, reject) => {
+    stopTimer = setTimeout(() => reject(new BuildTimeout(BUILD_HARD_STOP_MS)), BUILD_HARD_STOP_MS);
+  });
   try {
-    // The Google listing needs only the name and the domain, and is merged in
-    // only after the extraction, so it runs beside both, until just before the
-    // profile is due (lib/demo/google-listing.ts). A failed lookup costs the
-    // demo nothing but what the listing would have added.
-    const listing = fetchGoogleListing(session.clinicName, session.websiteUrl, started + EXTRACT_BY_MS - LISTING_MARGIN_MS).catch(
-      (error: unknown): GoogleListing | null => {
-        console.warn("[healdesk] google listing lookup failed", {
-          slug,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return null;
-      },
-    );
-    const scraped = await scrapeClinicSite(session.websiteUrl, {
-      deadline: started + READ_BY_MS,
-      onBrand: (brand) => {
-        brandWrite = updateDemoSession(slug, { brandName: brand.name, logoUrl: brand.logoUrl, brandColor: brand.color }).catch(() => null);
-      },
-    });
-    const extract = async (feedback?: readonly string[], deadline: number = started + EXTRACT_BY_MS): Promise<ClinicProfile> => {
-      const raw = await structureProfile(scraped.pages, { clinicName: session.clinicName, niche: session.niche, feedback, deadline });
-      const grounded = groundProfile(raw, scraped.pages);
-      if (grounded.dropped.length > 0) console.info("[healdesk] demo facts dropped, not on the pages", { slug, dropped: grounded.dropped });
-      return withListing(grounded.profile, await listing, session.clinicName);
-    };
-
-    stage = "building the profile";
-    const profile = await extract();
-    await brandWrite;
-    if (!isUsableProfile(profile)) {
-      // Every end of a run, this one included, resets the stall count: the
-      // count is about the run that is on, not the demo's history
-      // (lib/demo/sweep.ts), so the next run gets its own retry.
-      return await updateDemoSession(slug, {
-        status: "failed",
-        retryCount: 0,
-        scrapeSource: scraped.source,
-        buildNote: `The site was read (${scraped.pages.length} pages) but no services, hours or FAQs were found in it. It may render everything in the browser${process.env.APIFY_TOKEN ? "" : "; setting APIFY_TOKEN enables the rendering crawler"}.`,
+    const build = async (): Promise<DemoSession | null> => {
+      // The Google listing needs only the name and the domain, and is merged in
+      // only after the extraction, so it runs beside both, until just before the
+      // profile is due (lib/demo/google-listing.ts). A failed lookup costs the
+      // demo nothing but what the listing would have added.
+      const listing = fetchGoogleListing(session.clinicName, session.websiteUrl, started + EXTRACT_BY_MS - LISTING_MARGIN_MS).catch(
+        (error: unknown): GoogleListing | null => {
+          console.warn("[healdesk] google listing lookup failed", {
+            slug,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return null;
+        },
+      );
+      const scraped = await scrapeClinicSite(session.websiteUrl, {
+        deadline: started + READ_BY_MS,
+        onBrand: (brand) => {
+          brandWrite = updateDemoSession(slug, { brandName: brand.name, logoUrl: brand.logoUrl, brandColor: brand.color }).catch(() => null);
+        },
       });
-    }
+      const extract = async (feedback?: readonly string[], deadline: number = started + EXTRACT_BY_MS): Promise<ClinicProfile> => {
+        const raw = await structureProfile(scraped.pages, { clinicName: session.clinicName, niche: session.niche, feedback, deadline });
+        const grounded = groundProfile(raw, scraped.pages);
+        if (grounded.dropped.length > 0) console.info("[healdesk] demo facts dropped, not on the pages", { slug, dropped: grounded.dropped });
+        return withListing(grounded.profile, await listing, session.clinicName);
+      };
 
-    // Stored before the audit, so the console shows what is being audited;
-    // `auditing` is not served, so the prospect still sees "being prepared".
-    await updateDemoSession(slug, {
-      status: "auditing",
-      specialty: profile.specialty ?? (isSpecialtyId(session.niche) ? session.niche : null),
-      brandName: scraped.brand.name,
-      logoUrl: scraped.brand.logoUrl,
-      brandColor: scraped.brand.color,
-      profile: profile as unknown as Record<string, unknown>,
-      scrapeSource: scraped.source,
-      buildNote: scraped.apifyNote && process.env.APIFY_TOKEN ? `Rendering crawler: ${scraped.apifyNote}` : null,
-      auditVerdict: null,
-      auditScore: null,
-      auditReport: null,
-      auditedAt: null,
-      auditHash: null,
-    });
-    console.info("[healdesk] demo built, auditing", {
-      slug,
-      source: scraped.source,
-      pages: scraped.pages.length,
-      services: profile.services.length,
-    });
+      mark("building the profile");
+      const profile = await extract();
+      await brandWrite;
+      if (!isUsableProfile(profile)) {
+        // Every end of a run, this one included, resets the stall count: the
+        // count is about the run that is on, not the demo's history
+        // (lib/demo/sweep.ts), so the next run gets its own retry.
+        return await updateDemoSession(slug, {
+          status: "failed",
+          retryCount: 0,
+          scrapeSource: scraped.source,
+          buildNote: `The site was read (${scraped.pages.length} pages) but no services, hours or FAQs were found in it. It may render everything in the browser${process.env.APIFY_TOKEN ? "" : "; setting APIFY_TOKEN enables the rendering crawler"}.`,
+        });
+      }
 
-    stage = "auditing the demo";
-    const gated = await auditWithRepair(session, scraped.pages, profile, extract, started + AUDIT_BY_MS);
-    stage = "saving the audit";
-    const done = await recordVerdict(slug, gated);
-    const emailWanted = options.sendEmail || session.emailRequested;
-    if (done?.status === "ready" && emailWanted && !done.emailSentAt) return await emailWithoutFailing(done);
-    return done;
+      // Stored before the audit, so the console shows what is being audited;
+      // `auditing` is not served, so the prospect still sees "being prepared".
+      await updateDemoSession(slug, {
+        status: "auditing",
+        specialty: profile.specialty ?? (isSpecialtyId(session.niche) ? session.niche : null),
+        brandName: scraped.brand.name,
+        logoUrl: scraped.brand.logoUrl,
+        brandColor: scraped.brand.color,
+        profile: profile as unknown as Record<string, unknown>,
+        scrapeSource: scraped.source,
+        buildNote: scraped.apifyNote && process.env.APIFY_TOKEN ? `Rendering crawler: ${scraped.apifyNote}` : null,
+        auditVerdict: null,
+        auditScore: null,
+        auditReport: null,
+        auditedAt: null,
+        auditHash: null,
+      });
+      console.info("[healdesk] demo built, auditing", {
+        slug,
+        source: scraped.source,
+        pages: scraped.pages.length,
+        services: profile.services.length,
+      });
+
+      mark("auditing the demo");
+      const gated = await auditWithRepair(session, scraped.pages, profile, extract, started + AUDIT_BY_MS);
+      mark("saving the audit");
+      const done = await recordVerdict(slug, gated);
+      const emailWanted = options.sendEmail || session.emailRequested;
+      if (done?.status === "ready" && emailWanted && !done.emailSentAt) return await emailWithoutFailing(done);
+      return done;
+    };
+    return await Promise.race([build(), stop]);
   } catch (error) {
     // Its write reads and rewrites the whole row: let it land before this one, never after.
     await brandWrite;
@@ -234,9 +262,13 @@ export async function runDemoBuild(slug: string, options: { sendEmail?: boolean 
     const reason =
       error instanceof ScrapeError || (error instanceof Error && error.name === "StructureError")
         ? message
-        : `The build failed while ${stage}: ${message.slice(0, 240)}`;
+        : error instanceof BuildTimeout
+          ? `The build stopped after ${Math.round(BUILD_HARD_STOP_MS / 1000)} seconds while ${stage}. Retry it; if it stops at the same step again, the server log has the step timings.`
+          : `The build failed while ${stage}: ${message.slice(0, 240)}`;
     console.error("[healdesk] demo build failed", { slug, stage, error: message });
     return updateDemoSession(slug, { status: "failed", buildNote: reason, retryCount: 0 }).catch(() => null);
+  } finally {
+    clearTimeout(stopTimer);
   }
 }
 

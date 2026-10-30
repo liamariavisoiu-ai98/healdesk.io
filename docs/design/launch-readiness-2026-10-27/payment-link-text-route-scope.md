@@ -33,16 +33,21 @@ Not verified (the AWS user-guide pages could not be read; check in the AWS conso
 | D. The clinic's payment gateway texts the link | The gateway's | Yes | Not assumed. Stripe is not known to text a Checkout link itself (unverified); do not build on this |
 | E. Retell's own messaging | Retell signs a BAA, self-serve | Unknown | Not checked. Worth one question to Retell before ruling out |
 
-Recommendation: evaluate A first, because it adds no vendor and stays inside the agreement already signed. It needs three owner decisions below before any code.
+Route A is chosen (see Decisions).
 
-## Decisions only the owner can make
+## Decisions (owner, 30 October 2026)
 
-1. **Sender.** A, or another route from the table.
-2. **Registration model.** Who files with the carriers, under whose legal name and tax ID, who pays, and whether one registration can serve all clinics. This sets whether the one-to-four-weeks per clinic holds.
-3. **The spec line.** Edit "healdesk does not offer clients texting numbers" to allow the one text, or pick a route that avoids the line.
-4. **Opt-out.** Carriers require the stop and help words to work on any sending number. Decide who handles an inbound STOP, since the product is otherwise inbound-only for voice and chat.
+1. **Sender: AWS End User Messaging SMS.** Chosen.
+2. **Registration model: the cheapest route, recommended and adopted.** One US toll-free number that healdesk registers once for itself, not a registration per clinic. Sourced from AWS's pages (read 30 October 2026):
+   - Toll-free registration takes up to 15 business days, with no registration fee stated; the number leases at $2 a month; a US toll-free text costs $0.00774 plus a $0.00421 carrier fee (price table, "prices change regularly": check at purchase).
+   - The form takes a non-US company: company name, address, country, and an ID number of type VAT or OTHER ("OTHER" if the type is not listed); it checks the number against official registries and accepts a registry extract for non-US businesses. It needs a privacy policy URL and terms URL for registrations from 15 September 2026, and a verbal opt-in is an accepted category with a script as evidence.
+   - Compare 10DLC per clinic: a $4 brand fee each, $2 to $10 a month per campaign, $1 a month per number, a $40 optional vetting fee, each clinic's own tax ID, and a default quota of 25 brands per account.
+   - **Not answered by AWS's pages:** whether one toll-free registration may send for many clinics, whether a payment-link message fits the use case categories (the closest are "Financial transactions" and "Booking confirmations"), and whether a one-off message conflicts with the opt-in confirmation rule. These are resolved only by submitting the registration. Fallback if refused: registration per clinic, 10DLC or its own toll-free number.
+   - **Open wording point:** the fixed text must name its sender so a patient recognises it. Recommend "Healdesk" plus the link and the opt-out line, with the clinic shown on the checkout page, not in the text. The carrier's review may ask for the brand to match the registered business.
+3. **Spec line: edited** (spec "Phone numbers", "Payment by text after a call", vendor table) to allow the one text from that one number.
+4. **STOP and HELP: AWS handles them; nobody at healdesk or the clinic answers replies.** By default AWS puts a STOP number on its opt-out list and does not send to it again; the carrier answers STOP and HELP on a toll-free number and the answer cannot be changed. Our tool layer treats an opted-out number as a failed send (booking stands, staff told the deposit is pending). HELP handling for toll-free is not described in AWS's pages: check at registration.
 
-## Build scope once decided (Claude Code lane, about one lane of work)
+## Build scope (Claude Code lane, about one lane of work)
 
 Fixed tool layer only, never the model. All of it behind `paymentLinkTextOffered()`, which becomes the one place that checks sender ready, clinic registered, clinic switch on, gateway connected, and the rules in `switch-rules.ts`.
 

@@ -181,10 +181,14 @@ export function printRef(ref: string): string {
 /** A ref as typed or printed, normalised, or null when it cannot be one. */
 export function readRef(value: unknown): string | null {
   if (typeof value !== "string") return null;
+  // "HD" is a prefix only when five characters follow it: H and D are in the
+  // alphabet, so 1 ref in 1,024 itself begins "HD" ("HD7F3", printed
+  // "HD-HD7F3"), and stripping it from the bare ref left three characters,
+  // no ref at all, so the clinic's reply quoting it opened a second case.
   const bare = value
     .trim()
     .toUpperCase()
-    .replace(/^HD-?/, "")
+    .replace(/^HD-?(?=[0-9A-Z]{5}$)/, "")
     .replace(/O/g, "0")
     .replace(/[IL]/g, "1");
   return SUPPORT_REF_PATTERN.test(bare) ? bare : null;

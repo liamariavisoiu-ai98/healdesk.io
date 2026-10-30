@@ -78,7 +78,7 @@ function hashOf(passcode: string): string {
 const HASH = hashOf(PASSCODE);
 
 const GOOD =
-  "Hi, calls aren't reaching AYA yet because forwarding on your main line isn't set, so callers reach your line as before.\n\nThe codes are in Settings, under Channels. If they don't take, reply here and we'll call you on Monday.";
+  "Hi, calls aren't reaching AYA yet because forwarding on your main line isn't set, so callers reach your line as before.\n\nThe codes are in Settings, under Channels. If they don't take, reply here and we'll call you.";
 const EDITED =
   "Hi, calls aren't reaching AYA yet because forwarding on your main line isn't set.\n\nThe codes are in Settings, under Channels. Reply here if they don't take.";
 

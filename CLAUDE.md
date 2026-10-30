@@ -465,13 +465,14 @@ a rule already holds, and treat a gap as a bug, not a precedent.
   sent once, never resent, naming no treatment, time or amount, only when the
   clinic's payment gateway is connected, and sent by the fixed tool layer,
   never the model. The clinic's switch can be turned on once phone is bought
-  and Stripe is connected, but nothing sends a text yet: no sender is chosen,
+  and Stripe is connected, but nothing sends a text yet: the sender is AWS End
+  User Messaging SMS (owner, 30 October 2026) and is not built,
   `paymentLinkTextOffered()` is false so the assistant never offers one, and
-  carrier registration per clinic will apply. The sender needs no business associate
+  one toll-free registration, healdesk's own, is still to be filed. The sender needs no business associate
   agreement (owner, 28 October 2026): like Meta and Stripe it is handled by
   scoping, so the text is fixed words and the link and nothing else, never a
-  treatment, a time, an amount or anything said on the call. Carriers still
-  require a sender registration per clinic. Anything beyond that one text stays
+  treatment, a time, an amount or anything said on the call. The carriers'
+  registration is one number healdesk registers once, not one per clinic. Anything beyond that one text stays
   forbidden. One thing is not contact "after
   a conversation ends" (owner's ruling, 21 October 2026): a window-gated reply
   to a patient's open request, such as the fixed line telling a person on Meta
@@ -479,16 +480,7 @@ a rule already holds, and treat a gap as a bug, not a precedent.
   adapter only inside the 24-hour window the patient opened and is dropped
   outside it, names no treatment, and is never a reminder or a follow-up the
   patient did not ask for (`lib/meta/booking-requests.ts`,
-  `lib/booking/reschedule.ts`, `sendMetaReply`). One more exception, a clinic
-  setting that is off by default (owner, 28 October 2026; spec, "Payment by
-  text after a call, and full payment"): after a booking made on a call, the
-  agent may text the caller one hosted payment link, only if the caller
-  agrees and reads the number back, once per booking, in fixed wording with no
-  treatment, time or amount, sent by the fixed tool layer and never by the
-  model. Nothing else is ever texted: no reminder, resend or follow-up. The
-  sender must be on the BAA chain (a caller's number next to a clinic is
-  health information), so the setting stays unavailable until a compliant
-  sender and the clinic's sender registration exist.
+  `lib/booking/reschedule.ts`, `sendMetaReply`).
 - **The assistant says it is an AI assistant in its opening line, on every
   channel.** On calls the same line says the call is transcribed, and nothing
   about retention (owner, 24 October 2026: the consent laws ask that a caller
@@ -620,9 +612,8 @@ a rule already holds, and treat a gap as a bug, not a precedent.
   (owner, 13 October 2026): $104 for voice minutes, $52 for Web Chat and $78
   for Meta Chat conversations. At 90% of the included amount the clinic is
   emailed and may move up a step; an extra block always costs more than the
-  next step. The rates are provisional until measured. Copy says so and
-  quotes the block and its price, never a per-unit rate; being provisional
-  does not change what is billed.
+  next step. Copy quotes the block and its price, never a per-unit rate
+  (owner, 30 October 2026: clinic emails no longer talk about our costs).
 - "healdesk is a service of Viixi FZC, a company registered under the Sharjah
   Publishing City Free Zone, United Arab Emirates" appears on the Terms and
   Privacy pages. It is not in the site footer (owner, 9 October 2026): the

@@ -58,7 +58,7 @@ const FACTS: FactsUsed[] = [
 ];
 
 const CLEAN =
-  "Hi, your Google Calendar connection needs reconnecting, so since then every booking has come to you as a request and nothing is lost. Reconnect it in Settings → Calendar with one Google sign-in. Your AYA Voice + Web Chat package has used 120 of 500 voice minutes this period. If it won't connect, reply here and a person at healdesk will call you by Wednesday.";
+  "Hi, your Google Calendar connection needs reconnecting, so since then every booking has come to you as a request and nothing is lost. Reconnect it in Settings → Calendar with one Google sign-in. Your AYA Voice + Web Chat package has used 120 of 500 voice minutes this period. If it won't connect, reply here and a person at healdesk will call you.";
 
 function input(over: Partial<ReplyCheckInput> = {}): ReplyCheckInput {
   return {
@@ -240,6 +240,8 @@ describe("runReplyChecks", () => {
         "You'll be live by then.",
         "Phone will be live on the day.",
         "A person replies within 24 hours.",
+        "A person at healdesk will call you on Monday.",
+        "We'll email you tomorrow with the next step.",
       ]) {
         expect(failed({ text, facts: [] }), text).toContain("promises");
       }
@@ -329,6 +331,13 @@ describe("runReplyChecks", () => {
       expect(
         failed({ text: "Like at Harbor Dental, it reconnects.", facts: [], otherClinicNames: ["Harbor Dental"], allowNames: ["Harbor", "Dental"] }),
       ).toEqual(["other_clinics"]);
+    });
+
+    test("a case whose own ref begins with HD is still its own, given bare (the drafter) or printed (the send)", () => {
+      for (const ownCaseRef of ["HD7F3", "HD-HD7F3"]) {
+        expect(failed({ text: "This is about HD-HD7F3.", facts: [], ownCaseRef })).toEqual([]);
+        expect(failed({ text: "This is about HD-9ZZZZ.", facts: [], ownCaseRef })).toEqual(["other_clinics"]);
+      }
     });
   });
 });

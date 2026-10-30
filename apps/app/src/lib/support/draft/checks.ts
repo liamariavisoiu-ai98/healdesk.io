@@ -223,8 +223,9 @@ function uniqueSpans(spans: readonly Span[]): Span[] {
     .sort((a, b) => a.start - b.start);
 }
 
+/** A ref without its printed "HD-", which is a prefix only when five characters follow it (a ref may itself begin "HD"). */
 function bareRef(ref: string): string {
-  return ref.trim().toUpperCase().replace(/^HD-?/u, "");
+  return ref.trim().toUpperCase().replace(/^HD-?(?=[0-9A-Z]{5}$)/u, "");
 }
 
 function normal(value: string): string {

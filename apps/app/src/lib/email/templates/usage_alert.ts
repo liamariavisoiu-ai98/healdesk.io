@@ -27,9 +27,8 @@ import type { EmailTemplate } from "./types";
  * says when a bigger step's allowance applies: that is the plan change's own
  * business, and Billing shows it before anything is charged.
  *
- * The block price is the payload's, at the BOUGHT package's rate, and it is
- * provisional until measured, which the copy says (CLAUDE.md, "Claims and
- * copy"). Under "Stop and fall back" nothing is billed past the allowance, so
+ * The block price is the payload's, at the BOUGHT package's rate; the email
+ * says nothing of our own costs (owner, 30 October 2026). Under "Stop and fall back" nothing is billed past the allowance, so
  * the email says what stops instead; the critical allowance_fallback email
  * still goes when the cap engages, whatever this switch says. Counts and the
  * clinic's own allowance only: nothing about a patient or a conversation.
@@ -37,10 +36,10 @@ import type { EmailTemplate } from "./types";
 
 export type UsageAlertPayload = NoticePayloads["usage_80"];
 
-/** "Each started block of 100 extra voice minutes is billed at $104", provisional. */
+/** "Each started block of 100 extra voice minutes is billed at $104". */
 function extraBlocks(payload: UsageAlertPayload, lead: string): string {
   const words = METER_WORDS[payload.meter];
-  return `${lead} each started block of ${OVERAGE_BLOCK_UNITS} extra ${words.many} is billed at ${money(payload.blockRateCents)}. That price is provisional until we've measured what each minute and conversation costs us.`;
+  return `${lead} each started block of ${OVERAGE_BLOCK_UNITS} extra ${words.many} is billed at ${money(payload.blockRateCents)}.`;
 }
 
 /** What stops under "Stop and fall back", in allowance_fallback's words. */

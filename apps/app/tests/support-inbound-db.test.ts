@@ -30,6 +30,20 @@ import { memoryMailStore } from "./setup/inbound-mail";
  * Fixed clock throughout; the store is held in memory; no AWS.
  */
 
+/**
+ * A case's ref is drawn from node:crypto's randomInt (newSupportRef). Tests
+ * may queue the draws, so a ref that would come up 1 time in 1,024 (one
+ * beginning "HD", CI run 41022562042) is tested every run; otherwise the
+ * real CSPRNG.
+ */
+const refDraws: number[] = [];
+vi.mock("node:crypto", async (importOriginal) => {
+  const real = await importOriginal<typeof import("node:crypto")>();
+  const randomInt = ((...args: Parameters<typeof real.randomInt>) =>
+    refDraws.length > 0 ? refDraws.shift()! : (real.randomInt as (...a: unknown[]) => unknown)(...args)) as typeof real.randomInt;
+  return { ...real, default: { ...real, randomInt }, randomInt };
+});
+
 const describeDb = hasTestDatabase ? describe : describe.skip;
 const BUCKET = "healdesk-test-inbound-mail";
 const NOW = new Date("2026-10-26T15:00:00Z");
@@ -187,6 +201,23 @@ describeDb("inbound support mail (drizzle/0130)", () => {
     const messages = await emailMessages(String(c.id));
     expect(messages).toHaveLength(2);
     expect(messages[1]!.fields_json).toMatchObject({ matchedBy: "ref", senderMatchesCase: "yes", acknowledgement: "already" });
+    expect(await acks(clinic.clinicId)).toHaveLength(1);
+  });
+
+  test("a reply quoting a ref that itself begins with HD joins its case too", async () => {
+    const clinic = await seedClinic("inb-ref-hd");
+    const store = memoryMailStore();
+    // H, D, 7, F, 3 in SUPPORT_REF_ALPHABET: the case's ref is "HD7F3", printed "HD-HD7F3".
+    refDraws.push(17, 13, 7, 15, 3);
+    const first = await deliver(store, "clinic-normal.eml", { FROM: clinic.staffEmail });
+    expect(refDraws).toEqual([]);
+    if (first.outcome.outcome !== "recorded") throw new Error("not recorded");
+    const c = await caseRow(first.outcome.caseId);
+    expect(c.ref).toBe("HD7F3");
+
+    const reply = await deliver(store, "ref-reply.eml", { FROM: clinic.staffEmail, REF: String(c.ref) }, { now: new Date(NOW.getTime() + 90 * MINUTE) });
+    expect(reply.outcome).toMatchObject({ outcome: "recorded", caseId: c.id, opened: false, acknowledged: false });
+    expect((await emailMessages(String(c.id)))[1]!.fields_json).toMatchObject({ matchedBy: "ref" });
     expect(await acks(clinic.clinicId)).toHaveLength(1);
   });
 

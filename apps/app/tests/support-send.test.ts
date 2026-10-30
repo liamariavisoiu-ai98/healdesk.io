@@ -72,7 +72,7 @@ const OPERATOR: Operator = {
 const ACTOR = { type: "service", serviceName: "support-send-test" } as const;
 
 const GOOD =
-  "Hi, calls aren't reaching AYA yet because forwarding on your main line isn't set, so callers reach your line as before.\n\nThe codes are in Settings, under Channels. If they don't take, reply here and we'll call you on Monday.";
+  "Hi, calls aren't reaching AYA yet because forwarding on your main line isn't set, so callers reach your line as before.\n\nThe codes are in Settings, under Channels. If they don't take, reply here and we'll call you.";
 
 /** Checks 2 to 8 (design E5 §6), one marker each: the fake fails the check whose marker the text carries. */
 const CHECK_MARKERS = [

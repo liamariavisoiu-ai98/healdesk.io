@@ -16,8 +16,8 @@ import type { EmailTemplate } from "./types";
  * no block is left out), and the amount. Overage is billed per started block
  * since 6 October 2026 (docs/v1-product-spec.md, "Overage prices"), so the
  * email shows the blocks the invoice charges and never a per-unit rate the
- * clinic could not reconcile with it. The overage rates are provisional until
- * measured, and the copy says so (CLAUDE.md, "Claims and copy").
+ * clinic could not reconcile with it. The email says nothing of our own costs
+ * (owner, 30 October 2026).
  *
  * "Charged to the card on file" only when it was (`isPaid`). A declined card
  * leaves the invoice open for dunning, and Stripe's payment_failed email
@@ -88,7 +88,7 @@ export const renderOverageInvoiced: EmailTemplate<OverageInvoicedPayload> = (pay
         ...(meters.length > 0 ? [{ type: "list", items: meters } as const] : []),
         {
           type: "paragraph",
-          text: `Overage is billed for each started block of ${OVERAGE_BLOCK_UNITS}, so that comes to ${amount}${payload.isPaid ? ", charged to the card on file." : ". The invoice for it is due now."} The rates are provisional until we've measured what each minute and conversation costs us.`,
+          text: `Overage is billed for each started block of ${OVERAGE_BLOCK_UNITS}, so that comes to ${amount}${payload.isPaid ? ", charged to the card on file." : ". The invoice for it is due now."}`,
         },
         ...invoice,
       ],

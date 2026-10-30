@@ -330,6 +330,13 @@ describe("runReplyChecks", () => {
         failed({ text: "Like at Harbor Dental, it reconnects.", facts: [], otherClinicNames: ["Harbor Dental"], allowNames: ["Harbor", "Dental"] }),
       ).toEqual(["other_clinics"]);
     });
+
+    test("a case whose own ref begins with HD is still its own, given bare (the drafter) or printed (the send)", () => {
+      for (const ownCaseRef of ["HD7F3", "HD-HD7F3"]) {
+        expect(failed({ text: "This is about HD-HD7F3.", facts: [], ownCaseRef })).toEqual([]);
+        expect(failed({ text: "This is about HD-9ZZZZ.", facts: [], ownCaseRef })).toEqual(["other_clinics"]);
+      }
+    });
   });
 });
 

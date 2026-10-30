@@ -54,6 +54,7 @@ export function HelpPanel({ audience }: { audience: "patients" | "clients" }) {
               target="_blank"
             >
               Book a five-minute call
+              <span className="sr-only"> (opens in a new tab)</span>
             </a>{" "}
             and we&rsquo;ll set it up with you.
           </li>

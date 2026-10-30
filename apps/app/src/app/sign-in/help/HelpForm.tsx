@@ -43,7 +43,12 @@ export function HelpForm() {
     ) : null;
 
   return (
-    <form action={action} className="mt-8 space-y-5" noValidate>
+    <form
+      action={action}
+      className="mt-8 space-y-5"
+      noValidate
+      aria-describedby={state.status === "limited" ? "limited-error" : undefined}
+    >
       <div className="space-y-2">
         <label htmlFor="email" className="block text-sm font-semibold">
           Your clinic&apos;s email address
@@ -148,14 +153,14 @@ export function HelpForm() {
         {fieldError("detail")}
       </fieldset>
       {state.status === "limited" ? (
-        <p role="alert" className="text-sm text-problem">
+        <p id="limited-error" role="alert" className="text-sm text-problem">
           That&apos;s a lot of requests from here. Wait a few minutes, then try again.
         </p>
       ) : null}
       <button
         type="submit"
         disabled={pending}
-        className="bg-ink rounded-full px-6 py-3 text-sm font-bold text-white disabled:opacity-60"
+        className="bg-ink min-h-11 rounded-full px-6 py-3 text-sm font-bold text-white disabled:opacity-60"
       >
         {pending ? "Checking…" : "Send a sign-in link to the clinic's address"}
       </button>

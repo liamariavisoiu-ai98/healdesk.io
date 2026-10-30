@@ -254,7 +254,7 @@ export function ActionButton<T extends ActionOutcome>({
             <button
               type="button"
               onClick={() => setState("idle")}
-              className="text-muted text-sm underline"
+              className="text-muted inline-flex min-h-11 items-center text-sm underline"
             >
               Cancel
             </button>

@@ -637,7 +637,8 @@ describeDb("the call flow and the one send, against the database", { timeout: 30
       const state = await throughReadBack(t, appointmentId);
       // Held while the text is offered.
       const [held] = await deskAlerts(clinicId);
-      expect(held!.send_after).toEqual(new Date(NOW.getTime() + DESK_ALERT_HOLD_MS));
+      // Pushed on by each turn of the text: five minutes from the read-back's turn.
+      expect(held!.send_after).toEqual(new Date(LATER(10).getTime() + DESK_ALERT_HOLD_MS));
       await t.step({ state, answer: { paymentText: { confirmed: true } }, now: LATER(15) });
       expect(await depositStatus(clinicId, appointmentId)).toBe("pending_link");
 
@@ -667,6 +668,29 @@ describeDb("the call flow and the one send, against the database", { timeout: 30
       ]);
       const [, lapsed] = await deskAlerts(clinicId);
       expect(await withTenant({ clinicId, actor: ACTOR }, (tx) => supersededReason(tx, "deposit_to_collect", lapsed!.payload))).toBeNull();
+    });
+
+    test("a slow caller: every turn pushes the hold on, and a text is refused once the L10 has gone", async () => {
+      const { clinicId, appointmentId } = await bookedWithAlert("text-desk-slow");
+      const t = tools(clinicId);
+      const offered = await t.offerAfterBooking(bookedTurn(appointmentId), NOW);
+      const yes = await t.step({ state: offered.state, answer: { paymentText: { agreed: true } }, now: LATER(240) });
+      // Asked for the number four minutes in: the hold runs five minutes from this turn.
+      expect((await deskAlerts(clinicId))[0]!.send_after).toEqual(new Date(LATER(240).getTime() + DESK_ALERT_HOLD_MS));
+      const number = await t.step({ state: yes.state, answer: { paymentText: { number: "4155550142" } }, now: LATER(420) });
+      expect((await deskAlerts(clinicId))[0]!.send_after).toEqual(new Date(LATER(420).getTime() + DESK_ALERT_HOLD_MS));
+      // Meanwhile the outbox sends the L10 anyway (say the hold could not be written).
+      await inTenant(clinicId, (client) =>
+        client.query(
+          `update billing_notices set sent_at = now(), recipients_count = 1, attempts = 1 where clinic_id = $1 and kind = 'deposit_to_collect'`,
+          [clinicId],
+        ),
+      );
+      const done = await t.step({ state: number.state, answer: { paymentText: { confirmed: true } }, now: LATER(430) });
+      expect(done.reply).toBe(PAYMENT_TEXT_LINES_EN.notSent);
+      expect(sent).toEqual([]);
+      expect(await depositStatus(clinicId, appointmentId)).toBe("pending_front_desk");
+      expect(await ledger(clinicId)).toEqual([]);
     });
 
     test("declined: the held L10 goes at once, and still goes when due", async () => {

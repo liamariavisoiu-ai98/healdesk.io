@@ -306,6 +306,10 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
     const keep = (next: PaymentTextState, reply: string | null) => ({ reply, state: { ...input.state, text: next } });
     const done = (reply: string | null) => keep({ ...text, stage: "done", number: null }, reply);
     const answer = paymentTextAnswer(input.answer);
+    // Every turn the text is still in play pushes the booking's held L10 on,
+    // so a slow caller never lets the "collect" email go while the text may
+    // still be sent; any outcome but a send releases it below.
+    await deskAlertDueAt(text.appointmentId, new Date(now.getTime() + DESK_ALERT_HOLD_MS));
 
     if (answer.agreed === false && text.stage !== "confirming") {
       await recordDeclined(text.appointmentId, now);
@@ -372,6 +376,24 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
       ({ claimed, earlier, inFlight } = await withTenant({ clinicId: context.clinicId, actor }, async (tx) => {
         // At send time, again: the agreement in effect may have changed since the offer.
         if (!(await offered(tx)) || !(await agreementCoversText(tx))) return { claimed: null, earlier: "failed" as const, inFlight: false };
+        // The front desk was already emailed to collect this deposit (or the
+        // email is being sent): a text now could have it collected twice.
+        // The deposit stays theirs, and no text goes.
+        const [desk] = await tx.db
+          .select({ sentAt: billingNotices.sentAt, recipients: billingNotices.recipientsCount, attempts: billingNotices.attempts })
+          .from(billingNotices)
+          .where(
+            and(
+              eq(billingNotices.clinicId, tx.clinicId),
+              eq(billingNotices.kind, "deposit_to_collect"),
+              eq(billingNotices.dedupeKey, dedupeKey("deposit_to_collect", { appointmentId })),
+            ),
+          )
+          .limit(1);
+        if (desk && (desk.sentAt ? (desk.recipients ?? 1) > 0 : desk.attempts > 0)) {
+          log.info("payment-link text not sent: the front desk was already told to collect", { clinicId: tx.clinicId });
+          return { claimed: null, earlier: "failed" as const, inFlight: false };
+        }
         const [row] = await tx.db
           .insert(paymentLinkTexts)
           .values({

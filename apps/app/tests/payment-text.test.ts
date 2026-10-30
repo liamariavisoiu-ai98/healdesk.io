@@ -765,6 +765,14 @@ describeDb("the call flow and the one send, against the database", { timeout: 30
       const reason = await withTenant({ clinicId, actor: ACTOR }, (tx) => supersededReason(tx, "deposit_to_collect", held!.payload));
       expect(reason).toMatch(/outcome is unknown/);
       expect(await depositStatus(clinicId, appointmentId)).toBe("pending_front_desk");
+      // The hand-over is audited, as the tool layer's own is, with no patient detail.
+      const audit = await inTenant(clinicId, (client) =>
+        client.query<{ metadata: Record<string, unknown> }>(
+          `select metadata from audit_log where resource_type = 'appointment' and resource_id = $1 and metadata->>'reason' = 'payment_text_unknown'`,
+          [appointmentId],
+        ),
+      );
+      expect(audit.rows.map((r) => r.metadata.outcome)).toEqual(["deposit_to_front_desk"]);
       const alerts = await deskAlerts(clinicId);
       expect(alerts.map((a) => [a.dedupe_key, a.payload.isPossiblyPaid])).toEqual([
         [dedupeKey("deposit_to_collect", { appointmentId }), false],

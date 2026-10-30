@@ -57,7 +57,10 @@ export function isWaitingOnReadyStep(
 
 /**
  * Why the notice no longer needs sending, for its `last_error`, or null when
- * it still does. Reads in the outbox's tenant transaction.
+ * it still does. Runs in the outbox's tenant transaction, and mostly reads;
+ * for a call booking's L10 over a payment-link text whose outcome is
+ * unknown, it also hands the deposit to the front desk and queues the
+ * possibly-paid L10 that replaces the plain one (depositAlertSuperseded).
  */
 export async function supersededReason(
   tx: TenantTx,
@@ -133,6 +136,15 @@ async function depositAlertSuperseded(tx: TenantTx, payload: unknown): Promise<s
       // Closed only once that alert is known to be queued: if it could not
       // be, the plain email goes, since a plain email beats none.
       const flagged = await flagForFrontDeskReporting(tx, appointmentId, { mayBePaid: true });
+      if (flagged.moved) {
+        // As the payment-text tool layer records its own hand-over (toFrontDesk).
+        tx.audit.record({
+          action: "update",
+          resourceType: "appointment",
+          resourceId: appointmentId,
+          metadata: { outcome: "deposit_to_front_desk", reason: "payment_text_unknown" },
+        });
+      }
       if (!flagged.moved || !flagged.queued) return null;
       return "the payment-link text's outcome is unknown; the possibly-paid alert replaces it";
     }

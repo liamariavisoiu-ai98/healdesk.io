@@ -239,7 +239,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     whatHappened:
       "A booking's deposit at {clinicName} became the front desk's to collect. Its payment link lapsed, was cancelled or could not be checked, or a payment-link text's outcome was unknown. The email telling the clinic's team could not be queued. Bookings shows it as a deposit to collect, but nobody was emailed, and the link may already have been paid.",
     whyItMatters:
-      "Until someone at the clinic opens Bookings, the deposit is not collected; and if they collect it without checking Stripe, a caller who already paid the link could be charged twice.",
+      "Until someone at the clinic opens Bookings, nobody asks for the deposit; and if they ask without checking Stripe, a caller who already paid the link could be charged twice.",
     steps: [
       "Phone the clinic, its number on the clinic's Care tab, and ask its team to check the deposit: look in Stripe for a payment on the booking's link before collecting it.",
       "Open the clinic's Deliveries tab to see whether its emails are going at all, then check the app's logs for 'booking alert not queued' around the alert's time.",

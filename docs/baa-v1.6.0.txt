@@ -1,3 +1,11 @@
+STATUS, 30 October 2026: RELEASED. The owner released 1.6.0 on 29 October
+2026, without external counsel (BAA_1_6_0_RELEASED in
+packages/catalog/src/baa.ts, migration 0136_baa_release_1_6_0,
+docs/counsel/agreement-changes.md §17). It is the only version checkout
+offers and the go-live floor; 1.5.1 is frozen below it. The paragraphs below
+are the drafting history and their "NOT RELEASED" no longer holds. The text
+of the agreement itself is unchanged.
+
 healdesk Business Associate Agreement — version 1.6.0, rendered 19 October
 2026, the day it was drafted. NOT RELEASED: approvedByCounsel is false, so
 checkout does not offer it, signableTemplate refuses to sign it, provisioning

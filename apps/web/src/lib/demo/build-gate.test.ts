@@ -56,7 +56,7 @@ vi.mock("./audit", async (importOriginal) => ({
   auditDemo: (input: AuditInput) => auditDemo(input),
 }));
 
-const { handoffBlocker, releaseHeldDemo, runDemoBuild, sendDemoEmail } = await import("./build");
+const { BUILD_HARD_STOP_MS, handoffBlocker, releaseHeldDemo, runDemoBuild, sendDemoEmail } = await import("./build");
 const { AuditUnavailableError, decide } = await import("./audit");
 
 function report(overall: number, input: AuditInput, blockers = 0): AuditReport {
@@ -117,6 +117,24 @@ describe("the handoff gate", () => {
       expect((await getDemoSession(demo.slug, { fresh: true }))?.status).toBe("ready");
     } finally {
       vi.unstubAllEnvs();
+    }
+  });
+
+  it("stops a build that hangs, at its hard stop, and names the step", async () => {
+    // A step that never settles: the prospect must not watch the waiting page for ever.
+    auditDemo.mockImplementation(() => new Promise<AuditReport>(() => {}));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const demo = await newDemo();
+      const running = runDemoBuild(demo.slug);
+      await vi.advanceTimersByTimeAsync(BUILD_HARD_STOP_MS);
+      const done = await running;
+      expect(done?.status).toBe("failed");
+      expect(done?.buildNote).toBe(
+        "The build stopped after 150 seconds while auditing the demo. Retry it; if it stops at the same step again, the server log has the step timings.",
+      );
+    } finally {
+      vi.useRealTimers();
     }
   });
 

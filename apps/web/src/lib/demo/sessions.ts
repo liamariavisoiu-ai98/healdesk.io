@@ -117,12 +117,14 @@ export function demoUrl(slug: string): string {
 }
 
 /**
- * A build or an audit still running after this long has been cut off (the
- * routes that run it stop at 300 s; a build itself takes a minute,
- * lib/demo/budget.ts), so the console offers a retry for it and the waiting
- * screen hands over to the team.
+ * A build or an audit still running after this long has been cut off: a
+ * build takes a minute (lib/demo/budget.ts) and stops itself at
+ * BUILD_HARD_STOP_MS (lib/demo/build.ts, 150 s), so a row still running past
+ * three minutes has lost the process that ran it. The console offers a retry
+ * for it and the waiting screen hands over to the team. It was six minutes
+ * until 30 October 2026, when a prospect watched the waiting page for ten.
  */
-export const DEMO_BUILD_STALL_MS = 6 * 60 * 1000;
+export const DEMO_BUILD_STALL_MS = 3 * 60 * 1000;
 
 const STATUSES: readonly DemoSessionStatus[] = ["building", "auditing", "ready", "held", "failed"];
 const VERDICTS: readonly DemoAuditVerdict[] = ["pass", "flagged", "held", "unavailable", "released"];

@@ -777,7 +777,7 @@ export async function recordDepositLapsed(
     resourceId: input.depositId,
     metadata: { outcome: input.status },
   });
-  if (row.appointmentId) await flagForFrontDesk(tx, row.appointmentId);
+  if (row.appointmentId) await flagForFrontDesk(tx, row.appointmentId, { depositId: input.depositId });
   return { changed: true, appointmentId: row.appointmentId };
 }
 
@@ -796,7 +796,8 @@ export async function recordDepositLapsed(
 export async function flagForFrontDesk(
   tx: TenantTx,
   appointmentId: string,
-  options: { mayBePaid?: boolean } = {},
+  /** `depositId`: the link that lapsed, so its alert is its own (BookingAlertRef.depositId). */
+  options: { mayBePaid?: boolean; depositId?: string } = {},
 ): Promise<boolean> {
   const moved = await tx.db
     .update(appointments)
@@ -813,6 +814,7 @@ export async function flagForFrontDesk(
   await notifyBookingAlert(tx, "deposit_to_collect", {
     appointmentId,
     ...(options.mayBePaid ? { mayBePaid: true } : {}),
+    ...(options.depositId ? { depositId: options.depositId } : {}),
   });
   return true;
 }

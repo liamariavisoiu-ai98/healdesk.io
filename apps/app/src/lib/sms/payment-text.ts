@@ -1,16 +1,16 @@
 import { createHash } from "node:crypto";
 
 import { toE164 } from "@healdesk/connectors";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import type Stripe from "stripe";
 
-import { appointments, paymentLinkTexts, type PaymentLinkTextFailure } from "@/db/schema";
+import { appointments, billingNotices, paymentLinkTexts, type PaymentLinkTextFailure } from "@/db/schema";
 import type { BookingToolState, ToolTurn } from "@/lib/assistant/booking-tools";
 import type { ActorContext } from "@/lib/audit";
 import { createDepositLink, type DepositLinkResult } from "@/lib/billing/deposit-link";
 import { canSendPaymentLinkText } from "@/lib/compliance/contact-policy";
 import { describeError, log } from "@/lib/log";
-import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
+import { dedupeKey, notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import { notifyOps } from "@/lib/ops/notify";
 import { paymentLinkTextOffered } from "@/lib/portal/switch-resets";
 import { withTenant, type TenantTx } from "@/lib/tenant";
@@ -60,7 +60,20 @@ import { paymentLinkTextBody, sendPaymentLinkText, type SmsSendResult, type SmsT
  * booking somehow was not), the caller hears it on the call, and ops are
  * told by code, with no patient detail, unless the cause is the caller's
  * own (opted out, a number AWS refused).
+ *
+ * Staff are never told to collect a deposit the caller was texted a link
+ * for. The booking's deposit_to_collect email (L10), queued when the call
+ * booked it, is held while the text is offered (DESK_ALERT_HOLD_MS) and
+ * released at once on any outcome but a send. When a text is sent the
+ * booking's deposit moves to `pending_link` ("Deposit not paid yet" on
+ * Bookings, not counted as one to collect), and the held L10 is closed
+ * unsent when it comes due (lib/email/superseded.ts). If the texted link
+ * then lapses unpaid, the deposit returns to the front desk with an L10 of
+ * its own (flagForFrontDesk, keyed by the link).
  */
+
+/** How long the booking's L10 waits while the caller is offered the text. */
+export const DESK_ALERT_HOLD_MS = 5 * 60_000;
 
 const ACTOR: ActorContext = { type: "agent", serviceName: "payment-link-text" };
 
@@ -226,10 +239,35 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
     }
   }
 
+  /**
+   * Move the booking's still-unsent deposit_to_collect email (L10) to `at`:
+   * later while the text is offered, now again once it will not be sent.
+   * Ids only; a failure leaves the email as it was queued.
+   */
+  async function deskAlertDueAt(appointmentId: string, at: Date): Promise<void> {
+    try {
+      await withTenant({ clinicId: context.clinicId, actor }, async (tx) => {
+        await tx.db
+          .update(billingNotices)
+          .set({ sendAfter: at })
+          .where(
+            and(
+              eq(billingNotices.clinicId, tx.clinicId),
+              eq(billingNotices.kind, "deposit_to_collect"),
+              eq(billingNotices.dedupeKey, dedupeKey("deposit_to_collect", { appointmentId })),
+              isNull(billingNotices.sentAt),
+            ),
+          );
+      });
+    } catch (error) {
+      log.warn("payment-link text: the deposit alert's time was not moved", { clinicId: context.clinicId, error: describeError(error) });
+    }
+  }
+
   async function offerAfterBooking(turn: ToolTurn, now: Date, language: "en" | "es" = "en"): Promise<ToolTurn> {
-    void now;
     if (!turn.bookingWritten || !turn.appointmentId || turn.state.text) return turn;
     if (!(await mayOffer(turn.appointmentId))) return turn;
+    await deskAlertDueAt(turn.appointmentId, new Date(now.getTime() + DESK_ALERT_HOLD_MS));
     const text: PaymentTextState = { stage: "offered", appointmentId: turn.appointmentId, number: null, optedInAt: null, unanswered: 0 };
     return { ...turn, reply: `${turn.reply} ${paymentTextLines(language).offer}`, state: { ...turn.state, text } };
   }
@@ -250,6 +288,8 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
       // Nothing to undo: no text goes either way.
       log.warn("payment-link text decline not recorded", { clinicId: context.clinicId, error: describeError(error) });
     }
+    // No text: the front desk hears of the deposit now, not when the hold ends.
+    await deskAlertDueAt(appointmentId, now);
   }
 
   async function step(input: Parameters<PaymentTextTools["step"]>[0]): Promise<{ reply: string | null; state: BookingToolState }> {
@@ -311,10 +351,11 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
     // 1. Claim the booking's one text, or find the claim already made.
     let claimed: { id: string } | null;
     let earlier: PaymentTextOutcome | null = null;
+    let inFlight = false;
     try {
-      ({ claimed, earlier } = await withTenant({ clinicId: context.clinicId, actor }, async (tx) => {
+      ({ claimed, earlier, inFlight } = await withTenant({ clinicId: context.clinicId, actor }, async (tx) => {
         // At send time, again: the agreement in effect may have changed since the offer.
-        if (!(await offered(tx)) || !(await agreementCoversText(tx))) return { claimed: null, earlier: "failed" as const };
+        if (!(await offered(tx)) || !(await agreementCoversText(tx))) return { claimed: null, earlier: "failed" as const, inFlight: false };
         const [row] = await tx.db
           .insert(paymentLinkTexts)
           .values({
@@ -330,7 +371,7 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
           .returning({ id: paymentLinkTexts.id });
         if (row) {
           tx.audit.record({ action: "create", resourceType: "payment_link_text", resourceId: row.id, metadata: { outcome: "queued" } });
-          return { claimed: row, earlier: null };
+          return { claimed: row, earlier: null, inFlight: false };
         }
         const [existing] = await tx.db
           .select({ status: paymentLinkTexts.status })
@@ -339,15 +380,21 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
           .limit(1);
         // queued: another attempt holds it, and its outcome is unknown here; never a second send.
         const status = existing?.status ?? "failed";
-        return { claimed: null, earlier: status === "queued" ? ("failed" as const) : (status as PaymentTextOutcome) };
+        return {
+          claimed: null,
+          earlier: status === "queued" ? ("failed" as const) : (status as PaymentTextOutcome),
+          inFlight: status === "queued",
+        };
       }));
     } catch (error) {
       log.error("payment-link text not claimed", { clinicId: context.clinicId, error: describeError(error) });
-      await toFrontDesk(appointmentId, "error");
+      await toFrontDesk(appointmentId, "error", now);
       return "failed";
     }
     if (!claimed) {
-      if (earlier !== "sent") await toFrontDesk(appointmentId, null);
+      // An attempt still in flight owns the outcome, the deposit's state and
+      // the held L10 with it: this one changes nothing.
+      if (earlier !== "sent" && !inFlight) await toFrontDesk(appointmentId, null, now);
       return earlier ?? "failed";
     }
 
@@ -365,7 +412,7 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
     }
     if (link.status !== "open") {
       await settle(claimed.id, { status: "failed", failureCode: "link_unavailable" }, now);
-      await toFrontDesk(appointmentId, "link_unavailable");
+      await toFrontDesk(appointmentId, "link_unavailable", now);
       return "failed";
     }
 
@@ -385,7 +432,7 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
     if (!decision.allowed) {
       log.warn("payment-link text refused by the contact policy", { clinicId: context.clinicId, code: decision.code });
       await settle(claimed.id, { status: "failed", failureCode: "refused", depositPaymentId: link.depositId }, now);
-      await toFrontDesk(appointmentId, "refused");
+      await toFrontDesk(appointmentId, "refused", now);
       return "failed";
     }
 
@@ -404,12 +451,12 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
     }
     if (sent.code === "opted_out") {
       await settle(claimed.id, { status: "opted_out", depositPaymentId: link.depositId }, now);
-      await toFrontDesk(appointmentId, null);
+      await toFrontDesk(appointmentId, null, now);
       return "opted_out";
     }
     await settle(claimed.id, { status: "failed", failureCode: sent.code, depositPaymentId: link.depositId }, now);
     // A number AWS refused is the caller's; the rest are ours to look at.
-    await toFrontDesk(appointmentId, sent.code === "invalid_number" ? null : sent.code);
+    await toFrontDesk(appointmentId, sent.code === "invalid_number" ? null : sent.code, now);
     return "failed";
   }
 
@@ -447,7 +494,7 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
    * The text did not go: the deposit is the front desk's, as for any call
    * booking with a deposit, and ops hear of a cause that is ours.
    */
-  async function toFrontDesk(appointmentId: string, opsCode: string | null): Promise<void> {
+  async function toFrontDesk(appointmentId: string, opsCode: string | null, now: Date): Promise<void> {
     try {
       await withTenant({ clinicId: context.clinicId, actor }, async (tx) => {
         const moved = await tx.db
@@ -469,6 +516,8 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
     } catch (error) {
       log.error("payment-link text: deposit not handed to the front desk", { clinicId: context.clinicId, error: describeError(error) });
     }
+    // The L10 held while the text was offered goes now.
+    await deskAlertDueAt(appointmentId, now);
     if (opsCode) await (deps.notify ?? notifyOps)("payment_text_not_sent", { clinicId: context.clinicId, code: opsCode });
   }
 

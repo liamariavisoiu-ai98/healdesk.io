@@ -819,7 +819,7 @@ describeDb("Connect against the database", DB_TEST_OPTIONS, () => {
       // says to look in Stripe before collecting; the one Stripe expired is not.
       expect(mocks.alerts.map((a) => a.ref)).toEqual(
         expect.arrayContaining([
-          { appointmentId: expirable.appointment },
+          { appointmentId: expirable.appointment, depositId: expirable.deposit },
           { appointmentId: unreadable.appointment, mayBePaid: true },
         ]),
       );

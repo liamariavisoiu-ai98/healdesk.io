@@ -23,6 +23,12 @@ import {
 } from "@/lib/sms/send";
 import { agreementVersionCoversText } from "@/lib/sms/agreement";
 import { smsOriginationIdentity, smsSenderConfigured } from "@/lib/sms/config";
+import { recordDepositLapsed } from "@/lib/billing/deposits";
+import { supersededReason } from "@/lib/email/superseded";
+import { dedupeKey, notifyBookingAlert } from "@/lib/notices/booking-alerts";
+import { bookingDepositLine, isDepositToCollect } from "@/lib/portal/bookings";
+import { depositBadge } from "@/lib/portal/bookings-view";
+import { DESK_ALERT_HOLD_MS } from "@/lib/sms/payment-text";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
@@ -541,6 +547,85 @@ describeDb("the call flow and the one send, against the database", { timeout: 30
     const { clinicId, appointmentId } = await clinicWithBooking("text-agr-mismatch");
     await getMigratorPool().query(`update clinics set agreement_kind = null where id = $1`, [clinicId]);
     expect((await tools(clinicId).offerAfterBooking(bookedTurn(appointmentId), NOW)).state.text).toBeUndefined();
+  });
+
+  describe("the front desk is never told to collect a deposit the caller was texted a link for", () => {
+    const deskAlerts = (clinicId: string) =>
+      inTenant(clinicId, (client) =>
+        client.query<{ dedupe_key: string; send_after: Date; sent_at: Date | null; payload: Record<string, unknown> }>(
+          `select dedupe_key, send_after, sent_at, payload from billing_notices where kind = 'deposit_to_collect' order by created_at`,
+        ),
+      ).then((r) => r.rows);
+
+    /** The booking's L10, queued as recordDepositOutcome queues it when the call books. */
+    async function bookedWithAlert(label: string) {
+      const booked = await clinicWithBooking(label);
+      await withTenant({ clinicId: booked.clinicId, actor: ACTOR }, (tx) =>
+        notifyBookingAlert(tx, "deposit_to_collect", { appointmentId: booked.appointmentId }),
+      );
+      return booked;
+    }
+
+    test("sent: the L10 is held, then closed unsent; Bookings says the link was texted and counts nothing to collect", async () => {
+      const { clinicId, appointmentId } = await bookedWithAlert("text-desk-sent");
+      const t = tools(clinicId);
+      const state = await throughReadBack(t, appointmentId);
+      // Held while the text is offered.
+      const [held] = await deskAlerts(clinicId);
+      expect(held!.send_after).toEqual(new Date(NOW.getTime() + DESK_ALERT_HOLD_MS));
+      await t.step({ state, answer: { paymentText: { confirmed: true } }, now: LATER(15) });
+      expect(await depositStatus(clinicId, appointmentId)).toBe("pending_link");
+
+      // Bookings: the "not paid yet" wording, never one to collect.
+      const appt = { depositStatus: "pending_link" as const, status: "scheduled" as const, scheduledFor: new Date(NOW.getTime() + 3 * 86_400_000) };
+      expect(isDepositToCollect(appt, NOW)).toBe(false);
+      expect(depositBadge(appt, NOW)).toEqual({ label: "Deposit not paid yet", tone: "waiting" });
+      expect(bookingDepositLine({ depositStatus: "pending_link", depositUsd: "75.00", depositLinkMade: true })).toBe(
+        "Deposit of $75: payment link sent, not paid yet",
+      );
+
+      // The held L10, when it comes due, is closed unsent.
+      const reason = await withTenant({ clinicId, actor: ACTOR }, (tx) => supersededReason(tx, "deposit_to_collect", held!.payload));
+      expect(reason).toMatch(/payment link went out/);
+      expect(JSON.stringify(held!.payload)).not.toMatch(/4155550142|Chemical|peel|\$|cs_test/);
+
+      // The texted link lapses unpaid: the deposit is the front desk's again, with an L10 of its own.
+      const [deposit] = await inTenant(clinicId, (client) => client.query<{ id: string }>(`select id from deposit_payments`)).then((r) => r.rows);
+      await withTenant({ clinicId, actor: ACTOR }, (tx) =>
+        recordDepositLapsed(tx, { depositId: deposit!.id, status: "expired", from: ["open"], eventId: null, at: LATER(3600) }),
+      );
+      expect(await depositStatus(clinicId, appointmentId)).toBe("pending_front_desk");
+      const keys = (await deskAlerts(clinicId)).map((a) => a.dedupe_key);
+      expect(keys).toEqual([
+        dedupeKey("deposit_to_collect", { appointmentId }),
+        dedupeKey("deposit_to_collect", { appointmentId, depositId: deposit!.id }),
+      ]);
+      const [, lapsed] = await deskAlerts(clinicId);
+      expect(await withTenant({ clinicId, actor: ACTOR }, (tx) => supersededReason(tx, "deposit_to_collect", lapsed!.payload))).toBeNull();
+    });
+
+    test("declined: the held L10 goes at once, and still goes when due", async () => {
+      const { clinicId, appointmentId } = await bookedWithAlert("text-desk-declined");
+      const t = tools(clinicId);
+      const offered = await t.offerAfterBooking(bookedTurn(appointmentId), NOW);
+      await t.step({ state: offered.state, answer: { paymentText: { agreed: false } }, now: LATER(5) });
+      const [alert] = await deskAlerts(clinicId);
+      expect(alert!.send_after).toEqual(LATER(5));
+      expect(await withTenant({ clinicId, actor: ACTOR }, (tx) => supersededReason(tx, "deposit_to_collect", alert!.payload))).toBeNull();
+    });
+
+    test("a failed send releases the held L10 at once", async () => {
+      const { clinicId, appointmentId } = await bookedWithAlert("text-desk-failed");
+      reply = async () => {
+        throw Object.assign(new Error("boom"), { name: "InternalServerException" });
+      };
+      const t = tools(clinicId);
+      const state = await throughReadBack(t, appointmentId);
+      await t.step({ state, answer: { paymentText: { confirmed: true } }, now: LATER(15) });
+      const [alert] = await deskAlerts(clinicId);
+      expect(alert!.send_after).toEqual(LATER(15));
+      expect(await depositStatus(clinicId, appointmentId)).toBe("pending_front_desk");
+    });
   });
 
   test("a settled ledger row never changes, and a queued one only settles once", async () => {

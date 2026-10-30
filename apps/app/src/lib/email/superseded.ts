@@ -1,7 +1,7 @@
 import { CHANNELS, type Channel } from "@healdesk/catalog";
 import { and, eq, gt, sql } from "drizzle-orm";
 
-import { bookingRequests, clinicChannels, clinics, type ChannelWaitingOn } from "@/db/schema";
+import { appointments, bookingRequests, clinicChannels, clinics, type ChannelWaitingOn } from "@/db/schema";
 import { pauseEmailSuperseded } from "@/lib/channels/pause";
 import type { TenantTx } from "@/lib/tenant";
 
@@ -24,8 +24,14 @@ import type { NoticeKind } from "./kinds";
  * `export_reminder`): "Your export is ready" and "Download it by" are wrong
  * once a download or the operator's handover has recorded the export as
  * delivered, or once the data is destroyed (lib/offboarding/
- * after-cancellation.ts). Every other kind, the first L15 among them, is
- * about something that has already happened, and goes regardless.
+ * after-cancellation.ts). L10 (`deposit_to_collect`) about a booking: "left
+ * the deposit for your team to collect" is wrong once the deposit is no
+ * longer the front desk's, paid, waived, or with a payment link out (the
+ * payment-link text after a call, lib/sms/payment-text.ts, which holds the
+ * L10 while the caller is offered it), so staff are never told to collect a
+ * deposit the caller was just texted a link for. Every other kind, the
+ * first L15 among them, is about something that has already happened, and
+ * goes regardless.
  */
 
 /**
@@ -59,6 +65,7 @@ export async function supersededReason(
 ): Promise<string | null> {
   if (kind === "ai_paused") return pauseEmailSuperseded(tx, payload);
   if (kind === "export_ready" || kind === "export_reminder") return exportNoticeSuperseded(tx);
+  if (kind === "deposit_to_collect") return depositAlertSuperseded(tx, payload);
   if (kind === "request_still_open") {
     const [open] = await tx.db
       .select({ n: sql<number>`count(*)::int` })
@@ -91,6 +98,21 @@ export async function supersededReason(
   return isWaitingOnReadyStep(channel as Channel, row)
     ? null
     : "the channel's last step was done before it could go";
+}
+
+/** L10 about a booking is moot once its deposit is no longer the front desk's to collect. */
+async function depositAlertSuperseded(tx: TenantTx, payload: unknown): Promise<string | null> {
+  const appointmentId = (payload as { appointmentId?: unknown } | null)?.appointmentId;
+  if (typeof appointmentId !== "string") return null;
+  const [row] = await tx.db
+    .select({ deposit: appointments.depositStatus })
+    .from(appointments)
+    .where(and(eq(appointments.clinicId, tx.clinicId), eq(appointments.id, appointmentId)))
+    .limit(1);
+  if (!row || row.deposit === "pending_front_desk") return null;
+  return row.deposit === "pending_link"
+    ? "a payment link went out for the deposit before it could go"
+    : "the deposit was no longer the front desk's before it could go";
 }
 
 /** E4 and E5 are moot once the export is delivered, or once there is nothing left to export. */

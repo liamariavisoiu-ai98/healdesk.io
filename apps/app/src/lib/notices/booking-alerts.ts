@@ -114,6 +114,15 @@ export type BookingAlertRef = {
    * sentence: the template words it.
    */
   mayBePaid?: boolean;
+  /**
+   * L10 only: the payment link whose lapse hands the deposit to the front
+   * desk. Only the dedupe key carries it, so a link that lapses after an
+   * earlier L10 for the same booking was closed unsent (superseded because
+   * a link went out, lib/email/superseded.ts) raises its own alert, instead
+   * of being swallowed by that earlier row. An opaque id, never in the
+   * payload.
+   */
+  depositId?: string;
 };
 
 /**
@@ -313,7 +322,8 @@ export function dedupeKey(kind: BookingAlertKind, ref: BookingAlertRef): string 
           : `event:${randomUUID()}`;
   // A link that may already have been paid is its own alert, whatever was said before.
   const unchecked = kind === "deposit_to_collect" && ref.mayBePaid ? ":unchecked" : "";
-  return `${kind}:${about}${unchecked}`.slice(0, 200);
+  const link = kind === "deposit_to_collect" && ref.depositId ? `:link:${ref.depositId}` : "";
+  return `${kind}:${about}${link}${unchecked}`.slice(0, 200);
 }
 
 /** The channel of the request or conversation the alert is about, when the caller did not say. */

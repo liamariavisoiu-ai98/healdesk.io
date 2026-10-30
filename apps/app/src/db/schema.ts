@@ -4963,10 +4963,14 @@ export const paymentLinkTexts = pgTable(
     optedInAt: timestamp("opted_in_at", { withTimezone: true }),
     /** When the caller confirmed the number read back to them. Null on a declined row. */
     confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
-    /** The deposit link texted, once one was made. */
-    depositPaymentId: uuid("deposit_payment_id").references(() => depositPayments.id, {
-      onDelete: "set null",
-    }),
+    /**
+     * The deposit link texted, once one was made: an opaque id, with no
+     * foreign key. The deposit purge (app_purge_deposit_payments) may delete
+     * the deposit before its appointment, and a key's SET NULL would be an
+     * UPDATE here, which the closed-account freeze refuses: purging a closed
+     * clinic's deposits would fail on the ledger (drizzle/0141).
+     */
+    depositPaymentId: uuid("deposit_payment_id"),
     /** AWS's id for the message, once it was accepted. */
     awsMessageId: text("aws_message_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

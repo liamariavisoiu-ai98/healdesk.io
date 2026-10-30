@@ -11053,19 +11053,6 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
-        },
-        "payment_link_texts_deposit_payment_id_deposit_payments_id_fk": {
-          "name": "payment_link_texts_deposit_payment_id_deposit_payments_id_fk",
-          "tableFrom": "payment_link_texts",
-          "tableTo": "deposit_payments",
-          "columnsFrom": [
-            "deposit_payment_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},

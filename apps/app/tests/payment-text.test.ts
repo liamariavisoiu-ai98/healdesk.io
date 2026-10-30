@@ -32,6 +32,7 @@ import { DESK_ALERT_HOLD_MS } from "@/lib/sms/payment-text";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
+import { asApp } from "./setup/calendar-db";
 import { bindAgreementInEffect, inTenant, seedClinic } from "./setup/factories";
 import { createStripeFake } from "./setup/stripe-fake";
 
@@ -626,6 +627,37 @@ describeDb("the call flow and the one send, against the database", { timeout: 30
       expect(alert!.send_after).toEqual(LATER(15));
       expect(await depositStatus(clinicId, appointmentId)).toBe("pending_front_desk");
     });
+  });
+
+  test("a closed clinic's deposits purge on the record clock, a ledger row naming one never stops it", async () => {
+    const { clinicId, appointmentId } = await clinicWithBooking("text-purge-closed");
+    const DAY = 86_400_000;
+    const now = Date.now();
+    // A text sent for a booking long past the record clock (app_record_cutoff).
+    await inTenant(clinicId, async (client) => {
+      await client.query(`update appointments set scheduled_for = $2 where id = $1`, [appointmentId, new Date(now - 120 * DAY)]);
+      const { rows } = await client.query<{ id: string }>(
+        `insert into deposit_payments (clinic_id, appointment_id, channel, amount_cents, stripe_account_id, status, checkout_session_id, created_at)
+         values ($1, $2, 'voice', 7500, $3, 'expired', 'cs_purge_text', $4) returning id`,
+        [clinicId, appointmentId, ACCOUNT, new Date(now - 125 * DAY)],
+      );
+      const { rows: text } = await client.query<{ id: string }>(
+        `insert into payment_link_texts (clinic_id, appointment_id, call_ref_hash, status, opted_in_at, confirmed_at, created_at)
+         values ($1, $2, $3, 'queued', $4, $4, $4) returning id`,
+        [clinicId, appointmentId, callRefHash("call_purge"), new Date(now - 125 * DAY)],
+      );
+      await client.query(
+        `update payment_link_texts set status = 'sent', aws_message_id = 'msg-purge', deposit_payment_id = $2, settled_at = $3 where id = $1`,
+        [text[0]!.id, rows[0]!.id, new Date(now - 125 * DAY)],
+      );
+    });
+    await getMigratorPool().query(`update clinics set account_closed_at = now() where id = $1`, [clinicId]);
+    const purged = await asApp(clinicId, (q) =>
+      q.query<{ deposits_deleted: number }>(`select * from app_purge_deposit_payments(app_record_cutoff())`),
+    );
+    expect(purged.rows[0]!.deposits_deleted).toBe(1);
+    // The ledger row stays with its appointment, untouched, until the appointment goes.
+    expect((await ledger(clinicId)).map((r) => r.status)).toEqual(["sent"]);
   });
 
   test("a settled ledger row never changes, and a queued one only settles once", async () => {

@@ -23,7 +23,6 @@ CREATE TABLE "payment_link_texts" (
 ALTER TABLE "deposit_payments" DROP CONSTRAINT "deposit_payments_channel_check";--> statement-breakpoint
 ALTER TABLE "payment_link_texts" ADD CONSTRAINT "payment_link_texts_clinic_id_clinics_id_fk" FOREIGN KEY ("clinic_id") REFERENCES "public"."clinics"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "payment_link_texts" ADD CONSTRAINT "payment_link_texts_appointment_id_appointments_id_fk" FOREIGN KEY ("appointment_id") REFERENCES "public"."appointments"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "payment_link_texts" ADD CONSTRAINT "payment_link_texts_deposit_payment_id_deposit_payments_id_fk" FOREIGN KEY ("deposit_payment_id") REFERENCES "public"."deposit_payments"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "payment_link_texts_clinic_idx" ON "payment_link_texts" USING btree ("clinic_id","created_at");--> statement-breakpoint
 ALTER TABLE "deposit_payments" ADD CONSTRAINT "deposit_payments_channel_check" CHECK ("deposit_payments"."channel" in ('web', 'meta', 'voice'));
 --> statement-breakpoint
@@ -39,8 +38,11 @@ ALTER TABLE "deposit_payments" ADD CONSTRAINT "deposit_payments_channel_check" C
 -- asked, so a crash mid-send leaves the row and nothing ever texts the booking
 -- twice. It holds the opt-in evidence (when the caller said yes, when they
 -- confirmed the number read back), the call as SHA-256 of Retell's call id,
--- the deposit link's row and AWS's message id: never the phone number and
--- never the message body. The trigger holds the row's identity and evidence,
+-- the deposit link's row (an opaque id, with no foreign key: the deposit purge,
+-- app_purge_deposit_payments, may delete a deposit before its appointment, and
+-- a key's SET NULL would be an UPDATE that the closed-account freeze below
+-- refuses, so purging a closed clinic's deposits would fail) and AWS's message
+-- id: never the phone number and never the message body. The trigger holds the row's identity and evidence,
 -- and lets the status move only from `queued` to where the send ended.
 --
 -- deposit_payments gains the `voice` channel: the link texted after a call is
@@ -84,12 +86,12 @@ BEGIN
       USING ERRCODE = 'check_violation';
   END IF;
   IF OLD.status <> 'queued' THEN
-    -- Settled: only the deposit link's foreign key may clear it (ON DELETE SET NULL).
+    -- Settled: nothing changes.
     IF NEW.status IS DISTINCT FROM OLD.status
        OR NEW.failure_code IS DISTINCT FROM OLD.failure_code
        OR NEW.aws_message_id IS DISTINCT FROM OLD.aws_message_id
        OR NEW.settled_at IS DISTINCT FROM OLD.settled_at
-       OR (NEW.deposit_payment_id IS NOT NULL AND NEW.deposit_payment_id IS DISTINCT FROM OLD.deposit_payment_id) THEN
+       OR NEW.deposit_payment_id IS DISTINCT FROM OLD.deposit_payment_id THEN
       RAISE EXCEPTION 'payment_link_texts: a settled text (%) never changes, and is never sent again', OLD.status
         USING ERRCODE = 'check_violation';
     END IF;

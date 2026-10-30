@@ -316,8 +316,11 @@
     background-color: color-mix(in srgb, var(--color-orange) 40%, transparent);
   }
 
+  /* The deep orange, not the logo's: the brand orange is 2.67:1 on the page
+     ground, under the 3:1 a focus ring needs to be seen at all, and the deep
+     one is 3.69:1 (see --color-orange-deep). */
   :focus-visible {
-    outline: 3px solid var(--color-orange);
+    outline: 3px solid var(--color-orange-deep);
     outline-offset: 3px;
   }
 
@@ -2965,6 +2968,11 @@
   }
 }
 
+/* The Menu disclosure's chevron turns over while it is open (Nav.tsx). */
+.nav-menu[open] .nav-menu__chevron {
+  transform: rotate(180deg);
+}
+
 /* =============================================================================
    Review card
    =============================================================================
@@ -5111,5 +5119,64 @@
 @keyframes hd-fade-in {
   from {
     opacity: 0;
+  }
+}
+
+/* =============================================================================
+   The pricing sheet's product table on a phone (pricing/PricingSheet.tsx)
+   =============================================================================
+   The table is four columns, which a phone cannot show without a sideways
+   scroll, and a price table read by scrolling sideways is one whose setup
+   column is never seen. Under 640px each row becomes a card: the header row
+   goes (visually; it stays for a screen reader), each cell is a line, and a
+   cell's column heading is written before it from `data-label`. From 640px
+   nothing here applies and the table is a table. */
+@media (max-width: 639px) {
+  .price-table {
+    min-width: 0;
+  }
+
+  .price-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .price-table tbody,
+  .price-table tr,
+  .price-table th,
+  .price-table td {
+    display: block;
+  }
+
+  .price-table tr {
+    margin-top: 12px;
+    padding: 16px;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    background: #fff;
+  }
+
+  .price-table th,
+  .price-table td {
+    padding: 0;
+  }
+
+  .price-table td {
+    margin-top: 10px;
+  }
+
+  .price-table td::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 2px;
+    color: var(--color-muted);
+    font-size: 12.5px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
 }

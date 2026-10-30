@@ -137,8 +137,19 @@ export async function flagStaleOpenDepositsFor(clinicId: string, now: Date): Pro
 }
 
 /** Every clinic's unlinked deposits: from the billing minute clock, and the hourly tick as its backstop. */
+type ClinicSweep = (clinicId: string, now: Date) => Promise<number>;
+
+/** The sweep's checks, each run on its own so one failing never skips another. */
+const CHECKS: ReadonlyArray<{ check: ClinicSweep; failed: string }> = [
+  { check: flagUnlinkedDepositsFor, failed: "unlinked deposits not swept" },
+  { check: flagStaleOpenDepositsFor, failed: "expired open deposit links not swept" },
+];
+
+/** Every clinic's unlinked deposits: from the billing minute clock, and the hourly tick as its backstop. */
 export async function sweepUnlinkedDeposits(
   now: Date = new Date(),
+  /** The checks, for a test that makes one fail; the two above otherwise. */
+  checks: ReadonlyArray<{ check: ClinicSweep; failed: string }> = CHECKS,
 ): Promise<{ clinics: number; flagged: number; failures: number }> {
   const result = await unsafeDb.execute<{ id: string }>(
     sql`select id from app_clinics_overview() where destroyed_at is null`,
@@ -148,18 +159,13 @@ export async function sweepUnlinkedDeposits(
   );
   const summary = { clinics: ids.length, flagged: 0, failures: 0 };
   for (const clinicId of ids) {
-    try {
-      summary.flagged += await flagUnlinkedDepositsFor(clinicId, now);
-    } catch (error) {
-      summary.failures += 1;
-      log.error("unlinked deposits not swept", { clinicId, error: describeError(error) });
-    }
-    // On its own, so a failure of the first never skips it.
-    try {
-      summary.flagged += await flagStaleOpenDepositsFor(clinicId, now);
-    } catch (error) {
-      summary.failures += 1;
-      log.error("expired open deposit links not swept", { clinicId, error: describeError(error) });
+    for (const { check, failed } of checks) {
+      try {
+        summary.flagged += await check(clinicId, now);
+      } catch (error) {
+        summary.failures += 1;
+        log.error(failed, { clinicId, error: describeError(error) });
+      }
     }
   }
   if (summary.flagged > 0) {

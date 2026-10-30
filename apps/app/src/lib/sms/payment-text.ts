@@ -605,6 +605,10 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
    * collect a deposit that may already be paid. Ids only.
    */
   async function toFrontDeskMaybePaid(appointmentId: string, now: Date): Promise<void> {
+    // Whether the possibly-paid L10 is queued (or already there). Only then is
+    // the plain one closed: notifyBookingAlert swallows its failures, and a
+    // plain "collect" email beats none.
+    let queued: boolean | null = null;
     try {
       await withTenant({ clinicId: context.clinicId, actor }, async (tx) => {
         const moved = await tx.db
@@ -630,7 +634,8 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
             .limit(1);
           if (now_?.status !== "pending_front_desk") return;
         }
-        await notifyBookingAlert(tx, "deposit_to_collect", { appointmentId, mayBePaid: true });
+        queued = await notifyBookingAlert(tx, "deposit_to_collect", { appointmentId, mayBePaid: true });
+        if (!queued) return;
         await tx.db
           .update(billingNotices)
           .set({ sentAt: now, recipientsCount: 0, lastError: "not sent: the payment-link text may have gone; the possibly-paid alert replaces it" })
@@ -645,6 +650,13 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
       });
     } catch (error) {
       log.error("payment-link text: a possibly-sent text not handed to the front desk", { clinicId: context.clinicId, error: describeError(error) });
+    }
+    if (queued === false) {
+      // The plain email goes now, without the check-Stripe line: a person is
+      // told, to phone the clinic before its team collects.
+      await deskAlertDueAt(appointmentId, now);
+      await (deps.notify ?? notifyOps)("payment_text_not_sent", { clinicId: context.clinicId, code: "unannounced" });
+      return;
     }
     await (deps.notify ?? notifyOps)("payment_text_not_sent", { clinicId: context.clinicId, code: "unknown" });
   }

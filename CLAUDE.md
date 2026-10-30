@@ -231,8 +231,10 @@ enforceable rather than aspirational.
    second one" is read in code from the items she just listed, and the
    role-play keeps its booking so nothing is asked twice (test call
    72dc66b7; owner, 26 October 2026). She says deposit links come in website
-   chat, Instagram, Messenger and WhatsApp as design, never on a call
-   (`DEPOSIT_CLAIM`; LAUNCH_PROMISES `deposit-link-meta`). On every call
+   chat, Instagram, Messenger and WhatsApp as design, never during a call,
+   where she books and flags the deposit; a clinic can turn on one optional text
+   with its payment link after a booking call, designed to go only if the
+   caller agrees (`DEPOSIT_CLAIM`; LAUNCH_PROMISES `deposit-link-meta`). On every call
    the code says no filler while the model thinks (`ACKNOWLEDGEMENTS` is
    empty), and takes the caller's name out as a form of address after two
    uses and a reflex "sorry" after the call's first apology
@@ -471,24 +473,20 @@ a rule already holds, and treat a gap as a bug, not a precedent.
   agreement (owner, 28 October 2026): like Meta and Stripe it is handled by
   scoping, so the text is fixed words and the link and nothing else, never a
   treatment, a time, an amount or anything said on the call. Carriers still
-  require a sender registration per clinic. Anything beyond that one text stays
-  forbidden. One thing is not contact "after
+  require a sender registration per clinic. The route (owner, 30 October 2026):
+  a texting-only number per clinic, registered under the clinic's own name,
+  never AYA's number, never a number healdesk gives a client, never the
+  clinic's published number; the text opens with the clinic's name. No text
+  goes to a caller of a clinic whose accepted agreement is older than the one
+  that carries the exception (BAA 1.6.0, DPA 1.1.0 once released). Anything
+  beyond that one text stays forbidden. One thing is not contact "after
   a conversation ends" (owner's ruling, 21 October 2026): a window-gated reply
   to a patient's open request, such as the fixed line telling a person on Meta
   that their booking request was decided or rescheduled. It is sent by the
   adapter only inside the 24-hour window the patient opened and is dropped
   outside it, names no treatment, and is never a reminder or a follow-up the
   patient did not ask for (`lib/meta/booking-requests.ts`,
-  `lib/booking/reschedule.ts`, `sendMetaReply`). One more exception, a clinic
-  setting that is off by default (owner, 28 October 2026; spec, "Payment by
-  text after a call, and full payment"): after a booking made on a call, the
-  agent may text the caller one hosted payment link, only if the caller
-  agrees and reads the number back, once per booking, in fixed wording with no
-  treatment, time or amount, sent by the fixed tool layer and never by the
-  model. Nothing else is ever texted: no reminder, resend or follow-up. The
-  sender must be on the BAA chain (a caller's number next to a clinic is
-  health information), so the setting stays unavailable until a compliant
-  sender and the clinic's sender registration exist.
+  `lib/booking/reschedule.ts`, `sendMetaReply`).
 - **The assistant says it is an AI assistant in its opening line, on every
   channel.** On calls the same line says the call is transcribed, and nothing
   about retention (owner, 24 October 2026: the consent laws ask that a caller

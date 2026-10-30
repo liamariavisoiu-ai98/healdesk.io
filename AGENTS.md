@@ -59,6 +59,11 @@ The one rule to carry even if you read nothing else:
 - **From `main` (folded in at the merge of 8779b778):** SEC-01 and SEC-02 were merged to `main` on the Owner's instruction (f7df3865). The production audit went from 18 high/critical advisories to 1, `GHSA-c475-qrg2-pj4r` (basic-ftp, via the undeployed `packages/leadgen`), excepted until 2026-12-20. CI on `check/deps-security` (run 39633580010) was green except TEST-01. TEST-01 (`setup-wizard` "one on day 5") was a test bug: the queued notice's `send_after` took the database's `now()` while the test delivered at a fixed date; `fix/setup-wizard-day5` takes the test's noon from the database clock (on `main`). The Resend email footers print only the bare mailing address since 22 Oct (`main`, not deployed then); the transcript email (SES) and the Terms, Privacy and `/about` pages still carry the entity line.
 
 ## Last completed work package
+- **SMS-SEND SIXTH (LAST) REVIEW FIXES (30 Oct 2026), CODE and TESTED LOCALLY on `sms/land`, not pushed, merged, deployed or migrated:**
+  - A rolled-back timeout hand-over now falls back to the plain email and `unannounced`.
+  - `flagForFrontDeskReporting` raises the new ops event `deposit_alert_not_queued` (clinicId and appointmentId only, deduped) whenever it moves a deposit without a queued email; this covers every hand-over path. The `superseded.ts` duplicate notice is removed.
+  - The steps of both alerts say to phone the clinic and have its team check Stripe.
+  - `SWEEP_CHECKS` is pinned in a test.
 - **SMS-SEND FIFTH REVIEW FIXES (30 Oct 2026), CODE and TESTED LOCALLY on `sms/land`, not pushed, merged, deployed or migrated:**
   - After a send timeout, the plain deposit email is closed only once the possibly-paid alert is confirmed queued. Otherwise the plain email is released at once and ops get `payment_text_not_sent`/`unannounced`.
   - The outbox's queued-text rule raises the same ops notice, once, when it falls back to the plain email.

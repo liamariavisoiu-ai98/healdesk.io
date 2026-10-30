@@ -650,6 +650,8 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
       });
     } catch (error) {
       log.error("payment-link text: a possibly-sent text not handed to the front desk", { clinicId: context.clinicId, error: describeError(error) });
+      // Rolled back: whatever was queued in it is gone, so the fallback runs.
+      queued = false;
     }
     if (queued === false) {
       // The plain email goes now, without the check-Stripe line: a person is

@@ -4,7 +4,6 @@ import { and, eq, gt, sql } from "drizzle-orm";
 import { appointments, bookingRequests, clinicChannels, clinics, paymentLinkTexts, type ChannelWaitingOn } from "@/db/schema";
 import { flagForFrontDeskReporting } from "@/lib/billing/deposits";
 import { pauseEmailSuperseded } from "@/lib/channels/pause";
-import { notifyOps } from "@/lib/ops/notify";
 import type { TenantTx } from "@/lib/tenant";
 
 import type { NoticeKind } from "./kinds";
@@ -146,13 +145,8 @@ async function depositAlertSuperseded(tx: TenantTx, payload: unknown): Promise<s
           metadata: { outcome: "deposit_to_front_desk", reason: "payment_text_unknown" },
         });
       }
-      if (flagged.moved && !flagged.queued) {
-        // The plain email goes without the check-Stripe line while the
-        // texted link may be paid: a person is told, to phone the clinic.
-        // Once only: a later look finds the deposit already moved. Not
-        // awaited, so the outbox's transaction is never held for an email.
-        void notifyOps("payment_text_not_sent", { clinicId: tx.clinicId, code: "unannounced" });
-      }
+      // Moved but not queued: flagForFrontDeskReporting has told ops itself
+      // (deposit_alert_not_queued), once; the plain email goes below.
       if (!flagged.moved || !flagged.queued) return null;
       return "the payment-link text's outcome is unknown; the possibly-paid alert replaces it";
     }

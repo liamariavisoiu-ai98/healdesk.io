@@ -95,6 +95,7 @@ export const OPS_EVENTS = [
   "voice_direct_line_loops",
   "voice_test_mode_refused",
   "payment_text_not_sent",
+  "deposit_alert_not_queued",
   // The routed/answered counter's workflows (lib/channels/answer-notices.ts):
   // an outage incident opened with L17, one still open past its reply-by, a
   // miss case opened with L21, and a notice of theirs that could not be queued.

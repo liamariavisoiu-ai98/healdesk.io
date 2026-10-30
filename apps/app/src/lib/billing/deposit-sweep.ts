@@ -137,10 +137,10 @@ export async function flagStaleOpenDepositsFor(clinicId: string, now: Date): Pro
 }
 
 /** Every clinic's unlinked deposits: from the billing minute clock, and the hourly tick as its backstop. */
-type ClinicSweep = (clinicId: string, now: Date) => Promise<number>;
+export type ClinicSweep = (clinicId: string, now: Date) => Promise<number>;
 
 /** The sweep's checks, each run on its own so one failing never skips another. */
-const CHECKS: ReadonlyArray<{ check: ClinicSweep; failed: string }> = [
+export const SWEEP_CHECKS: ReadonlyArray<{ check: ClinicSweep; failed: string }> = [
   { check: flagUnlinkedDepositsFor, failed: "unlinked deposits not swept" },
   { check: flagStaleOpenDepositsFor, failed: "expired open deposit links not swept" },
 ];
@@ -149,7 +149,7 @@ const CHECKS: ReadonlyArray<{ check: ClinicSweep; failed: string }> = [
 export async function sweepUnlinkedDeposits(
   now: Date = new Date(),
   /** The checks, for a test that makes one fail; the two above otherwise. */
-  checks: ReadonlyArray<{ check: ClinicSweep; failed: string }> = CHECKS,
+  checks: ReadonlyArray<{ check: ClinicSweep; failed: string }> = SWEEP_CHECKS,
 ): Promise<{ clinics: number; flagged: number; failures: number }> {
   const result = await unsafeDb.execute<{ id: string }>(
     sql`select id from app_clinics_overview() where destroyed_at is null`,

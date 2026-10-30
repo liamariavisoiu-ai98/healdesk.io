@@ -25,7 +25,13 @@ import {
 import { agreementVersionCoversText } from "@/lib/sms/agreement";
 import { smsOriginationIdentity, smsSenderConfigured } from "@/lib/sms/config";
 import { createDepositLink } from "@/lib/billing/deposit-link";
-import { flagStaleOpenDepositsFor, OPEN_LINK_EXPIRY_GRACE_MS, sweepUnlinkedDeposits } from "@/lib/billing/deposit-sweep";
+import {
+  flagStaleOpenDepositsFor,
+  flagUnlinkedDepositsFor,
+  OPEN_LINK_EXPIRY_GRACE_MS,
+  SWEEP_CHECKS,
+  sweepUnlinkedDeposits,
+} from "@/lib/billing/deposit-sweep";
 import { recordDepositLapsed } from "@/lib/billing/deposits";
 import { supersededReason } from "@/lib/email/superseded";
 import { dedupeKey, notifyBookingAlert } from "@/lib/notices/booking-alerts";
@@ -853,6 +859,8 @@ describeDb("the call flow and the one send, against the database", { timeout: 30
         { check: flagStaleOpenDepositsFor, failed: "expired open deposit links not swept" },
       ]);
       expect(summary).toMatchObject({ clinics: 1, flagged: 1, failures: 1 });
+      // And the sweep's own list runs both checks: dropping either fails here.
+      expect(SWEEP_CHECKS.map((c) => c.check)).toEqual([flagUnlinkedDepositsFor, flagStaleOpenDepositsFor]);
       expect(await depositStatus(clinicId, appointmentId)).toBe("pending_front_desk");
     });
 

@@ -140,7 +140,8 @@ describe("a demo in its practice's own words", () => {
     expect(said).toContain("Try her now. Call or message Aya like a patient would.");
     expect(said).toContain("What are missed calls costing Glow?");
     expect(said).not.toMatch(/Lumen/i);
-    expect(ringNote).toBe("One demo call, because you asked. Live, it only answers: it never dials a patient.");
+    // One way to talk on the owner's page, "Call Aya" in the browser (components/demo/PhoneCallCard.tsx): nothing rings a phone.
+    expect(ringNote).toBe("");
   });
 
   test("the redesigned close says clients and the data protection agreement for a vet, never patients or a BAA", async () => {

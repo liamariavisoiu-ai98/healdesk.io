@@ -3,15 +3,17 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { VoiceCard } from "@/components/agent-panel/VoiceCard";
 import { ClinicChatPanel } from "@/components/demo/ClinicChatPanel";
+import { PhoneCallCard } from "@/components/demo/PhoneCallCard";
 import { CHAT_SLOT_ID, SCRIPT_ID, VOICE_SLOT_ID } from "@/lib/demo/v2/slots";
 
 /**
  * The real voice and chat cards, inside the owner's demo page
  * (lib/demo/v2): the file says "keep the repo's existing voice and chat cards
  * unchanged. This markup is a visual stand-in only", so its two stand-in card
- * bodies are slots (lib/demo/v2/render.ts) and these fill them. The page's
+ * bodies are slots (lib/demo/v2/render.ts) and these fill them. The voice
+ * slot holds one way to talk, "Call Aya" in the browser (PhoneCallCard.tsx;
+ * owner, 30 October 2026), not VoiceCard's three. The page's
  * markup is the server's and React does not own it, so the cards arrive
  * through portals once the slots are in the document.
  *
@@ -22,10 +24,7 @@ import { CHAT_SLOT_ID, SCRIPT_ID, VOICE_SLOT_ID } from "@/lib/demo/v2/slots";
 export function DemoV2Islands({
   slug,
   name,
-  portraitLabel,
-  demoLine,
-  ringNote,
-  prefillPhone,
+  clinic,
   locked,
   logoUrl,
   greeting,
@@ -33,10 +32,8 @@ export function DemoV2Islands({
 }: {
   slug: string;
   name: string;
-  portraitLabel: string;
-  demoLine: string | null;
-  ringNote: string;
-  prefillPhone: string | null;
+  /** The clinic's short name, as Aya's contact on the call screen. */
+  clinic: string;
   locked: boolean;
   logoUrl: string | null;
   greeting: string;
@@ -67,19 +64,7 @@ export function DemoV2Islands({
   return (
     <>
       {createPortal(
-        <VoiceCard
-          name={name}
-          portraitLabel={portraitLabel}
-          callRoute={`/api/demo/${slug}/retell`}
-          callerRoute={`/api/demo/${slug}/caller`}
-          demoLine={demoLine}
-          ringNote={ringNote}
-          callbackExtra={{ demoSlug: slug }}
-          prefillPhone={prefillPhone}
-          locked={locked}
-          // A call here starts with "What's your name?" so AYA can greet the owner by it.
-          askName
-        />,
+        <PhoneCallCard clinic={clinic} callRoute={`/api/demo/${slug}/retell`} locked={locked} />,
         slots.voice,
       )}
       {createPortal(

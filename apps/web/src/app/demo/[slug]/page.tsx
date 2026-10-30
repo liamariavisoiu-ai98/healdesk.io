@@ -1,3 +1,4 @@
+import { shortClinicName } from "@healdesk/catalog";
 import type { Metadata } from "next";
 import { Lora } from "next/font/google";
 import { notFound } from "next/navigation";
@@ -151,7 +152,6 @@ export default async function DemoPage({ params }: Props) {
 
   // In the clinic's own word: a vet's callers are its clients (demoAudience).
   const audience = demoAudience(session);
-  const one = audience === "clients" ? "client" : "patient";
   // The owner's page speaks of patients, HIPAA and a BAA throughout; a vet
   // signs a data protection agreement instead, so a vet's demo keeps the page
   // it had until the owner decides what it shows (components/demo/LegacyDemoReady.tsx).
@@ -192,10 +192,7 @@ export default async function DemoPage({ params }: Props) {
       <DemoV2Islands
         slug={slug}
         name={name}
-        portraitLabel={`${site.agent} \u00b7 ${name}\u2019s AI assistant`}
-        demoLine={demoLine}
-        ringNote={`One demo call, because you asked. Live, it only answers: it never dials a ${one}.`}
-        prefillPhone={session.phoneE164}
+        clinic={shortClinicName(name)}
         locked={expired}
         logoUrl={avatarLogo(session.logoUrl)}
         greeting={chatGreeting(name, audience)}

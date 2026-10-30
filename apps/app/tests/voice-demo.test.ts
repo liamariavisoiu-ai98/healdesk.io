@@ -332,7 +332,7 @@ describe("a demo call's facts", () => {
     expect(long).toContain("The role-play has run long enough: resolve where it stands in this reply");
     expect(long).toContain('offer to take the booking request ("Want me to put that request in for you?"); the next reply then wraps up');
     const over = demoStageNote(context(), "roleplay", Date.now(), { asked: null, answers: {}, roleplayTurns: ROLEPLAY_MAX_TURNS + 1, said: [] });
-    expect(over).toContain("The role-play is over now: in this reply, give one short in-character goodbye");
+    expect(over).toContain("The role-play is over now: in this reply, close where it stands in character");
   });
 
   test("after the role-play, discovery comes before the pitch, one next step at a time, never asking what was answered", () => {
@@ -484,6 +484,45 @@ describe("a demo call's facts", () => {
     expect(withDemoAnswer(DEMO_OPENED_PROGRESS, "intro", "Yeah, that's me.").answers.identity).toBe("Yeah, that's me.");
     // A bare count reads as a number; anything more does not.
     expect([bareCount("Five."), bareCount("12"), bareCount("about 20"), bareCount("five or six"), bareCount(undefined)]).toEqual([5, 12, 20, null, null]);
+  });
+
+  test("a greeting in answer to \"Who am I speaking with?\" is answered and the question asked once more (transcript a17b5aff)", () => {
+    const greeted = withDemoAnswer(DEMO_OPENED_PROGRESS, "intro", "Hey. How are you?");
+    expect(greeted.answers.identity).toBeUndefined();
+    expect(greeted.greetedOnly).toBe(true);
+    // Her reply asks again with no state question: the opening question stays asked.
+    const after = afterDemoReply(greeted, "intro", "intro", { asked: null, beats: [], callback: null });
+    expect(after.asked).toBe("identity");
+    expect(demoStageNote(context({ firstName: null }), "intro", Date.now(), greeted)).toContain("they greeted you without saying who they are");
+    // With a name on the demo, the opening already asked for them by name: no second ask.
+    expect(demoStageNote(context(), "intro", Date.now(), greeted)).not.toContain("they greeted you without saying who they are");
+    // Asked once more only: a second greeting is taken as it comes.
+    expect(withDemoAnswer(after, "intro", "Hi!").answers.identity).toBe("Hi!");
+    expect(withDemoAnswer(DEMO_OPENED_PROGRESS, "intro", "Hey, it's Dana.").answers.identity).toBe("Hey, it's Dana.");
+  });
+
+  test("on a demo call only, the guard refuses her own workings and claims healdesk does not make (transcript a17b5aff)", () => {
+    const demo = demoAssistantFacts({ slug: "lumen-aesthetics-austin", clinic: context().clinic });
+    const clinic = { ...demo, demoCall: undefined };
+    for (const reply of [
+      "This isn't the caller and I'm not Aya for this flow, so I'll stop there.",
+      "I answer your patients' calls, texts and social messages around the clock.",
+      "Honestly, I can't actually check the schedule or book anything myself.",
+      "The trick is to have two fresh session numbers, or start a new session for the pitch.",
+      "For you as the owner, I can't show you a real comparison or a live demo from this chat.",
+    ]) {
+      expect(guardAssistantReply(reply, demo), reply).toEqual({ ok: false, reason: "off_script" });
+      const onAClinicCall = guardAssistantReply(reply, clinic);
+      expect(onAClinicCall.ok ? null : onAClinicCall.reason, reply).not.toBe("off_script");
+    }
+    for (const reply of [
+      "After a booking call, a clinic can turn on one text with its payment link, designed to go only if the caller agrees.",
+      "One Aya answers your phone, website chat, Instagram, Messenger and WhatsApp.",
+      "Microneedling usually takes three sessions.",
+      "I can't confirm it myself, but the team will confirm Friday morning.",
+    ]) {
+      expect(guardAssistantReply(reply, demo), reply).toEqual({ ok: true });
+    }
   });
 
   test("before coverage is answered no note at any stage holds the close or the live discount, and the guard refuses a discounted fee", () => {

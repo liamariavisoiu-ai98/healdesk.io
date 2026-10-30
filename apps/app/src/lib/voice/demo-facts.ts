@@ -337,9 +337,15 @@ export function nextDemoStage(
     return stage;
   }
   if (roleplay === "cancel" || (roleplay === "end" && turns < 1)) return from;
-  if (roleplay === "end" || DEMO_ROLEPLAY_END.test(reply)) return "pitch";
+  if (DEMO_ROLEPLAY_END.test(reply)) return "pitch";
+  // Never straight after a question she asked in character (a17b5aff: "...would
+  // Tuesday, November 3 at 11:00 AM work for you? And that's the role-play!",
+  // and the caller's "Yeah" answered the booking, not the role-play): the
+  // caller answers it first, and the role-play ends on the reply after.
+  const open = endsOnQuestion(reply) && turns <= ROLEPLAY_CEILING;
+  if (roleplay === "end" && !open) return "pitch";
   // Past the wrap-up turn, the role-play ends whatever she wrote: it never runs on silently (084f10d4).
-  if (turns > ROLEPLAY_MAX_TURNS + 1) return "pitch";
+  if (turns > ROLEPLAY_MAX_TURNS + 1 && !open) return "pitch";
   return stage;
 }
 
@@ -368,6 +374,11 @@ export function withRoleplayExit(reply: string, spoken = ""): string {
   const full = [bye, DEMO_ROLEPLAY_EXIT].filter(Boolean).join(" ");
   if (!spoken || full.startsWith(spoken)) return full;
   return `${spoken} ${DEMO_ROLEPLAY_EXIT}`;
+}
+
+/** Whether a reply's last sentence is a question: what the caller is still to answer. */
+export function endsOnQuestion(reply: string): boolean {
+  return /\?\W*$/.test(reply.trim());
 }
 
 /** A bare yes ("Yes, please.", "Sure", "Yeah okay"): what cannot choose between two offers. */
@@ -466,6 +477,20 @@ export type DemoProgress = {
   saidNo?: boolean;
   /** Replies outside a role-play that offered one (transcript 0a45870b: "I feel like you're rushing me towards your demo"). */
   roleplayOffers?: number;
+  /** "You got confused", in a row: 1, 2... (0 or absent once they move on; a17b5aff, three times running). */
+  calledOut?: number;
+  /** Their latest words said she already asked that ("You already asked me that."): it is dropped, never asked a third time. */
+  alreadyAsked?: boolean;
+  /** Their latest words asked what her question was ("what was your other question?"): it is asked again, word for word. */
+  repeatAsked?: boolean;
+  /** The last question she said, word for word, for repeatAsked. */
+  lastQuestion?: string | null;
+  /** Their latest words asked how she compares ("what makes you better than the competition?") or how she would improve. */
+  metaAsk?: "compare" | "improve" | null;
+  /** They answered her opening question with only a greeting ("Hey. How are you?"), so who they are is asked once more. */
+  greetedOnly?: boolean;
+  /** The caller's turns after the role-play that answered no discovery question (PITCH_STALLED_TURNS). */
+  pitchStalls?: number;
 };
 
 /**
@@ -609,16 +634,64 @@ const ANSWER_MAX = 200;
 export function withDemoAnswer(progress: DemoProgress, stage: DemoStage, words: string): DemoProgress {
   // "I don't understand" answers nothing: the question stays asked, and the count goes up.
   const lost = isConfused(words);
-  const answers = progress.asked && !lost ? { ...progress.answers, [progress.asked]: words.trim().slice(0, ANSWER_MAX) } : progress.answers;
+  // Nor does "you got confused", or "what was your question?" (a17b5aff).
+  const calledOut = CALLED_OUT.test(words);
+  const repeatAsked = REPEAT_QUESTION.test(words);
+  const alreadyAsked = ALREADY_ASKED.test(words);
+  // A greeting in answer to "Who am I speaking with?" says nothing of who they are; asked once more, then taken as it comes.
+  const greetedOnly = progress.asked === "identity" && !progress.greetedOnly && SMALL_TALK.test(words.trim());
+  const held = lost || calledOut || repeatAsked || greetedOnly;
+  let answers = progress.asked && !held ? { ...progress.answers, [progress.asked]: words.trim().slice(0, ANSWER_MAX) } : progress.answers;
+  // "You already asked me that": the question is dropped, never asked again (a17b5aff, the calls a day asked twice).
+  if (alreadyAsked && progress.asked && SKIPPABLE.has(progress.asked)) answers = { ...answers, [progress.asked]: SKIPPED_ANSWER };
+  // Too long after the role-play with nothing found out: every discovery question still open is dropped, so the pitch comes.
+  const open = (a: Partial<Record<DemoQuestion, string>>) => [...SKIPPABLE].filter((q) => !a[q]).length;
+  const stalled = stage === "pitch" && open(answers) > 0 && open(answers) === open(progress.answers);
+  const pitchStalls = (progress.pitchStalls ?? 0) + (stalled ? 1 : 0);
+  if (pitchStalls >= PITCH_STALLED_TURNS) {
+    answers = { ...answers };
+    for (const q of SKIPPABLE) if (!answers[q]) answers[q] = SKIPPED_ANSWER;
+  }
   return {
     ...progress,
     answers,
+    calledOut: calledOut ? (progress.calledOut ?? 0) + 1 : 0,
+    alreadyAsked,
+    repeatAsked,
+    metaAsk: COMPARE_ASK.test(words) ? "compare" : IMPROVE_ASK.test(words) ? "improve" : null,
+    greetedOnly: greetedOnly || progress.greetedOnly === true,
+    pitchStalls,
     // "Which part?" is not a turn of the role-play: it does not bring the wrap-up closer.
     roleplayTurns: stage === "roleplay" && !lost ? progress.roleplayTurns + 1 : progress.roleplayTurns,
     confused: lost ? (progress.confused ?? 0) + 1 : 0,
     picked: pickedFrom(words, progress.lastListed ?? []),
     saidNo: SAID_NO.test(words.trim()),
   };
+}
+
+/** "You got confused", "you mixed that up": the caller telling her she lost the thread (a17b5aff). */
+export const CALLED_OUT =
+  /\byou(?:'ve| have)?\s+(?:got|get|are|were|'re|seem|sound|seemed|sounded)?\s*(?:a (?:bit|little)\s+|kind of\s+|kinda\s+)?(?:confused|mixed up|muddled|lost)\b|\byou (?:mixed|messed|muddled) (?:it|that|this|them|things|everything) up\b|\byou got (?:it|that) wrong\b/i;
+
+/** "You already asked me that." (a17b5aff). */
+export const ALREADY_ASKED = /\byou(?:'ve| have)? already asked\b|\byou asked (?:me )?(?:that|this) (?:already|before)\b|\bi already (?:told|answered) you\b/i;
+
+/** "What was your other question?" (a17b5aff). */
+export const REPEAT_QUESTION = /\bwhat (?:was|is|'s) (?:your|the) (?:other|last|first|second|previous)? ?question\b|\b(?:repeat|say) (?:the|your) question\b/i;
+
+/** A greeting and nothing more: "Hey. How are you?" */
+export const SMALL_TALK = /^\W*(?:(?:hey|hi|hello|hiya|yo|good (?:morning|afternoon|evening))(?:\s+there)?[\s,.!]*)+(?:how are you(?: doing)?(?: today)?|how's it going|what's up)?\W*$/i;
+
+/** "What makes you better than the competition?" */
+const COMPARE_ASK = /\bcompetition\b|\bcompetitors?\b|\bbetter than\b|\bdifferent from\b|\bwhat makes (?:you|healdesk|aya) (?:so )?(?:special|different|better|unique|stand out)\b/i;
+
+/** "If you were to improve yourself...", "what's the workaround?" */
+const IMPROVE_ASK = /\bimprove (?:yourself|on that|that)\b|\bwhat would you (?:change|improve|do differently)\b|\bhow (?:could|would|can) you (?:fix|improve|avoid)\b|\bworkaround\b/i;
+
+/** The last question in a reply, word for word: what "what was your question?" asks for again. */
+export function lastQuestionIn(reply: string): string | null {
+  const questions = reply.split(/(?<=[.!?])\s+/).filter((sentence) => /\?\W*$/.test(sentence));
+  return questions.at(-1)?.trim() ?? null;
 }
 
 /** A bare no to what was just asked ("No.", "No. No.", "I told you no"): never taken as a yes (084f10d4). "No, that's all, thanks" is not one. */
@@ -696,7 +769,10 @@ export function afterDemoReply(
   return {
     ...progress,
     answers,
-    asked: stageAfter === "roleplay" ? null : (update?.asked ?? null),
+    asked:
+      stageAfter === "roleplay"
+        ? null
+        : (update?.asked ?? (stageAfter === "intro" && progress.asked === "identity" && !answers.identity ? "identity" : null)),
     roleplayTurns: starting ? 0 : progress.roleplayTurns,
     roleplayFrom: starting ? stageBefore : progress.roleplayFrom,
     impatient,
@@ -738,6 +814,20 @@ export function quirkRules(progress: DemoProgress, firstName: string | null | un
 
 /** The caller's turns after which a role-play is wrapped up, after one exchange to resolve where they are. */
 export const ROLEPLAY_MAX_TURNS = 4;
+
+/**
+ * Past this many of the caller's turns the role-play ends even on a question
+ * she asked in character (nextDemoStage): waiting for its answer may hold it
+ * open a turn or two beyond the wrap-up, never longer.
+ */
+export const ROLEPLAY_CEILING = ROLEPLAY_MAX_TURNS + 3;
+
+/**
+ * The caller's turns after the role-play that answer no discovery question
+ * before every one still open is dropped, so the pitch comes (a17b5aff: nine
+ * turns after the role-play, not one beat said).
+ */
+export const PITCH_STALLED_TURNS = 5;
 
 const ANSWER_LABELS: Readonly<Record<DemoQuestion, string>> = {
   identity: "who they are, to your opening question",
@@ -990,6 +1080,39 @@ function confusedRule(progress: DemoProgress): string[] {
   return [];
 }
 
+/**
+ * What the caller just said about how the call is going (transcript a17b5aff):
+ * "you got confused there" three times, answered with "which part?", a
+ * booking re-confirmed that was never real, and "I can't actually check the
+ * schedule or book anything myself"; then "You already asked me that." and
+ * "what was your other question?". Each read in code (withDemoAnswer).
+ */
+function repairRules(progress: DemoProgress, stage: DemoStage): string[] {
+  const out: string[] = [];
+  const n = progress.calledOut ?? 0;
+  const where = progress.lastRoleplay
+    ? ` The role-play stopped where they said "${progress.lastRoleplay.caller.replace(/"/g, "'")}" and you said "${progress.lastRoleplay.aya.replace(/"/g, "'")}".`
+    : "";
+  if (n === 1) {
+    out.push(
+      `They just said you got confused. Own it in one plain sentence that names what actually went wrong, from this conversation (for example, that you ended the role-play in the middle of the booking and then went back into it), then take one clear next step: ${progress.lastRoleplay && stage !== "roleplay" ? "offer to pick the role-play up where it stopped, or " : ""}go on with the next step below. Never ask them which part, never explain how you work or what you can't do, and never treat a role-play booking as real.${where}`,
+    );
+  } else if (n >= 2) {
+    out.push(`They have said ${n} times that you got confused: no more explaining. One short sorry, then do the next step below now, without asking them anything about it.`);
+  }
+  if (progress.alreadyAsked) out.push(`They just said you already asked that. Say sorry in a few words, never ask it again in any words, and go straight to the next step below.`);
+  if (progress.repeatAsked && progress.lastQuestion) {
+    out.push(`They asked what your question was. Ask it again, in exactly these words and nothing else first: "${progress.lastQuestion.replace(/"/g, "'")}"`);
+  }
+  if (stage !== "roleplay" && progress.metaAsk === "compare") {
+    out.push(`They asked what makes you better than the alternatives. Answer with the one point from where healdesk sits that fits what they told you best, in one confident sentence, then the next step below. Never a list, and no second question.`);
+  }
+  if (stage !== "roleplay" && progress.metaAsk === "improve") {
+    out.push(`They asked how you would do better, or how a mistake could be avoided. One short, honest sentence at most (for example, that you should have finished the booking before stepping out of the role-play), never advice on how healdesk should be built or run (no sessions, numbers, flows or setups), then the next step below.`);
+  }
+  return out;
+}
+
 /** An impatient caller (test call 72dc66b7: "You tired me... I'm done with repeating myself"). */
 function fastLane(progress: DemoProgress): string[] {
   const watch = `If they sound impatient or frustrated (tired of it, not clear, repeating themselves, about to hang up), add "impatient": true to the state: from then on you ask nothing more about their business.`;
@@ -1070,6 +1193,7 @@ export function demoStageNote(
   const shared = [
     SELF,
     ...confusedRule(progress),
+    ...repairRules(progress, stage),
     ...fastLane(progress),
     ...(progress.saidNo
       ? [`They just said no. Nothing is confirmed, requested or set up on that: never say it's all set or done. Take the no, and ask what they would like instead in a few words.`]
@@ -1102,6 +1226,8 @@ export function demoStageNote(
   if (stage === "intro") {
     const next = callbackStep
       ? callbackStep
+      : !a.identity && progress.greetedOnly && !context.firstName
+      ? `Next: they greeted you without saying who they are. Answer the greeting in a few words ("Doing well, thanks!") and ask once more who you're speaking with, nothing else.`
       : !a.role
       ? `Next: greet them by name in a few words and ask their role at ${clinic} ("Great to meet you! What's your role at ${clinic}?"). Your opening line already asked whether you're speaking with ${context.firstName ?? "them"}: never ask it again. Unless they say plainly that they are someone else, take their answer as a yes.`
       : !a.choice
@@ -1110,6 +1236,9 @@ export function demoStageNote(
     return [
       `This call is a live demo for ${who}, who is on ${clinic}'s team and asked to hear you at work. ${nameRule} You opened by saying who you are and asking whether you're speaking with ${context.firstName ?? "them"}.`,
       ...(known ? [known] : []),
+      ...(!context.firstName && a.identity && a.identity !== SKIPPED_ANSWER
+        ? [`If they told you their first name ("${a.identity.replace(/"/g, "'")}"), use it, at most twice in the call.`]
+        : []),
       next,
       TALK,
       ...shared,
@@ -1134,7 +1263,9 @@ export function demoStageNote(
     const turns = progress.roleplayTurns;
     const wrap =
       turns > ROLEPLAY_MAX_TURNS
-        ? [`The role-play is over now: in this reply, give one short in-character goodbye and add "roleplay": "end" to the state.`]
+        ? [
+            `The role-play is over now: in this reply, close where it stands in character (for a booking, one sentence that the team will confirm their time), give one short goodbye and add "roleplay": "end" to the state. Ask no question in this reply: a question keeps them in the role-play to answer it.`,
+          ]
         : turns === ROLEPLAY_MAX_TURNS
         ? [
             `The role-play has run long enough: resolve where it stands in this reply. If their last words were a question or a pushback (about a price included), answer it in one sentence and offer to take the booking request ("Want me to put that request in for you?"); the next reply then wraps up. If they already have what they called for, wrap up now, as above.`,
@@ -1146,6 +1277,8 @@ export function demoStageNote(
       ...shared,
       `Keep it brisk, the way a quick, capable front desk sounds. Give a real answer to what they ask; if they are unsure what to book, name one or two treatments from the list that suit what they want (no price that is not on the list, and never a figure they said) and offer a consultation. Never read out more than two prices at once: give the lowest "from" price and offer to say more.`,
       ...rpBookingLines(progress, context),
+      `You can't see ${clinic}'s calendar in this role-play: never say a time is available, free or open. Take the time they ask for as their preferred time, for the team to confirm (a17b5aff: "Eleven AM is available").`,
+      `When they name a weekday ("next Tuesday", "Tuesday morning"), take the next such day and say its date; never ask which one they mean.`,
       ...(progress.picked
         ? [
             `They just said "${progress.picked.said}": that is the ${progress.picked.item}, number ${progress.picked.index + 1} of what you listed (${(progress.lastListed ?? []).join(", ")}). Confirm it by that name, never another.`,
@@ -1324,5 +1457,7 @@ export function demoAssistantFacts(context: Pick<DemoCallContext, "slug" | "clin
     providerNames: clinic.providers.map((p) => p.name),
     // No alert is ever raised on a demo call: the urgent reply never says the team was told.
     urgentAlertsReady: false,
+    // Her own workings and claims healdesk does not make are refused (guard.ts, offScript; a17b5aff).
+    demoCall: true,
   };
 }

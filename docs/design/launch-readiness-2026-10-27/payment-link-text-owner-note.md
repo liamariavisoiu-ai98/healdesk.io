@@ -4,14 +4,14 @@ For the owner. Plain words. Replaces the 28 October version.
 
 ## Where it stands today
 
-- Each clinic can save the choice "text the payment link after a call". It is off by default. The switch works once the clinic has bought phone and connected Stripe.
+- Each clinic can save the choice "text the payment link after a call". It is off by default. The switch is locked ("Texting the payment link is not available yet.") until a sender is ready; `PAYMENT_LINK_TEXT_SENDER_READY` in `switch-rules.ts` is the one flag. A 29 October session locked it so a clinic cannot "choose" an option that does nothing, which BAA 1.6.0's wording would otherwise promise; you had earlier asked for it to be usable with conditions, so say if you want that back.
 - Nothing sends a text. No texting provider is chosen, and the code that decides whether the assistant may offer a text (`paymentLinkTextOffered()` in `apps/app/src/lib/portal/switch-resets.ts`) always says no. So turning the switch on changes nothing a caller hears.
 - The Terms, Privacy and the checkout box describe the text as designed. The launch register item `payment-link-text` is Being built and does not block go-live (your decision of 28 October).
 
 ## What is decided
 
 - **No agreement with the sender.** It is handled by scoping, like Meta and Stripe: fixed words plus the clinic's own checkout link, nothing else, no treatment, time or amount.
-- **The route (the lead's choice, 30 October, as you asked).** AWS End User Messaging SMS, in healdesk's own AWS account. AWS lists it as HIPAA eligible and your AWS agreement already covers it, so no new vendor and nothing new to sign. It sends from a number held in that account for this one purpose, never AYA's number, a number given to a clinic, or the clinic's published number. The text opens with the clinic's name. A reply gets one automatic answer with the clinic's direct line, and STOP is honoured. This replaces the earlier idea of a separate texting provider; the facts are in `payment-link-text-route-scope.md`.
+- **The route (the lead's choice, 30 October, as you asked).** AWS End User Messaging SMS, in healdesk's own AWS account. AWS lists it as HIPAA eligible and your AWS agreement already covers it, so no new vendor and nothing new to sign. It sends from a number held in that account for this one purpose, never AYA's number, a number given to a clinic, or the clinic's published number. The text opens with the clinic's name. Who answers an inbound STOP or HELP is still to decide. This replaces the earlier idea of a separate texting provider; the facts are in `payment-link-text-route-scope.md`.
 - **Only under an agreement that covers it.** No text goes to a caller of a clinic whose accepted agreement is older than the one that carries the exception. BAA 1.6.0 is released in code (it reaches clinics when `apps/app` is deployed and migration 0136 runs). DPA 1.1.0 is a draft that waits for your release.
 
 ## What is left, in order

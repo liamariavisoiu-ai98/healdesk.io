@@ -71,7 +71,7 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
           timeZone={shell.timeZone}
           now={now}
         />
-        <p className="border-line mt-6 rounded-xl border bg-white px-4 py-3">
+        <p className="border-line mt-6 rounded-md border bg-white px-4 py-3">
           This account has closed.
         </p>
       </PortalShell>
@@ -133,7 +133,7 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
           {/* The first card after go-live (plan Part F1): counts only, and
               one tap into Bookings, where the people open behind the
               passkey. */}
-          <div className="border-line flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white px-4 py-3">
+          <div className="border-line flex flex-wrap items-center justify-between gap-3 rounded-md border bg-white px-4 py-3">
             <p>
               <span id="waiting-heading" className="font-semibold">
                 Waiting for you:
@@ -158,7 +158,7 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
               a count and a pointer only; Conversations marks each one, and
               the people open there behind the passkey. healdesk calls
               nobody back: the team decides. */}
-          <div className="border-line flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white px-4 py-3">
+          <div className="border-line flex flex-wrap items-center justify-between gap-3 rounded-md border bg-white px-4 py-3">
             <p>
               <span id="ended-early-heading" className="font-semibold">
                 {facts.endedEarly === 1 ? "1 call ended early" : `${facts.endedEarly} calls ended early`}
@@ -184,7 +184,7 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
             {attention.map((item) => (
               <li
                 key={item.key ?? item.id}
-                className="border-line flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white px-4 py-3"
+                className="border-line flex flex-wrap items-center justify-between gap-3 rounded-md border bg-white px-4 py-3"
               >
                 <span>{item.text}</span>
                 <a
@@ -206,7 +206,7 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
           </h2>
           <ol className="mt-3 grid gap-2">
             {tracker.stages.map((stage) => (
-              <li key={stage.id} className="border-line rounded-xl border bg-white px-4 py-3">
+              <li key={stage.id} className="border-line rounded-md border bg-white px-4 py-3">
                 <p className="flex items-center justify-between gap-3 font-semibold">
                   <span>{stage.label}</span>
                   <span
@@ -223,7 +223,7 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
               </li>
             ))}
           </ol>
-          <div className="border-line mt-4 rounded-xl border bg-white px-4 py-4">
+          <div className="border-line mt-4 rounded-md border bg-white px-4 py-4">
             {/* Talk to your AYA, the preview (/c/[slug]/preview). Until every
                 blocking stage is done the button stays locked and names what
                 is left; once they are, it is a link to the preview, which
@@ -267,7 +267,7 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
             This week
           </h2>
           <p className="text-muted mt-1 text-sm">The last 7 days.</p>
-          <dl className="border-line mt-3 grid gap-2 rounded-xl border bg-white px-4 py-3">
+          <dl className="border-line mt-3 grid gap-2 rounded-md border bg-white px-4 py-3">
             {week.map((line) => (
               <div key={line.label} className="flex flex-wrap items-baseline justify-between gap-x-3">
                 <dt className="text-muted">{line.label}</dt>
@@ -284,7 +284,7 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
         </h2>
         <ul className="mt-3 grid gap-2">
           {state.channels.map((c) => (
-            <li key={c.channel} className="border-line rounded-xl border bg-white px-4 py-3">
+            <li key={c.channel} className="border-line rounded-md border bg-white px-4 py-3">
               <p className="flex flex-wrap items-center justify-between gap-2">
                 <span className="font-semibold">{CHANNEL_NAMES[c.channel]}</span>
                 {/* The wizard's label; it wraps rather than overflows, as "Paused until …" can. */}

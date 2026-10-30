@@ -59,7 +59,7 @@ export function CoverageSetting(props: {
       {changed ? (
         <section
           aria-labelledby="coverage-steps-heading"
-          className="border-line bg-paper-2 mb-3 grid gap-2 rounded-xl border px-4 py-3"
+          className="border-line bg-paper-2 mb-3 grid gap-2 rounded-md border px-4 py-3"
         >
           <h3 id="coverage-steps-heading" className="font-semibold">
             Change your call forwarding to match

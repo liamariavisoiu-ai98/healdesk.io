@@ -124,7 +124,7 @@ export function ConversationsView(props: {
             maxLength={80}
             autoComplete="off"
             aria-describedby="conversation-search-hint"
-            className="border-line min-h-11 flex-1 rounded-xl border bg-white px-3"
+            className="border-line min-h-11 flex-1 rounded-md border bg-white px-3"
           />
           <button
             type="submit"
@@ -171,7 +171,7 @@ export function ConversationsView(props: {
             </button>
           ) : null}
         </div>
-        {problem ? <p className="mt-2 text-sm text-red-800">{problem}</p> : null}
+        {problem ? <p className="mt-2 text-sm text-problem">{problem}</p> : null}
       </form>
 
       <p role="status" aria-live="polite" className="text-muted mt-6 text-sm">
@@ -188,7 +188,7 @@ export function ConversationsView(props: {
 
       <ul className="mt-3 grid gap-2">
         {rows.map((row) => (
-          <li key={row.id} className="border-line rounded-xl border bg-white px-4 py-3">
+          <li key={row.id} className="border-line rounded-md border bg-white px-4 py-3">
             <p className="flex flex-wrap items-center justify-between gap-2">
               <span className="font-semibold">
                 {CHANNEL_NAMES[row.channel]} ·{" "}

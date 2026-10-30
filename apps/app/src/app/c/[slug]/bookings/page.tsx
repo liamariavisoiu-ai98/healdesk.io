@@ -110,7 +110,7 @@ export default async function BookingsPage({
           {query.handled === "marked" || query.handled === "already" ? (
             <p
               key={typeof query.h === "string" && UUID.test(query.h) ? query.h : "handled"}
-              className="border-line mt-6 rounded-xl border bg-white px-4 py-3"
+              className="border-line mt-6 rounded-md border bg-white px-4 py-3"
             >
               {query.handled === "marked"
                 ? "Marked handled."
@@ -124,7 +124,7 @@ export default async function BookingsPage({
             Needs you
           </h2>
           {open.length === 0 && screen.handovers.length === 0 && screen.deposits.length === 0 ? (
-            <p className="border-line mt-3 rounded-xl border bg-white px-4 py-3">
+            <p className="border-line mt-3 rounded-md border bg-white px-4 py-3">
               Nothing needs you right now.
             </p>
           ) : null}
@@ -173,7 +173,7 @@ export default async function BookingsPage({
               <h3 className="mt-6 font-semibold">Deposits to collect</h3>
               <ul className="mt-2 grid gap-2">
                 {screen.deposits.map((a) => (
-                  <li key={a.id} className="border-line rounded-xl border bg-white p-4">
+                  <li key={a.id} className="border-line rounded-md border bg-white p-4">
                     <p className="font-semibold">
                       {depositAmount(a)} from {a.firstName ?? "this booking"}, before{" "}
                       {portalMoment(a.scheduledFor, zone, now)}
@@ -199,7 +199,7 @@ export default async function BookingsPage({
             Requests nobody answered in time. They were told you&rsquo;d call.
           </p>
           {screen.missed.length === 0 ? (
-            <p className="border-line mt-3 rounded-xl border bg-white px-4 py-3">
+            <p className="border-line mt-3 rounded-md border bg-white px-4 py-3">
               None in the last {MISSED_DAYS} days.
             </p>
           ) : (
@@ -208,7 +208,7 @@ export default async function BookingsPage({
                 <li
                   key={r.id}
                   id={`request-${r.id}`}
-                  className={`rounded-xl border bg-white p-4 ${focus?.id === r.id ? "border-ink" : "border-line"}`}
+                  className={`rounded-md border bg-white p-4 ${focus?.id === r.id ? "border-ink" : "border-line"}`}
                 >
                   <p className="font-semibold">
                     {r.firstName ?? "Someone"}, {requestWords(r).via}
@@ -234,7 +234,7 @@ export default async function BookingsPage({
             team confirmed. Mark how each one went.
           </p>
           {screen.booked.length === 0 ? (
-            <p className="border-line mt-3 rounded-xl border bg-white px-4 py-3">
+            <p className="border-line mt-3 rounded-md border bg-white px-4 py-3">
               Nothing booked in the last {BOOKED_LOOKBACK_DAYS} days, and nothing coming up.
             </p>
           ) : (
@@ -312,7 +312,7 @@ function Amendments({
 }) {
   if (items.length === 0) return null;
   return (
-    <div className="bg-paper-2 mt-3 rounded-xl px-3 py-2 text-sm">
+    <div className="bg-paper-2 mt-3 rounded-md px-3 py-2 text-sm">
       <p className="font-semibold">Amended at your practice&rsquo;s direction</p>
       <ul className="mt-1 grid gap-1">
         {items.map((a, i) => (
@@ -353,7 +353,7 @@ function RequestCard(props: {
     <article
       id={`request-${r.id}`}
       aria-labelledby={`request-${r.id}-name`}
-      className={`rounded-2xl border bg-white p-4 ${props.inFocus ? "border-ink" : "border-line"}`}
+      className={`rounded-md border bg-white p-4 ${props.inFocus ? "border-ink" : "border-line"}`}
     >
       {props.inFocus ? (
         <p className="text-muted text-xs font-bold tracking-[0.06em] uppercase">From your email</p>
@@ -373,7 +373,7 @@ function RequestCard(props: {
               : "AYA told them you'd call."}
       </p>
       {unconfirmedDirect ? (
-        <p className="bg-tint-butter mt-3 rounded-xl px-3 py-2 text-sm">
+        <p className="bg-tint-butter mt-3 rounded-md px-3 py-2 text-sm">
           AYA tried to book this but couldn&rsquo;t confirm it reached your calendar. Check your
           calendar first.
         </p>
@@ -441,7 +441,7 @@ function HandoverCard(props: {
     <article
       id={`handover-${h.id}`}
       aria-labelledby={`handover-${h.id}-name`}
-      className="border-line rounded-xl border bg-white p-4"
+      className="border-line rounded-md border bg-white p-4"
     >
       <h4 id={`handover-${h.id}-name`} className="font-semibold">
         {firstNameOf(h.firstName) ?? "Someone"} asked for a person {words.via}
@@ -506,7 +506,7 @@ function BookedRow(props: {
     // The request's anchor too, as on every request's card. Links from
     // elsewhere open a request by its `?request=` focus (bookingRequestPath),
     // which finds it wherever it now sits.
-    <article id={`request-${a.requestId}`} className="border-line rounded-xl border bg-white p-4">
+    <article id={`request-${a.requestId}`} className="border-line rounded-md border bg-white p-4">
       <h3 className="font-semibold">
         {a.firstName ?? "Someone"}, {portalMoment(a.scheduledFor, zone, now)}
       </h3>
@@ -542,7 +542,7 @@ function BookedRow(props: {
 function FocusNote(props: { view: BookingRequestView; query: Query; decided: boolean; now: Date }) {
   const { view: r, query } = props;
   const zone = r.timeZone;
-  const box = "border-line mt-6 rounded-xl border bg-white px-4 py-3";
+  const box = "border-line mt-6 rounded-md border bg-white px-4 py-3";
   if (isDecidable(r) && !props.decided) {
     return <p className={box}>The request from your email is first under Needs you.</p>;
   }

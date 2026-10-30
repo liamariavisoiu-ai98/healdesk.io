@@ -28,7 +28,7 @@ export function WebsiteLinePanel({ slug, snippet }: { slug: string; snippet: str
         readOnly
         rows={2}
         value={snippet}
-        className="border-line bg-paper-2 w-full rounded-xl border px-3 py-2 font-mono text-xs"
+        className="border-line bg-paper-2 w-full rounded-md border px-3 py-2 font-mono text-xs"
       />
       <p className="text-muted">
         Paste it once, just before <code>&lt;/body&gt;</code>, on every page of your website, or

@@ -37,7 +37,7 @@ export function HelpForm() {
   const error = state.status === "invalid" ? state : null;
   const fieldError = (field: string) =>
     error?.field === field ? (
-      <p id={`${field}-error`} role="alert" className="text-sm text-red-700">
+      <p id={`${field}-error`} role="alert" className="text-sm text-problem">
         {error.message}
       </p>
     ) : null;
@@ -56,7 +56,7 @@ export function HelpForm() {
           required
           aria-invalid={error?.field === "email" ? true : undefined}
           aria-describedby={error?.field === "email" ? "email-error" : undefined}
-          className="border-line w-full rounded-xl border px-4 py-3 text-base"
+          className="border-line w-full rounded-md border px-4 py-3 text-base"
         />
         {fieldError("email")}
       </div>
@@ -72,7 +72,7 @@ export function HelpForm() {
           required
           aria-invalid={error?.field === "clinic" ? true : undefined}
           aria-describedby={error?.field === "clinic" ? "clinic-error" : undefined}
-          className="border-line w-full rounded-xl border px-4 py-3 text-base"
+          className="border-line w-full rounded-md border px-4 py-3 text-base"
         />
         {fieldError("clinic")}
       </div>
@@ -114,7 +114,7 @@ export function HelpForm() {
                 inputMode="numeric"
                 autoComplete="off"
                 maxLength={4}
-                className="border-line w-full rounded-xl border px-4 py-3 text-base"
+                className="border-line w-full rounded-md border px-4 py-3 text-base"
               />
             </div>
             <div className="space-y-2">
@@ -127,7 +127,7 @@ export function HelpForm() {
                 inputMode="numeric"
                 autoComplete="off"
                 placeholder="04/28"
-                className="border-line w-full rounded-xl border px-4 py-3 text-base"
+                className="border-line w-full rounded-md border px-4 py-3 text-base"
               />
             </div>
           </div>
@@ -141,14 +141,14 @@ export function HelpForm() {
               name="invoice"
               autoComplete="off"
               placeholder="ABCD1234-0001"
-              className="border-line w-full rounded-xl border px-4 py-3 text-base"
+              className="border-line w-full rounded-md border px-4 py-3 text-base"
             />
           </div>
         )}
         {fieldError("detail")}
       </fieldset>
       {state.status === "limited" ? (
-        <p role="alert" className="text-sm text-red-700">
+        <p role="alert" className="text-sm text-problem">
           That&apos;s a lot of requests from here. Wait a few minutes, then try again.
         </p>
       ) : null}

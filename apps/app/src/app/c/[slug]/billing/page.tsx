@@ -83,7 +83,7 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
     return (
       <PortalShell {...shell}>
         <h1 className="text-2xl font-semibold">Billing</h1>
-        <p className="border-line mt-6 rounded-xl border bg-white px-4 py-3">
+        <p className="border-line mt-6 rounded-md border bg-white px-4 py-3">
           There&rsquo;s no billing account on this clinic. If that&rsquo;s unexpected, email
           hello@healdesk.io.
         </p>
@@ -115,7 +115,7 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
           <section
             id="plan"
             aria-labelledby="plan-heading"
-            className="border-line scroll-mt-6 rounded-2xl border bg-white px-4 py-4 sm:px-5"
+            className="border-line scroll-mt-6 rounded-md border bg-white px-4 py-4 sm:px-5"
           >
             <h2 id="plan-heading" className="text-lg font-semibold">
               Your plan
@@ -186,7 +186,7 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
             ) : null}
 
             {summary.openInvoice ? (
-              <p className="mt-3 rounded-xl border border-red-200 px-4 py-3 text-sm text-red-800">
+              <p className="mt-3 rounded-md border border-problem-line px-4 py-3 text-sm text-problem">
                 A payment didn&rsquo;t go through
                 {summary.openInvoice.amountDueCents
                   ? `: ${portalMoney(summary.openInvoice.amountDueCents)} is due`
@@ -211,7 +211,7 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
             <section
               id="your-data"
               aria-labelledby="your-data-heading"
-              className="border-line scroll-mt-6 rounded-2xl border bg-white px-4 py-4 sm:px-5"
+              className="border-line scroll-mt-6 rounded-md border bg-white px-4 py-4 sm:px-5"
             >
               <h2 id="your-data-heading" className="text-lg font-semibold">
                 Your export and your data
@@ -229,7 +229,7 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
           <section
             id="usage"
             aria-labelledby="usage-heading"
-            className="border-line scroll-mt-6 rounded-2xl border bg-white px-4 py-4 sm:px-5"
+            className="border-line scroll-mt-6 rounded-md border bg-white px-4 py-4 sm:px-5"
           >
             <h2 id="usage-heading" className="text-lg font-semibold">
               Usage
@@ -309,7 +309,7 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
             <section
               id="switches"
               aria-labelledby="switches-heading"
-              className="border-line scroll-mt-6 rounded-2xl border bg-white px-4 py-4 sm:px-5"
+              className="border-line scroll-mt-6 rounded-md border bg-white px-4 py-4 sm:px-5"
             >
               <h2 id="switches-heading" className="text-lg font-semibold">
                 Allowance, alerts and renewal
@@ -353,7 +353,7 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
             <section
               id="change"
               aria-labelledby="change-heading"
-              className="border-line scroll-mt-6 rounded-2xl border bg-white px-4 py-4 sm:px-5"
+              className="border-line scroll-mt-6 rounded-md border bg-white px-4 py-4 sm:px-5"
             >
               <h2 id="change-heading" className="text-lg font-semibold">
                 Change your plan
@@ -403,7 +403,7 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
           <section
             id="payment-method"
             aria-labelledby="payment-heading"
-            className="border-line scroll-mt-6 rounded-2xl border bg-white px-4 py-4 sm:px-5"
+            className="border-line scroll-mt-6 rounded-md border bg-white px-4 py-4 sm:px-5"
           >
             <h2 id="payment-heading" className="text-lg font-semibold">
               Card and invoices
@@ -426,7 +426,7 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
           <section
             id="agreement"
             aria-labelledby="agreement-heading"
-            className="border-line scroll-mt-6 rounded-2xl border bg-white px-4 py-4 sm:px-5"
+            className="border-line scroll-mt-6 rounded-md border bg-white px-4 py-4 sm:px-5"
           >
             <h2 id="agreement-heading" className="text-lg font-semibold">
               Your agreement

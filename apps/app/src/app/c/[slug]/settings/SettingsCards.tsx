@@ -42,7 +42,7 @@ export function Card(props: { id: string; title: string; intro?: ReactNode; chil
     <section
       id={props.id}
       aria-labelledby={`${props.id}-heading`}
-      className="border-line scroll-mt-6 rounded-2xl border bg-white px-4 py-4 sm:px-5"
+      className="border-line scroll-mt-6 rounded-md border bg-white px-4 py-4 sm:px-5"
     >
       <h2 id={`${props.id}-heading`} className="text-lg font-semibold">
         {props.title}
@@ -86,8 +86,8 @@ export function ChannelsCard({
       {portalMetaOutcome(metaOutcome) ? (
         <p
           role={portalMetaOutcome(metaOutcome)!.ok ? "status" : "alert"}
-          className={`my-3 rounded-xl border px-4 py-3 text-sm ${
-            portalMetaOutcome(metaOutcome)!.ok ? "border-line bg-tint-mint" : "border-red-200 text-red-800"
+          className={`my-3 rounded-md border px-4 py-3 text-sm ${
+            portalMetaOutcome(metaOutcome)!.ok ? "border-line bg-tint-mint" : "border-problem-line text-problem"
           }`}
         >
           {portalMetaOutcome(metaOutcome)!.text}
@@ -243,7 +243,7 @@ export function TalkCard({ view }: { view: SettingsView }) {
           label={g.key === "phone_greeting" ? GREETING_LABELS.phone : GREETING_LABELS.chat}
           before={
             <>
-              <p className="border-line bg-paper-2 rounded-xl border px-4 py-3 text-sm">
+              <p className="border-line bg-paper-2 rounded-md border px-4 py-3 text-sm">
                 {g.lockedLine}
                 <span className="text-muted mt-1 block text-xs">
                   Always first, on every {g.key === "phone_greeting" ? "call" : "website chat"}. It
@@ -357,7 +357,7 @@ export function PaymentsCard({
       {outcome ? (
         <p
           role="status"
-          className={`my-3 rounded-xl border px-4 py-3 text-sm ${outcome.ok ? "border-line bg-tint-mint" : "border-red-200 text-red-800"}`}
+          className={`my-3 rounded-md border px-4 py-3 text-sm ${outcome.ok ? "border-line bg-tint-mint" : "border-problem-line text-problem"}`}
         >
           {outcome.text}
         </p>
@@ -571,7 +571,7 @@ export function SafetyNetCard({ view }: { view: SettingsView }) {
           </p>
           <div className="mt-2 grid gap-2">
             {safety.undo.map((u) => (
-              <details key={u.carrier} className="border-line rounded-xl border px-4 py-2 text-sm">
+              <details key={u.carrier} className="border-line rounded-md border px-4 py-2 text-sm">
                 <summary className="min-h-8 cursor-pointer font-semibold">{u.carrier}</summary>
                 <ul className="mt-2 grid gap-1">
                   {u.steps.map((s) => (

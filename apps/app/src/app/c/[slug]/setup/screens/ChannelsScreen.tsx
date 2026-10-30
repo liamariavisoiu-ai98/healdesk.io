@@ -81,8 +81,8 @@ export function ChannelsScreen(props: {
           {metaOutcome ? (
             <p
               role={metaOutcome.ok ? "status" : "alert"}
-              className={`rounded-xl border bg-white px-4 py-3 text-sm ${
-                metaOutcome.ok ? "border-line" : "border-red-200 text-red-800"
+              className={`rounded-md border bg-white px-4 py-3 text-sm ${
+                metaOutcome.ok ? "border-line" : "border-problem-line text-problem"
               }`}
             >
               {metaOutcome.text}
@@ -90,7 +90,7 @@ export function ChannelsScreen(props: {
           ) : null}
           <ul className="grid gap-3">
             {props.rows.map((row) => (
-              <li key={row.channel} className="border-line rounded-xl border bg-white px-4 py-3">
+              <li key={row.channel} className="border-line rounded-md border bg-white px-4 py-3">
                 <p className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-semibold">{row.name}</span>
                   {/* Wraps rather than overflows: "Paused until …" carries a whole moment. */}
@@ -172,7 +172,7 @@ function Forwarding({
       <div className="grid gap-3 sm:grid-cols-2">
         <EmailSteps slug={slug} />
         {callBookingUrl ? (
-          <div className="border-line rounded-xl border px-3 py-3">
+          <div className="border-line rounded-md border px-3 py-3">
             <p className="font-semibold">Rather do it together?</p>
             <a
               href={callBookingUrl}
@@ -216,7 +216,7 @@ function EmailSteps({ slug }: { slug: string }) {
         }
         setWorking(false);
       }}
-      className="border-line grid gap-2 rounded-xl border px-3 py-3"
+      className="border-line grid gap-2 rounded-md border px-3 py-3"
     >
       <label htmlFor={fieldId} className="font-semibold">
         Email these to my office manager
@@ -228,7 +228,7 @@ function EmailSteps({ slug }: { slug: string }) {
         value={to}
         onChange={(event) => setTo(event.target.value)}
         placeholder="maria@example.com"
-        className="border-line min-h-11 rounded-xl border bg-white px-3"
+        className="border-line min-h-11 rounded-md border bg-white px-3"
       />
       <button
         type="submit"
@@ -241,7 +241,7 @@ function EmailSteps({ slug }: { slug: string }) {
         id={statusId}
         role="status"
         aria-live="polite"
-        className={result ? (result.ok ? "text-sm" : "text-sm text-red-800") : "sr-only"}
+        className={result ? (result.ok ? "text-sm" : "text-sm text-problem") : "sr-only"}
       >
         {result?.message ?? ""}
       </p>

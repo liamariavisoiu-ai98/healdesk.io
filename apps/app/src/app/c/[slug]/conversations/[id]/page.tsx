@@ -78,7 +78,7 @@ export default async function ConversationPage({
             {CHANNEL_NAMES[detail.channel]} · {when(detail.startedAt)}
           </h1>
 
-          <dl className="border-line mt-6 grid gap-3 rounded-xl border bg-white px-4 py-4">
+          <dl className="border-line mt-6 grid gap-3 rounded-md border bg-white px-4 py-4">
             <div>
               <dt className="text-muted text-sm">Outcome</dt>
               <dd className="mt-1">
@@ -151,7 +151,7 @@ export default async function ConversationPage({
                 emailed for them.
               </p>
             ) : (
-              <div className="border-line mt-3 rounded-xl border bg-white px-4 py-4">
+              <div className="border-line mt-3 rounded-md border bg-white px-4 py-4">
                 <p>{receiptSentence(detail.receipt, when)}</p>
                 {detail.receipt && detail.receipt.attempts > 0 ? (
                   <p className="text-muted mt-1 text-sm">
@@ -179,7 +179,7 @@ export default async function ConversationPage({
               Flag this answer
             </h2>
             {detail.flag ? (
-              <div className="border-line mt-3 rounded-xl border bg-white px-4 py-4">
+              <div className="border-line mt-3 rounded-md border bg-white px-4 py-4">
                 <p>
                   Flagged {when(detail.flag.flaggedAt)}. healdesk has been told.
                 </p>
@@ -239,7 +239,7 @@ export default async function ConversationPage({
               </h2>
               <ul className="mt-3 grid gap-2">
                 {detail.amendments.map((a) => (
-                  <li key={a.id} className="border-line rounded-xl border bg-white px-4 py-3">
+                  <li key={a.id} className="border-line rounded-md border bg-white px-4 py-3">
                     <p className="whitespace-pre-line">{a.amendment}</p>
                     <p className="text-muted mt-1 text-sm">
                       To the {a.on === "booking_request" ? "booking request" : "conversation"},

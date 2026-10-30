@@ -39,8 +39,8 @@ export function CalendarCard({
     <Card id="calendar" title="Calendar">
       {card.outcome ? (
         <p
-          className={`my-3 rounded-xl border px-4 py-3 text-sm ${
-            card.outcome.ok ? "border-line bg-tint-mint" : "border-red-200 text-red-800"
+          className={`my-3 rounded-md border px-4 py-3 text-sm ${
+            card.outcome.ok ? "border-line bg-tint-mint" : "border-problem-line text-problem"
           }`}
         >
           {card.outcome.text}
@@ -58,7 +58,7 @@ export function CalendarCard({
                 : ""}
             </p>
             {connection.healthLine ? (
-              <p className="mt-1 text-sm text-red-800">{connection.healthLine}</p>
+              <p className="mt-1 text-sm text-problem">{connection.healthLine}</p>
             ) : null}
             {!card.canConnect && card.blockedLine ? (
               <p className="text-muted mt-1 text-sm">{card.blockedLine}</p>

@@ -115,7 +115,7 @@ export function ProtectDevice(props: {
       </p>
 
       {!supported ? (
-        <p className="mt-6 rounded-xl border border-line bg-white px-4 py-3 text-sm">
+        <p className="mt-6 rounded-md border border-line bg-white px-4 py-3 text-sm">
           This browser can't use passkeys. Open this page in Safari or Chrome, or use your phone
           instead.
         </p>
@@ -151,7 +151,7 @@ export function ProtectDevice(props: {
               autoComplete="off"
               onChange={(event) => setLabel(event.target.value)}
               aria-describedby={hintId}
-              className="border-line min-h-11 rounded-xl border bg-white px-4 py-2"
+              className="border-line min-h-11 rounded-md border bg-white px-4 py-2"
             />
             <p id={hintId} className="text-muted text-xs">
               Staff see this name when this device opens {one} details, like &ldquo;Front desk
@@ -170,7 +170,7 @@ export function ProtectDevice(props: {
                 inputMode="text"
                 autoComplete="one-time-code"
                 onChange={(event) => setCode(event.target.value)}
-                className="border-line min-h-11 rounded-xl border bg-white px-4 py-2 tracking-widest"
+                className="border-line min-h-11 rounded-md border bg-white px-4 py-2 tracking-widest"
               />
             </div>
           ) : null}

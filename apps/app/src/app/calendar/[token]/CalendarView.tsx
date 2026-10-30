@@ -181,7 +181,7 @@ export function CalendarLinkView({
                 Someone at the practice chose these calendar terms. As the practice owner, read the
                 election and accept it to put it into effect.
               </p>
-              <pre className="mt-4 overflow-x-auto rounded-lg border border-[color:var(--color-line)] p-4 text-[13px] whitespace-pre-wrap">
+              <pre className="mt-4 overflow-x-auto rounded-sm border border-[color:var(--color-line)] p-4 text-[13px] whitespace-pre-wrap">
                 {model.document}
               </pre>
               <form action={actions.submitElection} className="mt-6 space-y-4">
@@ -345,9 +345,9 @@ export function CalendarLinkView({
 }
 
 const BUTTON =
-  "rounded-lg bg-[color:var(--color-ink)] px-4 py-2.5 text-[15px] font-semibold text-white";
+  "rounded-sm bg-[color:var(--color-ink)] px-4 py-2.5 text-[15px] font-semibold text-white";
 const SECONDARY =
-  "rounded-lg border border-[color:var(--color-line)] px-4 py-2.5 text-[15px] font-semibold";
+  "rounded-sm border border-[color:var(--color-line)] px-4 py-2.5 text-[15px] font-semibold";
 const LINK = "font-semibold underline underline-offset-2";
 
 function accountKind(account: {
@@ -433,7 +433,7 @@ function ConnectForm({
     <form method="post" action="/api/calendar/google/start" className="mt-6">
       <input type="hidden" name="token" value={token} />
       <input type="hidden" name="disclosureVersion" value={disclosure.version} />
-      <section className="rounded-lg border border-[color:var(--color-line)] p-4">
+      <section className="rounded-sm border border-[color:var(--color-line)] p-4">
         <h2 className="text-lg font-semibold">{disclosure.heading}</h2>
         {disclosure.paragraphs.map((paragraph, index) =>
           index === last ? (

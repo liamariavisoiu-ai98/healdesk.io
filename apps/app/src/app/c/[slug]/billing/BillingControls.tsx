@@ -153,7 +153,7 @@ export function AllowanceChoice(props: { slug: string; initial: "allow" | "hard_
           <label
             key={option.id}
             htmlFor={id}
-            className="border-line flex min-h-11 cursor-pointer gap-3 rounded-xl border bg-white px-4 py-3"
+            className="border-line flex min-h-11 cursor-pointer gap-3 rounded-md border bg-white px-4 py-3"
           >
             <input
               id={id}
@@ -298,7 +298,7 @@ export function ChangePlan(props: {
           value={value}
           disabled={working}
           onChange={(e) => changed(() => set(Number(e.target.value)))}
-          className="border-line min-h-11 rounded-xl border bg-white px-3"
+          className="border-line min-h-11 rounded-md border bg-white px-3"
         >
           {USAGE_STEPS.map((step) => (
             <option key={step} value={step}>
@@ -343,7 +343,7 @@ export function ChangePlan(props: {
             <label
               key={option.id}
               htmlFor={id}
-              className="border-line flex min-h-11 cursor-pointer gap-3 rounded-xl border bg-white px-4 py-3"
+              className="border-line flex min-h-11 cursor-pointer gap-3 rounded-md border bg-white px-4 py-3"
             >
               <input
                 id={id}
@@ -378,7 +378,7 @@ export function ChangePlan(props: {
             )
           : null}
       </div>
-      <div className="border-line rounded-xl border px-4 py-3 text-sm">
+      <div className="border-line rounded-md border px-4 py-3 text-sm">
         <p className="font-semibold">
           {plan.name}
           {isCurrent ? " · your plan" : ""}
@@ -395,7 +395,7 @@ export function ChangePlan(props: {
         </button>
       </div>
       {preview ? (
-        <div className="border-line rounded-xl border px-4 py-3 text-sm" role="status">
+        <div className="border-line rounded-md border px-4 py-3 text-sm" role="status">
           {preview.status === "ok" ? (
             <>
               <p className="font-semibold">
@@ -414,7 +414,7 @@ export function ChangePlan(props: {
                   : `${asked?.interval === "year" ? "Annual" : "Monthly"} billing (${money(preview.recurringCents)}) starts the day AYA first answers, at the price of the channels in service then.`}
               </p>
               {preview.droppedChannels.length > 0 ? (
-                <p className="mt-1 font-semibold text-red-800">
+                <p className="mt-1 font-semibold text-problem">
                   A channel that&rsquo;s answering now isn&rsquo;t in this plan: its calls and
                   messages would go to your team.
                 </p>
@@ -533,7 +533,7 @@ export function AddLocation(props: { slug: string; interval: "month" | "year" })
     );
   }
   return (
-    <div className="border-line mt-3 grid gap-2 rounded-xl border px-4 py-3 text-sm" role="status">
+    <div className="border-line mt-3 grid gap-2 rounded-md border px-4 py-3 text-sm" role="status">
       <p className="font-semibold">
         {money(preview.setupFeeCents)} setup fee now, then {money(preview.recurringCents)}{" "}
         {props.interval === "year" ? "a year" : "a month"} for the location.
@@ -550,7 +550,7 @@ export function AddLocation(props: { slug: string; interval: "month" | "year" })
         maxLength={120}
         onChange={(e) => setLabel(e.target.value)}
         placeholder="e.g. Uptown"
-        className="border-line min-h-11 rounded-xl border px-3"
+        className="border-line min-h-11 rounded-md border px-3"
       />
       <label htmlFor={addressId} className="font-semibold">
         Its street address
@@ -560,7 +560,7 @@ export function AddLocation(props: { slug: string; interval: "month" | "year" })
         value={address}
         maxLength={300}
         onChange={(e) => setAddress(e.target.value)}
-        className="border-line min-h-11 rounded-xl border px-3"
+        className="border-line min-h-11 rounded-md border px-3"
       />
       {/*
         The central-assistant acknowledgement (the owner's central model of
@@ -585,7 +585,7 @@ export function AddLocation(props: { slug: string; interval: "month" | "year" })
         maxLength={200}
         onChange={(e) => setAcceptedBy(e.target.value)}
         placeholder="e.g. Laura Owner, owner"
-        className="border-line min-h-11 rounded-xl border px-3"
+        className="border-line min-h-11 rounded-md border px-3"
       />
       <div className="flex items-start gap-2">
         <input
@@ -708,7 +708,7 @@ export function AgreementResignButton(props: { slug: string; open: boolean }) {
     );
   }
   return (
-    <div className="border-line mt-3 rounded-xl border px-4 py-3 text-sm">
+    <div className="border-line mt-3 rounded-md border px-4 py-3 text-sm">
       <p>
         Your agreement becomes a business associate agreement, which you sign next. Until it&rsquo;s
         signed, AYA is paused: calls go to your direct line, website chat shows a contact form, and

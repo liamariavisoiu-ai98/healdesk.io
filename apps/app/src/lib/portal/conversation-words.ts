@@ -38,7 +38,7 @@ export const OUTCOME_NAMES: Record<ConversationOutcome, string> = {
 
 /** The badge for each outcome: urgent stands out, the rest are quiet. */
 export const OUTCOME_STYLES: Record<ConversationOutcome, string> = {
-  urgent: "border border-red-200 bg-white text-red-800",
+  urgent: "border border-problem-line bg-white text-problem",
   handover: "bg-tint-butter",
   booked: "bg-paper-2 text-green",
   request: "bg-paper-2",

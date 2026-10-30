@@ -60,7 +60,7 @@ export default async function KnowledgePage({ params }: { params: Promise<{ slug
     return (
       <PortalShell {...shell}>
         <h1 className="text-2xl font-semibold">Knowledge</h1>
-        <p className="border-line mt-6 rounded-xl border bg-white px-4 py-3">
+        <p className="border-line mt-6 rounded-md border bg-white px-4 py-3">
           This account has closed, so there is nothing left to change.
         </p>
       </PortalShell>

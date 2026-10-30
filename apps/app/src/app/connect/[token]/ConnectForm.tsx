@@ -55,7 +55,7 @@ export function ConnectForm({
     <form
       action={action}
       autoComplete="off"
-      className="mt-8 rounded-2xl border border-[color:var(--color-line)] bg-white p-5 sm:p-6"
+      className="mt-8 rounded-md border border-[color:var(--color-line)] bg-white p-5 sm:p-6"
     >
       {/*
         The only thing the browser tells us about identity, and it is re-resolved
@@ -99,7 +99,7 @@ export function ConnectForm({
               }
               className={[
                 // 16px minimum, or iOS zooms the whole page on focus.
-                "mt-2 w-full rounded-xl border bg-white px-4 py-3 text-[16px] outline-none disabled:opacity-60",
+                "mt-2 w-full rounded-md border bg-white px-4 py-3 text-[16px] outline-none disabled:opacity-60",
                 state.status === "failed" && state.field === field.name
                   ? "border-[color:var(--color-red)]"
                   : "border-[color:var(--color-line)] focus:border-[color:var(--color-orange)]",
@@ -154,7 +154,7 @@ export function CopyRow({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
 
   return (
-    <div className="mt-3 flex items-center gap-2 rounded-xl border border-[color:var(--color-line)] bg-[color:var(--color-paper-2)] px-3 py-2">
+    <div className="mt-3 flex items-center gap-2 rounded-md border border-[color:var(--color-line)] bg-[color:var(--color-paper-2)] px-3 py-2">
       <code className="min-w-0 flex-1 truncate text-[13px] sm:text-sm">
         {value}
       </code>

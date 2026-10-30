@@ -28,7 +28,7 @@ export default async function Home() {
           <ul className="mt-6 grid gap-2">
             {grants.map((g) => (
               <li key={g.clinicId}>
-                <a href={`/c/${g.slug}`} className="border-line block rounded-xl border bg-white px-4 py-3 font-semibold">
+                <a href={`/c/${g.slug}`} className="border-line block rounded-md border bg-white px-4 py-3 font-semibold">
                   {g.name}
                 </a>
               </li>

@@ -215,6 +215,40 @@ describeDb("the portal's screens, before and after go-live", () => {
     }
   });
 
+  test("Settings: the payment-link text's checklist under its switch, the same four steps the server reads, with one button", async () => {
+    const saved = process.env.HEALDESK_SMS_ORIGINATION_IDENTITY;
+    const connect = process.env.STRIPE_CONNECT_CLIENT_ID;
+    const key = process.env.STRIPE_SECRET_KEY;
+    delete process.env.HEALDESK_SMS_ORIGINATION_IDENTITY;
+    process.env.STRIPE_CONNECT_CLIENT_ID = "ca_portalpages";
+    process.env.STRIPE_SECRET_KEY = "sk_test_portalpages";
+    try {
+      const html = await render("settings");
+      const list = html.slice(html.indexOf('data-text-checklist=""'), html.indexOf("</ul>", html.indexOf('data-text-checklist=""')));
+      const words = text(list);
+      expect(words).toContain("1 of 4 steps done");
+      expect(words).toContain("Phone is part of your plan · Done · You");
+      expect(words).toContain("Your payment account is connected · Not yet · You");
+      expect(words).toContain("Texting after a call is switched on · Not yet · You");
+      expect(words).toContain("Our texting number is ready · Not yet · Healdesk");
+      expect(words).toContain("We are setting this up and will tell you when it is ready.");
+      // A list, its summary as its name, announced in words; one button only, on the clinic's first step it can act on.
+      expect(list).toMatch(/<ul aria-labelledby="text-link-checks-summary"/);
+      expect(list).toMatch(/role="status"/);
+      expect(list.match(/<a /g) ?? []).toHaveLength(1);
+      expect(words).toContain("Connect Stripe");
+      expect(words).not.toMatch(/AWS|Parameter|toll|carrier|regist|SMS/i);
+      expect(await axeViolations(html, "settings")).toEqual([]);
+    } finally {
+      if (saved === undefined) delete process.env.HEALDESK_SMS_ORIGINATION_IDENTITY;
+      else process.env.HEALDESK_SMS_ORIGINATION_IDENTITY = saved;
+      if (connect === undefined) delete process.env.STRIPE_CONNECT_CLIENT_ID;
+      else process.env.STRIPE_CONNECT_CLIENT_ID = connect;
+      if (key === undefined) delete process.env.STRIPE_SECRET_KEY;
+      else process.env.STRIPE_SECRET_KEY = key;
+    }
+  });
+
   test("before go-live: Home's tracker says where going live stands, and Settings says a chat on the clinic's site is a real one (WP2)", async () => {
     // Go-live is automatic, so once the line is on the live site, staff
     // trying the chat there start the plan: Settings says so beside it.

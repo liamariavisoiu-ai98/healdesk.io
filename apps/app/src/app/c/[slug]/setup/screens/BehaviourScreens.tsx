@@ -5,7 +5,7 @@ import { useState } from "react";
 import { GREETING_LABELS } from "@/lib/setup/greetings";
 import type { SetupStripeView } from "@/lib/setup/payments";
 
-import type { SwitchRule } from "@/lib/portal/switch-rules";
+import { withTextSwitch, type SwitchRule, type TextSwitchRule } from "@/lib/portal/switch-rules";
 
 import {
   FullPaymentExplainer,
@@ -14,6 +14,7 @@ import {
   TextLinkExplainer,
 } from "../../settings/payment-explainers";
 import type { UnlockTargets } from "../../settings/SwitchExplainer";
+import { TextChecklist } from "../../settings/TextChecklist";
 import { ToggleRow } from "../../settings/ToggleRow";
 import { Choice, Field, ScreenShell } from "../ScreenShell";
 
@@ -221,7 +222,7 @@ export function DepositsScreen(
      */
     paymentSwitches?: {
       voice: boolean;
-      text: SwitchRule;
+      text: TextSwitchRule;
       full: SwitchRule;
       targets: UnlockTargets;
       /** What the clinic has saved now, so reopening shows it and saving keeps it. */
@@ -318,11 +319,19 @@ export function DepositsScreen(
           locked={!switches.text.enabled}
           explainerId="explain-text-link"
           explainer={
-            <TextLinkExplainer
-              id="explain-text-link"
-              rule={switches.text}
-              targets={switches.targets}
-            />
+            <>
+              {/* The same checks Settings shows, the switch's own following this toggle. */}
+              <TextChecklist
+                id="text-link-checks"
+                checks={withTextSwitch(switches.text.checks, textLink)}
+                targets={switches.targets}
+              />
+              <TextLinkExplainer
+                id="explain-text-link"
+                rule={switches.text}
+                targets={switches.targets}
+              />
+            </>
           }
         />
       ) : null}

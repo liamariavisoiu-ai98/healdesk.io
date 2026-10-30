@@ -2,9 +2,13 @@
 
 import { useCallback, useId, useState, type ReactNode } from "react";
 
+import { withTextSwitch, type TextCheck } from "@/lib/portal/switch-rules";
+
 import { useAnnounce } from "../feedback";
 
 import { saveSettingAction, type SettingActionResult } from "./actions";
+import type { UnlockTargets } from "./SwitchExplainer";
+import { TextChecklist } from "./TextChecklist";
 
 /**
  * Settings' controls (plan Part F2 and F8): a switch, a set of choices, a
@@ -69,6 +73,11 @@ export function SwitchSetting(props: {
    */
   explainer?: ReactNode;
   explainerId?: string;
+  /**
+   * The payment-link text's checks (switch-rules.ts), drawn under the line
+   * with the switch's own check following this switch as it moves.
+   */
+  checklist?: { id: string; checks: readonly TextCheck[]; targets: UnlockTargets };
 }) {
   const save = useSave(props.slug);
   const [on, setOn] = useState(props.initial);
@@ -97,6 +106,13 @@ export function SwitchSetting(props: {
           {props.applies ? ` ${props.applies}` : ""}
           {blocked && !props.explainer ? ` ${props.blockedLine}` : ""}
         </p>
+        {props.checklist ? (
+          <TextChecklist
+            id={props.checklist.id}
+            checks={withTextSwitch(props.checklist.checks, on)}
+            targets={props.checklist.targets}
+          />
+        ) : null}
         {props.explainer}
       </div>
       <button

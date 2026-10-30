@@ -154,3 +154,37 @@
     opacity: 1;
   }
 }
+
+/* The payment-link text's checklist (settings/TextChecklist.tsx): a calm list
+   under its switch. Each row has a fixed glyph column, so a step changing
+   from not yet to done moves nothing; met or not is said in words, and the
+   glyph and its colour only repeat it. A done glyph fades in where motion is
+   allowed; with motion off it is simply there. */
+.tcl-row {
+  display: grid;
+  grid-template-columns: 1.25rem minmax(0, 1fr);
+  align-items: start;
+  column-gap: 0.25rem;
+  min-height: 1.5rem;
+}
+.tcl-glyph {
+  color: var(--color-muted);
+  font-weight: 700;
+  text-align: center;
+}
+.tcl-met {
+  color: var(--color-green);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .tcl-met {
+    animation: tcl-in 0.4s ease-out 1;
+  }
+}
+@keyframes tcl-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

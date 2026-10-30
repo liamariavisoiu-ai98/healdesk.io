@@ -1199,17 +1199,6 @@ export function demoStageNote(
       ? [`They just said no. Nothing is confirmed, requested or set up on that: never say it's all set or done. Take the no, and ask what they would like instead in a few words.`]
       : []),
   ];
-  // The role-play hears nothing of healdesk (owner, 30 October 2026: "Aya
-  // keeps hallucinating between the pitch for healdesk and the
-  // receptionist"): no SELF, which made her healdesk's Aya at the front desk,
-  // and no fast lane, whose impatient branch told the front desk to recommend
-  // a package. Only the rules a front desk needs as well.
-  const frontDesk = [
-    ...confusedRule(progress),
-    ...(progress.saidNo
-      ? [`They just said no. Nothing is confirmed, requested or set up on that: never say it's all set or done. Take the no, and ask what they would like instead in a few words.`]
-      : []),
-  ];
   const a = progress.answers;
   const goalQuestion = `"What made you want to look at an AI assistant for ${clinic}?"`;
   const button = context.buyButton?.replace(/\bAYA\b/g, "Aya") ?? null;
@@ -1283,9 +1272,9 @@ export function demoStageNote(
           ]
         : [];
     return [
-      `You are Aya, the AI assistant answering ${clinic}'s phone, and a patient is calling. ${nameRule} Answer exactly as you would a real caller. You know only ${clinic}: its treatments, prices, hours and team in the clinic information. You know nothing about any software, any company behind you, any plan, price or setup of your own: never mention them, and if asked, say you're ${clinic}'s assistant and offer to help with their visit. Step out only if they clearly stop playing and talk to you as themselves about the demo.`,
+      `The role-play is on: ${who}, of ${clinic}'s team, is playing a patient calling ${clinic}, and you are Aya at its front desk. ${nameRule} Stay fully in character and answer exactly as you would a real caller; step out only if they clearly talk to you as themselves.`,
       TALK,
-      ...frontDesk,
+      ...shared,
       `Keep it brisk, the way a quick, capable front desk sounds. Give a real answer to what they ask; if they are unsure what to book, name one or two treatments from the list that suit what they want (no price that is not on the list, and never a figure they said) and offer a consultation. Never read out more than two prices at once: give the lowest "from" price and offer to say more.`,
       ...rpBookingLines(progress, context),
       `You can't see ${clinic}'s calendar in this role-play: never say a time is available, free or open. Take the time they ask for as their preferred time, for the team to confirm (a17b5aff: "Eleven AM is available").`,
@@ -1366,32 +1355,20 @@ export function demoStageNote(
     : !a.ask
     ? `Next: if something holds them back, answer it (below) and ask the tie-down once more in other words; then ask for it plainly: "Want to get ${clinic} set up?"`
     : `Next: if they said yes, ${close.charAt(0).toLowerCase()}${close.slice(1)} If they hesitate, answer the one thing holding them back (below) and ask once more.`;
-  const rp = progress.rpBooking ?? {};
-  const rpDone = [rp.service ? `asked about ${rp.service}` : null, rp.day || rp.time ? `asked for ${[rp.day, rp.time].filter(Boolean).join(" at ")}` : null].filter(Boolean);
-  const recap = progress.lastRoleplay
-    ? `What they just heard: in the role-play they played a patient calling ${clinic}${rpDone.length ? ` and ${rpDone.join(" and ")}` : ""}, and you answered as its front desk. Use it as proof once, in their terms ("You heard how I handled that ${rp.service ?? "call"}: that's every call that rings out today."), never replaying it.`
-    : null;
   return [
     `The role-play is over: you are talking with ${who}, of ${clinic}'s team, as themselves again. ${nameRule}`,
-    ...(recap ? [recap] : []),
     ...(known ? [known] : []),
     ...shared,
     ANSWERED_RULE,
     covered
       ? `They have answered the discovery questions: now the pitch, then the close.`
-      : `Find out what they need before you sell anything: one short question a turn, a few words reacting to each answer before the next, and no pitch, no price and no talk of signing up until the questions are answered. If they ask about price, what you do or how to start before then, say you'll get to exactly that in a moment and ask only the coverage question ("How do you see me helping you best: after-hours only, picking up when the lines are busy, or handling everything?") so you can answer it; if they say they're ready to buy, ask the remaining questions quickly so you set it up right.`,
+      : `Find out what they need before you sell anything: one short question a turn, a few words reacting to each answer before the next, and no pitch, no price and no talk of signing up until the questions are answered. If they ask about price, what you do or how to start before then, say you'll get to exactly that in a moment and ask the next question; if they say they're ready to buy, ask the remaining questions quickly so you set it up right.`,
     next,
     TALK,
     ...(covered ? [pitch, objections] : []),
     ...(covered
       ? [
-          `Buying signal: the moment they ask the price, how to start or say they're in, skip the rest of the pitch. In that reply: recommend the one package that fits, its price from the list below, the refund line (beat 9) right after the price, and the close, then ask which they'd start with if two packages fit ("Would you start with the phone on its own, or phone plus website chat?"). Never make a buyer wait for the script.`,
-          `Whenever you say a price, the refund line follows in the same reply, once in the call.`,
-        ]
-      : []),
-    ...(covered
-      ? [
-          `Close: "Want to get ${clinic} set up?" ${close}${discountWords ? ` Say the discount exactly so: ${discountWords}.` : ""}${button ? ` If they say yes, add: "I'll stay right here while you do it." and stay on the call, answering anything that comes up while they check out; never end the call yourself while they are buying.` : ""}`,
+          `Close: "Want to get ${clinic} set up?" ${close}${discountWords ? ` Say the discount exactly so: ${discountWords}.` : ""}`,
           offered
             ? `If they are still hesitant: "${noCall}"${discountWords ? " Mention the discount window once." : ""} Then thank them and say a warm goodbye. ${progress.callback === "sent" ? "The team already has their call-back request" : progress.callback === "failed" ? "They already have hello at healdesk dot io" : "You already offered a call from the team"}: never offer a call-back again or take another number.`
             : `If they are still hesitant, or ask to speak to a person, say exactly: "${DEMO_CALLBACK_OFFER.text}" (asked: callback). If they would rather not: "${noCall}"${discountWords ? " Mention the discount window once." : ""} Then thank them and say a warm goodbye.`,

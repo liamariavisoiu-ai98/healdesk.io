@@ -41,9 +41,19 @@ import { LEGAL_LAST_UPDATED, LEGAL_VERSION } from "@/lib/legal";
  * changing one changes the terms.
  */
 
+/**
+ * The text if BAA 1.6.0 were not released (BAA_1_6_0_RELEASED false in
+ * packages/catalog/src/baa.ts). It is hypothetical now: 1.6.0 went out with
+ * 2026-10-29.4, and the flag cannot go back without a new version. Its pins
+ * still match what the pages render with the flag off, so turning the flag
+ * off fails here only if the text moved. From 2026-10-30.1 both sides carry
+ * one number (LEGAL_VERSION no longer reads the flag), and `replaces` is the
+ * live text on either side. Before that this side was 2026-10-29.3, which
+ * never went out.
+ */
 const PINNED_BEFORE_1_6_0 = {
-  version: "2026-10-29.3",
-  lastUpdated: "29 October 2026",
+  version: "2026-10-30.1",
+  lastUpdated: "30 October 2026",
   /**
    * The version these pages replace: the last one that went out, which was
    * main's live text when this one was numbered. A note may cite it, an earlier
@@ -52,10 +62,13 @@ const PINNED_BEFORE_1_6_0 = {
    * when you renumber a version that never did, because that number was never
    * published.
    */
-  replaces: "2026-10-29.1",
+  replaces: "2026-10-29.5",
   sha256: {
-    "/terms": "5549e737e5aa44ec1ae1d2d71e646ef8fd6815827636cb2cc4b1ff476e8dd4a1",
-    "/privacy": "ad8e8fe77a564afb4326ef9d03f869be8aef4909657a8270ade50076d6653372",
+    // 2026-10-30.1: section 8's "Payment-link texts" softened, without 1.6.0's
+    // section 9 sentence.
+    "/terms": "20a557cf3b49db8cd877e34b4fa5b6cb8d8da74d6e1023b407b5f6194825bb36",
+    // Privacy does not read the flag: the same text as on the 1.6.0 side.
+    "/privacy": "82ff31ac73c289db7b2565be604f7162c0ad24b414ddc272ee5cce5decd6aff2",
     "/data-deletion": "d77557279849e427006387afa3c427ee976e10be5afd29cbba04a7356afd1042",
   },
 } as const;
@@ -67,29 +80,31 @@ const PINNED_BEFORE_1_6_0 = {
  * (numbered 2026-10-28.2, then 2026-10-28.4, before the payment-text wording
  * took 2026-10-29.1, then 2026-10-29.2 before the Meta deposit-link wording
  * took 2026-10-29.3; none of those numbers went out). 2026-10-29.4 went live
- * on 29 October 2026. 2026-10-29.5 adds the 30-day missed-contact record to
- * Privacy § 6; Terms and the deletion page are word for word the same.
- * `replaces` records the live text this one replaces: 2026-10-29.4.
+ * on 29 October 2026. 2026-10-29.5 added the 30-day missed-contact record to
+ * Privacy § 6, and went live. 2026-10-30.1 softens terms section 8's
+ * "Payment-link texts" (owner, 30 October 2026): no carrier registration or
+ * "one to four weeks" promised. Privacy and the deletion page are word for
+ * word the same. `replaces` records the live text this one replaces:
+ * 2026-10-29.5.
  */
 const PINNED_WITH_1_6_0 = {
-  version: "2026-10-29.5",
+  version: "2026-10-30.1",
   /**
-   * Written out, not copied from the pin above: the release day is 29 October
-   * 2026 or later, and LEGAL_LAST_UPDATED in src/lib/legal.ts and this value
-   * move together to that day (the page prints it, outside the hash).
-   * "29 October 2026" is what legal.ts says today; a release on a later day
-   * moves both again.
+   * Written out, not copied from the pin above: LEGAL_LAST_UPDATED in
+   * src/lib/legal.ts and this value move together (the page prints it,
+   * outside the hash). "30 October 2026" is what legal.ts says today.
    */
-  lastUpdated: "29 October 2026",
+  lastUpdated: "30 October 2026",
   /**
-   * 2026-10-29.4 is the live text this one replaces (healdesk.io/terms printed
-   * it on 29 October 2026, checked when GATEB and WEBCHAT-2 were merged).
+   * 2026-10-29.5 is the live text this one replaces (healdesk.io/terms printed
+   * it on 30 October 2026).
    */
-  replaces: "2026-10-29.4",
+  replaces: "2026-10-29.5",
   sha256: {
     ...PINNED_BEFORE_1_6_0.sha256,
-    "/terms": "4ac638372f90bc5d52d7a4cb705043ade7f9d8d3ccbdd2635c997fcdf4977506",
-    // 2026-10-29.5: Privacy § 6 lists the 30-day missed-contact record.
+    // 2026-10-30.1: section 8's "Payment-link texts" softened.
+    "/terms": "0ba9fe0cc8457a9ffd1254e5d3c5c94fdbd3a65268c34db71a2d0e56b6e8eb77",
+    // Since 2026-10-29.5: Privacy § 6 lists the 30-day missed-contact record.
     "/privacy": "82ff31ac73c289db7b2565be604f7162c0ad24b414ddc272ee5cce5decd6aff2",
   },
 } as const;

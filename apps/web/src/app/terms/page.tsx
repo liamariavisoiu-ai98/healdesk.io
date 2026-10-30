@@ -355,6 +355,16 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * LEGAL_VERSION 2026-10-29.5 (29 October 2026) changes the privacy policy
  * only (the 30-day missed-contact record, its section 6); this page's text
  * is word for word as released in 2026-10-29.4.
+ *
+ * Revised on 30 October 2026 as LEGAL_VERSION 2026-10-30.1 (owner-approved
+ * on 30 October 2026), replacing the live 2026-10-29.5: section 8's
+ * "Payment-link texts" no longer promises a carrier registration or a
+ * time for it ("one to four weeks"). No sender is chosen, so who files what
+ * with the carriers, and how long it takes, is not settled
+ * (docs/design/launch-readiness-2026-10-27/payment-link-text-route-scope.md);
+ * the clinic now agrees only that we may take the steps the carriers require
+ * before the text can be sent, and the text is phrased as designed, since
+ * nothing sends it yet. Privacy and the deletion page do not change.
  */
 export default function TermsPage() {
   const products = productsForTerms();
@@ -738,9 +748,9 @@ export default function TermsPage() {
           </li>
           <li>
             <strong>Payment-link texts.</strong> If you turn on the payment-link text, you agree
-            that the text goes out under your Practice&apos;s name, and that we may register your
-            Practice with the phone carriers for it, which can take one to four weeks. You can turn
-            it off at any time, and it stops on the next call.
+            that it is designed to go out under your Practice&apos;s name, and that we may take the
+            steps the phone carriers require before it can be sent. You can turn it off at any time,
+            and it stops on the next call.
           </li>
         </ul>
       </Section>

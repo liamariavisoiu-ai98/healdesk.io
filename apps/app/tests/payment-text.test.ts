@@ -25,7 +25,7 @@ import {
 import { agreementVersionCoversText } from "@/lib/sms/agreement";
 import { smsOriginationIdentity, smsSenderConfigured } from "@/lib/sms/config";
 import { createDepositLink } from "@/lib/billing/deposit-link";
-import { flagStaleOpenDepositsFor, OPEN_LINK_EXPIRY_GRACE_MS } from "@/lib/billing/deposit-sweep";
+import { flagStaleOpenDepositsFor, OPEN_LINK_EXPIRY_GRACE_MS, sweepUnlinkedDeposits } from "@/lib/billing/deposit-sweep";
 import { recordDepositLapsed } from "@/lib/billing/deposits";
 import { supersededReason } from "@/lib/email/superseded";
 import { dedupeKey, notifyBookingAlert } from "@/lib/notices/booking-alerts";
@@ -835,6 +835,25 @@ describeDb("the call flow and the one send, against the database", { timeout: 30
       expect((await deskAlerts(clinicId)).map((a) => [a.dedupe_key, a.payload.isPossiblyPaid])).toEqual([
         [dedupeKey("deposit_to_collect", { appointmentId, depositId, mayBePaid: true }), true],
       ]);
+    });
+
+    test("the sweep's expired-link check runs even when the unlinked-deposit check throws", async () => {
+      const { clinicId, appointmentId } = await clinicWithBooking("text-desk-sweep-indep");
+      await inTenant(clinicId, async (client) => {
+        await client.query(
+          `insert into deposit_payments (clinic_id, appointment_id, channel, amount_cents, stripe_account_id, status, checkout_session_id, expires_at)
+           values ($1, $2, 'voice', 7500, $3, 'open', 'cs_sweep_indep', $4)`,
+          [clinicId, appointmentId, ACCOUNT, LATER(3600)],
+        );
+        await client.query(`update appointments set deposit_status = 'pending_link' where id = $1`, [appointmentId]);
+      });
+      const later = new Date(LATER(3600).getTime() + OPEN_LINK_EXPIRY_GRACE_MS + 60_000);
+      const summary = await sweepUnlinkedDeposits(later, [
+        { check: async () => Promise.reject(new Error("boom")), failed: "unlinked deposits not swept" },
+        { check: flagStaleOpenDepositsFor, failed: "expired open deposit links not swept" },
+      ]);
+      expect(summary).toMatchObject({ clinics: 1, flagged: 1, failures: 1 });
+      expect(await depositStatus(clinicId, appointmentId)).toBe("pending_front_desk");
     });
 
     test("declined: the held L10 goes at once, and still goes when due", async () => {

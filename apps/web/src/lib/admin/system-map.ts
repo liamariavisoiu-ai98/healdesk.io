@@ -406,7 +406,7 @@ export const KEYS: readonly KeyDef[] = [
     home: "vercel",
     label: "Retell key (demo line)",
     need: "required",
-    rotation: { kind: "every", days: 180, how: `Make a new key in Retell (Settings, API Keys). ${VERCEL_HOW}`, impact: "\"Have AYA call me\" pauses for the minute of the redeploy." },
+    rotation: { kind: "every", days: 180, how: `Make a new key in Retell (Settings, API Keys). ${VERCEL_HOW} If you stored it as a GitHub secret for the Retell demo sync workflow (.github/workflows/retell-demo-sync.yml), change it there too.`, impact: "\"Have AYA call me\" pauses for the minute of the redeploy." },
   },
   { id: "vercel.RETELL_DEMO_AGENT_ID", env: "RETELL_DEMO_AGENT_ID", home: "vercel", label: "Which Retell agent is AYA's demo", need: "required", rotation: { kind: "public" } },
   { id: "vercel.RETELL_DEMO_FROM_NUMBER", env: "RETELL_DEMO_FROM_NUMBER", home: "vercel", label: "The demo line's phone number", need: "required", rotation: { kind: "public" } },

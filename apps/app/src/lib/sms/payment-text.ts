@@ -158,6 +158,8 @@ export type PaymentTextDeps = {
   offered?: (tx: TenantTx) => Promise<boolean>;
   /** The AWS transport; the SDK unless a test passes a fake. */
   transport?: SmsTransport;
+  /** The send's deadline (SMS_SEND_DEADLINE_MS), for tests. */
+  smsDeadlineMs?: number;
   /** The sender's config, for tests; process.env otherwise. */
   env?: Readonly<Record<string, string | undefined>>;
   /** Real calls allowed (lib/voice/test-calls.ts), for tests; HEALDESK_VOICE_REAL_CALLS otherwise. */
@@ -393,6 +395,7 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
       url: link.url,
       ...(deps.transport ? { transport: deps.transport } : {}),
       ...(deps.env ? { env: deps.env } : {}),
+      ...(deps.smsDeadlineMs ? { deadlineMs: deps.smsDeadlineMs } : {}),
     });
     if (sent.status === "sent") {
       await settle(claimed.id, { status: "sent", awsMessageId: sent.messageId, depositPaymentId: link.depositId }, now);

@@ -260,9 +260,11 @@ describe("the payment-link text's sender", () => {
       OriginationIdentity: ENV.HEALDESK_SMS_ORIGINATION_IDENTITY,
       MessageType: "TRANSACTIONAL",
     });
+    // One attempt, no SDK retry: SendTextMessage has no idempotency token, so a
+    // retry after a lost answer could text the caller twice.
     expect(wire.sms.configs[0]).toMatchObject({
-      maxAttempts: 2,
-      requestHandler: { connectionTimeout: 2_000, requestTimeout: 8_000 },
+      maxAttempts: 1,
+      requestHandler: { connectionTimeout: 1_500, requestTimeout: 4_000, throwOnRequestTimeout: true },
     });
   });
 });

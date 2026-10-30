@@ -66,12 +66,28 @@ export type SmsRequest = {
   MessageType: "TRANSACTIONAL";
 };
 
-/** How a send reaches AWS: the SDK in production, a fake in tests. Returns AWS's message id. */
-export type SmsTransport = (request: SmsRequest) => Promise<{ MessageId?: string | undefined }>;
+/**
+ * How a send reaches AWS: the SDK in production, a fake in tests. Returns
+ * AWS's message id. `signal` aborts the request when our own deadline passes.
+ */
+export type SmsTransport = (request: SmsRequest, signal?: AbortSignal) => Promise<{ MessageId?: string | undefined }>;
 
-const SMS_MAX_ATTEMPTS = 2;
-const SMS_CONNECT_TIMEOUT_MS = 2_000;
-const SMS_REQUEST_TIMEOUT_MS = 8_000;
+/**
+ * ONE attempt, never an automatic retry. SendTextMessage takes no
+ * idempotency token, so a retry after a lost response (the text sent, the
+ * answer not received) would text the caller twice. The once-per-booking
+ * ledger row (lib/sms/payment-text.ts) is the only guard against a second
+ * send, and the SDK must not add one of its own.
+ */
+const SMS_MAX_ATTEMPTS = 1;
+const SMS_CONNECT_TIMEOUT_MS = 1_500;
+const SMS_REQUEST_TIMEOUT_MS = 4_000;
+/**
+ * Our own deadline over the whole send, the SDK's load included: a caller
+ * is waiting on the line, so past it the send is given up as `error`, never
+ * resent, and the deposit goes to the front desk.
+ */
+export const SMS_SEND_DEADLINE_MS = 4_500;
 
 /** The client's bounds: a caller is waiting on the line. */
 export function smsClientConfig() {
@@ -100,7 +116,8 @@ export async function awsSmsTransport(): Promise<SmsTransport> {
     );
   });
   const client = new mod.PinpointSMSVoiceV2Client(smsClientConfig());
-  cached = async (request) => client.send(new mod.SendTextMessageCommand(request));
+  cached = async (request, signal) =>
+    client.send(new mod.SendTextMessageCommand(request), signal ? { abortSignal: signal } : {});
   return cached;
 }
 
@@ -125,22 +142,37 @@ export async function sendPaymentLinkText(input: {
   url: string;
   transport?: SmsTransport;
   env?: Readonly<Record<string, string | undefined>>;
+  /** Our deadline; SMS_SEND_DEADLINE_MS unless a test passes a shorter one. */
+  deadlineMs?: number;
 }): Promise<SmsSendResult> {
   const origin = smsOriginationIdentity(input.env);
   if (!origin) return { status: "failed", code: "not_configured" };
   if (!/^\+[1-9]\d{6,14}$/.test(input.to)) return { status: "failed", code: "invalid_number" };
   const body = paymentLinkTextBody(input.url);
+  const abort = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      abort.abort();
+      reject(Object.assign(new Error("payment-link text deadline passed"), { name: "TimeoutError" }));
+    }, input.deadlineMs ?? SMS_SEND_DEADLINE_MS);
+  });
   try {
-    const transport = input.transport ?? (await awsSmsTransport());
-    const reply = await transport({
-      DestinationPhoneNumber: input.to,
-      OriginationIdentity: origin,
-      MessageBody: body,
-      MessageType: "TRANSACTIONAL",
-    });
+    const send = (async () => {
+      const transport = input.transport ?? (await awsSmsTransport());
+      return transport(
+        { DestinationPhoneNumber: input.to, OriginationIdentity: origin, MessageBody: body, MessageType: "TRANSACTIONAL" },
+        abort.signal,
+      );
+    })();
+    // A late answer after the deadline is dropped; the attempt is never repeated.
+    send.catch(() => undefined);
+    const reply = await Promise.race([send, deadline]);
     if (!reply.MessageId) return { status: "failed", code: "error" };
     return { status: "sent", messageId: reply.MessageId };
   } catch (error) {
     return { status: "failed", code: smsFailureCode(error) };
+  } finally {
+    clearTimeout(timer);
   }
 }

@@ -13,7 +13,14 @@ import {
   textableNumber,
   type PaymentTextDeps,
 } from "@/lib/sms/payment-text";
-import { PAYMENT_LINK_TEXT_TEMPLATE, paymentLinkTextBody, smsFailureCode, type SmsRequest } from "@/lib/sms/send";
+import {
+  PAYMENT_LINK_TEXT_TEMPLATE,
+  paymentLinkTextBody,
+  SMS_SEND_DEADLINE_MS,
+  sendPaymentLinkText,
+  smsFailureCode,
+  type SmsRequest,
+} from "@/lib/sms/send";
 import { agreementVersionCoversText } from "@/lib/sms/agreement";
 import { smsOriginationIdentity, smsSenderConfigured } from "@/lib/sms/config";
 import { withTenant } from "@/lib/tenant";
@@ -83,6 +90,32 @@ describe("readiness from config", () => {
     expect(smsFailureCode({ name: "ThrottlingException" })).toBe("throttled");
     expect(smsFailureCode({ name: "ValidationException", Reason: "INVALID_PARAMETER" })).toBe("error");
     expect(smsFailureCode(new Error("boom"))).toBe("error");
+  });
+});
+
+describe("one attempt, inside a deadline", () => {
+  test("a transport that never answers: one attempt, aborted at the deadline, failed, never retried", async () => {
+    const calls: Array<{ request: SmsRequest; signal: AbortSignal | undefined }> = [];
+    const hung = (request: SmsRequest, signal?: AbortSignal) => {
+      calls.push({ request, signal });
+      return new Promise<{ MessageId?: string }>(() => undefined);
+    };
+    const started = Date.now();
+    const result = await sendPaymentLinkText({
+      to: CALLER,
+      url: "https://checkout.stripe.com/c/pay/cs_test_hung",
+      env: ENV,
+      transport: hung,
+      deadlineMs: 50,
+    });
+    expect(result).toEqual({ status: "failed", code: "error" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.signal?.aborted).toBe(true);
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  test("the deadline keeps the caller's silence to a few seconds", () => {
+    expect(SMS_SEND_DEADLINE_MS).toBeLessThanOrEqual(5_000);
   });
 });
 
@@ -418,6 +451,33 @@ describeDb("the call flow and the one send, against the database", { timeout: 30
     expect(JSON.stringify(notified)).not.toMatch(/4155550142|Chemical|peel|\$|cs_test/);
     await t.step({ state, answer: { paymentText: { confirmed: true } }, now: LATER(20) });
     expect(sent).toHaveLength(1);
+  });
+
+  test("a send that times out is recorded failed, goes to the front desk and is never sent again", async () => {
+    const { clinicId, appointmentId } = await clinicWithBooking("text-timeout");
+    let attempts = 0;
+    const hung = async () => {
+      attempts += 1;
+      return new Promise<{ MessageId?: string }>(() => undefined);
+    };
+    const t = paymentTextTools(
+      { clinicId, callId: "call_timeout" },
+      { offered: async () => true, transport: hung, env: ENV, notify, realCalls: true, smsDeadlineMs: 50 },
+    );
+    const state: BookingToolState = {
+      ...EMPTY_TOOL_STATE,
+      text: { stage: "confirming", appointmentId, number: CALLER, optedInAt: LATER(5).toISOString(), unanswered: 0 },
+    };
+    const done = await t.step({ state, answer: { paymentText: { confirmed: true } }, now: LATER(15) });
+    expect(done.reply).toBe(PAYMENT_TEXT_LINES_EN.notSent);
+    expect(attempts).toBe(1);
+    expect((await ledger(clinicId)).map((r) => [r.status, r.failure_code])).toEqual([["failed", "error"]]);
+    expect(await depositStatus(clinicId, appointmentId)).toBe("pending_front_desk");
+    expect(notified).toEqual([{ event: "payment_text_not_sent", fields: { clinicId, code: "error" } }]);
+    // The same confirmation again (a retried tool call): the first outcome, no second attempt.
+    const again = await t.step({ state, answer: { paymentText: { confirmed: true } }, now: LATER(20) });
+    expect(again.reply).toBe(PAYMENT_TEXT_LINES_EN.notSent);
+    expect(attempts).toBe(1);
   });
 
   test("a deposit not yet with the front desk is handed to it when the text fails", async () => {

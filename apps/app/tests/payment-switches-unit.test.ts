@@ -138,7 +138,16 @@ describe("the reset email (O4, payment_switches_reset)", () => {
 });
 
 describe("the payment-link text", () => {
-  test("is never offered while no sender exists", () => {
-    expect(paymentLinkTextOffered()).toBe(false);
+  // Both refusals answer before a row is read: no transaction is needed.
+  const noTx = {} as Parameters<typeof paymentLinkTextOffered>[0];
+
+  test("is never offered while healdesk's number is not ready", async () => {
+    expect(await paymentLinkTextOffered(noTx, { realCalls: true, senderReady: false })).toBe(false);
+    // Nothing configured, as in CI: not offered by default.
+    expect(await paymentLinkTextOffered(noTx)).toBe(false);
+  });
+
+  test("is never offered while the voice endpoint takes test calls only", async () => {
+    expect(await paymentLinkTextOffered(noTx, { realCalls: false, senderReady: true })).toBe(false);
   });
 });

@@ -422,6 +422,7 @@ export function switchFactsOf(settings: DepositSettings): SwitchFacts {
     calendarConnected: settings.calendarConnected,
     autoConfirm: settings.autoConfirm,
     hasVoice: settings.hasVoice,
+    textPaymentLinkOn: settings.textPaymentLink,
   };
 }
 

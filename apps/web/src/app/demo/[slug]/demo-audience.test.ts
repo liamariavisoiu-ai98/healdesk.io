@@ -166,9 +166,10 @@ describe("a demo in its practice's own words", () => {
 
   test("a vet's demo email says client, and its footer asks to leave out the clients' details", () => {
     const vet = session("veterinary", "Paws & Claws", "paws-claws-k7q2mz9xwa");
-    const { text } = demoEmail(vet, Date.now(), { unsubscribeUrl: "https://healdesk.io/api/email/unsubscribe?t=x" });
-    expect(text).toContain("Try it the way a client would");
-    expect(text).toContain("Replies reach the healdesk team. Please leave out your clients' details.");
+    const { text, html } = demoEmail(vet, Date.now(), { unsubscribeUrl: "https://healdesk.io/api/email/unsubscribe?t=x" });
+    expect(text).toContain("Replies reach our team. Please don't include client details.");
     expect(text).not.toMatch(/\bpatients?\b/i);
+    expect(html).toContain("Ask her what your clients ask");
+    expect(html).not.toMatch(/\bpatients?\b/i);
   });
 });

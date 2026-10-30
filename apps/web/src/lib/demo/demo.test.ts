@@ -338,16 +338,37 @@ describe("what the demo says", () => {
       profile: PROFILE as unknown as Record<string, unknown>,
       expiresAt: new Date("2026-10-13T12:00:00Z"),
     } as Parameters<typeof demoEmail>[0];
-    const { subject, text } = demoEmail(session, Date.now(), { unsubscribeUrl: OPT_OUT });
-    expect(subject).toBe("Custom demo instance ready for Smith Dental");
+    const { subject, text, html } = demoEmail(session, Date.now(), { unsubscribeUrl: OPT_OUT });
+    // The owner's email, word for word (30 October 2026), text and HTML alike.
+    expect(subject).toBe("Aya for Smith Dental is ready");
     expect(text).toContain("/demo/smith-dental-k7q2mz9xwa");
-    expect(text).toContain("Tuesday, October 13");
+    expect(text).toContain("Preview open until: Tuesday, October 13");
     expect(text).toMatch(/Wilmington, DE/);
     // Commercial (it can carry the setup offer): the opt-out and the X1.9 footer.
-    expect(text).toContain(`Stop these emails: ${OPT_OUT}`);
+    expect(text).toContain(`Unsubscribe: ${OPT_OUT}`);
     expect(text).not.toContain("is a service of");
-    expect(text).toContain("Replies reach the healdesk team. Please leave out patient details.");
-    expect(text).toContain("You're getting this because a demo was built for Smith Dental");
+    expect(text).toContain("Replies reach our team. Please don't include patient details.");
+    expect(text).toContain("You're receiving this because a preview of Aya was requested for Smith Dental with this address.");
+    expect(html).toContain('src="https://healdesk.io/brand/healdesk-logo-email.png"');
+    expect(html).toContain('href="https://healdesk.io/demo/smith-dental-k7q2mz9xwa"');
+    expect(html).toContain(`href="${OPT_OUT}"`);
+    expect(html).toContain("Built for Smith Dental");
+    expect(html).toContain("Tuesday, October 13");
+    expect(html).toMatch(/Wilmington&zwnj;, DE 19801&zwnj;/);
+    expect(html).not.toContain("{{");
+  });
+
+  it("escapes a clinic name read off a website in the HTML", () => {
+    const session = {
+      slug: "smith-dental-k7q2mz9xwa",
+      clinicName: "Smith <b>Dental</b> & Co",
+      brandName: null,
+      profile: null,
+      expiresAt: new Date("2026-10-13T12:00:00Z"),
+    } as unknown as Parameters<typeof demoEmail>[0];
+    const { html } = demoEmail(session, Date.now(), { unsubscribeUrl: OPT_OUT });
+    expect(html).toContain("Smith &lt;b&gt;Dental&lt;/b&gt; &amp; Co");
+    expect(html).not.toContain("<b>Dental</b>");
   });
 
   it("offers half off setup until 48 hours after the demo was ready, and never after", () => {
@@ -363,14 +384,18 @@ describe("what the demo says", () => {
       expiresAt: new Date("2026-10-20T16:00:00Z"),
     } as Parameters<typeof demoEmail>[0];
     const fresh = demoEmail(session, readyAt.getTime(), { unsubscribeUrl: OPT_OUT }).text;
-    expect(fresh).toContain("the setup fee is 50% off when you start from the demo page before Thursday, October 15");
-    const late = demoEmail(session, readyAt.getTime() + 48 * 3_600_000, { unsubscribeUrl: OPT_OUT }).text;
-    expect(late).not.toMatch(/50%|setup fee/);
+    // Voice + Web Chat, the package the demo page opens on: $697 + $259 setup.
+    expect(fresh).toContain("Setup: $478 instead of $956, until Thursday, October 15 at 12:00 PM EDT");
+    expect(fresh).toContain("The monthly price is the same either way.");
+    const late = demoEmail(session, readyAt.getTime() + 48 * 3_600_000, { unsubscribeUrl: OPT_OUT });
+    expect(late.text).not.toMatch(/Setup:|instead of \$|same either way/);
+    expect(late.html).not.toMatch(/Setup price holds until|instead of \$|same either way/);
     // A demo the visitor asked for on the homepage carries 30%, not half.
     const homepage = demoEmail({ ...session, createdBy: SELF_SERVE_DEMO }, readyAt.getTime(), {
       unsubscribeUrl: OPT_OUT,
-    }).text;
-    expect(homepage).toContain("the setup fee is 30% off");
+    });
+    expect(homepage.text).toContain("Setup: $670 instead of $956");
+    expect(homepage.html).toContain("$670 <span");
   });
 });
 

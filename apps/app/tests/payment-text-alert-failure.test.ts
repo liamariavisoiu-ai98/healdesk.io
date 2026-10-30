@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vit
 
 import { EMPTY_TOOL_STATE, type BookingToolState } from "@/lib/assistant/booking-tools";
 import { __setStripeForTests } from "@/lib/billing/stripe-client";
+import { recordDepositLapsed } from "@/lib/billing/deposits";
 import { supersededReason } from "@/lib/email/superseded";
 import { dedupeKey, notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import { updateAgentConfig } from "@/lib/onboarding/agent-config";
@@ -18,13 +19,13 @@ import { createStripeFake } from "./setup/stripe-fake";
  * email must then still go: a plain email beats none. Synthetic data only.
  */
 
-const failPossiblyPaid = vi.hoisted(() => ({ on: false }));
+const failPossiblyPaid = vi.hoisted(() => ({ on: false, all: false }));
 vi.mock("@/lib/notices/booking-alerts", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/notices/booking-alerts")>();
   return {
     ...real,
     notifyBookingAlert: (async (...args: Parameters<typeof real.notifyBookingAlert>) => {
-      if (failPossiblyPaid.on && args[2]?.mayBePaid) return false;
+      if ((failPossiblyPaid.on && args[2]?.mayBePaid) || (failPossiblyPaid.all && args[1] === "deposit_to_collect")) return false;
       return real.notifyBookingAlert(...args);
     }) as typeof real.notifyBookingAlert,
   };
@@ -52,6 +53,7 @@ describeDb("a text left queued whose possibly-paid alert cannot be queued", () =
   beforeEach(async () => {
     await truncateAll();
     failPossiblyPaid.on = false;
+    failPossiblyPaid.all = false;
     opsCalls.length = 0;
     vi.stubEnv("BETTER_AUTH_URL", "https://app.healdesk.test");
   });
@@ -84,7 +86,7 @@ describeDb("a text left queued whose possibly-paid alert cannot be queued", () =
     const reason = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => supersededReason(tx, "deposit_to_collect", payload));
     expect(reason).toBeNull();
     // A person is told, once, with no patient detail.
-    expect(opsCalls).toEqual([{ event: "payment_text_not_sent", fields: { clinicId: c.clinicId, code: "unannounced" } }]);
+    expect(opsCalls).toEqual([{ event: "deposit_alert_not_queued", fields: { clinicId: c.clinicId, appointmentId } }]);
     await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => supersededReason(tx, "deposit_to_collect", payload));
     expect(opsCalls).toHaveLength(1);
     // With the alert queued, the plain one would be closed instead.
@@ -95,6 +97,34 @@ describeDb("a text left queued whose possibly-paid alert cannot be queued", () =
     expect(
       await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => supersededReason(tx, "deposit_to_collect", payload)),
     ).toMatch(/outcome is unknown/);
+  });
+
+  test("a lapsed link whose front-desk alert cannot be queued: one ops notice with the booking's id, nothing thrown", async () => {
+    const c = await seedClinic("lapse-alert-fail");
+    const { appointmentId, depositId } = await inTenant(c.clinicId, async (client) => {
+      const { rows: contact } = await client.query<{ id: string }>(
+        `insert into contacts (clinic_id, phone) values ($1, '+14155550142') returning id`,
+        [c.clinicId],
+      );
+      const { rows } = await client.query<{ id: string }>(
+        `insert into appointments (clinic_id, contact_id, scheduled_for, treatment, deposit_usd, deposit_status)
+         values ($1, $2, $3, 'Chemical peel', '75.00', 'pending_link') returning id`,
+        [c.clinicId, contact[0]!.id, new Date(NOW.getTime() + 3 * 86_400_000)],
+      );
+      const { rows: dep } = await client.query<{ id: string }>(
+        `insert into deposit_payments (clinic_id, appointment_id, channel, amount_cents, stripe_account_id, status, checkout_session_id)
+         values ($1, $2, 'web', 7500, 'acct_1Lapse', 'open', 'cs_lapse') returning id`,
+        [c.clinicId, rows[0]!.id],
+      );
+      return { appointmentId: rows[0]!.id, depositId: dep[0]!.id };
+    });
+    failPossiblyPaid.all = true;
+    const result = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      recordDepositLapsed(tx, { depositId, status: "expired", from: ["open"], eventId: null, at: NOW }),
+    );
+    expect(result).toEqual({ changed: true, appointmentId });
+    expect(opsCalls).toEqual([{ event: "deposit_alert_not_queued", fields: { clinicId: c.clinicId, appointmentId } }]);
+    expect(JSON.stringify(opsCalls)).not.toMatch(/4155550142|Chemical|peel/);
   });
 
   /** A clinic whose call booking's deposit is with the front desk, its plain L10 held; then a send AWS never answers. */

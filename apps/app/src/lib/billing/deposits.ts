@@ -23,6 +23,7 @@ import {
   lockAutoConfirm,
 } from "@/lib/billing/settings";
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
+import { notifyOps } from "@/lib/ops/notify";
 import { readCalendarConnected, readHasVoice } from "@/lib/portal/switch-facts";
 import { switchRules, type RuledSwitch, type SwitchFacts } from "@/lib/portal/switch-rules";
 import { agreementCoversText } from "@/lib/sms/agreement";
@@ -830,5 +831,12 @@ export async function flagForFrontDeskReporting(
     ...(options.mayBePaid ? { mayBePaid: true } : {}),
     ...(options.depositId ? { depositId: options.depositId } : {}),
   });
+  if (!queued) {
+    // The deposit is the front desk's now and nobody was emailed: a person is
+    // told, once per booking an hour (notifyOps's dedupe), ids only. Not
+    // awaited, so the caller's transaction is never held for an email; a
+    // failure to tell is logged by notifyOps itself.
+    void notifyOps("deposit_alert_not_queued", { clinicId: tx.clinicId, appointmentId });
+  }
   return { moved: true, queued };
 }

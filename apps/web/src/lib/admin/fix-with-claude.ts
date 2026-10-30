@@ -103,6 +103,7 @@ export const RUNBOOK_ANCHOR: Record<OpsEvent, RunbookAnchor> = {
   voice_direct_line_loops: "voice",
   voice_test_mode_refused: "voice",
   payment_text_not_sent: "voice",
+  deposit_alert_not_queued: "voice",
   aya_outage_started: "answering",
   aya_outage_unresolved: "answering",
   aya_miss_case_opened: "answering",

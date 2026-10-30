@@ -53,6 +53,7 @@ KEYS=(
   SLACK_SUPPORT_CHANNEL
   SLACK_OPERATOR_IDS
   HEALDESK_APPROVAL_PASSCODE_HASH
+  HEALDESK_SMS_ORIGINATION_IDENTITY
   CLOUDFLARE_API_TOKEN
 )
 
@@ -88,6 +89,7 @@ hint_for() {
     SLACK_SUPPORT_CHANNEL) echo "the id (C...) of the Slack channel support replies are posted to, with the app invited (channel details, at the bottom)" ;;
     SLACK_OPERATOR_IDS) echo "the Slack member ids (U..., comma separated, no spaces needed) of the people allowed to press the support reply buttons (profile, ... menu, Copy member ID)" ;;
     HEALDESK_APPROVAL_PASSCODE_HASH) echo "the SAME scrypt hash (scrypt\$...) as HEALDESK_APPROVAL_PASSCODE_HASH on Vercel, from node apps/web/scripts/hash-approval-passcode.mjs; never the passcode itself. Change it in both places together" ;;
+    HEALDESK_SMS_ORIGINATION_IDENTITY) echo "the toll-free number that sends the optional payment-link text after a call, once AWS approved its registration and the account left the SMS sandbox: its Phone number ID (phone-<32 hex>, AWS End User Messaging SMS, Phone numbers), its ARN, or the number itself (+18XX...). Not a secret: setting it is what turns the text on, for clinics that switched it on" ;;
     CLOUDFLARE_API_TOKEN) echo "Cloudflare API token (Edit zone DNS, healdesk.io), read by infra.yml and host.yml only" ;;
   esac
 }
@@ -106,10 +108,14 @@ hint_for() {
 # Retell's agreement is signed: it can read any call in its workspace.
 patient_facing() {
   case "$1" in
-    META_APP_SECRET | META_VERIFY_TOKEN | ANTHROPIC_API_KEY | HEALDESK_RETELL_LLM_SECRET | HEALDESK_RETELL_API_KEY) return 0 ;;
+    META_APP_SECRET | META_VERIFY_TOKEN | ANTHROPIC_API_KEY | HEALDESK_RETELL_LLM_SECRET | HEALDESK_RETELL_API_KEY | HEALDESK_SMS_ORIGINATION_IDENTITY) return 0 ;;
   esac
   return 1
 }
+
+# HEALDESK_SMS_ORIGINATION_IDENTITY turns on the text to a caller who just
+# booked (apps/app/src/lib/sms/payment-text.ts); the voice endpoint offers it
+# only once voice_real_calls is on, so it waits for `yes` like the others.
 
 # Keys that may be pasted for a test on made-up data before the agreements.
 test_allowed() {
@@ -154,6 +160,8 @@ shape_problem() {
     SLACK_SIGNING_SECRET) [[ "$2" =~ ^[A-Za-z0-9]{16,128}$ ]] || echo "a Slack signing secret is 16 to 128 letters and digits" ;;
     SLACK_SUPPORT_CHANNEL) [[ "$2" =~ ^[CG][A-Z0-9]{2,30}$ ]] || echo "a Slack channel id starts with C (or G) and is capital letters and digits, not the channel's #name" ;;
     SLACK_OPERATOR_IDS) [[ "$2" =~ ^[UW][A-Z0-9]{2,30}(,[UW][A-Z0-9]{2,30}){0,19}$ ]] || echo "Slack member ids start with U (or W), capital letters and digits, separated by commas without spaces" ;;
+    # apps/app reads anything else as not ready, and the text stays off (lib/sms/config.ts).
+    HEALDESK_SMS_ORIGINATION_IDENTITY) [[ "$2" =~ ^(phone-[0-9a-f]{32}|arn:aws:sms-voice:[a-z0-9-]+:[0-9]{12}:phone-number/phone-[0-9a-f]{32}|\+18(00|33|44|55|66|77|88)[2-9][0-9]{6})$ ]] || echo "it must be the number's Phone number ID (phone- and 32 hex digits), its ARN, or the toll-free number as +18XXXXXXXXX" ;;
     HEALDESK_APPROVAL_PASSCODE_HASH) [[ "$2" =~ ^scrypt\$[0-9]{1,10}\$[0-9]{1,4}\$[0-9]{1,4}\$[A-Za-z0-9+/]+={0,2}\$[A-Za-z0-9+/]+={0,2}$ ]] || echo "it must be the hash the script prints (scrypt\$N\$r\$p\$salt\$key), never the 6-digit passcode" ;;
   esac
 }

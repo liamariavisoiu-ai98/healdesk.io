@@ -298,7 +298,7 @@ run "production_defaults" {
       "META_APP_SECRET", "META_VERIFY_TOKEN",
       "RESEND_API_KEY", "SLACK_WEBHOOK_URL", "STRIPE_CONNECT_WEBHOOK_SECRET", "STRIPE_SECRET_KEY",
       "SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "SLACK_SUPPORT_CHANNEL", "SLACK_OPERATOR_IDS",
-      "HEALDESK_APPROVAL_PASSCODE_HASH",
+      "HEALDESK_APPROVAL_PASSCODE_HASH", "HEALDESK_SMS_ORIGINATION_IDENTITY",
     ])
     error_message = "The web app container must get every app/ parameter as a secret, and nothing else."
   }
@@ -781,7 +781,7 @@ run "production_defaults" {
   assert {
     condition = (
       local.unset_placeholder == "__unset__" &&
-      length(aws_ssm_parameter.internal) == 10 && length(aws_ssm_parameter.external) == 17 &&
+      length(aws_ssm_parameter.internal) == 10 && length(aws_ssm_parameter.external) == 18 &&
       alltrue([
         for p in concat(values(aws_ssm_parameter.internal), values(aws_ssm_parameter.external)) :
         p.type == "SecureString" && p.key_id == aws_kms_key.main.arn && p.tier == "Standard" &&
@@ -814,12 +814,12 @@ run "production_defaults" {
         "HEALDESK_RETELL_API_KEY", "HEALDESK_RETELL_LLM_SECRET", "META_APP_SECRET",
         "META_VERIFY_TOKEN", "RESEND_API_KEY", "SLACK_WEBHOOK_URL", "STRIPE_CONNECT_WEBHOOK_SECRET", "STRIPE_SECRET_KEY",
         "SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "SLACK_SUPPORT_CHANNEL", "SLACK_OPERATOR_IDS",
-        "HEALDESK_APPROVAL_PASSCODE_HASH",
+        "HEALDESK_APPROVAL_PASSCODE_HASH", "HEALDESK_SMS_ORIGINATION_IDENTITY",
       ] : "/healdesk/production/app/${name}"]) &&
       length(output.internal_parameters) == 10 &&
       !contains(output.parameters_to_fill, "/healdesk/production/ci/CLOUDFLARE_API_TOKEN")
     )
-    error_message = "parameters_to_fill lists the seventeen external keys, without the two retired Synthflow ones (and never the CI token, which Terraform does not manage)."
+    error_message = "parameters_to_fill lists the eighteen external keys, without the two retired Synthflow ones (and never the CI token, which Terraform does not manage)."
   }
 
   assert {
@@ -876,16 +876,34 @@ run "production_defaults" {
     error_message = "The db-bootstrap task uses the key through SSM only, for the ten parameters' own encryption context."
   }
 
+  # --- The payment-link text after a call (apps/app/src/lib/sms/send.ts): one
+  # SMS action, on this account's phone numbers in us-east-1 only, and its
+  # number's parameter created __unset__ under app/, so the web tier and the
+  # voice endpoint get it and nothing is sent until the owner pastes it ---
+  assert {
+    condition = (
+      toset(one([for st in data.aws_iam_policy_document.app_task.statement : st if st.sid == "SendThePaymentLinkText"]).actions) == toset(["sms-voice:SendTextMessage"]) &&
+      toset(one([for st in data.aws_iam_policy_document.app_task.statement : st if st.sid == "SendThePaymentLinkText"]).resources) == toset(["arn:aws:sms-voice:us-east-1:865780386982:phone-number/*"]) &&
+      length([for st in data.aws_iam_policy_document.app_task.statement : st if anytrue([for a in st.actions : startswith(a, "sms-voice:") || startswith(a, "sns:") || startswith(a, "mobiletargeting:")])]) == 1 &&
+      aws_ssm_parameter.external["HEALDESK_SMS_ORIGINATION_IDENTITY"].name == "/healdesk/production/app/HEALDESK_SMS_ORIGINATION_IDENTITY" &&
+      aws_ssm_parameter.external["HEALDESK_SMS_ORIGINATION_IDENTITY"].value_wo == null &&
+      contains(local.web_secret_names, "HEALDESK_SMS_ORIGINATION_IDENTITY") &&
+      contains(local.voice_secret_names, "HEALDESK_SMS_ORIGINATION_IDENTITY") &&
+      !contains(local.worker_secret_names, "HEALDESK_SMS_ORIGINATION_IDENTITY")
+    )
+    error_message = "The task role may send a text from this account's phone numbers and nothing else of SMS; the texting number's parameter is created unset under app/ and reaches the web tier and the voice endpoint, not the worker."
+  }
+
   # --- IAM: the app's task role, lock labels on (the default) ---
   assert {
     condition = (
-      toset([for st in data.aws_iam_policy_document.app_task.statement : st.sid]) == toset(["CredentialVault", "SendThroughThePhiConfigurationSet", "ReadThePhiConfigurationSet"]) &&
+      toset([for st in data.aws_iam_policy_document.app_task.statement : st.sid]) == toset(["CredentialVault", "SendThroughThePhiConfigurationSet", "ReadThePhiConfigurationSet", "SendThePaymentLinkText"]) &&
       toset(one([for st in data.aws_iam_policy_document.app_task.statement : st if st.sid == "CredentialVault"]).actions) == toset(["kms:GenerateDataKey", "kms:Decrypt", "kms:Encrypt"]) &&
       length([for c in one([for st in data.aws_iam_policy_document.app_task.statement : st if st.sid == "CredentialVault"]).condition : c if c.test == "Null" && c.variable == "kms:ViaService" && contains(c.values, "true")]) == 1 &&
       length([for c in one([for st in data.aws_iam_policy_document.app_task.statement : st if st.sid == "CredentialVault"]).condition : c if c.test == "ForAllValues:StringEquals" && c.variable == "kms:EncryptionContextKeys" && toset(c.values) == toset(["healdesk:clinic", "healdesk:login"])]) == 1 &&
       toset([for c in one([for st in data.aws_iam_policy_document.app_task.statement : st if st.sid == "CredentialVault"]).condition : c.variable if c.test == "Null" && contains(c.values, "false")]) == toset(["kms:EncryptionContext:healdesk:clinic", "kms:EncryptionContext:healdesk:login"])
     )
-    error_message = "With lock labels on, the app's KMS calls need both labels, no other context key, and no AWS service in between; besides them the role may only send through the PHI configuration set and read it (SES on, the transcript bucket off)."
+    error_message = "With lock labels on, the app's KMS calls need both labels, no other context key, and no AWS service in between; besides them the role may only send through the PHI configuration set and read it (SES on, the transcript bucket off), and send the payment-link text."
   }
 
   # --- IAM: the deploy role trusts main, run by the owner ---
@@ -1257,7 +1275,7 @@ run "transcript_bucket_and_ses_on" {
     condition = (
       toset([for st in data.aws_iam_policy_document.app_task.statement : st.sid]) == toset([
         "CredentialVault", "S3UsesTheKeyForTranscripts", "TranscriptObjects",
-        "SendThroughThePhiConfigurationSet", "ReadThePhiConfigurationSet",
+        "SendThroughThePhiConfigurationSet", "ReadThePhiConfigurationSet", "SendThePaymentLinkText",
       ]) &&
       toset(flatten([for c in one([for st in data.aws_iam_policy_document.app_task.statement : st if st.sid == "S3UsesTheKeyForTranscripts"]).condition : c.values if c.variable == "kms:ViaService"])) == toset(["s3.us-east-1.amazonaws.com"]) &&
       toset(flatten([for c in one([for st in data.aws_iam_policy_document.app_task.statement : st if st.sid == "S3UsesTheKeyForTranscripts"]).condition : c.values if c.variable == "kms:EncryptionContext:aws:s3:arn"])) == toset(["arn:aws:s3:::healdesk-production-transcripts-865780386982"]) &&
@@ -2327,7 +2345,7 @@ run "standby" {
   assert {
     condition = (
       aws_kms_key.main.enable_key_rotation && aws_kms_alias.main.name == "alias/healdesk-production" &&
-      length(aws_ssm_parameter.internal) == 10 && length(aws_ssm_parameter.external) == 17 &&
+      length(aws_ssm_parameter.internal) == 10 && length(aws_ssm_parameter.external) == 18 &&
       toset(keys(aws_ecr_repository.this)) == toset(["app", "db-admin", "tls-proxy"]) &&
       length(aws_ecr_lifecycle_policy.this) == 3
     )

@@ -108,6 +108,14 @@ locals {
   # token or the channel unset: nothing is posted; the signing secret or
   # the operator ids unset: the buttons answer 404; the hash unset: nothing
   # approves from Slack.
+  # HEALDESK_SMS_ORIGINATION_IDENTITY is the toll-free number that sends the
+  # optional payment-link text after a call (apps/app/src/lib/sms/config.ts):
+  # its Phone number ID, ARN or E.164 number, pasted once AWS approved its
+  # registration and the account left the SMS sandbox. Not a secret, but kept
+  # here because the host has nowhere else for it, and because pasting it is
+  # the one act that turns the text on: while it is __unset__ the switch is
+  # locked for every clinic and nothing is offered or sent. The web tier
+  # reads it for the Settings switch, the voice endpoint to send.
   external_parameter_names = [
     "HEALDESK_PROVISION_SECRET",
     "STRIPE_SECRET_KEY",
@@ -126,6 +134,7 @@ locals {
     "SLACK_SUPPORT_CHANNEL",
     "SLACK_OPERATOR_IDS",
     "HEALDESK_APPROVAL_PASSCODE_HASH",
+    "HEALDESK_SMS_ORIGINATION_IDENTITY",
   ]
 
   parameter_paths = merge(

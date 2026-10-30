@@ -375,10 +375,10 @@ describeDb("provisioning from the imported records, and /welcome", () => {
     ],
     ["no", { kind: "dpa", isCoveredEntity: false }, {}, "hipaa-if-covered"],
   ] as const)(
-    "since the DPA's release, a %s practice's Data Protection Agreement provisions its account, bound to dpa/1.0.0",
+    "since the DPA's release, a %s practice's Data Protection Agreement provisions its account, bound to dpa/1.1.0",
     async (label, signature, purchaseFields, regime) => {
       const p = purchase({ signature, purchase: purchaseFields });
-      expect(p.agreement.documentVersion, label).toBe("dpa/1.0.0");
+      expect(p.agreement.documentVersion, label).toBe("dpa/1.1.0");
       const response = await provision(p, subscription());
       expect(response.status, `${label}: ${JSON.stringify(response.json)}`).toBe(201);
       expect(response.json.replayed).toBe(false);

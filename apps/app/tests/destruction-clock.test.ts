@@ -70,12 +70,21 @@ const ACTOR = { type: "service", serviceName: "test" } as const;
  */
 const THIRTY_DAY_VERSIONS = ["1.2.2", "1.2.1", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft"];
 /**
- * Every version whose Term clause is 1.3.0's, and the DPA. 1.6.0 is a draft
- * (BAA 1.5.1 with Anthropic's retention corrected, agreement-changes.md §17):
- * no clinic can sign it before the owner releases it, but its rule is its
- * text's, so it is held to the same clock.
+ * Every version whose Term clause states 1.3.0's rule, and both DPAs: 1.4.0
+ * to 1.5.1 carry 1.3.0's clause, 1.6.0 says the same with one phrase about
+ * Anthropic changed (agreement-changes.md §17), and 1.7.0 and dpa/1.1.0
+ * carry 1.6.0's and dpa/1.0.0's own (§21).
  */
-const EXPORT_RULE_VERSIONS = ["1.6.0", "1.5.1", "1.5.0", "1.4.0", "1.3.0", "dpa/1.0.0"];
+const EXPORT_RULE_VERSIONS = [
+  "1.7.0",
+  "1.6.0",
+  "1.5.1",
+  "1.5.0",
+  "1.4.0",
+  "1.3.0",
+  "dpa/1.1.0",
+  "dpa/1.0.0",
+];
 /**
  * A word for each version, for the labels clinics are seeded under. A label
  * of digits can give a slug the audit's PHI scan reads as a telephone number
@@ -89,7 +98,9 @@ const WORD: Record<string, string> = {
   "1.5.0": "newest",
   "1.5.1": "current",
   "1.6.0": "drafted",
+  "1.7.0": "tenday",
   "dpa/1.0.0": "dpa",
+  "dpa/1.1.0": "dpanew",
 };
 
 // -----------------------------------------------------------------------------
@@ -1128,7 +1139,16 @@ describeDb("the destruction clock in the database", () => {
       .map((t) => t.version)
       .filter((v) => exportRuleIsPromised(v))
       .sort();
-    expect(promising).toEqual(["1.3.0", "1.4.0", "1.5.0", "1.5.1", "1.6.0", "dpa/1.0.0"]);
+    expect(promising).toEqual([
+      "1.3.0",
+      "1.4.0",
+      "1.5.0",
+      "1.5.1",
+      "1.6.0",
+      "1.7.0",
+      "dpa/1.0.0",
+      "dpa/1.1.0",
+    ]);
     // No text, no promise: an unknown version waits for the switch.
     expect(exportRuleIsPromised("9.9.9")).toBe(false);
     expect(exportRuleIsPromised(null)).toBe(false);

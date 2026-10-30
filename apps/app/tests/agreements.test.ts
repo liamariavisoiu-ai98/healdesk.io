@@ -1875,20 +1875,20 @@ describeDb("signing", () => {
     expect(await acceptanceCount()).toBe(before);
   });
 
-  test("1.6.0, released, signs through the real release, and its signature carries both answers", async () => {
+  test("1.7.0, released, signs through the real release, and its signature carries both answers", async () => {
     const signed = await signAgreement(
       validSignRequest({
         clinicLegalName: "Released Clinic",
-        templateVersion: "1.6.0",
+        templateVersion: "1.7.0",
         platform: undefined,
         bookingSystem: "none",
         calendarAccount: "workspace_baa",
       }),
     );
-    expect(signed.version).toBe("1.6.0");
+    expect(signed.version).toBe("1.7.0");
     expect(signed.clauseIds).toContain("google-calendar-covered");
     // What the row and its audit event record about release is the
-    // template's own flag, set by the owner's release (29 October 2026).
+    // template's own flag, set by the owner's release (30 October 2026).
     expect(signed.approvedByCounsel).toBe(true);
 
     const variables = await storedVariables(signed.agreementId);
@@ -1903,13 +1903,13 @@ describeDb("signing", () => {
       `select document_version from baa_acceptances where id = $1`,
       [signed.agreementId],
     );
-    expect(rows[0]!.document_version).toBe("1.6.0");
+    expect(rows[0]!.document_version).toBe("1.7.0");
 
-    // 1.5.1, which 1.6.0 replaced outright, 1.5.0, which 1.5.1 replaced,
+    // 1.6.0, which 1.7.0 replaced outright, 1.5.1, which 1.6.0 replaced, 1.5.0, which 1.5.1 replaced,
     // 1.4.0, which 1.5.0 replaced, and 1.3.0, which 1.4.0 replaced, are
     // refused by name and write nothing.
     const before = await acceptanceCount();
-    for (const templateVersion of ["1.5.1", "1.5.0", "1.4.0", "1.3.0"]) {
+    for (const templateVersion of ["1.6.0", "1.5.1", "1.5.0", "1.4.0", "1.3.0"]) {
       await expect(
         signAgreement(
           validSignRequest({

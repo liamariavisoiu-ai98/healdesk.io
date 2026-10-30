@@ -70,6 +70,11 @@
 > kept as it was written before the release.
 > The terms, /data-deletion, the homepage FAQ, the register and the
 > unreleased DPA were corrected the same day.
+>
+> **On 30 October 2026 DPA 1.1.0 was drafted and not released** (§ 21,
+> `docs/dpa-v1.1.0.txt`): DPA 1.0.0 with its telephone exception carrying
+> the one optional payment-link text, in BAA 1.6.0's words. DPA 1.0.0 stays
+> the version offered until the owner releases 1.1.0.
 
 ## Contents
 
@@ -90,6 +95,7 @@
 15. [BAA 1.5.0: the transcript's copy deleted once delivery is confirmed](#15-baa-150-the-transcripts-copy-deleted-once-delivery-is-confirmed) (released 14 October 2026)
 16. [BAA 1.5.1: the optional booking details asked in a website chat too](#16-baa-151-the-optional-booking-details-asked-in-a-website-chat-too) (released 19 October 2026)
 17. [BAA 1.6.0: the model provider's retention, as Anthropic documents it](#17-baa-160-the-model-providers-retention-as-anthropic-documents-it) (drafted 19 October 2026, released by the owner 29 October 2026)
+21. [DPA 1.1.0: the one optional payment-link text](#21-dpa-110-the-one-optional-payment-link-text-drafted-30-october-2026-not-released) (drafted 30 October 2026, not released)
 18. [Review log](#review-log-2026-10-01)
 
 ---
@@ -3441,6 +3447,102 @@ else; `docs/baa-v1.6.0.txt` re-rendered and its header says so.
 | 1.6.0 live_calcom | `5fe5c29c…9195` | `487cc6e8deb479c8de50026cb1c99a38e73a4029760ab7e1b50525b76f09b5ee` |
 | 1.6.0 live_highlevel_personal | `d016bc7e…395c` | `c6472ec33af0df4b1dd749b9a164c965b112ee128ca09e666d1513b7042250e7` |
 | 1.6.0 live_calendly_nobaa | `df5cb9c7…22a6` | `8343db376f561f8259cc8fa93e20fb598d9d67cbd180f5a78f30f7a5ae3e878e` |
+
+## 21. DPA 1.1.0: the one optional payment-link text (drafted 30 October 2026, not released)
+
+> **Not legal advice, and not reviewed by counsel. NOT RELEASED.** The owner
+> asked for a new DPA version on 30 October 2026 so that a practice signing
+> the DPA holds the same exception for the payment-link text as a practice
+> signing BAA 1.6.0 (§ 20). The wording was drafted by an AI assistant from
+> BAA 1.6.0's and reviewed by an AI assistant only. `DPA_1_1_0_RELEASED` is
+> false in `packages/catalog/src/dpa.ts`: checkout offers dpa/1.0.0, and
+> nothing can sign, provision or accept 1.1.0. **Recommended: counsel reads
+> it, with § 20 and the carrier rules for the text, before 1.1.0 is released
+> or the first text goes to a DPA practice's caller.**
+
+### 21.1 What was wrong
+
+DPA 1.0.0's Safeguards clause (clause 9) ends its telephone exception with
+"healdesk places no calls and sends no SMS." The owner allowed one optional
+text after a booking call, carrying fixed wording and the practice's own
+payment link (28 October 2026), and BAA 1.6.0, released 29 October, says so
+(§ 20). A practice that is not a covered entity signs the DPA instead, so it
+would hold a promise the product is designed to break once the text is
+switched on.
+
+### 21.2 The text
+
+The last two sentences of clause 9's last paragraph, in 1.1.0 only
+(`DPA_NO_SMS_1_0` and `DPA_NO_SMS_1_1`, and `SAFEGUARDS_1_1`, which refuses to
+render if 1.0.0's sentences are not there):
+
+> Was (1.0.0): healdesk places no calls and sends no SMS. This exception does
+> not extend to any other channel or content.
+
+> Now (1.1.0): healdesk places no calls and sends no SMS, except that the
+> assistant is engineered and designed to offer a caller a single text
+> message that carries fixed wording and Practice's own payment link, where
+> Practice has chosen that option. This exception, that text included, does
+> not extend to any other channel or content.
+
+The exception is BAA 1.6.0's word for word. The first sentence keeps the
+DPA's own "places no calls", which never had the BAA's "to patients";
+"Practice" is the DPA's defined term too, and "a caller" is the client who
+telephones that the paragraph's first sentence describes. As in the BAA,
+"that text included" puts the text inside the paragraph's one narrow
+exception to the encryption covenant (a text message cannot negotiate
+encryption either), and on the owner's instruction the sentence names no
+sender, number, carrier, registration, vendor or timing, and does not
+promise that a text is offered or sent.
+
+### 21.3 What was left alone
+
+- **Every other sentence of 1.1.0.** Its clauses are 1.0.0's own objects in
+  1.0.0's order, except Safeguards, whose first two paragraphs and the start
+  of the third are 1.0.0's; the preamble differs only in its version line
+  ("Version 1.1.0"). A test renders 1.1.0 and 1.0.0 for every answer the
+  funnel can give and checks that, with the version line and the two
+  sentences put back, the texts are identical, and that outside clause 9 the
+  bytes are identical.
+- **DPA 1.0.0**: released, frozen, and still says "sends no SMS". Its hashes
+  and `docs/dpa-v1.0.0.txt` did not move.
+- **The calendar election form** (calendar-election-dpa/1.0.0): unchanged;
+  it would amend 1.1.0 as it amends 1.0.0.
+- **The plain-language notes** beside the DPA carry no sentence about texts.
+- **For counsel:** the paragraph still says a call never includes "payment
+  information" while the text carries a payment link. That is a link to the
+  practice's own hosted checkout, never a card number or an amount; the BAA
+  1.6.0 paragraph reads the same way.
+
+### 21.4 How it is held back
+
+1.1.0 is not registered in `DPA_TEMPLATES` while the switch is off
+(`dpaTemplatesFor(false)` is dpa/1.0.0 alone), so `CURRENT_DPA_VERSION`,
+checkout's copy, signing (`signableDpaTemplate`), the release gate
+(`agreementTemplateReleased`), provisioning and go-live behave exactly as
+before. This differs from BAA 1.6.0's draft, which sat after 1.5.1 and
+needed migration 0091 to give it a destruction rule; a draft that is not
+registered needs no migration. The release migration is staged beside the
+owner's checklist
+(`docs/design/launch-readiness-2026-10-27/dpa-release-1-1-0.sql`) and
+`apps/app/tests/dpa-release-1-1-0.test.ts` holds it to the catalogue.
+
+### 21.5 Golden hashes
+
+New, for the 1.1.0 draft (`packages/catalog/src/dpa-1-1-0.test.ts`); a
+draft's hashes may be regenerated while nobody can sign it. 1.0.0's
+(`packages/catalog/src/dpa.test.ts`) did not move.
+
+| Variant | dpa/1.0.0 (unchanged) | dpa/1.1.0 (new) |
+| --- | --- | --- |
+| sample (`docs/dpa-v1.0.0.txt`, `docs/dpa-v1.1.0.txt`) | `01db94b7ecda5d7d29d6311d299a2ee8e68f2b29fe07ec993c0678fbc01c40a5` | `a5f1eeff14fb2133ac76de1ad517124ce013e3ae74eb190d6f0601112cf79c6c` |
+| notcovered_live_covered | `4e100a50a408678d5dfd9c76dd0517b95c714f71d3a85f9d0cfd7184da8381fd` | `c7a7f2a7378a6bfbe2971d90a5b75c068a092d7f68955bb0a7c46a8ec145edcc` |
+| notcovered_live_uncovered | `6de2bc291d14ffc52d9e2fde485fabe09854c971115ecad9d704072743a67115` | `ccb98c1068e362b216bfd0aeda843d9e0fc0d98b6c8d0568d43a2f63ff2aa9a3` |
+| notcovered_live_personal | `c61270da2826c4c68937c0f764866f6c293ccf42cba9e704b94b4c01ee28dc56` | `0c5f6ad2b5b06c53b7f7041f74833e6c7c08b44650d118c500fa06baa4eb39cd` |
+| notcovered_notused_other | `1b74517f9382ac26fec9eac811bdef66e365a85616a7131ddbadf709f0a5267b` | `32be46a27254399958ca4823c60c640c3ff94c5dacb015872c6a6cf1c1941ac1` |
+| vet_live_covered | `866ac3a866b1c1b5c7de17b5c7c37cab5c4a030ff702b1619fdb881fbf741635` | `7b3a8315de4c6528b9f088aac09a2704f67a2eba5407ca7ce17c07d813c168b4` |
+| vet_live_personal | `98c90edbf6746026c0c9658beaa1392bf1fc105e21ae3354f4bfd27c633197d5` | `1f183a0b76fc2fb9d6632859814aa658a78c7139749028ee02b5f05eed33442b` |
+| vet_notused_mindbody | `66096105d262139e06c11d35a4c0869e079fcd0ec860f80ac697a14d28dbb26e` | `9b16fffc38bd28831d14ce77be86d9bf3b08ae3b5045122dfc1513b86adef784` |
 
 ---
 

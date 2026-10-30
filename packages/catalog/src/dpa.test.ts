@@ -136,7 +136,10 @@ const GOLDEN: Record<string, string> = {
   vet_notused_mindbody: "66096105d262139e06c11d35a4c0869e079fcd0ec860f80ac697a14d28dbb26e",
 };
 
-const template = () => currentDpaTemplate();
+// dpa/1.0.0 by name, not "whatever is current": these freeze the released
+// text, and must keep passing unchanged when a later version (dpa/1.1.0,
+// dpa-1-1-0.test.ts) becomes current.
+const template = () => getDpaTemplate("dpa/1.0.0")!;
 const render = (overrides: Partial<DpaVariables>) =>
   prepareDpa(template(), { ...SAMPLE, ...overrides });
 
@@ -173,7 +176,7 @@ function section(text: string, heading: string): string {
 
 describe("DPA freeze", () => {
   for (const [name, hash] of Object.entries(GOLDEN)) {
-    test(`${CURRENT_DPA_VERSION} / ${name} still renders the bytes drafted`, () => {
+    test(`dpa/1.0.0 / ${name} still renders the bytes drafted`, () => {
       expect(
         render(VARIANTS[name]!).hash,
         "The DPA text changed. It was released on 20 October 2026: never edit it, add a new version at DPA_TEMPLATES[0].",
@@ -189,7 +192,7 @@ describe("DPA freeze", () => {
   test("is registered once, namespaced and released, and nothing in the text ever said it was a draft", () => {
     expect(DPA_TEMPLATES.map((t) => t.version)).toEqual(["dpa/1.0.0"]);
     expect(CURRENT_DPA_VERSION).toBe("dpa/1.0.0");
-    expect(getDpaTemplate("dpa/1.0.0")).toBe(template());
+    expect(currentDpaTemplate()).toBe(template());
     expect(getDpaTemplate("1.0.0")).toBeUndefined();
     // Drafted 6 October 2026; released by the owner on 20 October 2026.
     expect(template().publishedOn).toBe("2026-10-20");
@@ -209,7 +212,7 @@ describe("DPA freeze", () => {
     const prepared = render({});
     expect(prepared.hash).toBe(hashDpaText(prepared.text));
     expect(prepared.hash).toMatch(/^[0-9a-f]{64}$/);
-    expect(prepared.version).toBe(CURRENT_DPA_VERSION);
+    expect(prepared.version).toBe("dpa/1.0.0");
     expect(prepared.clauseIds).toEqual(
       applicableDpaClauses(template(), { ...SAMPLE }).map((c) => c.id),
     );

@@ -2,6 +2,7 @@ import { CHANNELS, type Channel } from "@healdesk/catalog";
 import { and, eq, gt, sql } from "drizzle-orm";
 
 import { appointments, bookingRequests, clinicChannels, clinics, paymentLinkTexts, type ChannelWaitingOn } from "@/db/schema";
+import { flagForFrontDesk } from "@/lib/billing/deposits";
 import { pauseEmailSuperseded } from "@/lib/channels/pause";
 import type { TenantTx } from "@/lib/tenant";
 
@@ -119,6 +120,15 @@ async function depositAlertSuperseded(tx: TenantTx, payload: unknown): Promise<s
       .from(paymentLinkTexts)
       .where(and(eq(paymentLinkTexts.clinicId, tx.clinicId), eq(paymentLinkTexts.appointmentId, appointmentId)))
       .limit(1);
+    if (text?.status === "queued") {
+      // Claimed and never settled: the process died, or the outcome could
+      // not be recorded, possibly after AWS accepted the text. The texted
+      // link may be paid, so the front desk is told to check Stripe first
+      // (the possibly-paid L10, the same key the payment-text "unknown"
+      // path uses, so never twice), and this plain "collect" one is closed.
+      await flagForFrontDesk(tx, appointmentId, { mayBePaid: true });
+      return "the payment-link text's outcome is unknown; the possibly-paid alert replaces it";
+    }
     if (text && text.status !== "sent") return null;
     return "a payment link went out for the deposit before it could go";
   }

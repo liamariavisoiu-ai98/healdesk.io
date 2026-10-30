@@ -694,11 +694,9 @@ describeDb("the call flow and the one send, against the database", { timeout: 30
       expect(await ledger(clinicId)).toEqual([]);
     });
 
-    test("a crash between the link and the send: the held L10 still goes, and the expired link is swept to the desk as possibly paid", async () => {
-      const { clinicId, appointmentId } = await bookedWithAlert("text-desk-crash");
-      // The claim was written and the link made, then the process died before AWS was asked.
-      let depositId = "";
-      await inTenant(clinicId, async (client) => {
+    /** A claim left queued with its link made: the process died, maybe after AWS accepted the text. */
+    async function leftQueued(clinicId: string, appointmentId: string): Promise<string> {
+      return inTenant(clinicId, async (client) => {
         await client.query(
           `insert into payment_link_texts (clinic_id, appointment_id, call_ref_hash, status, opted_in_at, confirmed_at, created_at)
            values ($1, $2, $3, 'queued', $4, $4, $4)`,
@@ -709,22 +707,51 @@ describeDb("the call flow and the one send, against the database", { timeout: 30
            values ($1, $2, 'voice', 7500, $3, 'open', 'cs_crash', $4) returning id`,
           [clinicId, appointmentId, ACCOUNT, LATER(3600)],
         );
-        depositId = rows[0]!.id;
         await client.query(`update appointments set deposit_status = 'pending_link' where id = $1`, [appointmentId]);
+        return rows[0]!.id;
       });
-      const [held] = await deskAlerts(clinicId);
-      // Nothing was sent, so the "collect" email is not closed as if a link went out.
-      expect(await withTenant({ clinicId, actor: ACTOR }, (tx) => supersededReason(tx, "deposit_to_collect", held!.payload))).toBeNull();
+    }
 
-      // Stripe's expiry never arrives: past the link's expiry and the grace, the sweep hands it over, once.
+    test("a claim left queued (a crash, maybe after AWS accepted it): staff get only the possibly-paid email, never a plain 'collect'", async () => {
+      const { clinicId, appointmentId } = await bookedWithAlert("text-desk-crash");
+      await leftQueued(clinicId, appointmentId);
+      const [held] = await deskAlerts(clinicId);
+      // When the held plain L10 comes due, the outbox asks: it is closed, and the possibly-paid one queued.
+      const reason = await withTenant({ clinicId, actor: ACTOR }, (tx) => supersededReason(tx, "deposit_to_collect", held!.payload));
+      expect(reason).toMatch(/outcome is unknown/);
+      expect(await depositStatus(clinicId, appointmentId)).toBe("pending_front_desk");
+      const alerts = await deskAlerts(clinicId);
+      expect(alerts.map((a) => [a.dedupe_key, a.payload.isPossiblyPaid])).toEqual([
+        [dedupeKey("deposit_to_collect", { appointmentId }), false],
+        [dedupeKey("deposit_to_collect", { appointmentId, mayBePaid: true }), true],
+      ]);
+      // Exactly one email goes: the plain one is superseded, the possibly-paid one is not.
+      expect(await withTenant({ clinicId, actor: ACTOR }, (tx) => supersededReason(tx, "deposit_to_collect", alerts[1]!.payload))).toBeNull();
+      // Asked again (a retried outbox run), nothing new is queued.
+      await withTenant({ clinicId, actor: ACTOR }, (tx) => supersededReason(tx, "deposit_to_collect", held!.payload));
+      expect(await deskAlerts(clinicId)).toHaveLength(2);
+      // And the sweep has nothing left to do once the link expires.
+      const later = new Date(LATER(3600).getTime() + OPEN_LINK_EXPIRY_GRACE_MS + 60_000);
+      expect(await flagStaleOpenDepositsFor(clinicId, later)).toBe(0);
+    });
+
+    test("an expired open link with no word from Stripe is swept to the desk as possibly paid, once", async () => {
+      const { clinicId, appointmentId } = await clinicWithBooking("text-desk-sweep");
+      const depositId = await inTenant(clinicId, async (client) => {
+        const { rows } = await client.query<{ id: string }>(
+          `insert into deposit_payments (clinic_id, appointment_id, channel, amount_cents, stripe_account_id, status, checkout_session_id, expires_at)
+           values ($1, $2, 'voice', 7500, $3, 'open', 'cs_sweep', $4) returning id`,
+          [clinicId, appointmentId, ACCOUNT, LATER(3600)],
+        );
+        await client.query(`update appointments set deposit_status = 'pending_link' where id = $1`, [appointmentId]);
+        return rows[0]!.id;
+      });
       const later = new Date(LATER(3600).getTime() + OPEN_LINK_EXPIRY_GRACE_MS + 60_000);
       expect(await flagStaleOpenDepositsFor(clinicId, new Date(LATER(3600).getTime() + 60_000))).toBe(0);
       expect(await flagStaleOpenDepositsFor(clinicId, later)).toBe(1);
       expect(await flagStaleOpenDepositsFor(clinicId, later)).toBe(0);
       expect(await depositStatus(clinicId, appointmentId)).toBe("pending_front_desk");
-      const keys = (await deskAlerts(clinicId)).map((a) => [a.dedupe_key, a.payload.isPossiblyPaid]);
-      expect(keys).toEqual([
-        [dedupeKey("deposit_to_collect", { appointmentId }), false],
+      expect((await deskAlerts(clinicId)).map((a) => [a.dedupe_key, a.payload.isPossiblyPaid])).toEqual([
         [dedupeKey("deposit_to_collect", { appointmentId, depositId, mayBePaid: true }), true],
       ]);
     });

@@ -551,8 +551,15 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
         });
       });
     } catch (error) {
-      // The row stays queued: no second send can ever claim it.
-      log.error("payment-link text outcome not recorded", { clinicId: context.clinicId, error: describeError(error) });
+      // The row stays queued: no second send can ever claim it, and when the
+      // booking's held L10 comes due the outbox treats the outcome as unknown
+      // and sends the possibly-paid alert (lib/email/superseded.ts).
+      log.error("payment-link text outcome not recorded; the row stays queued", {
+        clinicId: context.clinicId,
+        outcome: to.status,
+        ...(to.failureCode ? { code: to.failureCode } : {}),
+        error: describeError(error),
+      });
     }
   }
 

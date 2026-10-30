@@ -97,8 +97,9 @@ describeDb("a text left queued whose possibly-paid alert cannot be queued", () =
     ).toMatch(/outcome is unknown/);
   });
 
-  test("a text AWS did not answer, whose possibly-paid alert cannot be queued: the plain email is released, not closed, and ops are told", async () => {
-    const c = await seedClinic("text-unknown-fail");
+  /** A clinic whose call booking's deposit is with the front desk, its plain L10 held; then a send AWS never answers. */
+  async function unknownSend(label: string) {
+    const c = await seedClinic(label);
     await getMigratorPool().query(
       `update clinics set stripe_connect_account_id = 'acct_1AlertFail', stripe_connect_connected_at = now(), agreement_kind = 'baa' where id = $1`,
       [c.clinicId],
@@ -147,7 +148,6 @@ describeDb("a text left queued whose possibly-paid alert cannot be queued", () =
     const notify = (async (event: string, fields: Record<string, unknown>) => {
       notified.push({ event, fields });
     }) as unknown as NonNullable<PaymentTextDeps["notify"]>;
-    failPossiblyPaid.on = true;
     try {
       const t = paymentTextTools(
         { clinicId: c.clinicId, callId: "call_unknown_fail" },
@@ -169,6 +169,10 @@ describeDb("a text left queued whose possibly-paid alert cannot be queued", () =
     } finally {
       __setStripeForTests(null);
     }
+    return { c, appointmentId, notified };
+  }
+
+  async function plainReleased(c: { clinicId: string }, appointmentId: string, notified: Array<{ event: string; fields: Record<string, unknown> }>) {
     const rows = await inTenant(c.clinicId, (client) =>
       client.query<{ dedupe_key: string; sent_at: Date | null; send_after: Date }>(
         `select dedupe_key, sent_at, send_after from billing_notices where kind = 'deposit_to_collect' order by created_at`,
@@ -178,5 +182,31 @@ describeDb("a text left queued whose possibly-paid alert cannot be queued", () =
     expect(rows.map((r) => [r.dedupe_key, r.sent_at])).toEqual([[dedupeKey("deposit_to_collect", { appointmentId }), null]]);
     expect(rows[0]!.send_after).toEqual(new Date(NOW.getTime() + 15_000));
     expect(notified).toEqual([{ event: "payment_text_not_sent", fields: { clinicId: c.clinicId, code: "unannounced" } }]);
+  }
+
+  test("a text AWS did not answer, whose possibly-paid alert cannot be queued: the plain email is released, not closed, and ops are told", async () => {
+    failPossiblyPaid.on = true;
+    const { c, appointmentId, notified } = await unknownSend("text-unknown-fail");
+    await plainReleased(c, appointmentId, notified);
+  });
+
+  test("a text AWS did not answer, whose transaction fails after the alert was queued: the same fallback", async () => {
+    // The plain email's close throws, rolling back the possibly-paid row with it.
+    await getMigratorPool().query(`
+      create or replace function test_refuse_notice_close() returns trigger language plpgsql as $$
+      begin
+        if new.last_error like 'not sent: the payment-link text may have gone%' then
+          raise exception 'test: refused';
+        end if;
+        return new;
+      end $$;
+      create trigger test_refuse_notice_close before update on billing_notices
+        for each row execute function test_refuse_notice_close();`);
+    try {
+      const { c, appointmentId, notified } = await unknownSend("text-unknown-throw");
+      await plainReleased(c, appointmentId, notified);
+    } finally {
+      await getMigratorPool().query(`drop trigger test_refuse_notice_close on billing_notices; drop function test_refuse_notice_close();`);
+    }
   });
 });

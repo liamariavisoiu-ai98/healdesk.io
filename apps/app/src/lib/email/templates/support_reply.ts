@@ -91,7 +91,7 @@ const FIXTURE: SupportReplyPayload = {
   supportRef: "HD-7F3KQ",
   topic: "forwarding",
   approvedReplyText:
-    "Hi, calls aren't reaching AYA yet because forwarding on your main line isn't set, so callers reach your line as before and nobody is missed.\n\nThe codes for your carrier are in Settings, under Channels; they take about two minutes. If they don't take, reply here and we'll call you on Monday.",
+    "Hi, calls aren't reaching AYA yet because forwarding on your main line isn't set, so callers reach your line as before and nobody is missed.\n\nThe codes for your carrier are in Settings, under Channels; they take about two minutes. If they don't take, reply here and we'll call you.",
   approvedAt: "2026-10-26T14:05:00.000Z",
   approvedByLabel: SUPPORT_SIGN_OFF,
 };

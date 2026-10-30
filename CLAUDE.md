@@ -473,10 +473,12 @@ a rule already holds, and treat a gap as a bug, not a precedent.
   agreement (owner, 28 October 2026): like Meta and Stripe it is handled by
   scoping, so the text is fixed words and the link and nothing else, never a
   treatment, a time, an amount or anything said on the call. Carriers still
-  require a sender registration per clinic. The route (owner, 30 October 2026):
-  a texting-only number per clinic, registered under the clinic's own name,
-  never AYA's number, never a number healdesk gives a client, never the
-  clinic's published number; the text opens with the clinic's name. No text
+  require a sender registration per clinic. The route (the owner left
+  the choice to the lead, 30 October 2026): AWS End User Messaging SMS in
+  healdesk's own AWS account (HIPAA eligible, under the AWS agreement already
+  signed, no new vendor), from a sending number held for this one text, never
+  AYA's number, never a number given to a clinic, never the clinic's published
+  number; the text opens with the clinic's name. No text
   goes to a caller of a clinic whose accepted agreement is older than the one
   that carries the exception (BAA 1.6.0, DPA 1.1.0 once released). Anything
   beyond that one text stays forbidden. One thing is not contact "after

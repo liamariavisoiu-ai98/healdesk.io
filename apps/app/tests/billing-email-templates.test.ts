@@ -954,11 +954,11 @@ describe("what each email says", () => {
     expect(email.text).toContain("While it's off, AYA doesn't answer clients.");
   });
 
-  test("auto-renew off inside the refund window says a refund is due, and by when we'll write", () => {
+  test("auto-renew off inside the refund window says a refund is due, and promises no day", () => {
     const { text } = render(named("auto-renew off inside the refund window"));
     expect(text).toContain("within 14 days of your plan starting");
-    // Raised on Tuesday 6 October: the next business day in New York.
-    expect(text).toContain("We'll email you by Wednesday 7 October to arrange the refund.");
+    expect(text).toContain("We'll email you to arrange the refund.");
+    expect(text).not.toMatch(/email you by/);
     expect(render(named("auto-renew off after the refund window")).text).not.toMatch(/refund/i);
   });
 
@@ -1050,11 +1050,9 @@ describe("what each email says", () => {
     );
   });
 
-  test("overage copy says the rates are provisional (CLAUDE.md)", () => {
-    for (const v of VARIANTS.filter((x) =>
-      ["overage_invoiced", "allowance_fallback"].includes(x.kind),
-    )) {
-      expect(render(v).text, v.name).toMatch(/provisional/);
+  test("the overage invoice email says nothing of our costs (owner, 30 October 2026)", () => {
+    for (const v of VARIANTS.filter((x) => x.kind === "overage_invoiced")) {
+      expect(render(v).text, v.name).not.toMatch(/provisional|costs us|measured/i);
     }
   });
 
@@ -1107,7 +1105,7 @@ describe("what each email says", () => {
     expect(voice.text).toContain(
       "Do nothing. AYA keeps answering, and each started block of 100 extra voice minutes is billed at $104.",
     );
-    expect(voice.text).toMatch(/provisional/);
+    expect(voice.text).not.toMatch(/provisional|costs us/);
     expect(voice.text).toContain(`Open Billing: ${PORTAL}`);
 
     const capped = render(named("90% of the chat conversations, under stop and fall back")).text;
@@ -1130,10 +1128,10 @@ describe("what each email says", () => {
     expect(capped).toContain("switch to “Keep going and bill the extra”");
   });
 
-  test("a usage alert that prints a block price says it is provisional, and never a per-unit rate", () => {
+  test("a usage alert quotes the block price without talking about our costs, and never a per-unit rate", () => {
     for (const v of VARIANTS.filter((x) => x.kind === "usage_80" || x.kind === "usage_100")) {
       const email = render(v);
-      if (/\$\d/.test(email.text)) expect(email.text, v.name).toMatch(/provisional/);
+      expect(email.text, v.name).not.toMatch(/provisional|costs us/);
       expect(`${email.subject}\n${email.text}`, v.name).not.toMatch(
         /\$0\.\d|\b(a|per) (voice )?minute\b|\b(a|per) (chat )?conversation\b/,
       );

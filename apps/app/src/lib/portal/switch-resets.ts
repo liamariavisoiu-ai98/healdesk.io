@@ -1,3 +1,6 @@
+import { eq } from "drizzle-orm";
+
+import { clinics } from "@/db/schema";
 import {
   getDepositSettings,
   switchFactsOf,
@@ -206,7 +209,13 @@ export async function fullPaymentActive(tx: TenantTx): Promise<boolean> {
  *   - the voice endpoint is out of its test-calls-only mode
  *     (HEALDESK_VOICE_REAL_CALLS=1, lib/voice/test-calls.ts): a test call
  *     on the made-up clinic is never offered a text, so no real number is
- *     texted before every agreement in the chain is signed.
+ *     texted before every agreement in the chain is signed;
+ *   - the clinic is under the Business Associate Agreement. BAA 1.6.0, the
+ *     go-live floor, carries the text's exception ("except that the
+ *     assistant is engineered and designed to offer a caller a single text
+ *     message ..."); DPA 1.0.0 still says "sends no SMS"
+ *     (docs/counsel/agreement-changes.md § 20.3), so a clinic under the DPA
+ *     is never offered one until a DPA version carries the exception.
  *
  * The answer gate already decided the call may be answered (the vendor
  * chain, pause, suspension), and the deposit link's own refusals still run
@@ -221,5 +230,11 @@ export async function paymentLinkTextOffered(
   const senderReady = options.senderReady ?? smsSenderConfigured();
   if (!senderReady) return false;
   const rule = switchRules(await readPaymentFacts(tx), senderReady).text_payment_link;
-  return rule.enabled && textChecksMet(rule.checks);
+  if (!rule.enabled || !textChecksMet(rule.checks)) return false;
+  const [clinic] = await tx.db
+    .select({ kind: clinics.agreementKind })
+    .from(clinics)
+    .where(eq(clinics.id, tx.clinicId))
+    .limit(1);
+  return clinic?.kind === "baa";
 }

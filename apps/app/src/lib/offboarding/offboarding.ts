@@ -25,6 +25,7 @@ import {
   providerConnections,
   reconciliationExceptions,
   missedContacts,
+  paymentLinkTexts,
   retellRecordingAlerts,
   rightsIntakes,
   securityEvents,
@@ -610,6 +611,12 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   await del("slot_holds", () => tx.db.delete(slotHolds).where(eq(slotHolds.clinicId, c)).returning({ id: slotHolds.id }));
   await del("reconciliation_exceptions", () => tx.db.delete(reconciliationExceptions).where(eq(reconciliationExceptions.clinicId, c)).returning({ id: reconciliationExceptions.id }));
   await del("transactions", () => tx.db.delete(transactions).where(eq(transactions.clinicId, c)).returning({ id: transactions.id }));
+  // The payment-link text ledger (drizzle/0140), before the deposits and the
+  // appointments it points at: a settled row is frozen but for its deposit
+  // link's SET NULL, so it goes first rather than being rewritten; it would go
+  // with its appointment by cascade anyway, and is deleted here so the count
+  // is in the record and the stamp's check names it.
+  await del("payment_link_texts", () => tx.db.delete(paymentLinkTexts).where(eq(paymentLinkTexts.clinicId, c)).returning({ id: paymentLinkTexts.id }));
   // Deposits (drizzle/0065), before the appointments they were taken for: each
   // carries the Stripe session that finds the patient in the clinic's Stripe
   // account, and BAA 1.3.0's clause 17 lets only two records survive. The app

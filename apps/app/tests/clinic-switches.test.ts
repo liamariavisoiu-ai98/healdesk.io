@@ -429,8 +429,9 @@ describeDb("settings changes reach ops, and operators set switches", () => {
         ).data.switches.map((s) => [s.key, s]),
       );
 
-    // Nothing connected: both refused with the rule's own sentence.
-    expect(await set("text_payment_link", true)).toEqual({ ok: false, message: "Texting the payment link is not available yet.", field: "text_payment_link" });
+    // Nothing connected: both refused with the rule's own sentence, the text's first
+    // unmet check the clinic can act on (switch-rules.ts, its four checks in order).
+    expect(await set("text_payment_link", true)).toEqual({ ok: false, message: "Connect your Stripe account first.", field: "text_payment_link" });
     expect(await set("payment_ask", "full_payment")).toMatchObject({ ok: false, message: "Connect your Stripe account first." });
 
     // Stripe, a deposit, and a calendar that is only degraded (Google briefly

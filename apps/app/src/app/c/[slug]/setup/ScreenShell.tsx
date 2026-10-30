@@ -39,6 +39,7 @@ export function ScreenShell(props: {
   const [working, setWorking] = useState<"save" | "skip" | null>(null);
   const [problem, setProblem] = useState<Problem | null>(null);
   const statusId = useId();
+  const skipCostId = useId();
 
   async function run(action: () => Promise<ScreenActionResult>, which: "save" | "skip") {
     setWorking(which);
@@ -61,6 +62,19 @@ export function ScreenShell(props: {
 
   return (
     <>
+      {/* Back sits above the title, top left, as the checkout's StepShell
+          puts it (30 October 2026): the way back is read before the question,
+          not found under the buttons after it. */}
+      {props.backHref ? (
+        <p className="mb-3 text-sm">
+          <a
+            href={props.backHref}
+            className="text-muted hover:text-ink -ml-2 inline-flex min-h-11 items-center rounded-sm px-2 font-semibold"
+          >
+            ← Back
+          </a>
+        </p>
+      ) : null}
       <h1 className="text-2xl font-semibold">{props.title}</h1>
       {props.intro ? <div className="text-muted mt-3 space-y-2">{props.intro}</div> : null}
       {props.lead ? <div className="mt-6 grid gap-5">{props.lead}</div> : null}
@@ -80,7 +94,7 @@ export function ScreenShell(props: {
           aria-live="polite"
           className={
             problem
-              ? "mt-6 rounded-xl border border-red-200 bg-white px-4 py-3 text-sm text-red-800"
+              ? "mt-6 rounded-md border border-problem-line bg-white px-4 py-3 text-sm text-problem"
               : "sr-only"
           }
         >
@@ -99,7 +113,15 @@ export function ScreenShell(props: {
           ) : null}
         </div>
 
-        <div className="mt-6 flex flex-wrap items-center gap-3">
+        {/* What skipping costs comes before the buttons, and the Skip button
+            names it (aria-describedby), so it is read before the choice is
+            made and not after. */}
+        {props.skippable === false ? null : (
+          <p id={skipCostId} className="text-muted mt-6 text-sm">
+            If you skip: {props.skipCost}
+          </p>
+        )}
+        <div className="mt-3 flex flex-wrap items-center gap-3">
           <button
             type="submit"
             disabled={working !== null}
@@ -111,6 +133,7 @@ export function ScreenShell(props: {
             <button
               type="button"
               disabled={working !== null}
+              aria-describedby={skipCostId}
               onClick={() => void run(() => skipScreen(props.slug, props.screen), "skip")}
               className="border-line min-h-11 rounded-full border px-5 py-3 text-sm font-semibold disabled:opacity-50"
             >
@@ -118,20 +141,24 @@ export function ScreenShell(props: {
             </button>
           )}
         </div>
-        {props.skippable === false ? null : (
-          <p className="text-muted mt-3 text-sm">If you skip: {props.skipCost}</p>
-        )}
-        {props.backHref ? (
-          <p className="mt-6 text-sm">
-            <a href={props.backHref} className="text-muted underline underline-offset-2">
-              Back
-            </a>
-          </p>
-        ) : null}
       </form>
     </>
   );
 }
+
+/**
+ * What a field offers to fill in when the screen does not say: a phone
+ * number, a web address or an email address by its type, since each is a
+ * value the browser already keeps and the spec asks that nothing be typed
+ * twice. A plain text field offers nothing: a greeting or a question has no
+ * stored value worth suggesting.
+ */
+const AUTOCOMPLETE_BY_TYPE: Record<"text" | "tel" | "url" | "email", string> = {
+  text: "off",
+  tel: "tel",
+  url: "url",
+  email: "email",
+};
 
 /** A labelled text input, the wizard's one style of field. */
 export function Field(props: {
@@ -155,7 +182,7 @@ export function Field(props: {
     maxLength: props.maxLength,
     placeholder: props.placeholder || undefined,
     "aria-describedby": props.hint ? hintId : undefined,
-    className: "border-line w-full rounded-xl border bg-white px-4 py-3 text-base",
+    className: "border-line w-full rounded-md border bg-white px-4 py-3 text-base",
   };
   return (
     <div className="grid gap-1">
@@ -168,7 +195,7 @@ export function Field(props: {
         <input
           {...common}
           type={props.type ?? "text"}
-          autoComplete={props.autoComplete ?? "off"}
+          autoComplete={props.autoComplete ?? AUTOCOMPLETE_BY_TYPE[props.type ?? "text"]}
           inputMode={props.inputMode}
           onChange={(event) => props.onChange(event.target.value)}
         />
@@ -199,7 +226,7 @@ export function Choice<T extends string>(props: {
           <label
             key={option.id}
             htmlFor={id}
-            className={`border-line flex min-h-11 gap-3 rounded-xl border bg-white px-4 py-3 ${option.disabled ? "opacity-60" : "cursor-pointer"}`}
+            className={`border-line flex min-h-11 gap-3 rounded-md border bg-white px-4 py-3 ${option.disabled ? "opacity-60" : "cursor-pointer"}`}
           >
             <input
               id={id}

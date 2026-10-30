@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 import type { PortalGrant } from "@/lib/portal/access";
 import type { AnsweringControl, AnsweringStatus } from "@/lib/portal/header";
-import { portalNav, sectionPath, type PortalSection } from "@/lib/portal/nav";
+import { notYetLine, portalNav, sectionPath, type PortalSection } from "@/lib/portal/nav";
 
 import { signOut } from "./actions";
 import { HelpPanel } from "./HelpPanel";
@@ -48,6 +48,8 @@ export type ShellProps = {
 
 export function PortalShell(props: ShellProps) {
   const nav = portalNav(props.slug, props.section, props.opened, props.liveChannels ?? []);
+  const links = nav.filter((item) => item.href !== null);
+  const notYet = notYetLine(nav);
   const others = props.locations.filter((l) => l.slug !== props.slug);
 
   return (
@@ -94,34 +96,26 @@ export function PortalShell(props: ShellProps) {
           />
         )}
 
+        {/* The screens that open: a tile each. A patient screen not open yet
+            is one plain sentence under them (30 October 2026) rather than a
+            greyed tile that looks like a button and does nothing. */}
         <nav aria-label="Portal" className="mt-4">
-          <ul className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-            {nav.map((item) =>
-              item.href !== null ? (
-                <li key={item.section}>
-                  <a
-                    href={item.href}
-                    aria-current={item.current ? "page" : undefined}
-                    className={`flex min-h-11 items-center justify-center rounded-xl border px-2 py-2 text-center text-sm font-semibold ${
-                      item.current ? "border-ink bg-ink text-white" : "border-line bg-white"
-                    }`}
-                  >
-                    {item.label}
-                  </a>
-                </li>
-              ) : (
-                <li key={item.section}>
-                  <span
-                    aria-disabled="true"
-                    className="border-line bg-paper-2 text-muted flex min-h-11 flex-col items-center justify-center rounded-xl border px-2 py-1 text-center text-sm"
-                  >
-                    <span className="font-semibold">{item.label}</span>
-                    <span className="text-xs">{item.note}</span>
-                  </span>
-                </li>
-              ),
-            )}
+          <ul className={`grid gap-2 ${links.length <= 4 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3 sm:grid-cols-6"}`}>
+            {links.map((item) => (
+              <li key={item.section}>
+                <a
+                  href={item.href}
+                  aria-current={item.current ? "page" : undefined}
+                  className={`flex min-h-11 items-center justify-center rounded-md border px-2 py-2 text-center text-sm font-semibold ${
+                    item.current ? "border-ink bg-ink text-white" : "border-line bg-white"
+                  }`}
+                >
+                  {item.label}
+                </a>
+              </li>
+            ))}
           </ul>
+          {notYet ? <p className="text-muted mt-2 text-sm">{notYet}</p> : null}
         </nav>
       </header>
 
@@ -146,7 +140,7 @@ function StatusLine(props: {
   audience: "patients" | "clients";
   timeZone: string;
 }) {
-  const box = "mt-4 rounded-xl border px-4 py-3 text-sm font-semibold";
+  const box = "mt-4 rounded-md border px-4 py-3 text-sm font-semibold";
   switch (props.status.kind) {
     case "not_yet":
       return (
@@ -213,13 +207,13 @@ function AccountSwitcher(props: {
       </summary>
       <ul
         aria-label="Other accounts"
-        className="border-line mt-2 grid gap-1 rounded-xl border bg-white p-2"
+        className="border-line mt-2 grid gap-1 rounded-md border bg-white p-2"
       >
         {props.others.map((account) => (
           <li key={account.slug}>
             <a
               href={sectionPath(account.slug, props.section)}
-              className="flex min-h-11 items-center rounded-lg px-3 font-semibold hover:bg-paper-2"
+              className="flex min-h-11 items-center rounded-sm px-3 font-semibold hover:bg-paper-2"
             >
               {account.name}
             </a>

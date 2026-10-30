@@ -438,6 +438,8 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
       // An attempt still in flight owns the outcome, the deposit's state and
       // the held L10 with it: this one changes nothing.
       if (earlier !== "sent" && earlier !== "unknown" && !inFlight) await toFrontDesk(appointmentId, null, now);
+      // The first attempt may still send it: never tell the caller it failed.
+      if (inFlight) return "unknown";
       return earlier ?? "failed";
     }
 

@@ -515,6 +515,24 @@ describeDb("the call flow and the one send, against the database", { timeout: 30
     expect(attempts).toBe(1);
   });
 
+  test("a retried confirmation while the first attempt is in flight is never told it failed", async () => {
+    const { clinicId, appointmentId } = await clinicWithBooking("text-inflight");
+    await inTenant(clinicId, (client) =>
+      client.query(
+        `insert into payment_link_texts (clinic_id, appointment_id, call_ref_hash, status, opted_in_at, confirmed_at, created_at)
+         values ($1, $2, $3, 'queued', $4, $4, $4)`,
+        [clinicId, appointmentId, callRefHash("call_one"), LATER(5)],
+      ),
+    );
+    const state: BookingToolState = {
+      ...EMPTY_TOOL_STATE,
+      text: { stage: "confirming", appointmentId, number: CALLER, optedInAt: LATER(5).toISOString(), unanswered: 0 },
+    };
+    const done = await tools(clinicId).step({ state, answer: { paymentText: { confirmed: true } }, now: LATER(15) });
+    expect(done.reply).toBe(PAYMENT_TEXT_LINES_EN.unsure);
+    expect(sent).toEqual([]);
+  });
+
   test("a definite refusal is not 'unknown': the plain front-desk path", () => {
     expect(smsFailureCode({ name: "ValidationException", Reason: "INVALID_PHONE_NUMBER" })).toBe("invalid_number");
     expect(smsFailureCode({ name: "ConflictException", Reason: "DESTINATION_PHONE_NUMBER_OPTED_OUT" })).toBe("opted_out");

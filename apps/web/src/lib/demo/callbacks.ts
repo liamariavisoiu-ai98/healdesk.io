@@ -51,6 +51,11 @@ async function readAll(client: SheetsClient): Promise<Located[]> {
 export type NewDemoCallback = Omit<DemoCallbackRow, "id" | "requestedAt"> & {
   /** The demo's requester's address, from its row, so the lead gets its event and the consent its link. */
   leadEmail: string | null;
+  /**
+   * The words they said yes to, when not Aya's offer on a demo call: the
+   * demo page's own call-back form (app/api/demo/[slug]/callback).
+   */
+  consent?: { version: string; text: string };
 };
 
 export type RecordCallbackResult =
@@ -85,8 +90,10 @@ export async function recordDemoCallback(input: NewDemoCallback, now: Date = new
     // The words they said yes to, kept as the demo call's own consent is.
     await recordCallConsent({
       phoneE164: input.phoneE164,
-      consentVersion: `demo-callback-${DEMO_CALLBACK_OFFER.version}`,
-      consentText: `Asked by Aya on a demo call: "${DEMO_CALLBACK_OFFER.text}" They gave this number and confirmed it when she read it back.`,
+      consentVersion: input.consent?.version ?? `demo-callback-${DEMO_CALLBACK_OFFER.version}`,
+      consentText:
+        input.consent?.text ??
+        `Asked by Aya on a demo call: "${DEMO_CALLBACK_OFFER.text}" They gave this number and confirmed it when she read it back.`,
       leadEmail: input.leadEmail,
     });
     if (input.leadEmail) {

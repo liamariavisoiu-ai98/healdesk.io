@@ -579,6 +579,18 @@ a rule already holds, and treat a gap as a bug, not a precedent.
   the step, never the time. Never "live in two minutes".
 - **No opening dates.** A channel is sold only once it is ready; one that isn't
   comes off the product list and out of the copy (owner, 6 October 2026).
+- **The demo page is the owner's own design, word for word** (owner,
+  30 October 2026: "apply the html i asked, no modifications"). Every
+  med spa, dental and other human-clinic demo at `/demo/[slug]` renders his
+  file (`apps/web/src/lib/demo/v2/template.ts`, filled per clinic by
+  `render.ts`); a vet's demo keeps the earlier page
+  (`components/demo/LegacyDemoReady.tsx`), since his page speaks of a BAA and
+  HIPAA. On that page alone his wording stands over the rules in this section:
+  Meta chat shown as "Soon" with an early-access list (kept as a demo event,
+  `metachat_vip`), the newness words the copy guard lists for it, and his
+  lines on transcripts, the refund and booking systems. Change its words only
+  at his word, and keep the guard's exceptions (`site-copy.test.ts`, QUOTED)
+  matching them.
 - **Copy first, then the switch** (owner, 19 October 2026). Client-facing copy
   states a feature of a channel that is sold as on before production does it,
   phrased as design where a page describes behaviour ("AYA is designed to

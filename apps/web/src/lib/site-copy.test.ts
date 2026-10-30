@@ -133,6 +133,16 @@ const BANNED: readonly { pattern: RegExp; label: string }[] = [
 /** Where a banned phrase is quoted, not claimed. Paths are relative to src/. */
 const QUOTED: readonly { file: string; text: string; why: string }[] = [
   {
+    file: "lib/demo/v2/template.ts",
+    text: "Early access the day Metachat opens",
+    why: "the owner's demo page, kept word for word (owner, 30 October 2026): Meta chat is marked Soon there",
+  },
+  {
+    file: "lib/demo/v2/template.ts",
+    text: "early access and VIP discount are reserved",
+    why: "the owner's demo page, kept word for word (owner, 30 October 2026): the Meta chat waitlist's confirmation",
+  },
+  {
     file: "app/terms/page.tsx",
     text: "THE AGENT WILL ANSWER EVERY CALL OR BOOK EVERY APPOINTMENT",
     why: "the disclaimer that says we do not warrant it",

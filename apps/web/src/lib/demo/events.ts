@@ -32,8 +32,11 @@ export const DEMO_EVENT_DETAILS = {
   coverage_mode_changed: ["after-hours", "overflow", "all"],
   value_inputs_used: [],
   offer_seen: ["top-bar", "close-card", "closing"],
-  cta_clicked: ["top-bar", "header", "close-card", "coverage", "value", "closing", "mobile-bar"],
+  // "checkout": Pay in the owner's demo page's checkout card (lib/demo/v2/render.ts).
+  cta_clicked: ["top-bar", "header", "close-card", "coverage", "value", "closing", "mobile-bar", "checkout"],
   checkout_paid: [],
+  // The owner's demo page lists Metachat as coming soon, with a free list to join (lib/demo/v2/render.ts).
+  metachat_vip: ["joined", "left"],
 } as const satisfies Record<string, readonly string[]>;
 
 export type DemoEventName = keyof typeof DEMO_EVENT_DETAILS;

@@ -1,31 +1,21 @@
-import { agreementClaim } from "@healdesk/catalog";
 import type { Metadata } from "next";
+import { Lora } from "next/font/google";
 import { notFound } from "next/navigation";
 
-import { AgentMark, AgentPanel } from "@/components/agent-panel/AgentPanel";
-import { VoiceCard } from "@/components/agent-panel/VoiceCard";
-import { BuyModalProvider } from "@/components/BuyModal";
-import { RefreshingOfferCountdown } from "@/components/checkout/SetupOfferBanner";
 import { DemoBuildWait } from "@/components/demo/DemoBuildWait";
-import { ClinicChatPanel } from "@/components/demo/ClinicChatPanel";
-import { DemoNotFound } from "@/components/demo/DemoNotFound";
-import { ClosePage } from "@/components/demo/ClosePage";
-import { CoverageOffer } from "@/components/demo/CoverageOffer";
-import { DemoBuyButton } from "@/components/demo/DemoBuyButton";
-import { Archived, avatarLogo, chipsFor, Shell } from "@/components/demo/DemoShell";
-import { CopyDemoLink, DemoCountdown, RefreshWhileBuilding } from "@/components/demo/DemoTimers";
+import { avatarLogo, chipsFor, Shell } from "@/components/demo/DemoShell";
+import { RefreshWhileBuilding } from "@/components/demo/DemoTimers";
+import { DemoV2Islands } from "@/components/demo/DemoV2Islands";
 import { DemoViewed } from "@/components/demo/DemoViewed";
-import { demoCheckout, demoPrefill } from "@/lib/demo/checkout";
-import { chatGreeting, demoModeLine } from "@/lib/demo/clinic-prompts";
-import { DEMO_ONBOARD_LABEL } from "@/lib/demo/offer";
-import { demoVariant } from "@/lib/demo/close";
-import { weekSchedule } from "@/lib/demo/opening-hours";
+import { LegacyDemoReady } from "@/components/demo/LegacyDemoReady";
+import { chatGreeting } from "@/lib/demo/clinic-prompts";
 import {
   demoAudience,
   demoBuildElapsedMs,
   demoBuildState,
   demoOfferEndsAt,
   demoSetupCredit,
+  demoUrl,
   displayName,
   getDemoSession,
   isDemoExpired,
@@ -33,7 +23,18 @@ import {
   isSelfServeDemo,
   profileOf,
 } from "@/lib/demo/sessions";
+import { renderDemoV2 } from "@/lib/demo/v2/render";
+import { SCRIPT_ID } from "@/lib/demo/v2/slots";
 import { site } from "@/lib/site";
+
+import "./demo-v2.css";
+
+/**
+ * The owner's page sets "Lora" as its serif from Google Fonts; the site's
+ * CSP serves fonts from its own origin only, so Next serves the same Lora
+ * here (demo-v2.css reads it through --hd-lora).
+ */
+const lora = Lora({ subsets: ["latin"], weight: ["500", "600"], style: ["normal", "italic"], variable: "--hd-lora", display: "swap" });
 
 /**
  * /demo/[slug], one prospect's private, branded demo.
@@ -43,25 +44,19 @@ import { site } from "@/lib/site";
  *   - building (or failed): a holding screen that re-renders itself until
  *     the build lands. A failed build looks the same to the prospect; the
  *     reason is in the operator's console, not on their screen.
- *   - active: the countdown banner, the voice agent and the website chat side
- *     by side under the clinic's own name, logo and colour, the demo-mode
- *     disclaimer, and the way to buy.
- *   - expired: the archived banner, both panels locked, the way to buy
- *     still there. The API routes refuse an expired demo on their own, so
- *     the lock is not just a coat of paint.
+ *   - ready: the owner's demo page (owner, 30 October 2026; lib/demo/v2),
+ *     the same for every demo but a vet's (which keeps the page it had,
+ *     components/demo/LegacyDemoReady.tsx, because the new one promises a BAA), with the clinic's own name, phone, hours and
+ *     what the build found filled in on the server, the demo's own discount
+ *     and its server-side deadline, and the repo's voice and chat cards in its
+ *     two card slots (components/demo/DemoV2Islands.tsx). Pay opens the normal
+ *     purchase on the plan built on the page (/demo/[slug]/onboard), which
+ *     signs the agreements and takes the card.
+ *   - expired: the same page with both cards locked. The API routes refuse an
+ *     expired demo on their own, so the lock is not just a coat of paint.
  *
- * The way to buy depends on who asked for the demo. One an operator built
- * for a prospect has "Book Onboarding", which goes to /get-started. One the
- * visitor asked for on the homepage has "Get AYA", the homepage's own
- * purchase, opened over the demo and knowing it (components/BuyModal.tsx),
- * so closing it leaves them on their demo (owner, 13 October 2026).
- *
- * Two closes run side by side, one per demo by a hash of its slug
- * (lib/demo/close.ts): `control`, the page as it was, and `close`, the
- * redesign: the offer in dollars in the top bar, one "Activate my AYA"
- * everywhere, a close card in a panel the moment a demo conversation there
- * ends, the three coverage modes, the value tiles and the closing offer.
- * Both report demo viewed → button pressed → paid (lib/demo/events.ts).
+ * The page reports demo viewed and button pressed (lib/demo/events.ts) as
+ * before, and paid from the Stripe webhook.
  *
  * Private by construction: noindex here, `/demo` disallowed in robots.ts,
  * no analytics on the path (lib/analytics.ts), and the slug is unguessable.
@@ -154,209 +149,60 @@ export default async function DemoPage({ params }: Props) {
     );
   }
 
-  const schedule = weekSchedule(profile.hours);
   // In the clinic's own word: a vet's callers are its clients (demoAudience).
   const audience = demoAudience(session);
   const one = audience === "clients" ? "client" : "patient";
-  // A vet signs the data protection agreement, not a BAA: HIPAA cannot reach
-  // a practice whose patients are animals (agreementKindFor).
-  const agreementPoint =
-    audience === "clients"
-      ? agreementClaim("dpa", "clients")
-      : "We sign a BAA and handle patient data under it";
-  // A homepage demo buys through the homepage's own purchase, opened here
-  // and knowing the demo; one an operator built keeps "Book Onboarding".
-  const selfServe = isSelfServeDemo(session);
-  const ctaStyle = { background: "var(--clinic)", color: "var(--clinic-ink)" };
-
-  const page = (
-    <Shell colour={colour}>
-      {/* Top banner: the one-week clock, or the archive notice. */}
-      {/* Sticky, so the clock, the offer and the link follow the visitor down
-          the page. The offer is the setup credit checkout applies to a demo
-          bought inside its 48 hours (api/checkout, from the same
-          `demoOfferEndsAt`), so it carries its own clock and is never
-          promised after that runs out, though the demo itself runs on. */}
-      {expired ? (
-        <div className="bg-ink sticky top-0 z-50 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 px-5 py-3 text-center text-[15px] font-semibold text-white sm:px-8">
-          <span>Instance Archived — Server Allocation Window Expired for {name}</span>
-          <CopyDemoLink />
-        </div>
-      ) : (
-        <div
-          className="sticky top-0 z-50 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 px-5 py-2.5 text-center text-[15px] font-semibold shadow-sm sm:px-8"
-          style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
-        >
-          <span className="flex items-center gap-2">
-            Private demo for {name}. Live for <DemoCountdown expiresAt={session.expiresAt.toISOString()} />
-          </span>
-          {offerEnds ? (
-            <span className="inline-flex flex-wrap items-center gap-x-2 rounded-full bg-[#87d68d] px-3 py-1 text-[13.2px] font-bold text-[#172a3a]">
-              {demoSetupCredit(session).percentOfSetupFee}% off your setup fee, ends in{" "}
-              <RefreshingOfferCountdown endsAt={offerEnds.toISOString()} />
-            </span>
-          ) : null}
-          <CopyDemoLink />
-        </div>
-      )}
-
-      <header className="border-line/60 border-b">
-        <div className="mx-auto flex max-w-[1240px] items-center gap-3 px-5 py-4 sm:px-8 lg:px-14">
-          <AgentMark name={name} logoUrl={session.logoUrl} />
-          {session.logoUrl ? null : (
-            <span className="font-display hidden min-w-0 truncate text-[21px] font-semibold tracking-[-0.01em] sm:inline">{name}</span>
-          )}
-          {/* Both brands, side by side: the clinic's assistant, built by healdesk. */}
-          <span aria-hidden className="text-muted text-[18px] font-light">×</span>
-          <a href="/" aria-label="healdesk" className="shrink-0">
-            <img src="/brand/healdesk-logo.webp" alt="healdesk" width={2400} height={437} className="h-[22px] w-auto sm:h-[26px]" />
-          </a>
-          {selfServe ? (
-            <DemoBuyButton
-              className="ml-auto shrink-0 rounded-full px-4 py-2 text-[15px] font-bold transition-opacity hover:opacity-90 sm:px-5 sm:py-2.5"
-              style={ctaStyle}
-              pressed={{ slug, placement: "header" }}
-            >
-              {site.cta.primary.label}
-            </DemoBuyButton>
-          ) : (
-            <a
-              href={`/demo/${slug}/onboard?from=header`}
-              className="ml-auto shrink-0 rounded-full px-4 py-2 text-[15px] font-bold transition-opacity hover:opacity-90 sm:px-5 sm:py-2.5"
-              style={ctaStyle}
-            >
-              {DEMO_ONBOARD_LABEL}
-            </a>
-          )}
-        </div>
-      </header>
-
-      <main className="mx-auto w-full max-w-[1240px] px-5 pt-10 pb-16 sm:px-8 lg:px-14">
-        <div className="max-w-[760px]">
-          <h1 className="font-display mt-2 text-[34px] leading-[1.1] font-medium tracking-[-0.02em] sm:text-[44px]">
-            {name}, answering every call and chat.
-          </h1>
-          <p className="text-muted mt-3 max-w-[56ch] text-[18px] leading-[1.5] font-medium">
-            {site.agent} has already read {name}&rsquo;s website. Try her the way a {one} would.
-          </p>
-          {/* The owner asked for "the most human-like agent on the market" and
-              "HIPAA compliant". Both are worded to what can be backed: the
-              first is the visitor's own experience on this page, and CLAUDE.md
-              forbids an unqualified "HIPAA compliant" (no body certifies it,
-              and the FTC has charged that claim as deceptive on its own). */}
-          <p className="text-ink mt-3 text-[20px] leading-snug font-semibold">
-            {site.agent} sounds like a person, not a robot. Talk to her and hear it for yourself.
-          </p>
-          <ul className="mt-5 flex flex-wrap gap-2">
-            {["Answers 24/7", "Phone, website & socials", "Books into your calendar", "Deposit links in chat", agreementPoint].map((point) => (
-              <li key={point} className="border-line flex items-center gap-1.5 rounded-full border bg-white px-3.5 py-1.5 text-[14.4px] font-semibold">
-                <span aria-hidden className="size-1.5 rounded-full bg-[#87d68d]" />
-                {point}
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        {/* The two cards, drawn by the same parts as the homepage's
-            (components/agent-panel), in the clinic's colour and logo. */}
-        <div className="mt-8 grid gap-5 lg:grid-cols-2">
-          <AgentPanel label={`${site.agent} voice agent`} title="Your phone line" name={name} logoUrl={session.logoUrl} overlay={expired ? <Archived /> : null}>
-            <VoiceCard
-              name={name}
-              portraitLabel={`${site.agent} \u00b7 ${name}\u2019s AI assistant`}
-              callRoute={`/api/demo/${slug}/retell`}
-              callerRoute={`/api/demo/${slug}/caller`}
-              demoLine={demoLine}
-              ringNote={`One demo call, because you asked. Live, it only answers: it never dials a ${one}.`}
-              callbackExtra={{ demoSlug: slug }}
-              prefillPhone={session.phoneE164}
-              locked={expired}
-              // A call here starts with "What's your name?" so AYA can greet the owner by it.
-              askName
-            />
-          </AgentPanel>
-          <AgentPanel
-            label={`${site.agent} chat`}
-            title="Your website, WhatsApp, Instagram and Messenger"
-            name={name}
-            logoUrl={session.logoUrl}
-            overlay={expired ? <Archived /> : null}
-          >
-            <ClinicChatPanel
-              slug={slug}
-              clinicName={name}
-              logoUrl={avatarLogo(session.logoUrl)}
-              greeting={chatGreeting(name, audience)}
-              chips={chipsFor(profile)}
-              locked={expired}
-            />
-          </AgentPanel>
-        </div>
-
-        {/* What the demo could not find on the website or Google listing (owner, 29 October 2026). */}
-        <DemoNotFound profile={profile} audience={audience} />
-
-        {/* Under both panels: what the assistant does beyond answering (owner, 7 October 2026). */}
-        <div className="mt-6 flex flex-col items-center gap-1 text-center">
-          <p className="font-display text-[22px] leading-tight font-medium tracking-[-0.01em] sm:text-[26px]">
-            {site.agent} can manage bookings, send payment links and look after people the way you would.
-          </p>
-        </div>
-
-        {/* The training disclaimer, in the brief's words: what demo mode cannot do yet. */}
-        <aside className="border-line mt-6 rounded-md border bg-white px-5 py-4 text-center">
-          <p className="text-[15.6px] leading-[1.5] font-medium">&ldquo;{demoModeLine(name)}&rdquo;</p>
-        </aside>
-
-        <CoverageOffer
-          slug={slug}
-          clinicName={name}
-          agent={site.agent}
-          schedule={schedule}
-          source={
-            !schedule.listed
-              ? null
-              : profile.hoursSource === "google"
-                ? { kind: "google", place: profile.hoursPlace }
-                : { kind: "website" }
-          }
-          buy={selfServe}
-          audience={audience}
-        />
-      </main>
-    </Shell>
-  );
-
-  const variant = demoVariant(slug);
-  const body =
-    variant === "close" ? (
-      <ClosePage
+  // The owner's page speaks of patients, HIPAA and a BAA throughout; a vet
+  // signs a data protection agreement instead, so a vet's demo keeps the page
+  // it had until the owner decides what it shows (components/demo/LegacyDemoReady.tsx).
+  if (audience === "clients") {
+    return (
+      <LegacyDemoReady
         slug={slug}
         session={session}
+        profile={profile}
         name={name}
         colour={colour}
-        profile={profile}
         expired={expired}
         offerEnds={offerEnds}
         demoLine={demoLine}
-        schedule={schedule}
-        ringNote={`One demo call, because you asked. Live, it only answers: it never dials a ${one}.`}
       />
-    ) : (
-      <>
-        <DemoViewed slug={slug} />
-        {page}
-      </>
     );
+  }
+  // The owner's demo page (lib/demo/v2), for every demo (owner, 30 October
+  // 2026): the clinic's own details filled in on the server, the real voice
+  // and chat cards in its two card slots.
+  const v2 = renderDemoV2({
+    slug,
+    url: demoUrl(slug),
+    profile,
+    name,
+    logoUrl: session.logoUrl,
+    leadEmail: session.leadEmail,
+    percentOff: demoSetupCredit(session).percentOfSetupFee,
+    // A demo already bought has spent its offer; the page shows it as ended.
+    offerEndsAt: session.claimed ? null : offerEnds,
+    ayaImage: "/brand/aya-hero.webp",
+  });
 
-  // A homepage demo buys through the purchase opened over the page, in both closes.
-  if (!selfServe) return body;
   return (
-    <BuyModalProvider
-      // A demo already bought opens the plain purchase: its offer and its claim are spent.
-      demo={session.claimed ? undefined : { slug, checkout: demoCheckout(session), prefill: demoPrefill(session) }}
-    >
-      {body}
-    </BuyModalProvider>
+    <>
+      <DemoViewed slug={slug} />
+      <div className={`hd-demo-v2 ${lora.variable}`} dangerouslySetInnerHTML={{ __html: v2.body }} />
+      <DemoV2Islands
+        slug={slug}
+        name={name}
+        portraitLabel={`${site.agent} \u00b7 ${name}\u2019s AI assistant`}
+        demoLine={demoLine}
+        ringNote={`One demo call, because you asked. Live, it only answers: it never dials a ${one}.`}
+        prefillPhone={session.phoneE164}
+        locked={expired}
+        logoUrl={avatarLogo(session.logoUrl)}
+        greeting={chatGreeting(name, audience)}
+        chips={chipsFor(profile)}
+      />
+      {/* The page's own script (lib/demo/v2/template.ts), as delivered but for render.ts's swaps; DemoV2Islands runs it after hydration. */}
+      <script type="text/plain" id={SCRIPT_ID} dangerouslySetInnerHTML={{ __html: v2.script }} />
+    </>
   );
 }

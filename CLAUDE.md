@@ -480,16 +480,7 @@ a rule already holds, and treat a gap as a bug, not a precedent.
   adapter only inside the 24-hour window the patient opened and is dropped
   outside it, names no treatment, and is never a reminder or a follow-up the
   patient did not ask for (`lib/meta/booking-requests.ts`,
-  `lib/booking/reschedule.ts`, `sendMetaReply`). One more exception, a clinic
-  setting that is off by default (owner, 28 October 2026; spec, "Payment by
-  text after a call, and full payment"): after a booking made on a call, the
-  agent may text the caller one hosted payment link, only if the caller
-  agrees and reads the number back, once per booking, in fixed wording with no
-  treatment, time or amount, sent by the fixed tool layer and never by the
-  model. Nothing else is ever texted: no reminder, resend or follow-up. The
-  sender must be on the BAA chain (a caller's number next to a clinic is
-  health information), so the setting stays unavailable until a compliant
-  sender and the clinic's sender registration exist.
+  `lib/booking/reschedule.ts`, `sendMetaReply`).
 - **The assistant says it is an AI assistant in its opening line, on every
   channel.** On calls the same line says the call is transcribed, and nothing
   about retention (owner, 24 October 2026: the consent laws ask that a caller
@@ -621,9 +612,8 @@ a rule already holds, and treat a gap as a bug, not a precedent.
   (owner, 13 October 2026): $104 for voice minutes, $52 for Web Chat and $78
   for Meta Chat conversations. At 90% of the included amount the clinic is
   emailed and may move up a step; an extra block always costs more than the
-  next step. The rates are provisional until measured. Copy says so and
-  quotes the block and its price, never a per-unit rate; being provisional
-  does not change what is billed.
+  next step. Copy quotes the block and its price, never a per-unit rate
+  (owner, 30 October 2026: clinic emails no longer talk about our costs).
 - "healdesk is a service of Viixi FZC, a company registered under the Sharjah
   Publishing City Free Zone, United Arab Emirates" appears on the Terms and
   Privacy pages. It is not in the site footer (owner, 9 October 2026): the

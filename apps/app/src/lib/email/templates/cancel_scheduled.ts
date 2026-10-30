@@ -1,7 +1,6 @@
 import { FIRST_PERIOD_REFUND_DAYS } from "@healdesk/catalog";
 
 import type { NoticePayloads } from "@/lib/billing/notices";
-import { formatReplyBy, replyByDay } from "@/lib/reply-by";
 
 import { dayLong, dayShort, momentLong, people, portalUrl, WHEN_AYA_STOPS } from "./billing-copy";
 import { compose, type Block } from "./compose";
@@ -65,7 +64,7 @@ export const renderCancelScheduled: EmailTemplate<CancelScheduledPayload> = (pay
     ? [
         {
           type: "paragraph",
-          text: `Because you turned it off within ${FIRST_PERIOD_REFUND_DAYS} days of your plan starting, your first period's fee is due back to you in full. We'll email you by ${formatReplyBy(replyByDay(ctx.raisedAt))} to arrange the refund.`,
+          text: `Because you turned it off within ${FIRST_PERIOD_REFUND_DAYS} days of your plan starting, your first period's fee is due back to you in full. We'll email you to arrange the refund.`,
         },
       ]
     : [];

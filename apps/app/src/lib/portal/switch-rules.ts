@@ -7,10 +7,11 @@
  * be greyed out on the screen yet accepted by a crafted request, and no rule is
  * written twice. Pure: facts in, answers out, nothing read or written here.
  *
- * The text switch stays locked while no compliant sender exists
- * (PAYMENT_LINK_TEXT_SENDER_READY, below; CLAUDE.md: "the setting stays
- * unavailable until a compliant sender and the clinic's sender registration
- * exist"). Until 29 October 2026 a voice clinic with Stripe could turn it on,
+ * The text switch stays locked while no sender is chosen
+ * (PAYMENT_LINK_TEXT_SENDER_READY, below; CLAUDE.md: nothing sends a text yet
+ * and paymentLinkTextOffered() is false). The sender needs no business
+ * associate agreement (owner, 30 October 2026): the text is fixed words and a
+ * link, no treatment, time or amount. Until 29 October 2026 a voice clinic with Stripe could turn it on,
  * which made BAA 1.6.0's "where Practice has chosen that option" a promise
  * nobody keeps; now it cannot be turned on, and a value already on reads as
  * off on the Settings page and in the wizard. resetsAfter still resets only

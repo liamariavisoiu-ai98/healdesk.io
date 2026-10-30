@@ -46,6 +46,16 @@ export const SUPPORT_PROMISE_RULES: readonly {
       /(?<![\p{L}\p{N}])(?:go|goes|going|went|be|is|are|will\s+be)\s+live\s+(?:on|by|before|within|in|from|next)(?![\p{L}\p{N}])/iu,
     billingStem: null,
   },
+  // A call or an email promised for a day or a time: nothing delivers it, so a
+  // person at healdesk must rewrite it (owner, 30 October 2026, audit finding
+  // 4). "A person replies by <the reply-by day>" is not caught: that day is
+  // the case's own, and "reply" is not one of the verbs.
+  {
+    id: "timed_contact",
+    pattern:
+      /(?:(?:'|\u2019)ll|will|shall|going\s+to)\s+(?:\p{L}+\s+){0,3}?(?:call|calls|phone|ring|email|text|contact|get\s+back\s+to|reach\s+out\s+to|follow\s+up\s+with)(?![\p{L}\p{N}])[^.!?\n]{0,60}?(?<![\p{L}\p{N}])(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|tonight|today|this\s+(?:morning|afternoon|evening|week)|next\s+week|(?:\d{1,2}(?::\d{2})?\s*(?:am|pm))|noon|midday)(?![\p{L}\p{N}])/iu,
+    billingStem: null,
+  },
   {
     id: "response_time",
     pattern: /(?<![\p{L}\p{N}])within\s+(?:\d+|a|an|one|two|twenty-four|twenty\s+four|24|48)\s+(?:hours?|days?|minutes?)(?![\p{L}\p{N}])/iu,

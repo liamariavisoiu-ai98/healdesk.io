@@ -473,6 +473,7 @@ describe("safety suite: inbound only, statically", () => {
     const roots = [
       SRC,
       join(__dirname, "..", "scripts"),
+      join(repo, "scripts"),
       join(repo, "apps", "web", "src"),
       ...readdirSync(join(repo, "packages")).map((p) => join(repo, "packages", p, "src")),
     ].filter((dir) => {
@@ -486,7 +487,14 @@ describe("safety suite: inbound only, statically", () => {
     // or client used. A sentence naming SendTextMessage on a status page is not a send.
     const sdk =
       /(?:from\s+|import\s*\(\s*|require\s*\(\s*)["'`]@aws-sdk\/client-(?:pinpoint|sns|end-user-messaging)[^"'`]*["'`]|\bSendTextMessageCommand\b|\bPinpointSMSVoiceV2Client\b|\.sendTextMessage\s*\(/;
-    const reaching = roots.flatMap(files).filter((f) => sdk.test(readFileSync(f, "utf8")));
+    // TypeScript and plain JavaScript alike (a .mjs script could import the SDK too).
+    const anyCode = (dir: string): string[] =>
+      readdirSync(dir).flatMap((name) => {
+        const path = join(dir, name);
+        if (name === "node_modules" || name.startsWith(".")) return [];
+        return statSync(path).isDirectory() ? anyCode(path) : /\.(ts|tsx|js|mjs|cjs)$/.test(name) ? [path] : [];
+      });
+    const reaching = roots.flatMap(anyCode).filter((f) => sdk.test(readFileSync(f, "utf8")));
     expect(reaching).toEqual([THE_ONE_TEXT_FILE]);
     // The sender exports the fixed words and the one send; the SDK transport,
     // which would take any body, stays inside the module.

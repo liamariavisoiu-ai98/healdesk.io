@@ -464,13 +464,14 @@ export async function sendDemoEmail(session: DemoSession): Promise<SendResult> {
   if (!may.ok) return { status: "skipped", reason: `the address is ${may.reason}` };
 
   const optOut = unsubscribeUrl(lead.id);
-  const { subject, text } = demoEmail(session, Date.now(), { unsubscribeUrl: optOut });
+  const { subject, text, html } = demoEmail(session, Date.now(), { unsubscribeUrl: optOut });
   let result: SendResult;
   try {
     result = await send({
       to: session.leadEmail,
       subject,
       text,
+      html,
       tag: "demo-ready",
       unsubscribeUrl: optOut,
       idempotencyKey: emailKey("demo-ready", session.id),

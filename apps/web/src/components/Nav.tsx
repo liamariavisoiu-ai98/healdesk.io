@@ -146,7 +146,7 @@ function useWayfinding(enabled: boolean, header: RefObject<HTMLElement | null>) 
  * secondary button, opening a call booking over the page (GetInTouch.tsx).
  * It shows at every width: a calendar icon on a phone, its words from 480px.
  *
- * The text links wait until 880px (`WIDE`). Until 30 October 2026 they waited
+ * The text links wait until 880px (`WIDE_ONLY`, `TEXT_LINK`). Until 30 October 2026 they waited
  * until 700, where a row holding two links, "Get in touch" and "Get AYA" had
  * about 60px to spare; "Pricing" joined the links that day, and with "Sign
  * in" the row needs about 870px at zoom 1. Nothing in the row wraps or

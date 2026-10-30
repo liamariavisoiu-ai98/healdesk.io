@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { audienceFor, findUrgentContent, messageLanguage, openDemoCallContext, SENDER_IDENTITY, type DemoCallContext } from "@healdesk/catalog";
+import { audienceFor, DEMO_CALLBACK_OFFER, findUrgentContent, messageLanguage, openDemoCallContext, SENDER_IDENTITY, type DemoCallContext } from "@healdesk/catalog";
 import { eq } from "drizzle-orm";
 
 import { clinics, clinicSettings } from "@/db/schema";
@@ -54,6 +54,7 @@ import {
   offeredRoleplayChoice,
   WHICH_ONE_LINE,
   withDemoAnswer,
+  lastQuestionIn,
   withRoleplayExit,
   withRoleplayOpener,
   type DemoProgress,
@@ -1609,6 +1610,8 @@ export class RetellCallSession {
       callerFirstName: this.demoContext?.firstName ?? null,
       // After a caller showed frustration, the call never ends on "Talk soon!" (demo-facts.ts, impatient).
       noSignOff: progress?.impatient === true,
+      // One question a reply when she talks with the owner, outside a call back's read-back, which asks two by design (a17b5aff).
+      oneQuestion: progress && this.demoStage !== "roleplay" && progress.asked !== "callback" ? { keep: [DEMO_CALLBACK_OFFER.text] } : null,
     }).finally(() => {
       stopAck();
       this.answering = false;
@@ -1688,6 +1691,9 @@ export class RetellCallSession {
       if (stageBefore !== "roleplay" && this.demoStage !== "roleplay" && /role-?play/i.test(roleplayLine ?? turn.reply)) {
         this.demoProgress = { ...this.demoProgress, roleplayOffers: (this.demoProgress.roleplayOffers ?? 0) + 1 };
       }
+      // Her last question, word for word, for "what was your question?" (a17b5aff).
+      const asked = lastQuestionIn(roleplayLine ?? turn.reply);
+      if (asked) this.demoProgress = { ...this.demoProgress, lastQuestion: asked.slice(0, 300) };
       // What she just listed from the menu, in order, so "the second one" is read in code next turn.
       const listed = listedIn(roleplayLine ?? turn.reply, this.demoContext.clinic.services.map((svc) => svc.name));
       if (listed.length >= 2) this.demoProgress = { ...this.demoProgress, lastListed: listed };

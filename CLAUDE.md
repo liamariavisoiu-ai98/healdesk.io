@@ -466,22 +466,17 @@ a rule already holds, and treat a gap as a bug, not a precedent.
   back, one fixed-wording text carries the clinic's own hosted payment link,
   sent once, never resent, naming no treatment, time or amount, only when the
   clinic's payment gateway is connected, and sent by the fixed tool layer,
-  never the model. The clinic's switch stays locked ("Texting the payment link
-  is not available yet.", `PAYMENT_LINK_TEXT_SENDER_READY` in `switch-rules.ts`)
-  until a sender is ready, nothing sends a text yet, and
-  `paymentLinkTextOffered()` is false so the assistant never offers one. The sender needs no business associate
+  never the model. The clinic's switch stays locked ("Texting the payment link is not
+  available yet.", `PAYMENT_LINK_TEXT_SENDER_READY` in `switch-rules.ts`) and
+  nothing sends a text yet: the sender is AWS End
+  User Messaging SMS (owner, 30 October 2026) and is not built,
+  `paymentLinkTextOffered()` is false so the assistant never offers one, and
+  one toll-free registration, healdesk's own, is still to be filed. The sender needs no business associate
   agreement (owner, 28 October 2026): like Meta and Stripe it is handled by
   scoping, so the text is fixed words and the link and nothing else, never a
-  treatment, a time, an amount or anything said on the call. Which carrier
-  registration applies, once or per clinic, is not yet verified. The route (the owner left
-  the choice to the lead, 30 October 2026): AWS End User Messaging SMS in
-  healdesk's own AWS account (HIPAA eligible, under the AWS agreement already
-  signed, no new vendor), from a sending number held for this one text, never
-  AYA's number, never a number given to a clinic, never the clinic's published
-  number; the text opens with the clinic's name. No text
-  goes to a caller of a clinic whose accepted agreement is older than the one
-  that carries the exception (BAA 1.6.0, DPA 1.1.0 once released). Anything
-  beyond that one text stays forbidden. One thing is not contact "after
+  treatment, a time, an amount or anything said on the call. The carriers'
+  registration is one number healdesk registers once, not one per clinic. No text goes to a caller of a clinic whose accepted agreement is older than the one that carries the exception (BAA 1.6.0, DPA 1.1.0). Anything beyond that one text stays
+  forbidden. One thing is not contact "after
   a conversation ends" (owner's ruling, 21 October 2026): a window-gated reply
   to a patient's open request, such as the fixed line telling a person on Meta
   that their booking request was decided or rescheduled. It is sent by the

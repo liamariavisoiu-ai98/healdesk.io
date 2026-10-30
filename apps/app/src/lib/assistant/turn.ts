@@ -708,15 +708,30 @@ const LEADING_APOLOGY = /^(?:(?:oh|ah|aw+),?\s+)?(?:i'?m\s+)?(?:so\s+|really\s+)
  *     the "Talk soon, <name>!" sign-off keeps it;
  *   - once the call has had an apology, a reply's opening "Sorry," goes,
  *     unless the reply is nothing else or the stall's warm sorry is due;
- *   - with `noSignOff`, a sentence saying "Talk soon" is left out.
+ *   - with `noSignOff`, a sentence saying "Talk soon" is left out;
+ *   - with `oneQuestion`, a question after the reply's first is left out
+ *     (transcript a17b5aff: "What are your patients calling about most? And
+ *     how many calls do you get a day?", then "what was your other
+ *     question?"); `askedAlready` says the words already said asked one, and a
+ *     scripted line's own question (`keepQuestions`) always stays.
  * Words are only ever taken out, so the guard, which reads what is left,
  * screens exactly as it would have.
  */
 export function shapeVoiceReply(
   text: string,
-  options: { name: string | null; nameUses: number; apologised: boolean; first: boolean; noSignOff: boolean },
+  options: { name: string | null; nameUses: number; apologised: boolean; first: boolean; noSignOff: boolean; oneQuestion?: boolean; askedAlready?: boolean; keepQuestions?: readonly string[] },
 ): string {
   let out = sentencesOf(text).filter((sentence) => !(options.noSignOff && /\btalk soon\b/i.test(sentence)));
+  if (options.oneQuestion) {
+    let asked = options.askedAlready === true;
+    out = out.filter((sentence) => {
+      if (!/\?\W*$/.test(sentence)) return true;
+      if (options.keepQuestions?.some((line) => line.includes(sentence.trim()))) return true;
+      if (asked) return false;
+      asked = true;
+      return true;
+    });
+  }
   if (options.name && options.nameUses >= 2) {
     const name = options.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     out = out.map((sentence) => {
@@ -781,6 +796,9 @@ const PRICE_AGAIN =
 
 /** Said to the model before its second try on a softRefusal turn (answerTurn), for a refusal other than a price. */
 function softAgain(reason: GuardRefusal): string {
+  if (reason === "off_script") {
+    return `Your draft reply was not said: it talked about how you work behind the scenes (a flow, a prompt, a session, a chat, who you are playing), or claimed something healdesk does not do (texting, not being able to book). You are Aya, on this live demo call with a clinic's owner, and this call is the demo. Write it again in plain words, as yourself, with only what your note says healdesk does.`;
+  }
   return `Your draft reply was not said: the safety check read it as ${reason === "clinical" ? "clinical" : reason.replace(/_/g, " ")}. You are talking with a clinic's owner about their own business, not with a patient: write it again in plain words, put the word "calls" right after every number of calls, say no dollar figure except healdesk's own from the list, and nothing about treatments, results or doses.`;
 }
 
@@ -982,6 +1000,13 @@ export async function answerTurn(input: {
    * is left out of what is said.
    */
   noSignOff?: boolean;
+  /**
+   * On a call, one question a reply: any question after the first is left
+   * out of what is said (shapeVoiceReply). A demo's talk with the owner sets
+   * it (lib/voice/retell.ts), outside a call back's read-back; `keep` holds
+   * scripted lines whose questions always stay (the call-back offer asks two).
+   */
+  oneQuestion?: { keep: readonly string[] } | null;
   /** This is the one second try after a refusal (answerAgain); never set by a caller. */
   retried?: boolean;
   /**
@@ -1101,6 +1126,9 @@ export async function answerTurn(input: {
           apologised: apologisedBefore,
           first,
           noSignOff: input.noSignOff === true,
+          oneQuestion: Boolean(input.oneQuestion),
+          keepQuestions: input.oneQuestion?.keep,
+          askedAlready: spoken.some((line) => line.includes("?")),
         })
       : text;
   const stream =

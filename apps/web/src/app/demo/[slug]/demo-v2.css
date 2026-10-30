@@ -1132,3 +1132,8 @@ html:has(.hd-demo-v2) { zoom: 1; }
 
 /* The repo's voice and chat cards (components/demo/DemoV2Islands.tsx) fill each card below its header. */
 .hd-demo-v2 .hd-slot { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+/* The two demo cards keep one height and the chat scrolls inside it: the
+   page's .dcard has only a min-height, so a long conversation grew the card
+   down the page (owner, 30 October 2026: "the text should be scrollable"). */
+.hd-demo-v2 .demo-grid > .dcard { height: 680px; }
+.hd-demo-v2 .demo-grid > .dcard .hd-slot > * { min-height: 0; }

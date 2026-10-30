@@ -4,7 +4,8 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { renderSupportReceived, SUPPORT_RECEIVED_ENTRY } from "@/lib/email/templates/support_received";
+import { printRef, readRef, SUPPORT_REF_ALPHABET } from "@/lib/support/case-vocab";
+import { renderSupportReceived,SUPPORT_RECEIVED_ENTRY } from "@/lib/email/templates/support_received";
 import { assertPayloadAllowed } from "@/lib/email/lint";
 import { stringToSign, type SnsMessage } from "@/lib/email/ses-events";
 import { classifyEmail, ownLines } from "@/lib/support/inbound/classify";
@@ -326,6 +327,27 @@ describe("matching helpers", () => {
     expect(refsInSubject("Re: We've got your email (ref HD-7F3KQ)")).toEqual(["7F3KQ"]);
     expect(refsInSubject("about hd-7f3kq and HD-ABCDE")).toEqual(["7F3KQ", "ABCDE"]);
     expect(refsInSubject("no ref here")).toEqual([]);
+  });
+
+  test("a ref that itself begins with HD (1 in 1,024 of them) is read back whole, not stripped as a prefix", () => {
+    // newSupportRef draws from an alphabet holding H and D, so "HD7F3" is a
+    // real ref, printed "HD-HD7F3". Read as a prefix, it became "7F3", no ref
+    // at all, and the clinic's reply opened a second case (CI run 41022562042).
+    expect(refsInSubject("Re: We've got your email (ref HD-HD7F3)")).toEqual(["HD7F3"]);
+    expect(refsInSubject("about HD-HDHD1")).toEqual(["HDHD1"]);
+    expect(readRef("HD7F3")).toBe("HD7F3");
+    expect(readRef("HD-HD7F3")).toBe("HD7F3");
+    expect(readRef("hdhd7f3")).toBe("HD7F3");
+    expect(readRef("HDHD1")).toBe("HDHD1");
+    // Every ref the generator can make survives printing and reading back.
+    for (const a of SUPPORT_REF_ALPHABET) {
+      for (const b of SUPPORT_REF_ALPHABET) {
+        const ref = `${a}${b}7F3`;
+        expect(readRef(printRef(ref))).toBe(ref);
+        expect(readRef(ref)).toBe(ref);
+        expect(refsInSubject(`Re: x (ref ${printRef(ref)})`)).toEqual([ref]);
+      }
+    }
   });
 
   test("an id is matched as written, without brackets, and by Resend's id before the @", () => {

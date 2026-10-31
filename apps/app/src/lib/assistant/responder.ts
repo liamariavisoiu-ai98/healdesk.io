@@ -91,7 +91,47 @@ export type AssistantResponder = ((request: {
    * open. A responder without it (a test's) simply is not warmed.
    */
   prewarm?: (system: AssistantPrompt, channel: AssistantChannel) => Promise<void>;
+  /**
+   * One small structured answer on the call's model, under a JSON schema the
+   * API enforces (structured outputs): the demo call's listener
+   * (lib/voice/demo-listener.ts). Resolves to the parsed object; throws what
+   * the SDK throws. A responder without it (a test's) has no listener.
+   */
+  json?: (request: JsonRequest) => Promise<unknown>;
 };
+
+/** A structured side call: its instructions, the one user message, the schema it must fill and its token limit. */
+export type JsonRequest = { system: string; user: string; schema: Record<string, unknown>; maxTokens: number };
+
+/**
+ * The request for a structured side call on the voice model: thinking off
+ * where the model takes it, low effort, the schema enforced. Exported so the
+ * eval builds the same request.
+ */
+export function jsonRequest(input: JsonRequest): Anthropic.MessageCreateParamsNonStreaming {
+  const model = assistantModel("voice");
+  return {
+    model,
+    max_tokens: input.maxTokens,
+    ...(THINKING_OFF[model] ? { thinking: { type: "disabled" as const } } : {}),
+    output_config: { effort: "low", format: { type: "json_schema", schema: input.schema } },
+    system: input.system,
+    messages: [{ role: "user", content: input.user }],
+  };
+}
+
+/** The parsed object of a structured answer; null when it carried none. */
+export function readJsonResponse(response: Anthropic.Message): unknown {
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("");
+  try {
+    return text ? (JSON.parse(text) as unknown) : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Every channel the client serves: the assistant's two, and the Meta front door. */
 export type ModelChannel = AssistantChannel | "meta";
@@ -344,5 +384,9 @@ export function anthropicAssistantResponder(): AssistantResponder | null {
   const responder: AssistantResponder = ({ system, messages, channel, onText }) =>
     callModel({ apiKey, channel, system, messages, ...(onText ? { onText } : {}) });
   responder.prewarm = (system, channel) => prewarmModel({ apiKey, channel, system });
+  responder.json = async (request) => {
+    const client = await clientFor(apiKey, "voice");
+    return readJsonResponse(await client.messages.create(jsonRequest(request)));
+  };
   return responder;
 }

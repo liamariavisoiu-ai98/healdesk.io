@@ -45,6 +45,7 @@ import {
   demoPitchFacts,
   demoIntroRecovery,
   demoRecovery,
+  demoSalesPrompt,
   demoStageNote,
   demoRoleplayOpener,
   demoStateFrom,
@@ -52,6 +53,7 @@ import {
   isBareYes,
   listedIn,
   nextDemoStage,
+  selling,
   offeredRoleplayChoice,
   WHICH_ONE_LINE,
   withDemoAnswer,
@@ -61,6 +63,7 @@ import {
   type DemoProgress,
   type DemoStage,
 } from "./demo-facts";
+import { heardFrom, LISTENER_SCHEMA, LISTENER_SYSTEM, listenerInput, withHeard, type DemoHeard } from "./demo-listener";
 import { fallbackLineFor, rememberDirectLine, rememberedDirectLine, usableLine, type FallbackLookup } from "./fallback-line";
 import { forwardedFromCall, type ForwardedFrom } from "./forwarded-from";
 import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
@@ -486,6 +489,9 @@ const REDIAL_DEADLINE_MS = 1_000;
 const BOOKING_BUDGET_MS = 6_000;
 
 /** `promise`, or a rejection once `ms` have passed. Never leaves a timer behind. */
+/** How long the demo's listener may take before its answer is dropped: the next turn should not wait on it. */
+const LISTEN_DEADLINE_MS = 4_000;
+
 function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   promise.catch(() => {});
@@ -709,6 +715,8 @@ export class RetellCallSession {
   private demoStage: DemoStage = "intro";
   /** What a demo call has found out (demo-facts.ts, DemoProgress); in memory only. */
   private demoProgress: DemoProgress = DEMO_OPENED_PROGRESS;
+  /** The demo's own prompt outside the role-play (demoSalesPrompt), built once a call: it is the cached prefix. */
+  private demoSalesPromptText: string | null = null;
   /** The human stall (stall.ts): whether this call has used it, and whether the last reply was it. */
   private stalled = false;
   private stallPending = false;
@@ -1239,6 +1247,36 @@ export class RetellCallSession {
    * and the connection to the API kept open. Never alongside a turn, never
    * once the call is closing; a failure is nothing, the turn simply runs cold.
    */
+  /** Everything she has said on the call, for the recovery lines that must not repeat (demo-facts.ts, leadsFor). */
+  private saidLines(): string[] {
+    return this.turns.filter((t) => t.speaker === "assistant").map((t) => t.text);
+  }
+
+  /** Counts the turns the listener listens to, so a late answer never lands on a newer turn. */
+  private listenSeq = 0;
+
+  /**
+   * What the demo's listener heard in the owner's latest words
+   * (demo-listener.ts), within LISTEN_DEADLINE_MS; null without a listener
+   * (a responder without `json`), when it is late, or when it fails: the
+   * phrase lists then stand alone, as before.
+   */
+  private listen(words: string): Promise<DemoHeard | null> | null {
+    const json = this.deps.responder?.json;
+    if (!json) return null;
+    const asked = json({ system: LISTENER_SYSTEM, user: listenerInput(this.turns, this.demoStage, words), schema: LISTENER_SCHEMA, maxTokens: 300 }).then(heardFrom);
+    return withDeadline(asked, LISTEN_DEADLINE_MS).catch((error: unknown) => {
+      log.info("retell demo listener", { callId: this.callId, status: error instanceof Deadline ? "late" : "failed" });
+      return null;
+    });
+  }
+
+  /** healdesk's own prompt for a demo call, outside the role-play; the same for every turn of the call. */
+  private demoPrompt(): string {
+    this.demoSalesPromptText ??= demoSalesPrompt(this.demoContext!);
+    return this.demoSalesPromptText;
+  }
+
   private warm(): void {
     const prewarm = this.deps.responder?.prewarm;
     const facts = this.facts;
@@ -1247,7 +1285,8 @@ export class RetellCallSession {
     // Booking tools change the stable prompt (prompt.ts BOOKING_TOOLS); a
     // demo has none, and a clinic's call with them live still gets the
     // connection kept open.
-    const stable = buildAssistantPrompt(facts, "voice", { bookingTools: false });
+    // A demo is warmed on the prompt its next turn is on.
+    const stable = this.demoContext && this.demoStage !== "roleplay" ? this.demoPrompt() : buildAssistantPrompt(facts, "voice", { bookingTools: false });
     prewarm({ stable, turn: "" }, "voice").catch(() => {});
   }
 
@@ -1538,6 +1577,10 @@ export class RetellCallSession {
       : null;
     // These words as the answer to the demo's last question, kept once the reply is said.
     const progress = this.demoContext ? withDemoAnswer(this.demoProgress, this.demoStage, words) : null;
+    // The listener (demo-listener.ts): at the same time as the turn, so it adds no wait; what it heard shapes the next turn.
+    const listenStage = this.demoStage;
+    const listenSeq = ++this.listenSeq;
+    const listening = this.demoContext ? this.listen(words) : null;
     // The turn that takes a demo's call back (demo-callback.ts): her words in
     // it are replaced by the call's own line once it is known whether the team
     // has it, so none of them is spoken as it is written.
@@ -1558,10 +1601,10 @@ export class RetellCallSession {
     // well, and a patient's guard line in answer to them is a non-sequitur.
     // Never in the role-play, where the caller plays a patient.
     const recovery =
-      this.demoContext && progress && this.demoStage === "pitch"
-        ? demoRecovery(this.demoContext, progress)
+      this.demoContext && progress && (this.demoStage === "pitch" || (this.demoStage === "intro" && selling(progress)))
+        ? demoRecovery(this.demoContext, progress, this.saidLines())
         : this.demoContext && progress && this.demoStage === "intro"
-          ? demoIntroRecovery(this.demoContext)
+          ? demoIntroRecovery(this.demoContext, this.saidLines())
           : null;
     // The human stall (stall.ts): once per call, never ahead of a line that
     // must come first. The turn after one, a refusal opens with a sorry word.
@@ -1575,7 +1618,7 @@ export class RetellCallSession {
     ];
     const turn = await answerTurn({
       // A demo's pitch may quote healdesk's own prices; nothing else may (demo-facts.ts).
-      facts: this.demoContext && progress && this.demoStage === "pitch" ? demoPitchFacts(facts, this.demoContext, this.now().getTime(), progress) : facts,
+      facts: this.demoContext && progress && this.demoStage !== "roleplay" && (this.demoStage === "pitch" || selling(progress)) ? demoPitchFacts(facts, this.demoContext, this.now().getTime(), progress) : facts,
       channel: "voice",
       acknowledge: acknowledgeable
         ? {
@@ -1621,6 +1664,9 @@ export class RetellCallSession {
       // The note for the stage the demo is in (demo-facts.ts), so no stage's
       // instructions are ever repeated into another, a role-play above all.
       notes: turnNotes.length > 0 ? turnNotes : null,
+      // Outside the role-play she is healdesk's Aya, on healdesk's own short
+      // prompt; in it, the clinic's front-desk prompt she plays (demo-facts.ts).
+      stablePrompt: this.demoContext && this.demoStage !== "roleplay" ? this.demoPrompt() : null,
       softRefusal: recovery ? { line: recovery.line, alternate: recovery.alternate, bridge: recovery.bridge } : null,
       callerFirstName: this.demoContext?.firstName ?? null,
       // After a caller showed frustration, the call never ends on "Talk soon!" (demo-facts.ts, impatient).
@@ -1687,11 +1733,21 @@ export class RetellCallSession {
       this.demoStage = nextDemoStage(
         stageBefore,
         turn.reply,
-        { asked: update?.asked ?? null, roleplay: signal?.roleplay ?? null, resume: update?.resume === true && Boolean(progress.lastRoleplay) },
+        {
+          asked: update?.asked ?? null,
+          // The listener heard them step out of the role-play: it ends on this reply.
+          // So does an end she signalled last reply, held back by her own question.
+          roleplay: signal?.roleplay ?? (stageBefore === "roleplay" && (progress.rpOut || progress.rpEndPending) ? "end" : null),
+          resume: update?.resume === true && Boolean(progress.lastRoleplay),
+          // A buying signal in the intro moves the call on to the value and the close.
+          buying: progress.buying === true || update?.buying === true,
+        },
         progress.roleplayFrom ?? "intro",
         progress.roleplayTurns,
       );
       this.demoProgress = afterDemoReply(progress, stageBefore, this.demoStage, update, words);
+      // An end she signalled while asking in character waits for the answer, then ends on the next reply.
+      if (stageBefore === "roleplay" && this.demoStage === "roleplay" && signal?.roleplay === "end") this.demoProgress = { ...this.demoProgress, rpEndPending: true };
       // The scripted lines, word for word, by the call: the opener carries the
       // AI notice the owner is meant to hear, and the exit line comes only
       // after a role-play that ran.
@@ -1733,6 +1789,15 @@ export class RetellCallSession {
         callbackLine = sent ? callbackSentLine(update.callback.phoneE164) : CALLBACK_FAILED_LINE;
         if (responseId !== this.latestResponseId || this.closing) return;
       }
+    }
+    if (listening) {
+      void listening.then((heard) => {
+        // Only onto the turn it listened to: a newer turn has read the progress already.
+        if (!heard || listenSeq !== this.listenSeq || this.closing || !this.demoContext) return;
+        const next = withHeard(this.demoProgress, listenStage, heard);
+        // A role-play signal is for the stage it was heard in.
+        this.demoProgress = this.demoStage === listenStage ? next : { ...next, rpOut: false, rpWanted: false };
+      });
     }
     const ends = turn.end && !(this.demoContext && stageBefore === "roleplay");
 

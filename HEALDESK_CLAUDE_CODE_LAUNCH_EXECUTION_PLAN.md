@@ -58,6 +58,14 @@ Each line describes Claude Code's **engineering assignment** and the **Owner-onl
 
 **Wave 5 — End-to-end acceptance:** LAUNCH. Execute the full synthetic journey, reconcile `apps/web/src/lib/admin/seo/launch.ts`, verify recovery and vendor settings, produce a go/no-go report. Owner makes final production decision.
 
+## After launch (not a go-live blocker)
+
+Work the Owner placed after launch. None of it blocks Wave 5 or the go/no-go report.
+
+| ID | What | Claude Code | Owner-only |
+| --- | --- | --- | --- |
+| `DEMO-EVAL-LIVE` | Score the demo call on a real model on every voice change (`apps/app/scripts/voice-eval/demo`, `.github/workflows/demo-eval.yml`; built in DEMO-HAIKU-1, 31 Oct 2026) | After the Owner's two settings: confirm the first run, keep its report as the baseline, then make each demo change beat it. Until then the workflow skips and demo changes are checked by the scripted cases only. | Post-launch (Owner, 31 Oct 2026): add `VOICE_EVAL_ANTHROPIC_API_KEY` as a GitHub Actions secret (the eval's own Anthropic key, never the HIPAA organisation's) and, optionally, `VOICE_EVAL_DEMO_BUDGET_USD` as a repository variable (5 when unset). Later, if wanted, make the check required in branch protection. |
+
 ## Required technical verification
 
 - Run `npm test -w @healdesk/web`, `npm test -w @healdesk/app`, `npm run lint`, and `npm run qa:meta` when relevant. Database-backed security tests may skip without `TEST_APP_URL`; explicitly report skips and use the appropriate isolated test environment.

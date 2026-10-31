@@ -959,8 +959,10 @@ export const NOT_KEYS: Readonly<Record<string, string>> = {
   USER: "Set by the shell: who ran the job, for its audit row.",
   // The voice eval (apps/app/scripts/voice-eval), run by hand on a developer's computer on synthetic calls only. Never set on Vercel or AWS.
   VOICE_EVAL_ANTHROPIC_API_KEY:
-    "A developer's own Anthropic key for the voice eval on their computer, never the HIPAA organisation's ANTHROPIC_API_KEY and never on Vercel or AWS: synthetic test calls only. Rotate or revoke it in the Anthropic console.",
+    "A developer's own Anthropic key for the voice eval on their computer, and, if you add it as a GitHub Actions secret, for the demo eval each pull request runs (.github/workflows/demo-eval.yml); never the HIPAA organisation's ANTHROPIC_API_KEY and never on Vercel or AWS: synthetic test calls only. Rotate or revoke it in the Anthropic console, and in GitHub's secrets if it is there.",
   VOICE_EVAL_CONFIRM_SPEND: "Your approval of one voice-eval run's printed cost estimate: an id, not a secret. Without it the eval makes no paid call.",
+  VOICE_EVAL_DEMO_BUDGET_USD:
+    "The most one demo-eval run may spend, in dollars: a standing approval for the run each pull request makes (a GitHub repository variable; 5 when unset), or on your computer in place of VOICE_EVAL_CONFIRM_SPEND. A setting, not a secret.",
   VOICE_EVAL_OUT_DIR: "Where the voice eval writes its results on your computer: a folder.",
 };
 

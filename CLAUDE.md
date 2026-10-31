@@ -164,8 +164,14 @@ enforceable rather than aspirational.
    clinic's published profile and the requester's first name as one Retell
    dynamic variable sealed with `HEALDESK_PROVISION_SECRET`
    (`packages/catalog/src/demo-call.ts`; business data, never a patient's).
-   apps/app answers it with the same turn pipeline, prompt and guard as a
-   clinic's patients, from that context instead of the database, and keeps
+   apps/app answers it with the same turn pipeline and guard as a clinic's
+   patients, from that context instead of the database (owner, 31 October
+   2026: one Aya, healdesk's, who plays the clinic's front desk in a
+   role-play: outside the role-play the model gets healdesk's own short
+   prompt, `demoSalesPrompt`, and never the front-desk one; in the
+   role-play, the clinic's own front-desk prompt, built from the scraped
+   profile, is what she plays; each turn's note carries only the next step,
+   `demoStageNote`), and keeps
    nothing: no gate, no ingest, no transcript, no alert, no booking. One
    exception (owner, 25 October 2026): a demo call started by an operator
    signed in to `/admin` is sealed as a test, and its transcript is emailed
@@ -175,13 +181,21 @@ enforceable rather than aspirational.
    start differs: Aya gives the AI and transcription notice, checks she has
    the requester by name, asks their role, offers to explain or to role-play
    a patient call (opened with "Ring ring!" and the clinic's own notice,
-   wrapped up within four of the caller's turns), then asks what they are
-   after, their call volume and what happens to missed calls before it
-   pitches, never asking twice what was answered (`DemoProgress`, kept from
-   her structured `state` update in each answer's details, never read from
-   her prose; the close and the live discount are in no note until the
-   coverage question is answered); the
-   pitch is the owner's nine beats in order, each said once (`DemoBeat`):
+   offering free times from a calendar made of the clinic's published hours,
+   `demoSlots`, and ending when it is done or the owner speaks as themselves,
+   with eight of the caller's turns only a ceiling), then asks what they are
+   after, their call volume and what happens to missed calls, never more
+   than two questions before a value point (`asksSinceValue`), never asking
+   twice what was answered (`DemoProgress`, kept from her structured `state`
+   update in each answer's details and from the listener, a second small
+   call beside each turn that fills what the owner said under a strict
+   schema, `lib/voice/demo-listener.ts`, never read from her prose; the close and the live discount are in no note until the
+   call is selling, `selling`: the coverage question answered, a buying
+   signal heard, in code or in her state, or an impatient caller; owner, 31
+   October 2026: "let her pitch whenever she hears a buying signal"); the
+   pitch is the owner's nine beats, each said once (`DemoBeat`), a menu she
+   picks the best-fitting unsaid one from, in the owner's order by default,
+   and a buyer reaches the close after three:
    their pain, the reveal, keeping their number, what is not finished yet
    with the live discount (the demo's own share and the hours left, never a
    fixed figure), a cost anchor, value in the clinic's own prices, one

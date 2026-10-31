@@ -82,6 +82,49 @@ first-party list prices from the claude-api skill (cached 2026-10-06), cache
 writes 1.25x and reads 0.1x input. The judge's output is the largest and
 least certain term (about 70% of the total).
 
+## The demo eval (`demo/`)
+
+The personalised demo call, scored on a real model (owner, 31 October 2026:
+"a small set of real-model test calls scored on every change"). The
+regression cases (`src/lib/voice/demo-cases.ts`) script the model's replies,
+so they test the code around the model; this tests what a real model says
+through that code.
+
+- **Fourteen owners** (`demo/scenarios.ts`): a role-play first, a buyer who
+  asks the price first, the competition question, an impatient caller, a
+  dodger, misheard words and "you already asked", disinterest, an owner who
+  already has a receptionist, and one replaying each of the owner's test
+  calls the regression cases cite (`from`; a test fails if a cited call has
+  no persona). The demo's listener runs in every call, as in production. A simulated owner (the caller model) plays each against
+  the real demo pipeline: a `RetellCallSession` in demo mode, its stage
+  machine, notes, prompt, guard and shaping, on production's voice request
+  (`demo/call.ts`). Nothing is read or written; a call-back goes nowhere.
+- **Scored two ways** (`demo/score.ts`), each 0 to 100, the call's score their
+  mean: checks read from what the call did (front-desk talk outside the
+  role-play, a question asked again after its answer, a time called available
+  in the role-play, questions after a buying signal, stock lines said in place
+  of hers, repeats, the close reached), and a judge (Opus 5.5) grading
+  salesperson, receptionist, human, memory, recovery and honesty, 0 to 3.
+- **Before and after** (`demo/run.ts` `compareDemoReports`): means over every
+  call against a baseline report; a change counts only past the noise (three
+  points, or twice the standard error), and any new front-desk line or
+  availability claim is worse.
+
+```bash
+npm run voice-eval:demo -w @healdesk/app -- run --dry-run --reps 1      # plumbing only, no key, no spend
+npm run voice-eval:demo -w @healdesk/app -- estimate --reps 2            # what a paid run costs (print it: 14 personas, with the listener)
+npm run voice-eval:demo -w @healdesk/app -- run --reps 2 --baseline before.json --fail-on-worse
+```
+
+A paid run needs `VOICE_EVAL_ANTHROPIC_API_KEY` and either
+`VOICE_EVAL_CONFIRM_SPEND` set to the printed id or `VOICE_EVAL_DEMO_BUDGET_USD`
+at least the printed cap. `.github/workflows/demo-eval.yml` runs it on every
+pull request that touches the voice or assistant code: the base first, then
+the head, both on the real model, with the comparison in the run's summary
+and the transcripts kept 14 days as an artifact. It skips until the owner
+adds the key as an Actions secret, which he placed after launch (31 October
+2026; plan task `DEMO-EVAL-LIVE`).
+
 ## How tuning cannot weaken safety
 
 - The proposer may replace one sentence, `TONE.warm`, and nothing else.

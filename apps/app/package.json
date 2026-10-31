@@ -31,6 +31,7 @@
     "qa:meta": "tsx --env-file-if-exists=.env.local scripts/meta-qa-gate.ts",
     "voice-eval": "tsx scripts/voice-eval/cli.ts",
     "voice-eval:scenarios": "tsx scripts/voice-eval/generate-scenarios.ts",
+    "voice-eval:demo": "tsx scripts/voice-eval/demo/cli.ts",
     "channels-link": "tsx --env-file-if-exists=.env.local scripts/channels-link.ts",
     "demo-clinic": "tsx --env-file-if-exists=.env.local scripts/demo-clinic.ts",
     "db:up": "bash scripts/dev-db.sh up",

@@ -7,6 +7,7 @@ import {
   DEMO_ROLEPLAY_EXIT,
   demoRoleplayOpener,
   LOVE_THAT,
+  ROLEPLAY_MAX_TURNS,
   WHICH_ONE_LINE,
   shortClinicName,
   SKIPPED_ANSWER,
@@ -39,7 +40,7 @@ import {
  * a clinic's owner talking about their business, never a patient.
  */
 
-export const DEMO_CASES_VERSION = "2026-10-30.1";
+export const DEMO_CASES_VERSION = "2026-10-31.2";
 
 /** The made-up clinic every case calls about. */
 export const DEMO_CASE_CLINIC: DemoCallClinic = {
@@ -158,6 +159,16 @@ const SHORT = shortClinicName(CLINIC);
 
 /** The words close to the close and the live discount, none of which may reach a note before coverage is answered. */
 export const CLOSE_WORDS: readonly string[] = [`Want to get ${SHORT} set up?`, "% off the setup fee", "discount", "Book Onboarding", "checkout"];
+
+/**
+ * In-character turns that move a role-play towards its ceiling and decide
+ * nothing: since 31 October 2026 a role-play ends when it is done, and only
+ * ROLEPLAY_MAX_TURNS caller turns end it otherwise (step 4), so the cases of
+ * that ceiling walk this many more turns than they did at four.
+ */
+const ROLEPLAY_FILLER: DemoCaseTurn[] = ["How long does it take?", "Do I need to prepare anything?", "Is there a cancellation fee?", "Can I pay when I'm there?"]
+  .slice(0, ROLEPLAY_MAX_TURNS - 4)
+  .map((caller) => ({ caller, model: [modelSays("Good question, the team can go through that with you.")] }));
 
 /** The start every case walks: who they are, their role, the choice, a short role-play, and out of it. */
 const TO_PITCH: DemoCaseTurn[] = [
@@ -304,7 +315,8 @@ const discovery: DemoCase[] = [
       {
         caller: "I'm not convinced.",
         model: [modelSays("Fair enough. What would you need to see? And quickly, what happens with those calls after hours right now?", { asked: "missed" })],
-        check: { noteExcludes: CLOSE_WORDS, noteIncludes: ['Next: ask: "How do you see me helping you best'], noGuardLine: true },
+        // Four questions in a row: the next move is a value point, never the close (owner, 31 October 2026, step 3).
+        check: { noteExcludes: CLOSE_WORDS, noteIncludes: ["Next: no question this time: one value point"], noGuardLine: true },
       },
     ],
   },
@@ -322,7 +334,7 @@ const discovery: DemoCase[] = [
             { asked: "goal" },
           ),
         ],
-        check: { noteIncludes: ["If channels come up at any point", "Aya Meta Chat for Instagram, Messenger and WhatsApp"], noGuardLine: true },
+        check: { noteIncludes: ["If channels come up, however they ask", "Aya Meta Chat for Instagram, Messenger and WhatsApp"], noGuardLine: true },
       },
       {
         caller: "What about social media?",
@@ -422,7 +434,7 @@ const josh: DemoCase = {
       model: [
         modelSays("Not at all: Aya Voice for your phone, Aya Web Chat for your site, and Aya Meta Chat for Instagram, Messenger and WhatsApp. So, what made you look into this?", { asked: "goal" }),
       ],
-      check: { noGuardLine: true, noteIncludes: ["If channels come up at any point"] },
+      check: { noGuardLine: true, noteIncludes: ["If channels come up, however they ask"] },
     },
     {
       caller: "What about social media?",
@@ -632,7 +644,7 @@ const phase6: DemoCase[] = [
       {
         caller: "Okay, and?",
         model: [modelSays("What happens with those calls after hours right now?", { asked: "missed" })],
-        check: { noteIncludes: ['and not "skip", which you used last'], noteExcludes: ['Next: react to what they said in a few words, then ask: "Generally, how many calls do you get a day?"'] },
+        check: { noteIncludes: ['The pushback move you used last: "skip"'], noteExcludes: ['Next: react to what they said in a few words, then ask: "Generally, how many calls do you get a day?"'] },
       },
     ],
   },
@@ -666,7 +678,7 @@ const phase6: DemoCase[] = [
         check: {
           ends: true,
           quirks: [],
-          noteIncludes: ['If they firmly refuse to go on at all ("leave me alone", "stop calling", "I said no"), skip that question', 'one brief, positive goodbye with no "Talk soon"'],
+          noteIncludes: ['If they firmly refuse to go on at all ("leave me alone", "stop calling", "I said no"), never offer anything more', 'one brief, positive goodbye with no "Talk soon"'],
         },
       },
     ],
@@ -746,7 +758,7 @@ const positioning: DemoCase[] = [
         check: {
           noGuardLine: true,
           heardIncludes: ["Unlike a phone-only bot"],
-          noteIncludes: ["Say with confidence that Aya does more than the usual options", 'never name, describe or quote any company, and never say "the only"', "designed to send the clinic's own deposit link"],
+          noteIncludes: ["say with confidence that Aya does more", 'never name, describe or quote any company, and never say "the only"', "designed to send the clinic's own deposit link"],
         },
       },
     ],
@@ -869,8 +881,16 @@ const thomas: DemoCase = {
     {
       caller: "I don't know. Like, five.",
       model: [modelSays("What happens with those calls after hours, or when your team's busy?", { asked: "missed" })],
-      // A hedged count is his answer: no maths walked through on it.
-      check: { answers: { volume: "I don't know. Like, five." }, noteExcludes: ["Check the total with them"], noteIncludes: ['Next: ask: "What happens with those calls after hours'] },
+      // A hedged count is his answer: no maths walked through on it. And
+      // with what he is after and how he wants her to help already answered,
+      // the call is selling (owner, 31 October 2026, items 9 and 10): the
+      // note asks no more questions, where on the call she asked about missed
+      // calls and he hung up on the next turn.
+      check: {
+        answers: { volume: "I don't know. Like, five." },
+        noteExcludes: ["Check the total with them", 'Next: ask: "What happens with those calls after hours'],
+        noteIncludes: ["They have answered the discovery questions: now the pitch, then the close."],
+      },
     },
     {
       caller: "You tired me, honestly. It's not straight to the point. I'm done with repeating myself.",
@@ -951,6 +971,8 @@ const round5: DemoCase[] = [
       { caller: "Friday.", model: [modelSays("Great, morning or afternoon?")] },
       { caller: "Morning.", model: [modelSays("Lovely, Friday morning it is.")] },
       { caller: "Can I bring a friend?", model: [modelSays("Of course, they're welcome to come along.")] },
+      // The ceiling is far now (ROLEPLAY_MAX_TURNS, step 4): the patient keeps asking until it is reached.
+      ...ROLEPLAY_FILLER,
       { caller: "And is there parking?", model: [modelSays("There's parking right behind the building.")], check: { stage: "roleplay" } },
       {
         caller: "Great, thanks.",
@@ -1010,7 +1032,7 @@ const round5: DemoCase[] = [
       {
         caller: "What's special about healdesk?",
         model: [modelSays("We're one Aya across your phone, website chat, Instagram, Messenger and WhatsApp. Want to hear more?")],
-        check: { noteIncludes: ["You are healdesk's Aya, and the product they are hearing is you."], noGuardLine: true },
+        check: { noteIncludes: ["You are healdesk's Aya, and the product they are hearing is you"], noGuardLine: true },
       },
     ],
   },
@@ -1040,12 +1062,14 @@ const a17b5aff: DemoCase[] = [
       {
         caller: "Tuesday morning,",
         model: [modelSays("Tuesday works. What time that morning suits you?")],
-        check: { stage: "roleplay", noteIncludes: ["never say a time is available, free or open", "never ask which one they mean"] },
+        // The role-play's own calendar since 31 October 2026 (step 4): real free times from the clinic's hours, never invented ones.
+        check: { stage: "roleplay", noteIncludes: ["This role-play's calendar has these free times", "Never invent another free time", "never ask which one they mean"] },
       },
       {
         caller: "Next Tuesday, let's call it I don't know. Do you have any slots for eleven AM?",
         model: [modelSays("Eleven works, so would Tuesday, November 3 at 11:00 AM suit you?", { roleplay: "end" })],
-        check: { stage: "roleplay", heardExcludes: ["And that's the role-play"], noteIncludes: ["Ask no question in this reply"] },
+        // Her end waits for the answer to her question, then comes on the next reply, whatever the turn count (step 4).
+        check: { stage: "roleplay", heardExcludes: ["And that's the role-play"], progress: { rpEndPending: true } },
       },
       {
         caller: "Yeah.",
@@ -1060,7 +1084,7 @@ const a17b5aff: DemoCase[] = [
     why: "The wait for an open question (a17b5aff) must never let a role-play run on (084f10d4).",
     turns: [
       ...TO_PITCH.slice(0, 3),
-      ...["Hi, I'd like to book.", "A facial.", "Friday.", "Morning.", "Ten.", "Ten AM.", "Yes, ten."].map((caller) => ({
+      ...["Hi, I'd like to book.", "A facial.", "Friday.", "Morning.", ...ROLEPLAY_FILLER.map((t) => t.caller), "Ten.", "Ten AM.", "Yes, ten."].map((caller) => ({
         caller,
         model: [modelSays("Sure, which time suits you?")],
         check: { stage: "roleplay" as const },
@@ -1159,7 +1183,7 @@ const a17b5aff: DemoCase[] = [
   },
   {
     id: "compare-and-stalled-pitch",
-    title: "\"What makes you better?\" gets one positioning line; a talk that finds nothing out in five turns goes to the pitch",
+    title: "\"What makes you better?\" gets one positioning line and opens the close; a talk that finds nothing out in five turns goes to the pitch",
     why: "Transcript a17b5aff: nine turns after the role-play, a question on the competition and one on how she'd improve, and not one pitch beat.",
     turns: [
       ...TO_PITCH,
@@ -1167,7 +1191,13 @@ const a17b5aff: DemoCase[] = [
       {
         caller: "Tell me what makes you so special. Why are you better than the competition?",
         model: [modelSays("One Aya covers your phone, website chat, Instagram, Messenger and WhatsApp, with the same knowledge of your clinic.")],
-        check: { progress: { metaAsk: "compare" }, noteIncludes: ["They asked what makes you better than the alternatives."], noteExcludes: CLOSE_WORDS },
+        // A buying signal since 31 October 2026 (owner: "What makes you better
+        // than the competition?" should move her towards the pitch and a
+        // close): the close opens on it, discovery or not.
+        check: {
+          progress: { metaAsk: "compare", buying: true },
+          noteIncludes: ["They asked what makes you better than the alternatives.", "They showed a buying signal: now value and the close.", `Want to get ${SHORT} set up?`],
+        },
       },
       {
         caller: "If you were to improve yourself, what would you change?",
@@ -1182,4 +1212,45 @@ const a17b5aff: DemoCase[] = [
   },
 ];
 
-export const DEMO_CASES: readonly DemoCase[] = [...bareNumbers, ...discovery, josh, ...callbacks, ...phase6, ...quirks, ...positioning, thomas, cancelled, ...round5, ...a17b5aff];
+/**
+ * Transcript 8c19fd93 (31 October 2026, the owner calling about Miami Skin &
+ * Vein): "Hey. I'm the owner." was taken as who they are only, so she asked
+ * their role; "Are you deaf?" and "Are you daft?" were taken as answers and
+ * met literally ("I can hear you fine"); and "hear more or a role-play?" was
+ * asked four times, "Yeah. Whatever." included. The caller's words are the
+ * transcript's.
+ */
+const c8c19fd93: DemoCase[] = [
+  {
+    id: "role-heard-annoyance-not-an-answer",
+    title: "A role said in the first answer is never asked for; annoyance is no answer and never met literally; the choice is asked twice at most, and \"whatever\" starts the role-play",
+    why: 'Transcript 8c19fd93: "What\'s your role?" after "I\'m the owner", "I can hear you fine!" to "Are you deaf?", and the same either/or question four times.',
+    turns: [
+      {
+        caller: "Hey. I'm the owner.",
+        model: [modelSays(`Great to meet you! Would you like to hear what I can do for ${SHORT}, or jump straight into a quick role-play where you call in as a patient?`, { asked: "choice" })],
+        check: { answers: { role: "Hey. I'm the owner." }, noteExcludes: ["ask their role"], asked: "choice" },
+      },
+      {
+        caller: "Are you deaf?",
+        model: [modelSays("Sorry, you said you're the owner. Want to hear what I do, or try me as a patient?", { asked: "choice" })],
+        check: {
+          progress: { annoyed: true, choiceAsks: 2 },
+          noteIncludes: ["They are annoyed that you did not take in what they said.", 'Never answer the words literally ("I can hear you fine"'],
+        },
+      },
+      {
+        caller: "Are you daft?",
+        model: [modelSays("Sorry about that. One Aya answers your phone, website chat, Instagram, Messenger and WhatsApp, and you can try me as a patient any time.")],
+        check: { progress: { annoyed: true }, noteIncludes: ["you have already asked twice whether they want to hear more or a role-play: never ask it again"] },
+      },
+      {
+        caller: "Yeah. Whatever.",
+        model: [modelSays("Let's do it, you be the patient.", { roleplay: "start" })],
+        check: { stage: "roleplay", progress: { delegated: false }, noteIncludes: ["they left it to you: start the role-play in this reply"] },
+      },
+    ],
+  },
+];
+
+export const DEMO_CASES: readonly DemoCase[] = [...bareNumbers, ...discovery, josh, ...callbacks, ...phase6, ...quirks, ...positioning, thomas, cancelled, ...round5, ...a17b5aff, ...c8c19fd93];

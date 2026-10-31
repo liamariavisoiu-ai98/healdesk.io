@@ -991,6 +991,15 @@ export async function answerTurn(input: {
    */
   notes?: readonly string[] | null;
   /**
+   * The stable prefix in place of the practice's own prompt
+   * (buildAssistantPrompt), when the adapter is not answering as the
+   * practice: a personalised demo call outside its role-play, where Aya is
+   * healdesk's and talks with a clinic's owner (lib/voice/demo-facts.ts,
+   * demoSalesPrompt). The facts still decide every screen and the guard;
+   * only what the model is told changes, never what it may say.
+   */
+  stablePrompt?: string | null;
+  /**
    * On a call, the caller's first name when the adapter knows it before the
    * model has captured one (a demo's requester), for voiceHabits.
    */
@@ -1101,7 +1110,7 @@ export async function answerTurn(input: {
     notes.push(`If your answer is slow to start, "${input.acknowledge.line}" is said out loud for you first: begin with the answer itself, never with an acknowledgement or filler.`);
   }
   const system = {
-    stable: buildAssistantPrompt(facts, channel, { bookingTools: toolsLive }),
+    stable: input.stablePrompt ?? buildAssistantPrompt(facts, channel, { bookingTools: toolsLive }),
     turn: assistantTurnContext(
       facts,
       now,

@@ -31,9 +31,15 @@ export type DemoScenario = {
   lookFor: string;
   /** The checks that must hold (DemoChecks): does this caller ask for a role-play, and is the close expected. */
   expect: { roleplay: boolean; close: boolean };
+  /**
+   * The owner's test call this persona replays (owner, 31 October 2026, step
+   * 6: "Each bad call becomes an eval persona rather than a new patch"): every
+   * transcript a regression case cites has one, which a test holds.
+   */
+  from?: string;
 };
 
-export const DEMO_EVAL_VERSION = "2026-10-31.1";
+export const DEMO_EVAL_VERSION = "2026-10-31.2";
 
 export const DEMO_SCENARIOS: readonly DemoScenario[] = [
   {
@@ -170,5 +176,78 @@ export const DEMO_SCENARIOS: readonly DemoScenario[] = [
     lookFor:
       "The receptionist objection met with 'not replacing them, picking up what they can't', after-hours value tied to the owner's words, prices from the list, and the partner objection answered with the demo page.",
     expect: { roleplay: false, close: true },
+  },
+  // The owner's own test calls, as personas (step 6). Their words are paraphrased from the transcripts the cases cite.
+  {
+    id: "call-d2d9a915",
+    from: "d2d9a915",
+    title: "Asks about the channels one at a time and gives the call count as a bare number",
+    persona:
+      "You are the owner. Before anything else, ask 'Is it phone only?', then on her next answer 'What about social media?', then 'And WhatsApp?'. When asked how many calls you get, say just 'Five.' Then answer plainly and let her pitch.",
+    goal: "Know every channel she covers and whether she fits a small clinic.",
+    opening: "Yes, Josh here.",
+    scripted: ["I'm the owner. Is it phone only?", "What about social media?", "And WhatsApp?", "We miss calls when it's busy.", "Five.", "Yeah, about that.", "Voicemail.", "After hours.", "Okay, how do I get started?", "Thanks, bye."],
+    lookFor: "The whole channel answer the first time it comes up, never in pieces and never 'I can't tell you which channels'; 'Five' taken as five calls a day with the word calls after every number.",
+    expect: { roleplay: false, close: true },
+  },
+  {
+    id: "call-72dc66b7",
+    from: "72dc66b7",
+    title: "An employee who wants to hear first, answers 'Yes, please' to an either/or, gives everything in one answer, then tires",
+    persona:
+      "You are an employee at the clinic, not the owner. Ask her to tell you what she can do first. To any either/or question answer only 'Yes, please.' Then ask for the role-play; as the patient, ask for something for your skin and how much it costs, say 'I don't understand' once, pick 'the second one' from what she lists, and ask for Monday at ten PM. After it, in one long answer say you want her to answer the phone, answer questions, upsell, book clients, send deposit links and answer chats on the website, WhatsApp and Instagram. If she then asks more than one more question, say 'You tired me, honestly. I'm done with repeating myself.' and hang up.",
+    goal: "See if she keeps up without making you repeat yourself.",
+    opening: "Hi, it's Thomas actually, I work there.",
+    scripted: ["I'm an employee, actually.", "Tell me what you can do first.", "Yes, please.", "Let's do the role play now.", "Hi, I'd like something for my skin. How much does it cost?", "I don't understand.", "The second one.", "Monday, ten PM.", "Five PM then.", "It was okay.", "I want you to answer the phone, upsell, book clients, send deposit links and answer chats on WhatsApp and Instagram.", "Like, five.", "You tired me, honestly. I'm done with repeating myself."],
+    lookFor: "'Which one?' to a bare yes, a time inside the hours offered on the same day, 'the second one' read from her own list, the long answer counted for every question it answers, and no more questions once impatience shows.",
+    expect: { roleplay: true, close: true },
+  },
+  {
+    id: "call-a17b5aff",
+    from: "a17b5aff",
+    title: "A role-play booking next week, then 'you got confused' and 'what was your other question?'",
+    persona:
+      "You are the owner. Ask for the role-play. As the patient, ask to book next week, forget the treatments and ask what they have, ask which one you'd actually need, then say Tuesday morning and ask for eleven AM. After the role-play say 'you got confused there' once, then later 'You already asked me that.' and 'what was your other question?'. Ask what makes her better than the competition and how she would improve.",
+    goal: "Test whether she recovers when you call her out.",
+    opening: "Yes, I'm the owner of the clinic.",
+    scripted: ["Let's do the role-play.", "Hey, I'd like to book an appointment for next week.", "I forgot, what treatments do you have?", "Which one would I actually need?", "Yeah, let's do that. Tuesday morning.", "Eleven AM?", "Yeah.", "you got confused there.", "You already asked me that.", "What was your other question?", "What makes you better than the competition?", "Okay, what's next?", "Thanks, bye."],
+    lookFor: "A consultation offered for 'which one would I need', no claim a time is free outside her calendar, the role-play never cut off mid-booking, 'you got confused' owned in one sentence then the next step, never 'which part?', and the competition question treated as a buying signal.",
+    expect: { roleplay: true, close: true },
+  },
+  {
+    id: "call-8c19fd93",
+    from: "8c19fd93",
+    title: "'Hey. I'm the owner.', then 'Are you deaf?' when asked again, and 'whatever'",
+    persona:
+      "You are the owner. Answer the opening with 'Hey. I'm the owner.' If she asks your role again, say 'Are you deaf?'. If she asks again whether you want to hear more or try a role-play, say 'Are you daft?' and then 'Yeah. Whatever.' Play along with whatever she does next.",
+    goal: "Get a straight demo without repeating yourself.",
+    opening: "Hey. I'm the owner.",
+    scripted: ["Are you deaf?", "Are you daft?", "Yeah. Whatever.", "Hi, how much is Botox?", "Okay thanks, bye.", "Fine.", "Ten a day.", "How much is it?", "Bye."],
+    lookFor: "The role never asked after it was said, annoyance met with a sincere sorry and never literally ('I can hear you fine'), the either/or asked twice at most, and 'whatever' starting the role-play.",
+    expect: { roleplay: true, close: true },
+  },
+  {
+    id: "call-0a45870b",
+    from: "0a45870b",
+    title: "Feels rushed towards the role-play and asks what is special about healdesk",
+    persona:
+      "You are the owner. You want to understand the product before any role-play. If she offers the role-play twice, say 'I feel like you're rushing me towards your demo.' Ask 'What's special about healdesk?' and how it handles patient data. If she answers well, ask about price.",
+    goal: "Understand healdesk itself before trying anything.",
+    opening: "Yes, that's me.",
+    scripted: ["I'm the owner. Tell me about the product first.", "I feel like you're rushing me towards your demo.", "What's special about healdesk?", "How do you handle patient data?", "Okay, what does it cost?", "Thanks, I'll think about it. Bye."],
+    lookFor: "healdesk answered as 'we', never 'their product'; the role-play not pushed after two offers; the business associate agreement line, never 'HIPAA compliant'; price from the list when asked.",
+    expect: { roleplay: false, close: true },
+  },
+  {
+    id: "call-084f10d4",
+    from: "084f10d4",
+    title: "A role-play that keeps going, and a flat 'I told you no. No.'",
+    persona:
+      "You are the owner. Ask for the role-play. As the patient, ask whether they do consultations; when she offers to put in a request, say 'I told you no. No.' Then keep asking small questions (parking, how long it takes) until she steps out of the role-play. After it, answer briefly.",
+    goal: "See if the role-play ends on its own and a no is respected.",
+    opening: "Yeah, it's me.",
+    scripted: ["I'm the owner. Let's do the role play.", "Hi, do you do consultations?", "I told you no. No.", "Is there parking?", "How long does a facial take?", "Okay, thanks.", "It was fine.", "Bye."],
+    lookFor: "A 'no' never followed by 'we're all set', and the role-play ending on its own with the exit line, never running on or ending the call inside it.",
+    expect: { roleplay: true, close: false },
   },
 ];

@@ -34,7 +34,9 @@ export type DemoChecks = {
   multiQuestion: number;
   /** A sentence she said twice. */
   repeated: number;
-  /** In the role-play, a time called available, free or open (item 15). */
+  /** Words she wrote that the call cut before they were said (item 17). */
+  wordsCut: number;
+  /** In the role-play, a time called available, free or open that is not on the call's own calendar (item 15). */
   availabilityClaims: number;
   /** Replies asking about their business after a buying signal, before any value or price (items 9 to 11). */
   questionsAfterBuying: number;
@@ -53,6 +55,13 @@ const AVAILABLE = /\b(?:is|are|'s)\s+(?:available|free|open)\b|\bwe have (?:an? 
 const CLOSE = /\bset up\?|\bbook onboarding\b|\btap\b.*\bdemo page\b/i;
 const BUSINESS_QUESTION = /\bhow many calls\b|\bwhat happens (?:with|to) (?:those|your|missed)\b|\bhow do you see me helping\b|\bwhat made you want to look\b|\bwhat'?s your role\b/i;
 const VALUE = /\$\d|\bdollars?\b|\bkeep your own number\b|\bnot just the phone\b|\breceptionist runs\b|\bno strings\b|\bsetup fee\b/i;
+
+/** Whether a line names one of the calendar's times ("Monday, November 2 at 11 AM": its "11 AM" or "11"). */
+function namesSlot(text: string, slot: string): boolean {
+  const time = slot.split(" at ")[1] ?? "";
+  const hour = time.split(/[ :]/)[0] ?? "";
+  return Boolean(time) && (text.includes(time) || new RegExp(`\\b${hour}(?::00)?\\s*(?:am|pm|a\\.m\\.|p\\.m\\.)?\\b`, "i").test(text));
+}
 
 function sentences(text: string): string[] {
   return text
@@ -100,7 +109,9 @@ export function demoChecks(trace: DemoCallTrace): DemoChecks {
     stateMissing: trace.modelAnswers.filter((a) => a.stage !== "roleplay" && !a.hasState).length,
     multiQuestion: own.filter((t) => (t.text.match(/\?/g) ?? []).length > 1 && !t.text.includes(DEMO_CALLBACK_OFFER.text)).length,
     repeated,
-    availabilityClaims: inRoleplay.filter((t) => AVAILABLE.test(t.text)).length,
+    // A free time from the role-play's own calendar is true; any other is invented.
+    availabilityClaims: inRoleplay.filter((t) => AVAILABLE.test(t.text) && !(trace.slots ?? []).some((slot) => namesSlot(t.text, slot))).length,
+    wordsCut: said.reduce((n, t) => n + (t.cut ?? 0), 0),
     questionsAfterBuying,
     roleplayRan: said.some((t) => t.stageAfter === "roleplay"),
     roleplayExited: said.some((t) => t.text.includes(DEMO_ROLEPLAY_EXIT)),
@@ -128,6 +139,7 @@ export function checkScore(checks: DemoChecks, scenario: DemoScenario): { score:
   cost(checks.replaced, 5, "a stock line said in place of hers");
   cost(checks.repeated, 5, "said a sentence twice");
   cost(checks.multiQuestion, 3, "more than one question in a reply");
+  cost(Math.floor(checks.wordsCut / 10), 2, "words of hers cut before they were said (per 10)");
   cost(checks.stateMissing, 3, "answer without its state update");
   cost(Math.max(0, checks.callbackOffers - 1), 10, "offered the call-back more than once");
   if (scenario.expect.roleplay && !checks.roleplayRan) cost(1, 20, "no role-play though they asked for one");

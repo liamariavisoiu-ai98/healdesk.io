@@ -33,7 +33,7 @@ After launch (owner, 31 October 2026; plan task `DEMO-EVAL-LIVE`, not a
 go-live blocker): add `VOICE_EVAL_ANTHROPIC_API_KEY` (the eval's own key,
 never the HIPAA organisation's) as an Actions secret, and optionally
 `VOICE_EVAL_DEMO_BUDGET_USD` as a repository variable (5 when unset; one run
-is estimated at about $0.90, so a pull request, base and head, about $1.80).
+is estimated at about $1.60 with the 14 personas and the listener, so a pull request, base and head, about $3.30, under the default budget).
 Until then the workflow says it skipped, and demo changes before launch rest
 on the scripted regression cases and the owner's test calls. The first live
 run is the baseline; nothing here has been measured on a real model yet. The
@@ -137,6 +137,20 @@ so there is always a way back to the sales thread.
   the call-back), and the eval for how she sounds.
 - Make the demo eval a required check once its baseline is stable (owner, in
   GitHub branch protection).
+
+## 2b. Status of the six steps (owner, 31 October 2026: "Let's implement these all")
+
+Built in DEMO-HAIKU-2, tested with scripted models and the eval's dry run;
+none measured on a real model yet (the eval key is post-launch, `DEMO-EVAL-LIVE`).
+
+| Step | Built | Where |
+|---|---|---|
+| 1. Listener | A second Haiku call beside each demo turn, strict JSON schema, 4-second limit; fills what the owner said and keeps buying, impatience, "wants the role-play" and "stepped out"; an answer it heard is never overwritten. The phrase lists stay as the instant read and fallback | `lib/voice/demo-listener.ts`, `retell.ts` `listen`, `responder.ts` `json` |
+| 2. Examples | Nine short exchanges in the sales prompt, several style rules removed | `demo-facts.ts` `demoExamples` |
+| 3. Interleaved | At most two questions before a value point, then alternate | `asksSinceValue`, `INTERLEAVED` |
+| 4. Role-play | Ends on her end signal (a held-back end comes on the next reply), on the listener hearing the owner as themselves, or at a ceiling of eight turns (was a cut at four); a calendar of three free times from the clinic's hours | `rpOut`, `rpEndPending`, `demoSlots` |
+| 5. Fewer stock lines | Recovery openers rotate, never the same twice in a call; the eval counts words cut from her replies | `leadsFor`, eval `wordsCut` |
+| 6. Loop | Each test call the cases cite (six) is an eval persona, held by a test; 14 personas in all. The required check stays the owner's, after launch | `scripts/voice-eval/demo/scenarios.ts` |
 
 ## 3. What not to do
 

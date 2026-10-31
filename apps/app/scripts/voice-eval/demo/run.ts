@@ -238,7 +238,7 @@ const BEAT_WORDS: Record<string, string> = {
  * role-play, discovery, the value points and the close through the real
  * session. It tests the plumbing, never Aya.
  */
-export const DEMO_MOCK: Pick<MockBehaviour, "agent" | "judge"> = {
+export const DEMO_MOCK: Pick<MockBehaviour, "agent" | "judge" | "listener"> = {
   agent(params) {
     const note = lastText(params, "system");
     const said = lastText(params, "user").toLowerCase();
@@ -263,6 +263,28 @@ export const DEMO_MOCK: Pick<MockBehaviour, "agent" | "judge"> = {
     if (note.includes("say what you do in two short sentences") || note.includes("do what they chose")) return answer("One Aya answers your phone, website chat, Instagram, Messenger and WhatsApp. Want to try me as a patient?", { asked: null, beats: [] });
     return answer("Got it. What made you want to look at an AI assistant for Lumen?", { asked: "goal", beats: [] });
   },
+  /** A fake listener: what the owner's latest words plainly say, so a dry run exercises the slots and signals. */
+  listener(params) {
+    const user = lastText(params, "user");
+    const latest = /Owner \(latest\): (.*)$/s.exec(user)?.[1]?.toLowerCase() ?? "";
+    const inRoleplay = user.includes("a role-play is on");
+    const WORDS: Record<string, string> = { five: "5", six: "6", eight: "8", ten: "10", twelve: "12", twenty: "20" };
+    const said = /\b(\d{1,3}|five|six|eight|ten|twelve|twenty)\b/.exec(latest)?.[1] ?? null;
+    const count = said ? (WORDS[said] ?? said) : null;
+    return JSON.stringify({
+      name: null,
+      role: /\bi'?m (?:the )?(owner|office manager|manager)\b/.exec(latest)?.[1] ?? null,
+      goal: /\bmiss\b/.test(latest) ? "missed calls" : null,
+      callsPerDay: !inRoleplay && count && /\b(?:day|calls?|clothes)\b/.test(latest) ? count : null,
+      missed: /\bvoicemail\b/.test(latest) ? "voicemail" : null,
+      coverage: /\bafter hours\b.*\bbusy\b|\beverything\b/.test(latest) ? latest.slice(0, 60) : null,
+      buying: !inRoleplay && /\b(?:cost|price|how much|sign up|get started|what's next|competition|improve)\b/.test(latest),
+      impatient: /\bget to the point\b|\bmake it quick\b/.test(latest),
+      wantsRoleplay: !inRoleplay && /role-?play/.test(latest),
+      speakingAsThemselves: inRoleplay && /\bthat was\b/.test(latest),
+      leaving: /\bbye\b/.test(latest),
+    });
+  },
   judge(_params, context) {
     const turns = context.transcript ?? [];
     const own = turns.filter((t) => t.speaker === "assistant" && t.source === "model");
@@ -277,7 +299,7 @@ export const DEMO_MOCK: Pick<MockBehaviour, "agent" | "judge"> = {
 };
 
 export function createDemoMockClient(): EvalClient {
-  return createMockClient({ behaviour: { agent: DEMO_MOCK.agent, judge: DEMO_MOCK.judge, caller: DEFAULT_MOCK.caller } });
+  return createMockClient({ behaviour: { agent: DEMO_MOCK.agent, judge: DEMO_MOCK.judge, listener: DEMO_MOCK.listener, caller: DEFAULT_MOCK.caller } });
 }
 
 /**

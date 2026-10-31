@@ -8,6 +8,7 @@ vi.mock("@/lib/tenant", () => ({
 }));
 vi.mock("@/lib/ops/notify", () => ({ notifyOps: async () => {}, notifyOpsOnce: async () => {} }));
 
+import { DEMO_CASES } from "@/lib/voice/demo-cases";
 import { DEMO_ROLEPLAY_EXIT } from "@/lib/voice/demo-facts";
 
 import type { DemoCallTrace } from "../scripts/voice-eval/demo/call";
@@ -49,6 +50,7 @@ describe("the demo eval", () => {
     const trace: DemoCallTrace = {
       scenario: "eager-buyer",
       ending: "caller_hung_up",
+      slots: ["Monday, November 2 at 11 AM"],
       modelAnswers: [{ stage: "intro", text: "Hi\n###\n{}", hasState: false }],
       progress: [
         { stage: "pitch", asked: "volume", answers: ["identity"], buying: true },
@@ -108,6 +110,23 @@ describe("the demo eval", () => {
     expect(approveDemoSpend(estimate, { VOICE_EVAL_ANTHROPIC_API_KEY: "k", VOICE_EVAL_CONFIRM_SPEND: estimate.id })).toBe("k");
     expect(approveDemoSpend(estimate, { VOICE_EVAL_ANTHROPIC_API_KEY: "k", VOICE_EVAL_DEMO_BUDGET_USD: String(estimate.capUsd + 1) })).toBe("k");
     expect(() => approveDemoSpend(estimate, { VOICE_EVAL_ANTHROPIC_API_KEY: "k", VOICE_EVAL_DEMO_BUDGET_USD: String(estimate.capUsd / 2) })).toThrow(/over VOICE_EVAL_DEMO_BUDGET_USD/);
+  });
+
+  test("every owner's test call a regression case cites is an eval persona too (step 6), and every persona is distinct", () => {
+    const cited = new Set(DEMO_CASES.flatMap((c) => [...`${c.title} ${c.why}`.matchAll(/\b[0-9a-f]{8}\b/g)].map((m) => m[0])));
+    expect(cited.size).toBeGreaterThan(0);
+    const replayed = new Set(DEMO_SCENARIOS.map((s) => s.from).filter(Boolean));
+    for (const id of cited) expect([id, replayed.has(id)]).toEqual([id, true]);
+    expect(new Set(DEMO_SCENARIOS.map((s) => s.id)).size).toBe(DEMO_SCENARIOS.length);
+  });
+
+  test("the listener runs in every eval call as production runs it, and her words cut before they were said are counted", async () => {
+    const client = createDemoMockClient();
+    const report = await runDemoEval({ client, scenarios: [scenario("misheard-and-repeated")], reps: 1, promptHash: "p-test", concurrency: 1 });
+    expect(client.ledger.some((e) => e.role === "listener" && e.model === report.agentModel)).toBe(true);
+    // "ten clothes a day" heard as ten calls: the volume is kept from the listener.
+    expect(report.cases[0]!.trace.progress.some((p) => p.answers.includes("volume"))).toBe(true);
+    expect(typeof report.cases[0]!.checks.wordsCut).toBe("number");
   });
 
   test("the judge's grades are read strictly: every skill, 0 to 3, nothing for a skill that does not apply", () => {

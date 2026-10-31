@@ -104,6 +104,10 @@ export const DEFAULT_MOCK: MockBehaviour = {
     else if (feeling && !bye) reply = `Sorry about that. ${reply}`;
     return JSON.stringify({ reply, booking: { wants: false }, handoff: false, end: bye });
   },
+  // The demo's listener hears nothing in a dry run unless a demo mock says otherwise (demo/run.ts).
+  listener() {
+    return JSON.stringify({ name: null, role: null, goal: null, callsPerDay: null, missed: null, coverage: null, buying: false, impatient: false, wantsRoleplay: false, speakingAsThemselves: false, leaving: false });
+  },
   caller(_params, context) {
     const scripted = context.scenario?.scripted ?? [];
     const turn = context.callerTurn ?? 1;
@@ -209,6 +213,7 @@ function fakeMessage(model: string, text: string, usage: Usage): Anthropic.Messa
 /** Per-role request limits. The agent keeps production's (responder.ts MODEL_CONFIG.voice): 8 seconds, no retry. */
 const LIVE_LIMITS: Readonly<Record<CallRole, { timeout: number; maxRetries: number }>> = {
   agent: { timeout: 8_000, maxRetries: 0 },
+  listener: { timeout: 8_000, maxRetries: 0 },
   caller: { timeout: 30_000, maxRetries: 2 },
   judge: { timeout: 180_000, maxRetries: 2 },
   proposer: { timeout: 300_000, maxRetries: 2 },

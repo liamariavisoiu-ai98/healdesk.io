@@ -90,10 +90,12 @@ regression cases (`src/lib/voice/demo-cases.ts`) script the model's replies,
 so they test the code around the model; this tests what a real model says
 through that code.
 
-- **Eight owners** (`demo/scenarios.ts`): a role-play first, a buyer who asks
-  the price first, the competition question, an impatient caller, a dodger,
-  misheard words and "you already asked", disinterest, an owner who already
-  has a receptionist. A simulated owner (the caller model) plays each against
+- **Fourteen owners** (`demo/scenarios.ts`): a role-play first, a buyer who
+  asks the price first, the competition question, an impatient caller, a
+  dodger, misheard words and "you already asked", disinterest, an owner who
+  already has a receptionist, and one replaying each of the owner's test
+  calls the regression cases cite (`from`; a test fails if a cited call has
+  no persona). The demo's listener runs in every call, as in production. A simulated owner (the caller model) plays each against
   the real demo pipeline: a `RetellCallSession` in demo mode, its stage
   machine, notes, prompt, guard and shaping, on production's voice request
   (`demo/call.ts`). Nothing is read or written; a call-back goes nowhere.
@@ -110,7 +112,7 @@ through that code.
 
 ```bash
 npm run voice-eval:demo -w @healdesk/app -- run --dry-run --reps 1      # plumbing only, no key, no spend
-npm run voice-eval:demo -w @healdesk/app -- estimate --reps 2            # what a paid run costs (about $0.90 on 21 Oct prices)
+npm run voice-eval:demo -w @healdesk/app -- estimate --reps 2            # what a paid run costs (print it: 14 personas, with the listener)
 npm run voice-eval:demo -w @healdesk/app -- run --reps 2 --baseline before.json --fail-on-worse
 ```
 

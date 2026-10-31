@@ -1,4 +1,4 @@
-import { demoBuildElapsedMs, demoBuildState, getDemoSession, isDemoSlug } from "@/lib/demo/sessions";
+import { demoBuildElapsedMs, demoBuildState, isDemoSlug, readDemoSession } from "@/lib/demo/sessions";
 
 /**
  * GET /api/demo/[slug]/status, how far a demo's build has got.
@@ -20,7 +20,10 @@ export const dynamic = "force-dynamic";
 
 export async function GET(_request: Request, ctx: { params: Promise<{ slug: string }> }): Promise<Response> {
   const { slug } = await ctx.params;
-  const session = isDemoSlug(slug) ? await getDemoSession(slug) : null;
+  const read = isDemoSlug(slug) ? await readDemoSession(slug) : { session: null, unavailable: false };
+  // The register did not answer: ask again shortly, never "not found" for a demo that exists.
+  if (read.unavailable) return Response.json({ error: "Try again shortly." }, { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "5" } });
+  const session = read.session;
   if (!session) return Response.json({ error: "Demo not found." }, { status: 404, headers: { "Cache-Control": "no-store" } });
   const now = Date.now();
   return Response.json(

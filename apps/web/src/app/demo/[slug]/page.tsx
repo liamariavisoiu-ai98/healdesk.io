@@ -18,11 +18,11 @@ import {
   demoSetupCredit,
   demoUrl,
   displayName,
-  getDemoSession,
   isDemoExpired,
   isDemoSlug,
   isSelfServeDemo,
   profileOf,
+  readDemoSession,
 } from "@/lib/demo/sessions";
 import { renderDemoV2 } from "@/lib/demo/v2/render";
 import { SCRIPT_ID } from "@/lib/demo/v2/slots";
@@ -70,7 +70,7 @@ type Props = { params: Promise<{ slug: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const session = isDemoSlug(slug) ? await getDemoSession(slug) : null;
+  const session = isDemoSlug(slug) ? (await readDemoSession(slug)).session : null;
   return {
     title: session ? `${displayName(session)} · AI front desk demo` : "Demo",
     robots: { index: false, follow: false },
@@ -91,7 +91,20 @@ function hostOf(websiteUrl: string): string {
 export default async function DemoPage({ params }: Props) {
   const { slug } = await params;
   if (!isDemoSlug(slug)) notFound();
-  const session = await getDemoSession(slug);
+  const read = await readDemoSession(slug);
+  // The register did not answer: a moment's wait and a fresh try, never a 404 for a demo that exists.
+  if (read.unavailable) {
+    return (
+      <Shell colour={FALLBACK_COLOUR}>
+        <RefreshWhileBuilding everyMs={5_000} />
+        <main className="mx-auto flex w-full max-w-[640px] flex-1 flex-col items-center justify-center px-5 py-24 text-center">
+          <h1 className="font-display text-3xl leading-tight font-medium tracking-[-0.02em]">Opening your demo&hellip;</h1>
+          <p className="text-muted mt-3 text-base font-medium">This takes a moment. The page will open on its own.</p>
+        </main>
+      </Shell>
+    );
+  }
+  const session = read.session;
   if (!session) notFound();
 
   const name = displayName(session);

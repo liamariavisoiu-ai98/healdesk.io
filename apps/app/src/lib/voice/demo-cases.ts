@@ -39,7 +39,7 @@ import {
  * a clinic's owner talking about their business, never a patient.
  */
 
-export const DEMO_CASES_VERSION = "2026-10-30.1";
+export const DEMO_CASES_VERSION = "2026-10-31.1";
 
 /** The made-up clinic every case calls about. */
 export const DEMO_CASE_CLINIC: DemoCallClinic = {
@@ -1182,4 +1182,45 @@ const a17b5aff: DemoCase[] = [
   },
 ];
 
-export const DEMO_CASES: readonly DemoCase[] = [...bareNumbers, ...discovery, josh, ...callbacks, ...phase6, ...quirks, ...positioning, thomas, cancelled, ...round5, ...a17b5aff];
+/**
+ * Transcript 8c19fd93 (31 October 2026, the owner calling about Miami Skin &
+ * Vein): "Hey. I'm the owner." was taken as who they are only, so she asked
+ * their role; "Are you deaf?" and "Are you daft?" were taken as answers and
+ * met literally ("I can hear you fine"); and "hear more or a role-play?" was
+ * asked four times, "Yeah. Whatever." included. The caller's words are the
+ * transcript's.
+ */
+const c8c19fd93: DemoCase[] = [
+  {
+    id: "role-heard-annoyance-not-an-answer",
+    title: "A role said in the first answer is never asked for; annoyance is no answer and never met literally; the choice is asked twice at most, and \"whatever\" starts the role-play",
+    why: 'Transcript 8c19fd93: "What\'s your role?" after "I\'m the owner", "I can hear you fine!" to "Are you deaf?", and the same either/or question four times.',
+    turns: [
+      {
+        caller: "Hey. I'm the owner.",
+        model: [modelSays(`Great to meet you! Would you like to hear what I can do for ${SHORT}, or jump straight into a quick role-play where you call in as a patient?`, { asked: "choice" })],
+        check: { answers: { role: "Hey. I'm the owner." }, noteExcludes: ["ask their role"], asked: "choice" },
+      },
+      {
+        caller: "Are you deaf?",
+        model: [modelSays("Sorry, you said you're the owner. Want to hear what I do, or try me as a patient?", { asked: "choice" })],
+        check: {
+          progress: { annoyed: true, choiceAsks: 2 },
+          noteIncludes: ["They are annoyed that you did not take in what they said.", 'Never answer the words literally ("I can hear you fine"'],
+        },
+      },
+      {
+        caller: "Are you daft?",
+        model: [modelSays("Sorry about that. One Aya answers your phone, website chat, Instagram, Messenger and WhatsApp, and you can try me as a patient any time.")],
+        check: { progress: { annoyed: true }, noteIncludes: ["you have already asked twice whether they want to hear more or a role-play: never ask it again"] },
+      },
+      {
+        caller: "Yeah. Whatever.",
+        model: [modelSays("Let's do it, you be the patient.", { roleplay: "start" })],
+        check: { stage: "roleplay", progress: { delegated: false }, noteIncludes: ["they left it to you: start the role-play in this reply"] },
+      },
+    ],
+  },
+];
+
+export const DEMO_CASES: readonly DemoCase[] = [...bareNumbers, ...discovery, josh, ...callbacks, ...phase6, ...quirks, ...positioning, thomas, cancelled, ...round5, ...a17b5aff, ...c8c19fd93];

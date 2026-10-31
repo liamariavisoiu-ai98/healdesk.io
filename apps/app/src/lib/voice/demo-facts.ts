@@ -491,6 +491,16 @@ export type DemoProgress = {
   greetedOnly?: boolean;
   /** The caller's turns after the role-play that answered no discovery question (PITCH_STALLED_TURNS). */
   pitchStalls?: number;
+  /**
+   * Their latest words were annoyance at not being heard ("Are you deaf?",
+   * "I already told you"), never an answer (transcript 8c19fd93: taken as the
+   * answer to "hear more or a role-play?", then met with "I can hear you fine").
+   */
+  annoyed?: boolean;
+  /** They left the choice to her ("Whatever", "up to you"): the role-play starts. */
+  delegated?: boolean;
+  /** Replies that asked "hear more or a role-play?" (8c19fd93: four in a row). */
+  choiceAsks?: number;
 };
 
 /**
@@ -640,8 +650,14 @@ export function withDemoAnswer(progress: DemoProgress, stage: DemoStage, words: 
   const alreadyAsked = ALREADY_ASKED.test(words);
   // A greeting in answer to "Who am I speaking with?" says nothing of who they are; asked once more, then taken as it comes.
   const greetedOnly = progress.asked === "identity" && !progress.greetedOnly && SMALL_TALK.test(words.trim());
-  const held = lost || calledOut || repeatAsked || greetedOnly;
+  // "Are you deaf?" answers nothing either; "I already told you I'm the owner" still says the role (below).
+  const annoyed = ANNOYED.test(words);
+  const held = lost || calledOut || repeatAsked || greetedOnly || annoyed;
   let answers = progress.asked && !held ? { ...progress.answers, [progress.asked]: words.trim().slice(0, ANSWER_MAX) } : progress.answers;
+  // Their role, said whenever they say it: "Hey. I'm the owner." to "Who am I speaking with?" (8c19fd93).
+  if (stage === "intro" && !answers.role && ROLE_SAID.test(words)) answers = { ...answers, role: words.trim().slice(0, ANSWER_MAX) };
+  // "Whatever" to "hear more or a role-play?" leaves it to her: the role-play.
+  const delegated = stage === "intro" && !progress.answers.choice && (progress.choiceAsks ?? 0) > 0 && DELEGATED.test(words.trim());
   // "You already asked me that": the question is dropped, never asked again (a17b5aff, the calls a day asked twice).
   if (alreadyAsked && progress.asked && SKIPPABLE.has(progress.asked)) answers = { ...answers, [progress.asked]: SKIPPED_ANSWER };
   // Too long after the role-play with nothing found out: every discovery question still open is dropped, so the pitch comes.
@@ -656,6 +672,8 @@ export function withDemoAnswer(progress: DemoProgress, stage: DemoStage, words: 
     ...progress,
     answers,
     calledOut: calledOut ? (progress.calledOut ?? 0) + 1 : 0,
+    annoyed,
+    delegated: delegated || progress.delegated === true,
     alreadyAsked,
     repeatAsked,
     metaAsk: COMPARE_ASK.test(words) ? "compare" : IMPROVE_ASK.test(words) ? "improve" : null,
@@ -668,6 +686,18 @@ export function withDemoAnswer(progress: DemoProgress, stage: DemoStage, words: 
     saidNo: SAID_NO.test(words.trim()),
   };
 }
+
+/** Annoyance at not being heard (8c19fd93: "Are you deaf?", "Are you daft?", "I already told you I'm the owner"). */
+export const ANNOYED =
+  /\bare you (?:deaf|daft|stupid|dumb|thick|slow|serious|kidding|listening|even listening|a bot|broken)\b|\byou(?:'re| are) not listening\b|\bi (?:already|just) (?:told|said)\b|\bi told you\b|\bstop (?:repeating|asking)\b|\bhow many times\b/i;
+
+/** A role said in their words: "I'm the owner", "I run the place", "this is the practice manager". */
+export const ROLE_SAID =
+  /\b(?:i'?m|i am|this is|it'?s)\s+(?:the\s+|a\s+|an\s+|one of the\s+)?(?:co-?owner|owner|founder|co-?founder|(?:practice |office |clinic |spa |front desk )?manager|(?:medical )?director|doctor|physician|surgeon|dentist|nurse(?: practitioner)?|injector|aesthetician|receptionist|front desk|ceo|partner)s?\b|\bi (?:own|run|manage) (?:the|this|a|an|my|our)\b/i;
+
+/** The choice left to her: "Yeah. Whatever.", "up to you", "you pick", "either is fine". */
+export const DELEGATED =
+  /^\W*(?:(?:yeah|yes|sure|ok(?:ay)?|um+|uh+)[\s,.!]*)?(?:whatever(?:'s| is)? ?(?:best|works|you think|you want)?|up to you|(?:you|your) (?:choose|pick|decide|call)|either(?: one| is fine| works| way)?|(?:it )?doesn'?t matter|i don'?t (?:mind|care)|surprise me|dealer'?s choice|you tell me)[\s,.!]*(?:whatever)?\W*$/i;
 
 /** "You got confused", "you mixed that up": the caller telling her she lost the thread (a17b5aff). */
 export const CALLED_OUT =
@@ -774,6 +804,9 @@ export function afterDemoReply(
         ? null
         : (update?.asked ?? (stageAfter === "intro" && progress.asked === "identity" && !answers.identity ? "identity" : null)),
     roleplayTurns: starting ? 0 : progress.roleplayTurns,
+    choiceAsks: (progress.choiceAsks ?? 0) + (update?.asked === "choice" ? 1 : 0),
+    // Left to her once, for this choice only.
+    delegated: starting ? false : progress.delegated,
     roleplayFrom: starting ? stageBefore : progress.roleplayFrom,
     impatient,
     // A new role-play starts its booking afresh; within one, what she was told is kept.
@@ -1100,6 +1133,12 @@ function repairRules(progress: DemoProgress, stage: DemoStage): string[] {
   } else if (n >= 2) {
     out.push(`They have said ${n} times that you got confused: no more explaining. One short sorry, then do the next step below now, without asking them anything about it.`);
   }
+  if (progress.annoyed) {
+    const told = [progress.answers.role ? `their role ("${progress.answers.role.replace(/"/g, "'")}")` : null, progress.answers.goal ? "what they are after" : null].filter(Boolean);
+    out.push(
+      `They are annoyed that you did not take in what they said. Never answer the words literally ("I can hear you fine", "not daft"). Say one short, sincere sorry that shows you heard them${told.length ? `, naming what they told you: ${told.join(" and ")}` : ""}, then the next step below, in different words from your last reply. Never ask anything they have already told you.`,
+    );
+  }
   if (progress.alreadyAsked) out.push(`They just said you already asked that. Say sorry in a few words, never ask it again in any words, and go straight to the next step below.`);
   if (progress.repeatAsked && progress.lastQuestion) {
     out.push(`They asked what your question was. Ask it again, in exactly these words and nothing else first: "${progress.lastQuestion.replace(/"/g, "'")}"`);
@@ -1230,6 +1269,10 @@ export function demoStageNote(
       ? `Next: they greeted you without saying who they are. Answer the greeting in a few words ("Doing well, thanks!") and ask once more who you're speaking with, nothing else.`
       : !a.role
       ? `Next: greet them by name in a few words and ask their role at ${clinic} ("Great to meet you! What's your role at ${clinic}?"). Your opening line already asked whether you're speaking with ${context.firstName ?? "them"}: never ask it again. Unless they say plainly that they are someone else, take their answer as a yes.`
+      : progress.delegated && stage === "intro"
+      ? `Next: they left it to you: start the role-play in this reply, with one short handover (below). Never ask them to choose again.`
+      : !a.choice && (progress.choiceAsks ?? 0) >= 2
+      ? `Next: you have already asked twice whether they want to hear more or a role-play: never ask it again. In this reply, say what you do in two short sentences: first, ${WHAT_AYA_DOES}; then that they can try you as a patient any time, by just saying so. No question.`
       : !a.choice
       ? `Next: react to their role in a few natural words (never congratulate them, and don't repeat their title back), then ask, close to these words: "Would you like to hear what I can do for ${clinic}, or jump straight into a quick role-play where you call in as a patient?"`
       : `Next: do what they chose. If they want to hear more, say what you do in two short sentences: first, ${WHAT_AYA_DOES}; then one real detail you know about ${clinic} (never a website, scraping or how you learned anything), and offer the role-play. If they want the role-play, or leave it to you ("whatever's best"), start it in this same reply (below).`;

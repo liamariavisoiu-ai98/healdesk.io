@@ -62,6 +62,9 @@ import {
   nextDemoStage,
   ROLEPLAY_MAX_TURNS,
   withDemoAnswer,
+  ANNOYED,
+  DELEGATED,
+  ROLE_SAID,
   type DemoProgress,
 } from "@/lib/voice/demo-facts";
 import { CLOSE_WORDS } from "@/lib/voice/demo-cases";
@@ -499,6 +502,22 @@ describe("a demo call's facts", () => {
     // Asked once more only: a second greeting is taken as it comes.
     expect(withDemoAnswer(after, "intro", "Hi!").answers.identity).toBe("Hi!");
     expect(withDemoAnswer(DEMO_OPENED_PROGRESS, "intro", "Hey, it's Dana.").answers.identity).toBe("Hey, it's Dana.");
+  });
+
+  test("a role, annoyance and a choice left to her are read in code (transcript 8c19fd93)", () => {
+    for (const words of ["Hey. I'm the owner.", "I already told you I'm the owner. Are you deaf?", "This is the practice manager.", "I run the place."]) expect(ROLE_SAID.test(words), words).toBe(true);
+    for (const words of ["Yeah, that's me.", "Hi, how are you?", "I'm good, thanks.", "I run late most days."]) expect(ROLE_SAID.test(words), words).toBe(false);
+    for (const words of ["Are you deaf?", "Are you daft?", "I already told you.", "How many times do I have to say it?"]) expect(ANNOYED.test(words), words).toBe(true);
+    for (const words of ["Tell me more.", "Sure, let's do the role play.", "We miss a lot of calls."]) expect(ANNOYED.test(words), words).toBe(false);
+    for (const words of ["Yeah. Whatever.", "Up to you.", "Either is fine", "You pick", "I don't mind."]) expect(DELEGATED.test(words), words).toBe(true);
+    for (const words of ["Tell me what you do.", "The role-play.", "Whatever you do, don't sell me."]) expect(DELEGATED.test(words), words).toBe(false);
+    // Annoyance answers nothing, but the role in it is kept.
+    const asked = { ...DEMO_OPENED_PROGRESS, asked: "role" as const };
+    const told = withDemoAnswer(asked, "intro", "I already told you I'm the owner. Are you deaf?");
+    expect(told.annoyed).toBe(true);
+    expect(told.answers.role).toBe("I already told you I'm the owner. Are you deaf?");
+    const choice = withDemoAnswer({ ...DEMO_OPENED_PROGRESS, asked: "choice", answers: { role: "owner" }, choiceAsks: 1 }, "intro", "Are you deaf?");
+    expect(choice.answers.choice).toBeUndefined();
   });
 
   test("on a demo call only, the guard refuses her own workings and claims healdesk does not make (transcript a17b5aff)", () => {

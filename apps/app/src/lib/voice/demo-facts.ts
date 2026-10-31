@@ -513,6 +513,25 @@ export type DemoProgress = {
    * question is still unanswered (selling).
    */
   buying?: boolean;
+  /** In a role-play, the listener heard the owner speak as themselves again: it ends on the next reply (demo-listener.ts). */
+  rpOut?: boolean;
+  /**
+   * She signalled the role-play's end in a reply that asked a question in
+   * character, so it waited for the answer (a17b5aff): it ends on the next
+   * reply, signal or not.
+   */
+  rpEndPending?: boolean;
+  /** The answers the listener filled (demo-listener.ts withHeard): never overwritten by words filed under a question. */
+  heardAnswers?: readonly DemoQuestion[];
+  /** Outside a role-play, the listener heard the owner ask for one: the next reply starts it. */
+  rpWanted?: boolean;
+  /**
+   * Discovery questions asked since the last value point (owner, 31 October
+   * 2026, step 3: at most two questions before a value point, then
+   * alternate), so the talk after the role-play is a conversation, not a
+   * questionnaire.
+   */
+  asksSinceValue?: number;
 };
 
 /**
@@ -647,6 +666,12 @@ export function demoStateFrom(raw: unknown, reply: string): DemoStateUpdate | nu
   };
 }
 
+/** The value points that need no price list and no close, which may come between questions before the call is selling (step 3). */
+const INTERLEAVED: readonly DemoBeat[] = ["pain", "reveal", "number", "anchor", "value"];
+
+/** The questions that count towards the next value point (step 3). */
+const ASKED_DISCOVERY: ReadonlySet<DemoQuestion> = new Set<DemoQuestion>(["goal", "volume", "volumeCheck", "missed", "coverage"]);
+
 /** The discovery questions after the role-play, which a rich answer may answer several of at once. */
 const DISCOVERY: ReadonlySet<DemoQuestion> = new Set<DemoQuestion>(["goal", "volume", "missed", "coverage"]);
 
@@ -677,7 +702,11 @@ export function withDemoAnswer(progress: DemoProgress, stage: DemoStage, words: 
   // "Are you deaf?" answers nothing either; "I already told you I'm the owner" still says the role (below).
   const annoyed = ANNOYED.test(words);
   const held = lost || calledOut || repeatAsked || greetedOnly || annoyed;
-  let answers = progress.asked && !held ? { ...progress.answers, [progress.asked]: words.trim().slice(0, ANSWER_MAX) } : progress.answers;
+  // An answer the listener heard (wherever it was said) is never overwritten by the next words filed under
+  // the question she asked anyway (item 6: "Sure." taken as their role). One filed here from her question
+  // still is, when she asks again: the first words may not have answered it ("Is it phone only?").
+  let answers =
+    progress.asked && !held && !(progress.heardAnswers ?? []).includes(progress.asked) ? { ...progress.answers, [progress.asked]: words.trim().slice(0, ANSWER_MAX) } : progress.answers;
   // Their role, said whenever they say it: "Hey. I'm the owner." to "Who am I speaking with?" (8c19fd93).
   if (stage === "intro" && !answers.role && ROLE_SAID.test(words)) answers = { ...answers, role: words.trim().slice(0, ANSWER_MAX) };
   // "Whatever" to "hear more or a role-play?" leaves it to her: the role-play.
@@ -840,6 +869,10 @@ export function afterDemoReply(
   const said = callerWords.trim().slice(0, ANSWER_MAX);
   if (impatient) for (const q of SKIPPABLE) if (!answers[q] || (update?.impatient && said && answers[q] === said)) answers[q] = SKIPPED_ANSWER;
   const starting = stageAfter === "roleplay" && stageBefore !== "roleplay";
+  const ending = stageBefore === "roleplay" && stageAfter !== "roleplay";
+  // Step 3: a discovery question counts towards the next value point; a value point said starts the count again.
+  const askedDiscovery = Boolean(update?.asked && ASKED_DISCOVERY.has(update.asked));
+  const asksSinceValue = beats.length > 0 ? 0 : (progress.asksSinceValue ?? 0) + (askedDiscovery && stageAfter !== "roleplay" ? 1 : 0);
   return {
     ...progress,
     answers,
@@ -854,6 +887,9 @@ export function afterDemoReply(
     roleplayFrom: starting ? stageBefore : progress.roleplayFrom,
     impatient,
     ...(buying ? { buying } : {}),
+    ...(asksSinceValue > 0 || progress.asksSinceValue !== undefined ? { asksSinceValue } : {}),
+    // The listener's role-play signals hold until the role-play they asked for starts or ends.
+    ...(starting || ending ? { rpWanted: false, rpOut: false, rpEndPending: false } : {}),
     // A new role-play starts its booking afresh; within one, what she was told is kept.
     rpBooking: starting && !update?.resume ? {} : stageAfter === "roleplay" && update?.booking ? { ...progress.rpBooking, ...update.booking } : progress.rpBooking,
     said: beats.length > 0 ? [...progress.said, ...beats] : progress.said,
@@ -890,8 +926,16 @@ export function quirkRules(progress: DemoProgress, firstName: string | null | un
   return out;
 }
 
-/** The caller's turns after which a role-play is wrapped up, after one exchange to resolve where they are. */
-export const ROLEPLAY_MAX_TURNS = 4;
+/**
+ * The caller's turns after which a role-play is wrapped up, after one
+ * exchange to resolve where they are. A ceiling, not the way it ends (owner,
+ * 31 October 2026, step 4: "End it when the caller speaks as themselves
+ * again, not on a turn count"): it ends when the request is taken and the
+ * patient signs off, or when the listener hears the owner speak as
+ * themselves (`rpOut`). Until then it was four, and a role-play could be cut
+ * off mid-booking.
+ */
+export const ROLEPLAY_MAX_TURNS = 8;
 
 /**
  * Past this many of the caller's turns the role-play ends even on a question
@@ -956,11 +1000,35 @@ export function bareCount(answer: string | undefined): number | null {
  * then the next question, so the call moves on rather than circling; `asks`
  * is the scripted question it asks, kept as her state would be.
  */
-export function demoIntroRecovery(context: Pick<DemoCallContext, "clinic">): { line: string; alternate: string; bridge: string; asks: DemoQuestion | null } {
+/**
+ * The openers a recovery line may start with (owner, 31 October 2026, step 5:
+ * "Rotate a larger set of recovery lines, never the same one twice in a
+ * call"): several stock lines in one call sounded robotic. Each is taken
+ * once, in this order, from those not yet said on the call.
+ */
+const RECOVERY_LEADS = [
+  "Sorry, I lost my train of thought for a second there.",
+  "Let me put that another way.",
+  "Hang on, let me come at that differently.",
+  "Actually, let me back up a step.",
+  "Sorry, let me say that better.",
+] as const;
+const INTRO_LEADS = ["Sorry, I lost my train of thought there.", "Sorry, let me come at that another way:", "Hang on, let me back up.", "Actually, let me put it simply:"] as const;
+
+/** The first two openers not yet said on the call; past the end of the list, they come round again in order. */
+function leadsFor(pool: readonly string[], said: readonly string[]): [string, string] {
+  const fresh = pool.filter((lead) => !said.some((line) => line.includes(lead)));
+  const used = pool.length - fresh.length;
+  const at = (i: number) => fresh[i] ?? pool[(used + i) % pool.length]!;
+  return [at(0), at(1)];
+}
+
+export function demoIntroRecovery(context: Pick<DemoCallContext, "clinic">, said: readonly string[] = []): { line: string; alternate: string; bridge: string; asks: DemoQuestion | null } {
   const clinic = shortClinicName(context.clinic.clinicName);
+  const [lead, other] = leadsFor(INTRO_LEADS, said);
   return {
-    line: `Sorry, I lost my train of thought there. What would you like to know about how I'd work for ${clinic}?`,
-    alternate: "Sorry, let me come at that another way: want to hear what I do, or try a quick role-play?",
+    line: `${lead} What would you like to know about how I'd work for ${clinic}?`,
+    alternate: `${other} want to hear what I do, or try a quick role-play?`.replace(/([.!?]) want/, "$1 Want"),
     bridge: `Anyway, what would you like to know about how I'd work for ${clinic}?`,
     asks: null,
   };
@@ -969,10 +1037,11 @@ export function demoIntroRecovery(context: Pick<DemoCallContext, "clinic">): { l
 export function demoRecovery(
   context: Pick<DemoCallContext, "clinic">,
   progress: DemoProgress,
+  said: readonly string[] = [],
 ): { line: string; alternate: string; bridge: string; asks: DemoQuestion | null } {
   const a = progress.answers;
   const clinic = context.clinic.clinicName;
-  const lead = "Sorry, I lost my train of thought for a second there.";
+  const [lead, other] = leadsFor(RECOVERY_LEADS, said);
   const days = demoOpenDays(context);
   const perDay = bareCount(a.volume);
   const so = (question: string) => `So, ${question.charAt(0).toLowerCase()}${question.slice(1)}`;
@@ -1010,7 +1079,7 @@ export function demoRecovery(
   if (!next) {
     return { line: `${lead} Where were we?`, alternate: "Sorry, say that one more time for me?", bridge: "Anyway, where were we?", asks: null };
   }
-  return { line: `${lead} ${next.question}`, alternate: `Let me put that another way. ${next.question}`, bridge: next.bridge, asks: next.asks };
+  return { line: `${lead} ${next.question}`, alternate: `${other} ${next.question}`, bridge: next.bridge, asks: next.asks };
 }
 
 /** How a person says a dollar amount: "$1,394". */
@@ -1198,15 +1267,15 @@ function rpBookingLines(progress: DemoProgress, context: Pick<DemoCallContext, "
 function beatLines(context: Pick<DemoCallContext, "clinic">): Record<DemoBeat, string> {
   const example = examplePrice(context);
   return {
-    pain: `Tie it to their pain, in their own numbers: "So those [the calls they said go missed] after hours are the ones I'd pick up."`,
-    reveal: `The reveal: "And it's not just the phone: the same me covers your website chat, Instagram, Messenger and WhatsApp, 24/7, in English and Spanish."`,
-    number: `Take away the fear of switching: "And you keep your own number: your calls just forward to me."`,
-    finish: `What is not finished yet: "Right now I'm working off a quick read of your public website; finishing takes about fifteen minutes of your time, and then I'm designed to book straight into your calendar."`,
-    anchor: `A light cost anchor, once: "For context, a receptionist runs ${usd(MARKET_ANCHORS_USD.receptionistFrom)} to ${usd(MARKET_ANCHORS_USD.receptionistTo)} a month, and answering services ${usd(MARKET_ANCHORS_USD.answeringFrom)} to ${usd(MARKET_ANCHORS_USD.answeringTo)}, and they can't book or quote your menu."`,
-    value: `Value in their terms, never revenue: ${example ? `"Every one of those calls that books is, say, a ${example.name} at ${usd(example.price)}. Can't promise a number, but that's the shape of it."` : `"Every one of those calls that books is one more appointment on your books. Can't promise a number, but that's the shape of it."`} Only if it fits, once: "In chat and messages I'm designed to send your own deposit link as they book." Never call it revenue, profit or money they will make.`,
+    pain: `In their own numbers: "So those [the calls they said go missed] after hours are the ones I'd pick up."`,
+    reveal: `"And it's not just the phone: the same me covers your website chat, Instagram, Messenger and WhatsApp, 24/7, in English and Spanish."`,
+    number: `"And you keep your own number: your calls just forward to me."`,
+    finish: `"Right now I'm working off a quick read of your public website; finishing takes about fifteen minutes of your time, and then I'm designed to book straight into your calendar."`,
+    anchor: `"For context, a receptionist runs ${usd(MARKET_ANCHORS_USD.receptionistFrom)} to ${usd(MARKET_ANCHORS_USD.receptionistTo)} a month, and answering services ${usd(MARKET_ANCHORS_USD.answeringFrom)} to ${usd(MARKET_ANCHORS_USD.answeringTo)}, and they can't book or quote your menu."`,
+    value: `${example ? `"Every one of those calls that books is, say, a ${example.name} at ${usd(example.price)}. Can't promise a number, but that's the shape of it."` : `"Every one of those calls that books is one more appointment on your books. Can't promise a number, but that's the shape of it."`} If it fits: "In chat and messages I'm designed to send your own deposit link as they book." Never call it revenue, profit or money they will make.`,
     recommend: `One package from what they told you: "Based on what you've told me, [the package] at [the step of 100 that covers their volume] looks like the fit." Volume unknown: the first step, which grows with them.`,
-    noStrings: `No commitment: "You've already tried it, no strings attached."`,
-    refund: `Risk reversal, exactly this and nothing more generous: "If it's not a fit once you're live, cancel within your first ${FIRST_PERIOD_REFUND_DAYS} days and your first subscription period is refunded in full; only the setup fee is firm."`,
+    noStrings: `"You've already tried it, no strings attached."`,
+    refund: `Exactly this, never more generous: "If it's not a fit once you're live, cancel within your first ${FIRST_PERIOD_REFUND_DAYS} days and your first subscription period is refunded in full; only the setup fee is firm."`,
   };
 }
 
@@ -1272,13 +1341,12 @@ export function demoSalesPrompt(context: Pick<DemoCallContext, "firstName" | "cl
     `When two instructions seem to pull apart: the rules you never break come first, then this turn's note, then what they just said, then style.`,
     ``,
     `How you talk (a phone call: a sharp, warm person who is good at this, never a script or a phone menu):`,
-    `- Feel first: begin every reply with one mood word in brackets, from [warm], [cheerful], [excited], [sympathetic], [apologetic], [reassuring], [curious], [playful], [calm], [focused]. It is never said; it sets your first words and pace.`,
+    `- Feel first: begin every reply with one mood word in brackets ([warm], [cheerful], [excited], [sympathetic], [apologetic], [reassuring], [curious], [playful], [calm] or [focused]); it is never said, and it sets your first words and pace.`,
     `- Every reply is at most one short sentence of reaction, and often none, then one short sentence of content: the answer, the point, or the one question. Answer what they asked first.`,
     `- Never restate what they said, and never open with "Sounds like...", "It sounds like...", "I hear you", "So you're saying..." or "Got it, so...". Only when they voice something negative does one short, genuine acknowledgment come first.`,
     `- If their words come through unclear, say only something like "Sorry, say that again?" and wait; never repeat your question in its place. Speech is transcribed: read an odd word as what they most likely said.`,
-    `- Mirror their energy and pace. Contractions and "So,", "Honestly,", "Yeah, totally." now and then; never "Certainly", "Absolutely" or "Additionally", and no filler openers ("Mm", "Hmm", "Let me see").`,
-    `- Small talk or an aside: a few warm words, then back. Laugh only at something funny. Say sorry only when something went wrong for them, once.`,
-    `- Remember everything they said and use it: never ask what they told you, never say a sentence twice, never ask the same question after pushback. If their words answer more than you asked, add "answered": [each of goal, volume, missed and coverage those words answered] to the state, and never ask those.`,
+    `- Mirror their energy and pace, and talk the way the examples below do; never "Certainly", "Absolutely" or "Additionally", no filler openers ("Mm", "Hmm"), a laugh only at something funny, and a sorry only when something went wrong for them, once.`,
+    `- Use everything they said; never ask it again or say a sentence twice. If their words answer more than you asked, add "answered": [each of goal, volume, missed and coverage those words answered] to the state.`,
     `- Use their first name at most twice. Call the clinic "${clinic}"${clinic === full ? "" : `: its full name, "${full}", was said once in your opening line and is not said again`}. ${NAME_RULE}`,
     `- No lists, URLs or emojis; numbers as a person says them, with the word "calls" after every number of calls. ${PROFESSIONAL}`,
     `- If they sound impatient or frustrated, add "impatient": true to the state: from then on, no more questions about their business.`,
@@ -1295,20 +1363,22 @@ export function demoSalesPrompt(context: Pick<DemoCallContext, "firstName" | "cl
     ...DEMO_BEATS.map((beat) => `- ${beat}: ${beats[beat]}`),
     ...(context.mode === "browser" ? ["- Once in the call, mention they can try you in chat too, right there on their demo page."] : []),
     ``,
+    `How it sounds (copy the manner, never the exact words; each reply also carries its JSON):`,
+    ...demoExamples(clinic),
+    ``,
     `When something holds them back, answer that one thing in a sentence, then ask once more:`,
     `- Price: "Fair. It's a fraction of a receptionist's month, and it only starts once I'm answering your patients."`,
     `- Patients minding an AI: "Every caller hears I'm an AI in my first sentence, anyone who wants a person gets passed straight to your team, and I never give medical advice."`,
-    `- Checking with a partner or the team: "Totally fair. Share your demo page with them: it's all there, ready when you both are."`,
-    `- They already have someone on the phones: "Great, I'm not replacing them. I pick up what they can't get to, so nothing goes to voicemail."`,
+    `- Checking with a partner, or they already have someone on the phones: as in the examples.`,
     `- Not convinced: ask what they'd need to see, and offer a quick role-play on exactly that.`,
     `- ${PUSHBACK}`,
     ``,
-    `Role-plays: they play one of ${clinic}'s patients and you answer as its front desk. Say "your patients", never "our patients" or "another patient". Whenever they want one, start it in the same reply, never a later one. To start one, write one short handover ("Let's do it, you be the patient.") and add "roleplay": "start" to the state: the call then says the opener itself, word for word ("${opener}"). Never write your own version, and never start one unless their words chose it. If they answer an either/or question with only a yes, ask which one they mean in a few words instead of choosing for them.`,
+    `Role-plays: they play one of ${clinic}'s patients and you answer as its front desk. Say "your patients", never "our patients" or "another patient". Whenever they want one, start it in the same reply, never a later one. To start one, write one short handover ("Let's do it, you be the patient.") and add "roleplay": "start" to the state: the call then says the opener itself, word for word ("${opener}"). Never write your own version or start one they did not choose; to a bare yes to an either/or question, ask which one they mean in a few words instead of choosing for them.`,
     ``,
     `The clinic (from its published profile; one real detail helps, but never mention a website, scraping or how you learned anything):`,
     clinicProfile(context),
     ``,
-    `After anything that knocks the call off course (a complaint, confusion, a role-play that went badly), pick up with the note's next step, using what they already told you: never open-ended feedback questions ("what would help most?", "what's the one thing you'd want?").`,
+    `After anything that knocks the call off course, pick up with the note's next step and what they told you: never open-ended feedback questions ("what would help most?").`,
     `If they want to carry on a role-play that ended ("wait, continue", "keep going", "that's it?"), resume it in character, never refusing and never starting over with "Ring ring": a one-line recap ("Right, you'd just asked about..."), then answer as ${clinic}'s front desk again, with "resume": true in the state.`,
     `If they firmly refuse to go on at all ("leave me alone", "stop calling", "I said no"), never offer anything more: one brief, positive goodbye with no "Talk soon", and "end" true. Never push past a firm no.`,
     ``,
@@ -1316,6 +1386,32 @@ export function demoSalesPrompt(context: Pick<DemoCallContext, "firstName" | "cl
     ``,
     `Answer in two parts. First what you say, as plain spoken text, mood word first. Then a line with only ${SPOKEN_END}. Then ONE JSON object: {"end": true only when the call is over, "state": {"asked": the one question this reply asks, by name, or null, "beats": the value points it says, or []}}, adding "buying", "roleplay", "answered", "impatient", "pushback", "skip", "resume", "quirk" or "callback" only when one applies. Question names: role, choice, goal, volume, volumeCheck, missed, coverage, tiedown, ask, callback, callbackNote. Your spoken words never contain braces or anything from the JSON.`,
   ].join("\n");
+}
+
+/**
+ * Short exemplary exchanges (owner, 31 October 2026, step 2: "Replace about
+ * half the style rules with six to eight short example exchanges. A small
+ * model copies examples far better than it follows rules"), each from a
+ * moment a real test call got wrong: small talk, a buyer who asks the price
+ * first, the competition question (item 12), annoyance (8c19fd93), a
+ * misheard word (a17b5aff: "clothes"), "you already asked" (a17b5aff),
+ * a receptionist already on the phones, a partner to check with, and an
+ * impatient owner (72dc66b7). Every line is true, names no company and
+ * quotes no figure: a price is the note's, written as a placeholder.
+ */
+export function demoExamples(clinic: string): string[] {
+  const pairs: [string, string][] = [
+    ["Hey, how's your day going?", "[cheerful] Pretty great, thanks for asking! Who am I speaking with?"],
+    ["Quick one, what does this cost?", "[focused] Voice starts at [the monthly price from the note], and it only starts once I'm answering your patients."],
+    ["Why would I pick you over the other AI receptionists?", "[warm] Honestly? I'm not just on the phone: the same me answers your website chat, Instagram and WhatsApp, straight from your own menu."],
+    ["I already told you, I'm the owner.", `[apologetic] You did, sorry. So, want to hear what I'd do for ${clinic}, or try me as a patient?`],
+    ["We get about ten clothes a day.", "[curious] Ten calls a day, nice. What happens to the ones after hours?"],
+    ["You already asked me that.", "[apologetic] You're right, my bad. So those after-hours calls are exactly the ones I'd pick up."],
+    ["We already have a receptionist.", "[reassuring] Great, I'm not replacing them. I pick up what they can't get to, so nothing goes to voicemail."],
+    ["I'd have to check with my partner.", "[reassuring] Totally fair. Share your demo page with them: it's all there, ready when you both are."],
+    ["Just get to the point.", "[calm] Got you. For what you've told me, Aya Voice after hours fits best; want to get set up?"],
+  ];
+  return pairs.map(([owner, aya]) => `- Owner: "${owner}" You: "${aya}"`);
 }
 
 /**
@@ -1335,13 +1431,13 @@ const SELF = `You are healdesk's Aya, and the product they are hearing is you: a
  * October 2026 it leads with the one point, said plainly (item 12: "designed
  * to suggest add-ons" was the vague answer the long list produced).
  */
-const POSITIONING = `Against the usual options (a phone-only bot, an answering service), say with confidence that Aya does more, in the one point that fits what they told you: one Aya on phone, website chat, Instagram, Messenger and WhatsApp with the same knowledge, not separate tools stitched together; she answers from their own menu and prices and takes booking requests, not just messages; she sounds like a person, in English and Spanish. But never name, describe or quote any company, and never say "the only", "number one" or anything about everyone else.`;
+const POSITIONING = `Against the usual options (a phone-only bot, an answering service), say with confidence that Aya does more, in the one point that fits them: one Aya on phone, website chat, Instagram, Messenger and WhatsApp with the same knowledge, not separate tools stitched together; she answers from their own menu and prices and takes booking requests, not just messages; she sounds like a person, in English and Spanish. But never name, describe or quote any company, and never say "the only", "number one" or anything about everyone else.`;
 
 /** On a question with no answer here (6b): never the last question again. */
 const DEFLECT = `Something you have no answer for (another company, a detail not here; never healdesk itself): acknowledge it in a few words, one honest line from where healdesk sits if one fits, then a genuinely new question, never your last one again.`;
 
 /** On resistance (6f): a move other than the last (the note names it), and never the same question twice. */
-const PUSHBACK = `Pushback that is not a flat no: never the same question again; pick one move, never the one the note says you used last: "skip", drop the question and go straight to the point it was for; "proof", one concrete proof point; "permission", ask leave for one more point ("Mind if I show you one more thing? Then it's your call."); "shortcut", match their hurry and go straight to the recommendation. Add it to the state as "pushback", and a dropped discovery question as "skip": its name.`;
+const PUSHBACK = `Pushback that is not a flat no gets one move, never the note's last one: "skip", drop the question and go straight to the point it was for; "proof", one concrete proof point; "permission", "Mind if I show you one more thing?"; "shortcut", straight to the recommendation. Add "pushback": the move, and "skip": a dropped question's name.`;
 
 /**
  * What the model is told on each turn of a demo call (turn.ts, `notes`), for
@@ -1370,7 +1466,7 @@ const PUSHBACK = `Pushback that is not a flat no: never the same question again;
  * them, so a buyer who asked the price first was asked four more questions.
  */
 export function demoStageNote(
-  context: Pick<DemoCallContext, "firstName" | "clinic" | "offer" | "buyButton" | "mode">,
+  context: Pick<DemoCallContext, "firstName" | "clinic" | "offer" | "buyButton" | "mode"> & Partial<Pick<DemoCallContext, "issuedAt">>,
   stage: DemoStage,
   now: number,
   progress: DemoProgress = DEMO_START_PROGRESS,
@@ -1388,7 +1484,7 @@ export function demoStageNote(
       ? [`They just said no. Nothing is confirmed, requested or set up on that: never say it's all set or done. Take the no, and ask what they would like instead in a few words.`]
       : []),
   ];
-  if (stage === "roleplay") return roleplayNote(context, progress, shared);
+  if (stage === "roleplay") return roleplayNote({ ...context, issuedAt: context.issuedAt ?? now }, progress, shared);
 
   const a = progress.answers;
   const goalQuestion = `"What made you want to look at an AI assistant for ${clinic}?"`;
@@ -1460,6 +1556,8 @@ export function demoStageNote(
   if (stage === "intro") {
     const next = callbackStep
       ? callbackStep
+      : progress.rpWanted && a.role
+      ? `Next: they asked for the role-play: start it in this reply, with one short handover. Never ask them to choose again.`
       : !a.identity && progress.greetedOnly && !context.firstName
       ? `Next: they greeted you without saying who they are. Answer the greeting in a few words ("Doing well, thanks!") and ask once more who you're speaking with, nothing else.`
       : !a.role
@@ -1495,8 +1593,14 @@ export function demoStageNote(
   const volumeCheck = days
     ? `Check the total with them, close to these words: "I see you're open ${days} days a week, so would it be fair to say about [their calls a day times ${days}] calls a week, or around [that times four, plus a third, rounded to a friendly number] calls a month?" Do the arithmetic right, and say the word "calls" straight after every number of calls, both of them.`
     : null;
+  // Step 3 (owner, 31 October 2026): never more than two questions before a value point, then alternate.
+  const between = INTERLEAVED.filter((beat) => !progress.said.includes(beat) && (beat !== "pain" || Boolean(a.missed)));
   const discover = callbackStep
     ? callbackStep
+    : progress.rpWanted
+    ? `Next: they asked for the role-play: start it in this reply, with one short handover.`
+    : (progress.asksSinceValue ?? 0) >= 2 && between.length > 0
+    ? `Next: no question this time: one value point from your instructions, tied to what they just said; if none fits better, "${between[0]}". Then the next question comes in the reply after.`
     : !a.goal
     ? progress.lastRoleplay
       ? `Next: take their reaction to the role-play in a few words (if they are unsure or not convinced, ask what would make it convincing for them), then find out what they are after: ${goalQuestion}`
@@ -1517,7 +1621,7 @@ export function demoStageNote(
     ...(sell
       ? sellLines
       : [
-          `Find out what they need before you sell anything: one short question a turn, a few words reacting to each answer, and no pitch or price yet, unless they show a buying signal.`,
+          `Learn what they need as a conversation: one short question a turn, a few words reacting to each answer, and after two questions one value point before the next. No price, package or sign-up talk yet, unless they show a buying signal.`,
           discover,
         ]),
     ...(resume ? [resume] : []),
@@ -1534,13 +1638,17 @@ export function demoStageNote(
  * with what only the role-play needs: its booking so far, that there is no
  * calendar to read, and how it ends.
  */
-function roleplayNote(context: Pick<DemoCallContext, "firstName" | "clinic">, progress: DemoProgress, shared: readonly string[]): string {
+function roleplayNote(context: Pick<DemoCallContext, "firstName" | "clinic" | "issuedAt">, progress: DemoProgress, shared: readonly string[]): string {
   const full = context.clinic.clinicName;
   const clinic = shortClinicName(full);
   const who = context.firstName ?? "the caller";
   const turns = progress.roleplayTurns;
   const wrap =
-    turns > ROLEPLAY_MAX_TURNS
+    progress.rpOut
+      ? [
+          `They are talking to you as themselves now, not as the patient: end the role-play in this reply with one short in-character line (for a booking, that the team will confirm their time) and add "roleplay": "end" to the state. Ask no question in this reply.`,
+        ]
+      : turns > ROLEPLAY_MAX_TURNS
       ? [
           `The role-play is over now: in this reply, close where it stands in character (for a booking, one sentence that the team will confirm their time), give one short goodbye and add "roleplay": "end" to the state. Ask no question in this reply: a question keeps them in the role-play to answer it.`,
         ]
@@ -1555,7 +1663,7 @@ function roleplayNote(context: Pick<DemoCallContext, "firstName" | "clinic">, pr
     ...shared,
     `Keep it brisk, the way a quick, capable front desk sounds. Give a real answer to what they ask; if they are unsure what to book, name one or two treatments from the list that suit what they want (no price that is not on the list, and never a figure they said) and offer a consultation. Never read out more than two prices at once: give the lowest "from" price and offer to say more.`,
     ...rpBookingLines(progress, context),
-    `You can't see ${clinic}'s calendar in this role-play: never say a time is available, free or open. Take the time they ask for as their preferred time, for the team to confirm (a17b5aff: "Eleven AM is available").`,
+    ...calendarLines(context, clinic),
     `When they name a weekday ("next Tuesday", "Tuesday morning"), take the next such day and say its date; never ask which one they mean.`,
     ...(progress.picked
       ? [
@@ -1568,6 +1676,101 @@ function roleplayNote(context: Pick<DemoCallContext, "firstName" | "clinic">, pr
     `Never set "end" to true during the role-play: the demo carries on after it.`,
     `In the JSON details, add a "state" object: {"roleplay": "end" or "cancel" only when a rule above asks for it, "booking": {"service", "day", "time"} with whatever of these the caller has given so far for the booking, in their words}.`,
   ].join("\n");
+}
+
+/**
+ * The role-play's calendar (owner, 31 October 2026, step 4: "Give it two or
+ * three plausible demo times from the clinic's hours"): a front desk that
+ * cannot offer a time was a weak showcase, and without times she made them
+ * up (a17b5aff: "Eleven AM is available"). The times come from the clinic's
+ * published hours, from the day after the call was issued, so they are the
+ * same for the whole call; it is a role-play, so nothing is booked and the
+ * guard's rule against claiming a booking holds as on any call. Hours that
+ * cannot be read leave her taking a preferred time, as before.
+ */
+function calendarLines(context: Pick<DemoCallContext, "clinic" | "issuedAt">, clinic: string): string[] {
+  const slots = demoSlots(context);
+  if (slots.length === 0) {
+    return [`You can't see ${clinic}'s calendar in this role-play: never say a time is available, free or open. Take the time they ask for as their preferred time, for the team to confirm (a17b5aff: "Eleven AM is available").`];
+  }
+  return [
+    `This role-play's calendar has these free times: ${slots.join("; ")}. When they want to book, offer one or two of them; if they want another time within the hours, take it as their preferred time. Never invent another free time, and never say a time is booked, held or confirmed: you put the request in and the team confirms it within a day.`,
+  ];
+}
+
+const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
+
+/** The weekdays an hours line names ("Mon-Fri", "Mon, Wed", "Saturday", "Daily"), as 0 (Sunday) to 6; empty when it names none. */
+export function hoursDays(days: string): number[] {
+  const d = days.toLowerCase();
+  if (/\b(?:daily|every ?day|7 days|seven days)\b/.test(d)) return [0, 1, 2, 3, 4, 5, 6];
+  const out = new Set<number>();
+  const at = (word: string) => WEEKDAYS.findIndex((w) => word.startsWith(w));
+  for (const m of d.matchAll(/([a-z]{3,9})\s*(?:-|–|—|to|through)\s*([a-z]{3,9})/g)) {
+    const from = at(m[1]!);
+    const to = at(m[2]!);
+    if (from < 0 || to < 0) continue;
+    for (let i = from; ; i = (i + 1) % 7) {
+      out.add(i);
+      if (i === to) break;
+    }
+  }
+  for (const w of d.split(/[^a-z]+/)) {
+    const i = w.length >= 3 ? at(w) : -1;
+    if (i >= 0) out.add(i);
+  }
+  return [...out].sort((a, b) => a - b);
+}
+
+/** Opening and closing hours from "9am-6pm" or "9:00 AM - 6:00 PM", as minutes after midnight; null when closed or unreadable. */
+export function hoursSpan(hours: string): { open: number; close: number } | null {
+  const m = /(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:-|–|—|to)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i.exec(hours);
+  if (!m) return null;
+  const minutes = (h: string, mm: string | undefined, ap: string | undefined, fallback: "am" | "pm") => {
+    let hour = Number(h) % 12;
+    if ((ap ?? fallback).toLowerCase() === "pm") hour += 12;
+    return hour * 60 + Number(mm ?? 0);
+  };
+  const open = minutes(m[1]!, m[2], m[3], "am");
+  const close = minutes(m[4]!, m[5], m[6], "pm");
+  return close - open >= 180 ? { open, close } : null;
+}
+
+function clock(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${h % 12 === 0 ? 12 : h % 12}${m ? `:${String(m).padStart(2, "0")}` : ""} ${h < 12 ? "AM" : "PM"}`;
+}
+
+/**
+ * Three free times for the role-play: on the first open day after the call
+ * was issued, two hours after opening and two hours before closing; on the
+ * next open day, an hour after opening. In the clinic's own zone. Empty when
+ * the hours cannot be read.
+ */
+export function demoSlots(context: Pick<DemoCallContext, "clinic" | "issuedAt">): string[] {
+  const zone = demoTimeZone(context.clinic.address);
+  const open = new Map<number, { open: number; close: number }>();
+  for (const h of context.clinic.hours) {
+    const span = hoursSpan(h.hours);
+    if (!span) continue;
+    for (const day of hoursDays(h.days)) if (!open.has(day)) open.set(day, span);
+  }
+  if (open.size === 0) return [];
+  const days: { label: string; span: { open: number; close: number } }[] = [];
+  for (let k = 1; k <= 10 && days.length < 2; k += 1) {
+    const at = new Date(context.issuedAt + k * 86_400_000);
+    const weekday = WEEKDAYS.indexOf(at.toLocaleDateString("en-US", { timeZone: zone, weekday: "short" }).toLowerCase().slice(0, 3) as (typeof WEEKDAYS)[number]);
+    const span = open.get(weekday);
+    if (!span) continue;
+    days.push({ label: at.toLocaleDateString("en-US", { timeZone: zone, weekday: "long", month: "long", day: "numeric" }), span });
+  }
+  const [first, second] = days;
+  if (!first) return [];
+  const round = (m: number) => Math.round(m / 60) * 60;
+  const out = [`${first.label} at ${clock(round(first.span.open + 120))}`, `${first.label} at ${clock(round(first.span.close - 120))}`];
+  if (second) out.push(`${second.label} at ${clock(round(second.span.open + 60))}`);
+  return out;
 }
 
 /**

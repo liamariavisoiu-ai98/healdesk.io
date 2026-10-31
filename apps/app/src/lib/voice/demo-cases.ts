@@ -7,6 +7,7 @@ import {
   DEMO_ROLEPLAY_EXIT,
   demoRoleplayOpener,
   LOVE_THAT,
+  ROLEPLAY_MAX_TURNS,
   WHICH_ONE_LINE,
   shortClinicName,
   SKIPPED_ANSWER,
@@ -159,6 +160,16 @@ const SHORT = shortClinicName(CLINIC);
 /** The words close to the close and the live discount, none of which may reach a note before coverage is answered. */
 export const CLOSE_WORDS: readonly string[] = [`Want to get ${SHORT} set up?`, "% off the setup fee", "discount", "Book Onboarding", "checkout"];
 
+/**
+ * In-character turns that move a role-play towards its ceiling and decide
+ * nothing: since 31 October 2026 a role-play ends when it is done, and only
+ * ROLEPLAY_MAX_TURNS caller turns end it otherwise (step 4), so the cases of
+ * that ceiling walk this many more turns than they did at four.
+ */
+const ROLEPLAY_FILLER: DemoCaseTurn[] = ["How long does it take?", "Do I need to prepare anything?", "Is there a cancellation fee?", "Can I pay when I'm there?"]
+  .slice(0, ROLEPLAY_MAX_TURNS - 4)
+  .map((caller) => ({ caller, model: [modelSays("Good question, the team can go through that with you.")] }));
+
 /** The start every case walks: who they are, their role, the choice, a short role-play, and out of it. */
 const TO_PITCH: DemoCaseTurn[] = [
   {
@@ -304,7 +315,8 @@ const discovery: DemoCase[] = [
       {
         caller: "I'm not convinced.",
         model: [modelSays("Fair enough. What would you need to see? And quickly, what happens with those calls after hours right now?", { asked: "missed" })],
-        check: { noteExcludes: CLOSE_WORDS, noteIncludes: ['Next: ask: "How do you see me helping you best'], noGuardLine: true },
+        // Four questions in a row: the next move is a value point, never the close (owner, 31 October 2026, step 3).
+        check: { noteExcludes: CLOSE_WORDS, noteIncludes: ["Next: no question this time: one value point"], noGuardLine: true },
       },
     ],
   },
@@ -959,6 +971,8 @@ const round5: DemoCase[] = [
       { caller: "Friday.", model: [modelSays("Great, morning or afternoon?")] },
       { caller: "Morning.", model: [modelSays("Lovely, Friday morning it is.")] },
       { caller: "Can I bring a friend?", model: [modelSays("Of course, they're welcome to come along.")] },
+      // The ceiling is far now (ROLEPLAY_MAX_TURNS, step 4): the patient keeps asking until it is reached.
+      ...ROLEPLAY_FILLER,
       { caller: "And is there parking?", model: [modelSays("There's parking right behind the building.")], check: { stage: "roleplay" } },
       {
         caller: "Great, thanks.",
@@ -1048,12 +1062,14 @@ const a17b5aff: DemoCase[] = [
       {
         caller: "Tuesday morning,",
         model: [modelSays("Tuesday works. What time that morning suits you?")],
-        check: { stage: "roleplay", noteIncludes: ["never say a time is available, free or open", "never ask which one they mean"] },
+        // The role-play's own calendar since 31 October 2026 (step 4): real free times from the clinic's hours, never invented ones.
+        check: { stage: "roleplay", noteIncludes: ["This role-play's calendar has these free times", "Never invent another free time", "never ask which one they mean"] },
       },
       {
         caller: "Next Tuesday, let's call it I don't know. Do you have any slots for eleven AM?",
         model: [modelSays("Eleven works, so would Tuesday, November 3 at 11:00 AM suit you?", { roleplay: "end" })],
-        check: { stage: "roleplay", heardExcludes: ["And that's the role-play"], noteIncludes: ["Ask no question in this reply"] },
+        // Her end waits for the answer to her question, then comes on the next reply, whatever the turn count (step 4).
+        check: { stage: "roleplay", heardExcludes: ["And that's the role-play"], progress: { rpEndPending: true } },
       },
       {
         caller: "Yeah.",
@@ -1068,7 +1084,7 @@ const a17b5aff: DemoCase[] = [
     why: "The wait for an open question (a17b5aff) must never let a role-play run on (084f10d4).",
     turns: [
       ...TO_PITCH.slice(0, 3),
-      ...["Hi, I'd like to book.", "A facial.", "Friday.", "Morning.", "Ten.", "Ten AM.", "Yes, ten."].map((caller) => ({
+      ...["Hi, I'd like to book.", "A facial.", "Friday.", "Morning.", ...ROLEPLAY_FILLER.map((t) => t.caller), "Ten.", "Ten AM.", "Yes, ten."].map((caller) => ({
         caller,
         model: [modelSays("Sure, which time suits you?")],
         check: { stage: "roleplay" as const },

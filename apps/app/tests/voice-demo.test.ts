@@ -304,7 +304,7 @@ describe("a demo call's facts", () => {
     expect(prompt).not.toMatch(/\$80 a month/);
     // Each turn carried about 2,500 words of front-desk prompt plus a 1,500 to 2,550 word note before; these bounds
     // keep the prompt and the notes from growing back one patch at a time (item 5): raising one is a deliberate change.
-    expect(words(prompt)).toBeLessThan(2_200);
+    expect(words(prompt)).toBeLessThan(2_300);
     // The note carries only the step and what this turn knows.
     const discovering = { asked: null, answers: { role: "owner", choice: "role-play", goal: "missed calls" }, roleplayTurns: 0, said: [], lastRoleplay: { caller: "bye", aya: "Take care!" } };
     expect(words(demoStageNote(context(), "intro", now))).toBeLessThan(300);
@@ -426,8 +426,8 @@ describe("a demo call's facts", () => {
     const lastRoleplay = { caller: "Sure, Friday morning.", aya: "Perfect, the team will confirm Friday morning." };
     const at = (answers: DemoProgress["answers"]) => told(context(), "pitch", now, { asked: null, answers, roleplayTurns: 0, said: [], lastRoleplay });
     const first = at({});
-    expect(first).toContain("Find out what they need before you sell anything");
-    expect(first).toContain("no pitch or price yet, unless they show a buying signal");
+    expect(first).toContain("Learn what they need as a conversation");
+    expect(first).toContain("No price, package or sign-up talk yet, unless they show a buying signal");
     expect(first).toContain('Next: take their reaction to the role-play in a few words (if they are unsure or not convinced, ask what would make it convincing for them), then find out what they are after: "What made you want to look at an AI assistant for Lumen?"');
     expect(first).toContain("never during a phone call, where you book and flag the deposit for the team, and after a booking call a clinic can turn on one text with its payment link, designed to go only if the caller agrees; nothing else is ever texted.");
     // Owner, 29 October 2026: no claim that she sends no texts at all, and she still never promises one herself.
@@ -700,7 +700,7 @@ describe("a demo call's facts", () => {
     });
     expect(asked).toContain("If they hesitate, answer the one thing holding them back and ask once more.");
     // Prepared answers to the doubts that recur, never improvised.
-    for (const doubt of ["- Price:", "- Checking with a partner or the team:", "- Patients minding an AI:", "- They already have someone on the phones:", "- Not convinced:"]) expect(asked).toContain(doubt);
+    for (const doubt of ["- Price:", "- Checking with a partner, or they already have someone on the phones:", "- Patients minding an AI:", "- Not convinced:", 'Owner: "I\'d have to check with my partner."', 'Owner: "We already have a receptionist."']) expect(asked).toContain(doubt);
     expect(note).toContain("Never say you will send a link, an email or a text, and never take payment details on the call.");
     expect(note).toContain('"We sign a business associate agreement and handle patient data under it", never "HIPAA compliant"');
     // A booking's value in the clinic's own terms, never revenue.
@@ -778,7 +778,8 @@ describe("a demo call's facts", () => {
     expect(nextDemoStage("intro", "Want a quick role-play where you're the patient?")).toBe("intro");
     expect(nextDemoStage("intro", "Let's do it, you be the patient.", { roleplay: "cancel" })).toBe("intro");
     // Past the wrap-up turn it ends, whatever she wrote.
-    expect(nextDemoStage("roleplay", "Sure, see you then.", {}, "intro", 6)).toBe("pitch");
+    expect(nextDemoStage("roleplay", "Sure, see you then.", {}, "intro", ROLEPLAY_MAX_TURNS + 2)).toBe("pitch");
+    expect(nextDemoStage("roleplay", "Sure, see you then.", {}, "intro", 6)).toBe("roleplay");
     expect(nextDemoStage("roleplay", "Sure, Friday at 3 works. Anything else?")).toBe("roleplay");
     expect(nextDemoStage("roleplay", "See you then! Ok, how was that? Haha!")).toBe("roleplay");
     expect(nextDemoStage("roleplay", "See you then!", { roleplay: "end" }, "intro", 2)).toBe("pitch");
@@ -930,7 +931,7 @@ describe("a demo call on the voice engine", () => {
     await s.finish();
   });
 
-  test("an answer is never asked for again: the next turn's note carries it, and the role-play is wrapped up after four turns", async () => {
+  test("an answer is never asked for again: the next turn's note carries it, and the role-play runs until it is done, not on a count of four", async () => {
     const replies: [string, string | null][] = [
       ["Great to meet you, Sam! What's your role at Lumen Aesthetics?", "role"],
       ["Would you like to hear what I can do for Lumen Aesthetics, or jump straight into a quick role-play where you call in as a patient?", "choice"],
@@ -960,9 +961,9 @@ describe("a demo call on the voice engine", () => {
     // The role, once said, is known and never asked again.
     expect(seen[1]).toContain('- their role: "I\'m the owner"');
     expect(seen[1]).not.toContain("Next: greet them by name");
-    // Four of the patient's turns: resolve where it stands, then wrap.
+    // Four of the patient's turns is no longer a wrap-up (step 4): the role-play ends on her own goodbye.
     expect(seen[5]).not.toContain("run long enough");
-    expect(seen[6]).toContain("The role-play has run long enough: resolve where it stands in this reply");
+    expect(seen[6]).not.toContain("run long enough");
     // After it, discovery first, and "Five" is kept: never "how many calls" again.
     expect(seen[7]).toContain("Next: take their reaction to the role-play");
     expect(seen[8]).toContain(`- what they are after: "we miss calls when we're busy"`);

@@ -824,7 +824,8 @@ export function afterDemoReply(
   update: DemoStateUpdate | null,
   callerWords = "",
 ): DemoProgress {
-  const beats = stageBefore === "pitch" && stageAfter === "pitch" && update ? update.beats.filter((b) => !progress.said.includes(b)) : [];
+  // Outside the role-play: since 31 October 2026 a buyer in the intro hears value points too, in the reply that moves the call on.
+  const beats = stageBefore !== "roleplay" && stageAfter !== "roleplay" && update ? update.beats.filter((b) => !progress.said.includes(b)) : [];
   // A discovery question they declined counts as answered, so it is never asked again (6f).
   const answers: Partial<Record<DemoQuestion, string>> = update?.skip ? { ...progress.answers, [update.skip]: SKIPPED_ANSWER } : { ...progress.answers };
   // A rich answer counts for every discovery question it answered (test call

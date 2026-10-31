@@ -348,6 +348,8 @@ describe("a demo call's facts", () => {
     const heard = afterDemoReply(DEMO_START_PROGRESS, "pitch", "pitch", { asked: null, beats: [], callback: null, buying: true });
     expect(heard.buying).toBe(true);
     expect(afterDemoReply(DEMO_START_PROGRESS, "roleplay", "roleplay", { asked: null, beats: [], callback: null, buying: true }).buying).toBeUndefined();
+    // A value point said in the intro, in the reply that moves the call on, is counted as said.
+    expect(afterDemoReply(intro, "intro", "pitch", { asked: null, beats: ["anchor"], callback: null }).said).toEqual(["anchor"]);
     // A buyer reaches the close after three value points, not nine.
     const three = demoStageNote(context(), "pitch", now, { ...intro, said: ["pain", "reveal", "value"] });
     expect(three).toContain(`Next, the tie-down: "Anything that'd stop you from getting that running today?"`);

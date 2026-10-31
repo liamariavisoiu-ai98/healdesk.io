@@ -220,10 +220,11 @@ export class ServedModelMismatch extends Error {}
 /**
  * The real client. assertSpendApproved runs first and throws unless the
  * owner approved this estimate's id and the eval key is set; the SDK is not
- * even imported before it passes.
+ * even imported before it passes. The demo eval passes its own approval
+ * (demo/run.ts approveDemoSpend), which also takes a standing budget.
  */
-export async function createLiveClient(estimate: Estimate): Promise<EvalClient> {
-  const apiKey = assertSpendApproved(estimate);
+export async function createLiveClient(estimate: Estimate, approve: (estimate: Estimate) => string = assertSpendApproved): Promise<EvalClient> {
+  const apiKey = approve(estimate);
   const { default: Anthropic } = await import("@anthropic-ai/sdk");
   const sdk = new Anthropic({ apiKey });
   const ledger: LedgerEntry[] = [];

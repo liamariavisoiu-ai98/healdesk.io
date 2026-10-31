@@ -379,6 +379,8 @@ async function replay(): Promise<ReplayRow[]> {
     responder,
     acknowledgeAfterMs: 60_000,
     now: () => new Date(CALLED_AT),
+    // The stall line and the recovery openers are picked by chance on a real call: pinned, so the table is the same every run.
+    random: () => 0,
     demo: { secret: SECRET, detailsWaitMs: 200 },
     demoCallback: async () => true,
   });
@@ -479,7 +481,8 @@ function judge(row: ReplayRow, rows: readonly ReplayRow[]): Verdict {
 
 /** The rows as the owner asked for them: caller line, before, after, the criteria passed and failed. */
 function table(rows: readonly ReplayRow[]): string {
-  const cell = (text: string) => text.replace(/\|/g, "\\|").replace(/\n/g, " ");
+  // Backslashes first, so an escaped pipe stays one.
+  const cell = (text: string) => text.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\n/g, " ");
   const lines = [
     "| # | Caller | Before (the call) | After (replayed) | Passes | Fails | Notes |",
     "|---|---|---|---|---|---|---|",

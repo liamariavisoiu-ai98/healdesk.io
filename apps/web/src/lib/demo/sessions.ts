@@ -299,6 +299,36 @@ export function __resetDemoCacheForTests(): void {
 // -----------------------------------------------------------------------------
 
 /** A demo by slug, for the page and the visitor-facing routes. Null when unknown or unreachable. */
+/**
+ * The demo for a page that must tell "no such demo" from "the register did
+ * not answer" (owner, 31 October 2026: a live demo link showed the 404 page
+ * while its row was there). A read that fails with nothing cached is
+ * `unavailable`, never `null`: the page then waits and tries again instead of
+ * telling a prospect their demo does not exist. The page that waits on a
+ * build reads the register every few seconds, so a refused read (the Sheets
+ * API's per-minute limit) is to be expected, not exceptional.
+ */
+export async function readDemoSession(slug: string): Promise<{ session: DemoSession | null; unavailable: boolean }> {
+  if (!isDemoSlug(slug)) return { session: null, unavailable: false };
+  const hit = cache.get(slug);
+  if (hit && Date.now() - hit.at < cacheFor(hit.value)) return { session: hit.value, unavailable: false };
+  try {
+    const client = await store();
+    const found = (await readAll(client)).find((r) => r.value.slug === slug);
+    if (!found) {
+      cache.delete(slug);
+      return { session: null, unavailable: false };
+    }
+    return { session: remember(found.value), unavailable: false };
+  } catch (error) {
+    console.error("[healdesk] demo session read failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    // The last good read, however old, beats a page that says the demo is gone.
+    return hit ? { session: hit.value, unavailable: false } : { session: null, unavailable: true };
+  }
+}
+
 export async function getDemoSession(slug: string, options: { fresh?: boolean } = {}): Promise<DemoSession | null> {
   if (!isDemoSlug(slug)) return null;
   const hit = cache.get(slug);

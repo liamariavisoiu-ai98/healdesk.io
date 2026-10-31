@@ -159,6 +159,19 @@ describe("the handoff gate", () => {
     expect((await getDemoSession(demo.slug, { fresh: true }))?.emailSentAt).not.toBeNull();
   });
 
+  it("keeps the first ready time on a rebuild, so the 48-hour offer never starts again", async () => {
+    // Demo call c4093be6 (31 October 2026): "the next 47 hours" of an offer the owner had been sent the day before.
+    auditDemo.mockImplementation(async (input) => report(88, input));
+    const demo = await newDemo(false);
+    const first = await runDemoBuild(demo.slug);
+    expect(first?.status).toBe("ready");
+    const readyAt = new Date("2026-10-30T12:00:00Z");
+    await updateDemoSession(demo.slug, { readyAt });
+    const rebuilt = await runDemoBuild(demo.slug);
+    expect(rebuilt?.status).toBe("ready");
+    expect(rebuilt?.readyAt?.toISOString()).toBe(readyAt.toISOString());
+  });
+
   it("repairs a near miss once, with the findings fed back, and keeps the better round", async () => {
     auditDemo.mockImplementation(async (input) => report(input.round === 0 ? 74 : 86, input));
     const demo = await newDemo();

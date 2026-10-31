@@ -59,6 +59,7 @@ const heard = (over: Partial<DemoHeard> = {}): DemoHeard => ({
   impatient: false,
   wantsRoleplay: false,
   speakingAsThemselves: false,
+  speakingAsPatient: false,
   leaving: false,
   ...over,
 });
@@ -193,13 +194,15 @@ describe("step 5: fewer stock lines", () => {
   test("a recovery line is never the same twice in a call: each opener once, in order", () => {
     const progress = at({ answers: { goal: "x" } });
     const first = demoRecovery(context(), progress, []);
-    expect(first.line).toBe("Sorry, I lost my train of thought for a second there. Generally, how many calls do you get a day?");
-    expect(first.alternate).toBe("Let me put that another way. Generally, how many calls do you get a day?");
+    expect(first.line).toBe("I'll skip that one. Generally, how many calls do you get a day?");
+    expect(first.alternate).toBe("Let me not guess at that one. Generally, how many calls do you get a day?");
     const second = demoRecovery(context(), progress, [first.line, first.alternate]);
-    expect(second.line.startsWith("Hang on, let me come at that differently.")).toBe(true);
-    expect(second.alternate.startsWith("Actually, let me back up a step.")).toBe(true);
-    const intro = demoIntroRecovery(context(), ["Sorry, I lost my train of thought there. What would you like to know?"]);
-    expect(intro.line.startsWith("Sorry, let me come at that another way:")).toBe(true);
-    expect(intro.alternate).toBe("Hang on, let me back up. Want to hear what I do, or try a quick role-play?");
+    expect(second.line.startsWith("I'll leave that one there.")).toBe(true);
+    expect(second.alternate.startsWith("That one's not mine to answer.")).toBe(true);
+    const intro = demoIntroRecovery(context(), ["I'll skip that one. What would you like to know?"]);
+    expect(intro.line.startsWith("Let me not guess at that one.")).toBe(true);
+    expect(intro.alternate).toBe("I'll leave that one there. Want to hear what I do, or try a quick role-play?");
+    // Never filler, never "where were we" (c4093be6), in any of them.
+    for (const r of [first, second, intro]) for (const line of [r.line, r.alternate, r.bridge]) expect(line).not.toMatch(/where were we|train of thought|anyway/i);
   });
 });

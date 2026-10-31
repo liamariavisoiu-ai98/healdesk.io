@@ -48,6 +48,13 @@
  *   - voicemail: hang up, and DNC detection on, for the call-me demo, as the
  *     clinic demo agent (the call is placed with `honor_internal_dnc`).
  *   - language en-US, as the clinic demo agent.
+ *   - boosted_keywords: the treatment words owners use when they play a
+ *     patient, and the demo's own words (DEMO_KEYWORDS). One agent answers
+ *     every demo, so a clinic's own menu cannot be listed the way a clinic's
+ *     agent lists it (apps/app lib/voice/provision.ts, voiceKeywords); demo
+ *     call c4093be6 heard "filler" as "failure", "lips" as "Deeps" and
+ *     "centimeter" as "sentiment". The role-play also asks her to check a
+ *     treatment she does not recognise before answering it.
  *
  * Both demo agents talk to clinic owners, never patients.
  */
@@ -64,6 +71,17 @@ const SOCKET_HOST = "app.healdesk.io";
 const SECRET = /^[^/\s]{16,200}$/;
 
 const dryRun = process.argv.includes("--dry-run");
+
+/** Words the transcriber is biased towards on every demo call (Retell takes at most 100, each 1 to 80 characters). */
+const DEMO_KEYWORDS: readonly string[] = [
+  "Aya", "healdesk", "role play", "consultation", "appointment", "units", "per unit", "centimeter",
+  "Botox", "Dysport", "Xeomin", "Jeuveau", "Daxxify", "filler", "lip filler", "lips", "cheek filler", "Juvederm", "Restylane", "Kybella",
+  "semaglutide", "tirzepatide", "Ozempic", "Wegovy", "weight loss",
+  "HydraFacial", "microneedling", "chemical peel", "laser hair removal", "IPL", "Morpheus8", "PRP", "facial",
+  "sclerotherapy", "varicose veins", "spider veins", "vein",
+  "Invisalign", "veneers", "teeth whitening", "implants", "cleaning", "crown",
+  "WhatsApp", "Instagram", "Messenger", "after hours", "voicemail",
+];
 
 function agentConfig(secret: string) {
   return {
@@ -86,6 +104,7 @@ function agentConfig(secret: string) {
     end_call_after_silence_ms: 20_000,
     data_storage_setting: "basic_attributes_only",
     data_storage_retention_days: 1,
+    boosted_keywords: [...DEMO_KEYWORDS],
   };
 }
 

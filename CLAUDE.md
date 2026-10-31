@@ -182,8 +182,10 @@ enforceable rather than aspirational.
    the requester by name, asks their role, offers to explain or to role-play
    a patient call (opened with "Ring ring!" and the clinic's own notice,
    offering free times from a calendar made of the clinic's published hours,
-   `demoSlots`, and ending when it is done or the owner speaks as themselves,
-   with eight of the caller's turns only a ceiling), then asks what they are
+   `demoSlots`, and ending only when the owner ends it: the patient signs
+   off, they say to stop, or they speak as themselves, with forty of the
+   caller's turns only a guard against a stuck call; owner, 31 October 2026,
+   demo call c4093be6), then asks what they are
    after, their call volume and what happens to missed calls, never more
    than two questions before a value point (`asksSinceValue`), never asking
    twice what was answered (`DemoProgress`, kept from her structured `state`
@@ -257,10 +259,31 @@ enforceable rather than aspirational.
    as the delimiter does, and everything sent to Retell or kept as said is
    cut at a brace, a `"state":` or the delimiter (`spokenOnly`; transcript
    0a45870b). Her scripted handover ("you be the patient") starts a role-play
-   even without the signal, a role-play past its wrap-up turn ends in code,
+   even without the signal, a role-play past its ceiling ends in code,
    a refusal in the intro is heard as a recovery line like the pitch's, a
    bare "no" is never taken as a yes, the role-play is offered at most twice
-   unless asked, and healdesk is "we", never "they" (084f10d4, 0a45870b). Only the pitch may quote healdesk's prices, each from the
+   unless asked, and healdesk is "we", never "they" (084f10d4, 0a45870b).
+   The role-play is moved in code, never by her judgement (c4093be6,
+   `roleplayMove`): the owner's "role play" starts it, a stop phrase ends it
+   with the exit line, "the role play again" inside one restarts it with one
+   greeting, her end or her own exit line stands only once the owner ended it
+   (`roleplayEndAllowed`), a cancel never adds the exit line, her own "Ring
+   ring" is never streamed, and patient talk after a role-play goes back into
+   it with no greeting. In it she is only the clinic's front desk: healdesk's
+   words are on its never-say list (`demoRoleplayFacts`), so the guard refuses
+   any pitch, price, discount or hello@; a refused reply gets the guard's line
+   with the provider's name (`routingProvider`, on demo calls only until the
+   owner decides a clinic's own lines name theirs); a time outside the hours, a
+   closed day and a question about free times are answered by the call from
+   the hours (`roleplayTimeLine`); no request is said to be in before a
+   treatment, a day and time, a first name and a number (for a cancellation,
+   the name and the number), and a cancelled one is never pending
+   (`roleplayCheckedReply`); the urgent line reads out the clinic's published
+   number. The setup discount and its deadline are said once a call
+   (`offerSaid`, `DISCOUNT_SAID`), nothing is sold on a hostile or emotional
+   turn (`HOSTILE`), and a refusal after the role-play is an honest skip and
+   a real question, never filler. `tests/voice-demo-c4093be6.test.ts` replays
+   that call line by line. Only the pitch may quote healdesk's prices, each from the
    catalog and let through the guard exactly (`demoPriceList`,
    `AssistantFacts.quotedAmountsUsd`); a clinic's call quotes its own menu
    alone. Spoken text writes "Aya", never

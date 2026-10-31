@@ -282,6 +282,7 @@ export const DEMO_MOCK: Pick<MockBehaviour, "agent" | "judge" | "listener"> = {
       impatient: /\bget to the point\b|\bmake it quick\b/.test(latest),
       wantsRoleplay: !inRoleplay && /role-?play/.test(latest),
       speakingAsThemselves: inRoleplay && /\bthat was\b/.test(latest),
+      speakingAsPatient: !inRoleplay && user.includes("a role-play has run") && /\bmy appointment\b/.test(latest),
       leaving: /\bbye\b/.test(latest),
     });
   },

@@ -1547,7 +1547,53 @@ export function guardGreeting(
  * Spanish where the refused reply was Spanish (turn.ts asks messageLanguage),
  * so a person answered in Spanish is not handed an English line.
  */
-export function guardedLine(reason: GuardRefusal, clinicName: string, language: "en" | "es" = "en", spoken = false): string {
+/**
+ * The one provider a refused clinical or price question is routed to by name
+ * (the guardrail's own words: "That's a great question for Dr. [Name]. Let me
+ * book a consultation"; demo call c4093be6): the one doctor among the
+ * practice's providers, or its only provider. Null when there are several to
+ * choose from, so the line never ranks one provider over another.
+ */
+export function routingProvider(names: readonly string[] | null | undefined): string | null {
+  const list = (names ?? []).map((n) => n.trim()).filter((n) => n.length > 0 && n.length <= 80);
+  const doctors = list.filter((n) => /^(?:dr\.?|doctor)\s/i.test(n));
+  if (doctors.length === 1) return doctors[0]!;
+  return list.length === 1 ? list[0]! : null;
+}
+
+/** The clinical and price lines with the provider named (routingProvider), in English; null for any other refusal. */
+function providerLine(reason: GuardRefusal, provider: string, spoken: boolean): string | null {
+  if (reason === "clinical") {
+    return spoken
+      ? `That's a great question for ${provider}. Want me to put in a request for a consultation so you can go through it together?`
+      : `That's a great question for ${provider}, and I can't advise on it here. Would you like me to pass on a request for a consultation so you can go through it together?`;
+  }
+  if (reason === "price") {
+    return spoken
+      ? `I don't have a price for that one, but ${provider} can go through it with you at a consultation. Want me to request one?`
+      : `I can't give a price for that one, but ${provider} can go through it with you at a consultation. Would you like me to pass on a request for one?`;
+  }
+  return null;
+}
+
+/**
+ * The provider's line said again in other words, for the same clinical or
+ * price question asked a second time (demo call c4093be6: "Can you prescribe
+ * me semaglutide?" twice, the second heard as "Let me pass your details to
+ * the team"). Never for an answer to the offer ("Yes, please"), which still
+ * hands over (movingOnLine). English, with a provider only; null otherwise.
+ */
+export function routedAgainLine(reason: GuardRefusal, providerNames: readonly string[] | null | undefined, language: "en" | "es" = "en", spoken = false): string | null {
+  const provider = language === "en" ? routingProvider(providerNames) : null;
+  if (!provider) return null;
+  if (reason === "clinical") return `${provider} is the right person for that one. ${spoken ? "Want me to request a consultation with them?" : "Would you like me to pass on a request for a consultation?"}`;
+  if (reason === "price") return `${provider} can give you the exact figure at a consultation. ${spoken ? "Want me to request one?" : "Would you like me to pass on a request for one?"}`;
+  return null;
+}
+
+export function guardedLine(reason: GuardRefusal, clinicName: string, language: "en" | "es" = "en", spoken = false, provider: string | null = null): string {
+  const named = provider && language === "en" ? providerLine(reason, provider, spoken) : null;
+  if (named) return named;
   if (spoken) return SPOKEN_GUARD_LINES[language][reason] ?? SPOKEN_GUARD_LINES[language].other;
   if (language === "es") return guardedLineEs(reason, clinicName);
   if (reason === "price") {

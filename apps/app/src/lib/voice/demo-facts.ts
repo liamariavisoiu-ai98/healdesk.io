@@ -1268,7 +1268,9 @@ export function demoStageNote(
       : !a.identity && progress.greetedOnly && !context.firstName
       ? `Next: they greeted you without saying who they are. Answer the greeting in a few words ("Doing well, thanks!") and ask once more who you're speaking with, nothing else.`
       : !a.role
-      ? `Next: greet them by name in a few words and ask their role at ${clinic} ("Great to meet you! What's your role at ${clinic}?"). Your opening line already asked whether you're speaking with ${context.firstName ?? "them"}: never ask it again. Unless they say plainly that they are someone else, take their answer as a yes.`
+      ? context.firstName
+        ? `Next: greet them by name in a few words and ask their role at ${clinic} ("Great to meet you! What's your role at ${clinic}?"). Your opening line already asked whether you're speaking with ${context.firstName}: never ask it again. Unless they say plainly that they are someone else, take their answer as a yes.`
+        : `Next: greet them in a few words, by their first name only if they gave one, and ask their role at ${clinic} ("Great to meet you! What's your role at ${clinic}?"). Your opening line already asked who you're speaking with: never ask it again.`
       : progress.delegated && stage === "intro"
       ? `Next: they left it to you: start the role-play in this reply, with one short handover (below). Never ask them to choose again.`
       : !a.choice && (progress.choiceAsks ?? 0) >= 2
@@ -1277,7 +1279,7 @@ export function demoStageNote(
       ? `Next: react to their role in a few natural words (never congratulate them, and don't repeat their title back), then ask, close to these words: "Would you like to hear what I can do for ${clinic}, or jump straight into a quick role-play where you call in as a patient?"`
       : `Next: do what they chose. If they want to hear more, say what you do in two short sentences: first, ${WHAT_AYA_DOES}; then one real detail you know about ${clinic} (never a website, scraping or how you learned anything), and offer the role-play. If they want the role-play, or leave it to you ("whatever's best"), start it in this same reply (below).`;
     return [
-      `This call is a live demo for ${who}, who is on ${clinic}'s team and asked to hear you at work. ${nameRule} You opened by saying who you are and asking whether you're speaking with ${context.firstName ?? "them"}.`,
+      `This call is a live demo for ${who}, who is on ${clinic}'s team and asked to hear you at work. ${nameRule} You opened by saying who you are and asking ${context.firstName ? `whether you're speaking with ${context.firstName}` : "who you're speaking with"}.`,
       ...(known ? [known] : []),
       ...(!context.firstName && a.identity && a.identity !== SKIPPED_ANSWER
         ? [`If they told you their first name ("${a.identity.replace(/"/g, "'")}"), use it, at most twice in the call.`]

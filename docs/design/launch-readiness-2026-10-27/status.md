@@ -65,7 +65,7 @@ Tech Provider, Meta deposit links) follow as separate go-lives.
 
 | Product | Built | Seen working for real | Status | What is missing |
 | --- | --- | --- | --- | --- |
-| **Voice agent (Retell, custom-LLM WebSocket)** | `apps/app/src/voice/server.ts`, `lib/voice/retell.ts`; voice service on AWS (`enable_voice = true`, 1 task, 1 vCPU) | Your demo test calls (for example 72dc66b7, d2d9a915) ran on this endpoint's demo path | DONE-VERIFIED for demos; DONE-UNVERIFIED for clinics | No clinic-side call (the patient path of the made-up demo clinic) has been taken; Spanish not heard; `voice_real_calls = false` so only the demo clinic is answered; agents and numbers are made by hand while `voice_provision_enabled = false` |
+| **Voice agent (Retell, custom-LLM WebSocket)** | `apps/app/src/voice/server.ts`, `lib/voice/retell.ts`; voice service on AWS (`enable_voice = true`, 1 task, 1 vCPU) | Your demo test calls (for example 72dc66b7, d2d9a915) ran on this endpoint's demo path | DONE-VERIFIED for demos; DONE-UNVERIFIED for clinics | No clinic-side call (the patient path of the made-up demo clinic) has been taken; Spanish not heard; `voice_real_calls = false` so only the demo clinic is answered; `voice_provision_enabled = true` in `production.tfvars` since 31 October 2026 (owner), so agents and numbers are made by the engine once applied and deployed |
 | **Web chat widget** | `apps/app/src/widget/v1.js`, `/api/widget/v1/[slug]/*`, safety suites for web chat | No production chat on a clinic site recorded | DONE-UNVERIFIED | Goes live only after an operator confirms the snippet on the clinic site (`web-chat-on-paste`, not blocking) |
 | **Meta bot (Instagram, Messenger, WhatsApp)** | Webhook, connect flows, 24-hour window in the adapter, clinical screen, never-say list; takes booking requests only (`lib/meta/front-door.ts`) | `qa:meta` 13/13 once on 22 Oct (one sample) | DONE-UNVERIFIED | No deposit link on Meta (promised, blocking); WhatsApp embedded signup is off (`meta_whatsapp_config_id = ""`, needs Tech Provider); App Review not evidenced; Meta policy risk (section 6) |
 | **Clinic portal and wizard** | Home, Settings, Knowledge, Conversations, Bookings, Billing, Setup, step-up and passkeys under `apps/app/src/app/c/[slug]` | Nobody outside tests has signed in as a clinic | DONE-UNVERIFIED | A full synthetic clinic run in production |
@@ -177,7 +177,7 @@ Legal pages carry an AI review, not a lawyer's.
 | Host | Active since 14 Oct (`host.yml`); last deploy 27 Oct 07:41 UTC, success; `/api/health` ok | DONE-VERIFIED |
 | `enable_voice` | `true` in `production.tfvars`, applied | DONE-VERIFIED |
 | `voice_real_calls` | `false`; only the demo clinic is answered | Correctly off; yours to switch |
-| `voice_provision_enabled` | `false`; agents and numbers by hand | Correctly off; yours to switch |
+| `voice_provision_enabled` | `true` in `production.tfvars` (owner, 31 October 2026); not yet applied or deployed | Yours to apply (`infra.yml`) and roll (full `deploy-app.yml`); needs `HEALDESK_RETELL_API_KEY` in Parameter Store |
 | `HEALDESK_DIRECT_BOOKING_ENABLED` | Refused by Terraform on every task | No route exists to set it |
 | Voice redundancy | `voice_desired = 1`; the comment above it says 2 survives a lost task. One task down drops every call on it | Your choice; recommend 2 before real calls |
 | Database | `db.t4g.micro`, single-AZ, 35-day backups, deletion protection, encrypted | DONE |

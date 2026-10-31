@@ -76,13 +76,17 @@ voice_memory  = 2048
 # off means setting both to false in the same change.
 voice_real_calls = false
 
-# Automatic voice provisioning, the owner's spend switch: off until the owner
-# decides to spend. On, the worker buys each paid voice clinic's AYA number
-# from Retell and creates its agent (Retell bills every number); off, it makes
-# no Retell call and agents and numbers are set up by hand. The variable
-# exists (22 October 2026) but nobody has a paid voice plan yet. It needs
-# enable_voice. Never switched on by an agent.
-voice_provision_enabled = false
+# Automatic voice provisioning, the owner's spend switch: ON since
+# 31 October 2026 (owner, in chat: a clinic that buys phone must get its AYA
+# number and Retell agent without anyone making them by hand). The worker buys
+# each paid voice clinic's AYA number from Retell and creates its agent
+# (Retell bills every number), at most HEALDESK_VOICE_PROVISION_DAILY_CAP a
+# day (20 by default), with the voice retell-Sloane unless
+# HEALDESK_RETELL_VOICE_ID is set in app_environment. It needs enable_voice and
+# HEALDESK_RETELL_API_KEY in Parameter Store; it takes effect after infra.yml
+# applies it and a full deploy-app.yml run (not restart_only). Off again is
+# one `false` here, applied the same way. Only the owner changes it.
+voice_provision_enabled = true
 
 # Direct booking (DB-1; owner, 27 and 28 October 2026: launch with it, voice
 # included): ON. The owner released the Direct booking addendum on 28 October

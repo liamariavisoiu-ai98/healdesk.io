@@ -1673,7 +1673,7 @@ run "voice_real_calls_on_with_a_separate_worker" {
 
 # The owner's provisioning switch, off by default: no task carries it, so the
 # worker's hourly sweep queues nothing and no Retell number is bought, even
-# with the voice endpoint on (production.tfvars today).
+# with the voice endpoint on.
 run "voice_provision_off_delivers_nothing" {
   command = plan
 

@@ -67,8 +67,10 @@ that warning on purpose, and click past it.
 
 - [ ] A computer with **Google Chrome**.
 - [ ] The **healdesk test (sandbox) Google account**: its email address and
-      password. Never use your personal Google account, and never a real
-      clinic's account.
+      password. A free Gmail account made for this is fine; it does not need
+      to be a Google Workspace account (healdesk.io's mail runs through
+      Cloudflare, not Google). Never use your personal Google account, and
+      never a real clinic's account.
 - [ ] Your **operator email address**: the one you signed in to the demo
       clinic's portal with before.
 - [ ] A screen recorder. On a Mac, press **Cmd + Shift + 5** and choose

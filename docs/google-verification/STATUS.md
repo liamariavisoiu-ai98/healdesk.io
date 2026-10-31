@@ -16,7 +16,9 @@ with the date and who confirmed it. How to do each step:
 | 4 | Project is **healdesk-prod**; one OAuth client, "healdesk production - calendar", redirect `https://app.healdesk.io/api/calendar/google/callback` | Done | Owner, 31 Oct 2026 |
 | 5 | Data Access lists exactly the five permissions; Google marks only `calendar.events.owned` sensitive | Done | Owner, 31 Oct 2026 |
 | 6 | Branding page (name, logo, home, privacy, terms, authorised domain) and Audience "In production" | Not confirmed | |
-| 7 | Client ID and secret set on the AWS host (Parameter Store) and matching healdesk-prod's client | Not confirmed (owner checks in CloudShell) | |
+| 7 | Client ID and secret set on the AWS host (Parameter Store), the ID matching healdesk-prod's client | Done (the secret's correctness shows at the first connect) | Owner, CloudShell, 31 Oct 2026 |
+| 7a | Test Google account for the recording (a free Gmail account, recovery address hello@healdesk.io) | Not started | |
+| 7b | YouTube channel to upload the video to | Not started | |
 | 8 | Demo video recorded and uploaded to YouTube as Unlisted | Not started | |
 | 9 | Submitted in the Verification Center (date) | Not started | |
 | 10 | Google's branding review passed | Waiting on 9 | |
@@ -31,6 +33,8 @@ Only the demo clinic and healdesk's test Google account.
 
 ## Log
 
+- 31 Oct 2026: owner confirmed in CloudShell that GOOGLE_OAUTH_CLIENT_ID and
+  GOOGLE_OAUTH_CLIENT_SECRET are set on the host (step 7).
 - 31 Oct 2026: status reconstructed from the repo and the owner's report of the
   Google Cloud console (steps 3 to 5). SUBMISSION.md rewritten as a
   non-engineer's guide to the video.

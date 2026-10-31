@@ -1197,7 +1197,7 @@ holds patient data in the clear; unlike a gateway, it is an instance to look aft
 
 ## The voice endpoint
 
-`enable_voice` (set on in `production.tfvars` on 22 October 2026, live once applied, for a test call on the demo clinic; `voice_real_calls` and `voice_provision_enabled` stay false) runs the Retell custom-LLM endpoint,
+`enable_voice` (set on in `production.tfvars` on 22 October 2026, live once applied, for a test call on the demo clinic; `voice_real_calls` stays false, and `voice_provision_enabled` is set on in `production.tfvars` since 31 October 2026 by the owner, live once applied and deployed, step 9) runs the Retell custom-LLM endpoint,
 `apps/app/src/voice/server.ts`: a plain Node HTTP and WebSocket server from the app image, one
 WebSocket per call, held for the whole call. A Next route handler cannot accept the upgrade, so it
 is a process and a service of its own. Turning it on creates:
@@ -1314,9 +1314,12 @@ calls drop and the other answers the next.
    is in the web and worker task definitions). It needs `enable_voice` (the plan refuses it
    without) and `HEALDESK_RETELL_API_KEY`; set `HEALDESK_RETELL_VOICE_ID` and, to lower the
    default 20 numbers a day, `HEALDESK_VOICE_PROVISION_DAILY_CAP` in `app_environment` first.
-   Each number Retell sells is billed to the owner, so it is turned on when the owner decides to
-   spend, and no agent turns it on. Off, provisioning makes no Retell call (apps/app
-   `lib/voice/provision.ts`).
+   Each number Retell sells is billed to the owner, so only the owner turns it on or off. The owner
+   set it to `true` in `production.tfvars` on 31 October 2026; it is live once `infra.yml` has
+   applied it and a full `deploy-app.yml` has rolled it. Off, provisioning makes no Retell call
+   (apps/app `lib/voice/provision.ts`). Until `voice_real_calls` is on, a provisioned clinic's
+   number is answered by the voice endpoint only for the demo clinic; any other clinic's caller
+   is sent to its direct line (`lib/voice/test-calls.ts`).
 
 **Rotating the secret**: paste a new value, run `restart_only`, then update every agent's URL;
 calls to an agent not yet updated are refused in between, so do it in a quiet hour.

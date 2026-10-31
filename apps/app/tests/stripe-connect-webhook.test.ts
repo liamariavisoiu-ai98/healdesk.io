@@ -479,12 +479,14 @@ describeDb("POST /api/webhooks/stripe-connect", DB_TEST_OPTIONS, () => {
       {
         clinicId: expired.clinicId,
         kind: "deposit_to_collect",
-        ref: { appointmentId: expired.appointment },
+        // The lapsed link's id keys the alert, so it is never swallowed by an
+        // earlier L10 for the same booking (BookingAlertRef.depositId).
+        ref: { appointmentId: expired.appointment, depositId: expired.deposit },
       },
       {
         clinicId: failed.clinicId,
         kind: "deposit_to_collect",
-        ref: { appointmentId: failed.appointment },
+        ref: { appointmentId: failed.appointment, depositId: failed.deposit },
       },
     ]);
     // A late duplicate of the expiry does not alert again.

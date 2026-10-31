@@ -1,7 +1,8 @@
 import { CHANNELS, type Channel } from "@healdesk/catalog";
 import { and, eq, gt, sql } from "drizzle-orm";
 
-import { bookingRequests, clinicChannels, clinics, type ChannelWaitingOn } from "@/db/schema";
+import { appointments, bookingRequests, clinicChannels, clinics, paymentLinkTexts, type ChannelWaitingOn } from "@/db/schema";
+import { flagForFrontDeskReporting } from "@/lib/billing/deposits";
 import { pauseEmailSuperseded } from "@/lib/channels/pause";
 import type { TenantTx } from "@/lib/tenant";
 
@@ -24,8 +25,14 @@ import type { NoticeKind } from "./kinds";
  * `export_reminder`): "Your export is ready" and "Download it by" are wrong
  * once a download or the operator's handover has recorded the export as
  * delivered, or once the data is destroyed (lib/offboarding/
- * after-cancellation.ts). Every other kind, the first L15 among them, is
- * about something that has already happened, and goes regardless.
+ * after-cancellation.ts). L10 (`deposit_to_collect`) about a booking: "left
+ * the deposit for your team to collect" is wrong once the deposit is no
+ * longer the front desk's, paid, waived, or with a payment link out (the
+ * payment-link text after a call, lib/sms/payment-text.ts, which holds the
+ * L10 while the caller is offered it), so staff are never told to collect a
+ * deposit the caller was just texted a link for. Every other kind, the
+ * first L15 among them, is about something that has already happened, and
+ * goes regardless.
  */
 
 /**
@@ -50,7 +57,10 @@ export function isWaitingOnReadyStep(
 
 /**
  * Why the notice no longer needs sending, for its `last_error`, or null when
- * it still does. Reads in the outbox's tenant transaction.
+ * it still does. Runs in the outbox's tenant transaction, and mostly reads;
+ * for a call booking's L10 over a payment-link text whose outcome is
+ * unknown, it also hands the deposit to the front desk and queues the
+ * possibly-paid L10 that replaces the plain one (depositAlertSuperseded).
  */
 export async function supersededReason(
   tx: TenantTx,
@@ -59,6 +69,7 @@ export async function supersededReason(
 ): Promise<string | null> {
   if (kind === "ai_paused") return pauseEmailSuperseded(tx, payload);
   if (kind === "export_ready" || kind === "export_reminder") return exportNoticeSuperseded(tx);
+  if (kind === "deposit_to_collect") return depositAlertSuperseded(tx, payload);
   if (kind === "request_still_open") {
     const [open] = await tx.db
       .select({ n: sql<number>`count(*)::int` })
@@ -91,6 +102,58 @@ export async function supersededReason(
   return isWaitingOnReadyStep(channel as Channel, row)
     ? null
     : "the channel's last step was done before it could go";
+}
+
+/** L10 about a booking is moot once its deposit is no longer the front desk's to collect. */
+async function depositAlertSuperseded(tx: TenantTx, payload: unknown): Promise<string | null> {
+  const appointmentId = (payload as { appointmentId?: unknown } | null)?.appointmentId;
+  if (typeof appointmentId !== "string") return null;
+  const [row] = await tx.db
+    .select({ deposit: appointments.depositStatus })
+    .from(appointments)
+    .where(and(eq(appointments.clinicId, tx.clinicId), eq(appointments.id, appointmentId)))
+    .limit(1);
+  if (!row || row.deposit === "pending_front_desk") return null;
+  if (row.deposit === "pending_link") {
+    // A call's link counts as gone out only once its text is recorded sent:
+    // a link made for a text that never went (a crash between the link and
+    // the send) leaves the L10 to go, and the front desk to collect.
+    const [text] = await tx.db
+      .select({ status: paymentLinkTexts.status })
+      .from(paymentLinkTexts)
+      .where(and(eq(paymentLinkTexts.clinicId, tx.clinicId), eq(paymentLinkTexts.appointmentId, appointmentId)))
+      .limit(1);
+    // The possibly-paid email itself is decided on the deposit's own state:
+    // were it sent here, its own key already exists, nothing new would be
+    // queued, and closing it would leave neither email to go.
+    const possiblyPaid = (payload as { isPossiblyPaid?: unknown } | null)?.isPossiblyPaid === true;
+    if (text?.status === "queued" && !possiblyPaid) {
+      // Claimed and never settled: the process died, or the outcome could
+      // not be recorded, possibly after AWS accepted the text. The texted
+      // link may be paid, so the front desk is told to check Stripe first
+      // (the possibly-paid L10, the same key the payment-text "unknown"
+      // path uses, so never twice), and this plain "collect" one is closed.
+      // Closed only once that alert is known to be queued: if it could not
+      // be, the plain email goes, since a plain email beats none.
+      const flagged = await flagForFrontDeskReporting(tx, appointmentId, { mayBePaid: true });
+      if (flagged.moved) {
+        // As the payment-text tool layer records its own hand-over (toFrontDesk).
+        tx.audit.record({
+          action: "update",
+          resourceType: "appointment",
+          resourceId: appointmentId,
+          metadata: { outcome: "deposit_to_front_desk", reason: "payment_text_unknown" },
+        });
+      }
+      // Moved but not queued: flagForFrontDeskReporting has told ops itself
+      // (deposit_alert_not_queued), once; the plain email goes below.
+      if (!flagged.moved || !flagged.queued) return null;
+      return "the payment-link text's outcome is unknown; the possibly-paid alert replaces it";
+    }
+    if (text && text.status !== "sent") return null;
+    return "a payment link went out for the deposit before it could go";
+  }
+  return "the deposit was no longer the front desk's before it could go";
 }
 
 /** E4 and E5 are moot once the export is delivered, or once there is nothing left to export. */

@@ -8,13 +8,15 @@ import { lockAutoConfirm } from "@/lib/billing/settings";
 import { SYSTEM_ORIGIN } from "@/lib/clinic/change-events";
 import { recordSettingChange } from "@/lib/clinic/setting-changes";
 import { notifySwitchesReset } from "@/lib/notices/setting-changed";
+import { smsSenderConfigured } from "@/lib/sms/config";
 import type { TenantTx } from "@/lib/tenant";
+import { voiceRealCallsAllowed } from "@/lib/voice/test-calls";
 
 import {
   factRules,
-  PAYMENT_LINK_TEXT_SENDER_READY,
   resetsAfter,
   switchRules,
+  textChecksMet,
   type SwitchFacts,
   type SwitchReset,
   type SwitchUnlock,
@@ -194,12 +196,38 @@ export async function fullPaymentActive(tx: TenantTx): Promise<boolean> {
 }
 
 /**
- * Whether the assistant may offer to text a payment link. Never yet: no
- * sender exists (owner, 28 October 2026), so the clinic's switch is a choice
- * kept for when one does, and nothing offers or sends a text. When a sender
- * is built, this is where its readiness, the clinic's switch and the rule
- * (switch-rules.ts, text_payment_link) are all checked together.
+ * Whether the assistant may offer to text a payment link on this call, now
+ * (owner, 28 and 30 October 2026): the text's five checks in
+ * switch-rules.ts, read fresh, all met. They are the checklist the clinic
+ * sees, and nothing more is asked here, so the two cannot disagree:
+ *
+ *   - phone bought and the clinic's Stripe connected;
+ *   - the clinic's accepted agreement carries the text's exception, BAA
+ *     1.6.0 or DPA 1.1.0 and later (agreementCoversText,
+ *     lib/sms/agreement.ts; spec, "Only under an agreement that covers
+ *     it"); a clinic on BAA 1.5.x or DPA 1.0.0, which says "sends no SMS"
+ *     (docs/counsel/agreement-changes.md § 20.3), is never offered one;
+ *   - the clinic's switch on;
+ *   - healdesk's side: the texting number ready
+ *     (HEALDESK_SMS_ORIGINATION_IDENTITY, which only the owner sets, once
+ *     the toll-free registration is approved) and the voice endpoint out of
+ *     its test-calls-only mode (HEALDESK_VOICE_REAL_CALLS=1,
+ *     lib/voice/test-calls.ts), so no real number is texted before every
+ *     agreement in the chain is signed.
+ *
+ * The answer gate already decided the call may be answered (the vendor
+ * chain, pause, suspension), and the deposit link's own refusals still run
+ * when the link is made (createDepositLink). The tool layer asks this, never
+ * the stored switch alone, and asks the agreement once more itself at send
+ * time (lib/sms/payment-text.ts).
  */
-export function paymentLinkTextOffered(): false {
-  return PAYMENT_LINK_TEXT_SENDER_READY;
+export async function paymentLinkTextOffered(
+  tx: TenantTx,
+  options: { senderReady?: boolean; realCalls?: boolean } = {},
+): Promise<boolean> {
+  const realCalls = options.realCalls ?? voiceRealCallsAllowed();
+  const senderReady = options.senderReady ?? smsSenderConfigured();
+  if (!realCalls || !senderReady) return false;
+  const rule = switchRules(await readPaymentFacts(tx), true).text_payment_link;
+  return rule.enabled && textChecksMet(rule.checks);
 }

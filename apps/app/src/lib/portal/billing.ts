@@ -151,9 +151,8 @@ export function includedLine(plan: Plan, locations: number): string {
 /**
  * The extra-100 price on one meter, at the BOUGHT plan's rate (the rate the
  * summary's overage is billed at): "$104 for each started block of 100 extra
- * voice minutes". Null for a meter the plan does not sell. The screen prints
- * it beside the word "provisional", because the rates are (CLAUDE.md,
- * "Claims and copy"), and never as a per-unit rate.
+ * voice minutes". Null for a meter the plan does not sell. Never a per-unit
+ * rate, and nothing of our own costs beside it (CLAUDE.md, "Claims and copy").
  */
 export function extraBlockLine(plan: Plan, meter: UsageMeter): string | null {
   const rate =

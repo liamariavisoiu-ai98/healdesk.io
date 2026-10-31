@@ -202,6 +202,50 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Press Record in the Touch log on the clinic's Care tab to note what you found. You are done when the alert stops and the clinic has removed the forwarding.",
     ],
   },
+  // lib/sms/payment-text.ts, at most once an hour per clinic: after a caller
+  // who booked said yes to the payment-link text and confirmed the number
+  // read back, the text did not go for a reason that is ours to look at
+  // (code: not_configured, throttled, error, unknown, unannounced,
+  // link_unavailable, refused).
+  // `error` covers both a failed send (AWS's error) and our own record of
+  // the text that could not be written before anything was sent; `unknown`
+  // is no answer from AWS inside the deadline, so the text may have gone. A number that opted out or that AWS refused as
+  // invalid raises nothing. The booking stands and its deposit is left for
+  // the clinic's front desk.
+  payment_text_not_sent: {
+    title: "A payment-link text after a call did not go",
+    headline: "Payment-link text for {clinicName} not sent ({code})",
+    whatHappened:
+      "A caller of {clinicName} booked on a call and asked for the deposit link by text, and the text did not go, or may not have: it was refused or failed on our side or at AWS; for the code error, our record of the text may not have been written, in which case nothing was sent; for the code unknown, AWS did not answer in time, so the text may have gone and the link may be paid, and the clinic's alert tells its team to check Stripe before collecting. The caller was told the front desk will call about the deposit (for unknown: will check whether it is paid). For the code unannounced, the outcome was unknown too, but the email telling the clinic to check Stripe could not be queued, so its team got the plain deposit email instead: phone the clinic so it checks Stripe before collecting. The booking stands, and the deposit is left for the clinic's team.",
+    whyItMatters:
+      "Callers after this one will likely hit the same failure until it is fixed, and each waits for the front desk instead of paying from the link. The code in the headline says where to look: the texting number's setting, AWS's sending limits, the clinic's Stripe, or our own refusal.",
+    steps: [
+      "Open the Map page and check the texting number's key is present. If it is missing, paste the approved number's id into AWS and restart the app with the deploy workflow's restart-only run: the web tier and the voice line both read it.",
+      "Check the Deposits and Stripe Connect card on the clinic's Billing tab shows Stripe still connected. If not, the link could not be made.",
+      "Look in AWS End User Messaging for us-east-1, after the Map page, that the account left the SMS sandbox, the number is active and the spending limit is not reached.",
+      "Phone the clinic, its number on the clinic's Care tab, when the code is unannounced, and ask its team to check the deposit in Stripe before collecting it.",
+      "Press Record in the Touch log on the clinic's Care tab to note what you found. You are done when the cause is fixed and the alert stops.",
+    ],
+  },
+  // lib/billing/deposits.ts flagForFrontDeskReporting, once per booking an
+  // hour: a deposit was just handed to the clinic's front desk (a payment
+  // link lapsed, was cancelled or could not be checked, or a payment-link
+  // text's outcome was unknown), and the email telling its team could not
+  // be queued. The deposit shows on Bookings as one to collect; the team
+  // may not have been told (a plainer reminder can still follow). Ids only.
+  deposit_alert_not_queued: {
+    title: "A deposit went to the front desk without its email",
+    headline: "Deposit for {clinicName} with the front desk, no email",
+    whatHappened:
+      "A booking's deposit at {clinicName} became the front desk's to collect. Its payment link lapsed, was cancelled or could not be checked, or a payment-link text's outcome was unknown. The email telling the clinic's team to check Stripe first could not be queued, so the team may not have been told. Bookings shows it as a deposit to collect, a plainer reminder email can still go out without the check-Stripe line, and the link may already have been paid.",
+    whyItMatters:
+      "Until someone at the clinic opens Bookings, nobody asks for the deposit; and if they ask without checking Stripe, a patient who already paid the link could be charged twice.",
+    steps: [
+      "Phone the clinic, its number on the clinic's Care tab, and ask its team to check the deposit: look in Stripe for a payment on the booking's link before collecting it.",
+      "Open the clinic's Deliveries tab to see whether its emails are going at all, then check the app's logs for 'booking alert not queued' around the alert's time.",
+      "Press Record in the Touch log on the clinic's Care tab to note what you found. You are done when the clinic has checked the deposit and the alert stops.",
+    ],
+  },
 };
 
 /** This section's events still in their pre-rewrite wording (LEGACY_WORDING, ./index.ts). */

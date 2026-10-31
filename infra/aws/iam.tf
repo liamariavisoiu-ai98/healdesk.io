@@ -276,6 +276,19 @@ data "aws_iam_policy_document" "app_task" {
       resources = [local.ses_configuration_set_arn]
     }
   }
+
+  # The optional payment-link text after a call (apps/app/src/lib/sms/send.ts;
+  # owner, 30 October 2026): AWS End User Messaging SMS, one action, from this
+  # account's own phone numbers in this region and nothing else. Which number
+  # is pasted later (app/HEALDESK_SMS_ORIGINATION_IDENTITY, ssm.tf), so the
+  # resource is the account's phone numbers rather than one ARN; no voice,
+  # media or bulk send, no pool, no number management. Harmless while the
+  # parameter is __unset__: the code sends nothing without it.
+  statement {
+    sid       = "SendThePaymentLinkText"
+    actions   = ["sms-voice:SendTextMessage"]
+    resources = ["arn:aws:sms-voice:${var.region}:${local.account_id}:phone-number/*"]
+  }
 }
 
 resource "aws_iam_role_policy" "app_task" {

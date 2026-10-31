@@ -272,6 +272,7 @@ describe("the handoff gate", () => {
     const message = send.mock.calls[0]![0] as {
       to: string;
       text: string;
+      html: string;
       tag: string;
       unsubscribeUrl: string;
       idempotencyKey: string;
@@ -281,7 +282,8 @@ describe("the handoff gate", () => {
     // A row opened for the opt-out records no consent: nurture never starts from it.
     expect(lead!.marketingConsent).toBe(false);
     expect(message.unsubscribeUrl).toBe(unsubscribeUrl(lead!.id));
-    expect(message.text).toContain(`Stop these emails: ${message.unsubscribeUrl}`);
+    expect(message.text).toContain(`Unsubscribe: ${message.unsubscribeUrl}`);
+    expect(message.html).toContain(`href="${message.unsubscribeUrl}"`);
     expect(message.text).not.toContain("is a service of");
     expect(message.text).toContain("Wilmington, DE 19801");
     expect(message.tag).toBe("demo-ready");

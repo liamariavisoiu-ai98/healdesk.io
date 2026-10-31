@@ -39,7 +39,12 @@ import nextConfig from "../next.config";
  */
 
 const APP = fileURLToPath(new URL("..", import.meta.url));
-const SDKS = ["@aws-sdk/client-kms", "@aws-sdk/client-sesv2", "@aws-sdk/client-s3"] as const;
+const SDKS = [
+  "@aws-sdk/client-kms",
+  "@aws-sdk/client-sesv2",
+  "@aws-sdk/client-s3",
+  "@aws-sdk/client-pinpoint-sms-voice-v2",
+] as const;
 
 /** Every module specifier a file under src imports, statically or dynamically, by a literal. */
 function importedSpecifiers(): Map<string, string[]> {
@@ -115,10 +120,11 @@ describe("the AWS SDKs reach the production build as packages", () => {
     }
   }, 60_000);
 
-  test("kms.ts and deliver.ts import their SDK by name, with no specifier constant", () => {
+  test("kms.ts, deliver.ts and sms/send.ts import their SDK by name, with no specifier constant", () => {
     const files = [
       ["src/lib/crypto/kms.ts", "@aws-sdk/client-kms"],
       ["src/lib/reporting/deliver.ts", "@aws-sdk/client-sesv2"],
+      ["src/lib/sms/send.ts", "@aws-sdk/client-pinpoint-sms-voice-v2"],
     ] as const;
 
     for (const [file, sdk] of files) {

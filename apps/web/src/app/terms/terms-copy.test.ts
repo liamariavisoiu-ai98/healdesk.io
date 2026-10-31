@@ -231,7 +231,7 @@ describe("the terms describe v1 as the spec defines it", () => {
 describe("usage above the allowance is billed per started block of 100", () => {
   const text = pageText();
 
-  test("section 3 states the block rule plainly, provisional until measured", () => {
+  test("section 3 states the block rule plainly, with nothing of our costs", () => {
     // The owner's decision of 6 October 2026 (docs/v1-product-spec.md,
     // "Overage prices"), kept by the pricing sheet of 13 October: each
     // started block of 100 past the allowance is billed at the product's
@@ -242,9 +242,9 @@ describe("usage above the allowance is billed per started block of 100", () => {
     expect(text).toContain(
       "Usage above the included allowance is billed in blocks: each month, every started block of 100 extra voice minutes or 100 extra chat conversations is billed at that product's price for each extra 100 in the table above, so a single minute or conversation over the allowance is billed as a whole block, and the same applies above the largest step.",
     );
-    expect(text).toContain(
-      "These block prices are provisional until we have measured what that usage costs to serve.",
-    );
+    // Owner, 30 October 2026: no client-facing copy calls the rates
+    // provisional or talks about what usage costs us to serve.
+    expect(text).not.toMatch(/provisional|costs to serve|measured what/i);
     expect(text).toContain(
       "On a monthly plan the blocks are billed in arrears on the next invoice; on an annual plan they are invoiced separately, monthly in arrears, at the same prices.",
     );

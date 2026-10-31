@@ -440,16 +440,83 @@ describe("safety suite: inbound only, statically", () => {
     });
   }
 
-  test("apps/app depends on no SMS or outbound-calling SDK", () => {
+  // The one designed exception (owner, 28 and 30 October 2026; CLAUDE.md,
+  // "Inbound only"): the payment-link text after a call, sent by AWS End
+  // User Messaging SMS from lib/sms/send.ts alone, through the contact
+  // policy's one-text gate. Its SDK, and its one command in that one file,
+  // are the only SMS allowed; every other SDK and call stays banned.
+  const THE_ONE_TEXT_SDK = "@aws-sdk/client-pinpoint-sms-voice-v2";
+  const THE_ONE_TEXT_FILE = join(SRC, "lib", "sms", "send.ts");
+
+  test("apps/app depends on no SMS or outbound-calling SDK but the one text's sender", () => {
     const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")) as { dependencies: Record<string, string> };
     const banned = /twilio|vonage|nexmo|plivo|telnyx|messagebird|sinch|bandwidth|client-sns|client-pinpoint|client-connect$/;
-    expect(Object.keys(pkg.dependencies).filter((d) => banned.test(d))).toEqual([]);
+    expect(Object.keys(pkg.dependencies).filter((d) => banned.test(d) && d !== THE_ONE_TEXT_SDK)).toEqual([]);
   });
 
-  test("no source file calls an outbound-call or SMS API", () => {
-    const outbound = /create-phone-call|create-batch-call|create-web-call|api\.twilio\.com|PublishCommand|SendTextMessageCommand|SendMessagesCommand/;
+  test("no source file calls an outbound-call or SMS API but the one text's sender, with its one command", () => {
+    const outbound = /create-phone-call|create-batch-call|create-web-call|api\.twilio\.com|PublishCommand|SendTextMessageCommand|SendMessagesCommand|SendVoiceMessageCommand|SendMediaMessageCommand|client-pinpoint/;
     const hits = files(SRC).filter((f) => outbound.test(readFileSync(f, "utf8")));
-    expect(hits).toEqual([]);
+    expect(hits).toEqual([THE_ONE_TEXT_FILE]);
+    // In that file: the SMS command alone, never a voice, media or bulk send.
+    const sender = readFileSync(THE_ONE_TEXT_FILE, "utf8");
+    expect(sender).not.toMatch(/SendVoiceMessageCommand|SendMediaMessageCommand|SendMessagesCommand|PublishCommand|create-phone-call/);
+    expect(sender.match(/new mod\.\w+Command\(/g)).toEqual(["new mod.SendTextMessageCommand("]);
+    // And only the payment-link tool layer calls the sender, after the contact policy's gate.
+    const callers = files(SRC).filter((f) => f !== THE_ONE_TEXT_FILE && /sendPaymentLinkText\(/.test(readFileSync(f, "utf8")));
+    expect(callers).toEqual([join(SRC, "lib", "sms", "payment-text.ts")]);
+    expect(readFileSync(callers[0]!, "utf8")).toMatch(/canSendPaymentLinkText\(/);
+  });
+
+  test("no file in any app, package or script but the sender reaches the SMS SDK, and the sender hands out no raw transport", () => {
+    const repo = join(__dirname, "..", "..", "..");
+    const roots = [
+      SRC,
+      join(__dirname, "..", "scripts"),
+      join(repo, "scripts"),
+      join(repo, "apps", "web", "src"),
+      ...readdirSync(join(repo, "packages")).map((p) => join(repo, "packages", p, "src")),
+    ].filter((dir) => {
+      try {
+        return statSync(dir).isDirectory();
+      } catch {
+        return false;
+      }
+    });
+    // Code, not prose: an import or require of an SMS SDK, or the send command
+    // or client used. A sentence naming SendTextMessage on a status page is not a send.
+    const sdk =
+      /(?:from\s+|import\s*\(\s*|require\s*\(\s*)["'`]@aws-sdk\/client-(?:pinpoint|sns|end-user-messaging)[^"'`]*["'`]|\bSendTextMessageCommand\b|\bPinpointSMSVoiceV2Client\b|\.sendTextMessage\s*\(/;
+    // TypeScript and plain JavaScript alike (a .mjs script could import the SDK too).
+    const anyCode = (dir: string): string[] =>
+      readdirSync(dir).flatMap((name) => {
+        const path = join(dir, name);
+        if (name === "node_modules" || name.startsWith(".")) return [];
+        return statSync(path).isDirectory() ? anyCode(path) : /\.(ts|tsx|js|mjs|cjs)$/.test(name) ? [path] : [];
+      });
+    const reaching = roots.flatMap(anyCode).filter((f) => sdk.test(readFileSync(f, "utf8")));
+    expect(reaching).toEqual([THE_ONE_TEXT_FILE]);
+    // The sender exports the fixed words and the one send; the SDK transport,
+    // which would take any body, stays inside the module.
+    const sender = readFileSync(THE_ONE_TEXT_FILE, "utf8");
+    const exported = [...sender.matchAll(/^export (?:async )?(?:function|const|type) (\w+)/gm)].map((m) => m[1]).sort();
+    expect(exported).toEqual(
+      [
+        "PAYMENT_LINK_TEXT_TEMPLATE",
+        "SMS_SEND_DEADLINE_MS",
+        "SmsRequest",
+        "SmsSendResult",
+        "SmsTransport",
+        "paymentLinkTextBody",
+        "sendPaymentLinkText",
+        "smsClientConfig",
+        "smsFailureCode",
+      ].sort(),
+    );
+    expect(sender).not.toMatch(/^export \{/m);
+    // The body the sender sends is always paymentLinkTextBody's.
+    expect(sender).toMatch(/MessageBody: body/);
+    expect(sender).toMatch(/const body = paymentLinkTextBody\(input\.url\)/);
   });
 });
 

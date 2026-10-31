@@ -11,6 +11,7 @@ import { openGiven } from "@/lib/clinic/closures";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import { log } from "@/lib/log";
 import { formatPhone } from "@/lib/setup/help";
+import type { PaymentTextTools } from "@/lib/sms/payment-text";
 import { spokenPhone, type SpokenLanguage } from "@/lib/voice/spoken";
 
 import {
@@ -1021,6 +1022,14 @@ export async function answerTurn(input: {
    * changes. Never set on a patient's call, nor during a demo's role-play.
    */
   softRefusal?: { line: string; alternate: string; bridge: string } | null;
+  /**
+   * On a call, the payment-link text after its booking (lib/sms/payment-text.ts):
+   * the offer added to the booked line when it may be made, and each turn
+   * while it is in play read from the model's structured state, never its
+   * words. While it is in play the reply is not spoken before the step,
+   * since the step's fixed line may replace it.
+   */
+  paymentText?: PaymentTextTools | null;
 }): Promise<AssistantTurnResult> {
   const { facts, channel } = input;
   const language: SpokenLanguage = input.language ?? "en";
@@ -1069,8 +1078,13 @@ export async function answerTurn(input: {
   // Asked fresh each turn: a switch pulled or a connection that broke since
   // the last turn takes the tools away from this one.
   const toolsLive = Boolean(input.tools) && !toolState.manual && !toolState.done && (await input.tools!.available());
+  // The payment-link text after a call's booking, while it is in play (a call only).
+  const textTools = channel === "voice" ? (input.paymentText ?? null) : null;
+  const textLive = Boolean(textTools?.live(toolState));
   const opening = input.history.find((t) => t.speaker === "assistant")?.text;
   const notes: string[] = [...(input.notes ?? [])];
+  const textNote = textLive ? textTools!.note(toolState) : null;
+  if (textNote) notes.push(textNote);
   if (input.interruptedAt) {
     notes.push(
       `The caller cut in while you were speaking; they heard only: "${input.interruptedAt}". Answer what they just said, and do not repeat what they talked over unless they ask.`,
@@ -1132,7 +1146,7 @@ export async function answerTurn(input: {
         })
       : text;
   const stream =
-    input.speak && !toolsLive
+    input.speak && !toolsLive && !textLive
       ? new SpokenStream((sentence) => {
           if (refusedMidway) return;
           let piece = fresh([unplaced, sentence].filter(Boolean).join(" "));
@@ -1252,7 +1266,16 @@ export async function answerTurn(input: {
     return { ...base, reply: failureLine(language), source: "fallback" };
   }
   const merged = mergeCapture(capture, answer.booking);
-  const live = { ...base, toolsLive };
+  let live = { ...base, toolsLive };
+  if (textLive && !answer.handoff) {
+    // The text's step, on the model's structured state alone: its fixed line
+    // replaces the model's words, or the model's reply stands.
+    const text = await textTools!.step({ state: toolState, answer: answer.state, now, language: input.language === "es" ? "es" : "en" });
+    if (text.reply) {
+      return { ...live, capture: merged, toolState: text.state, reply: text.reply, source: "tool" };
+    }
+    live = { ...live, toolState: text.state };
+  }
   if (toolsLive && !answer.handoff) {
     // The tool layer, on what the model asked for and what is now known.
     const tool = await input.tools!.run({
@@ -1264,7 +1287,9 @@ export async function answerTurn(input: {
       ...(input.language ? { language: input.language } : {}),
     });
     if (tool) {
-      return { ...live, capture: merged, toolState: tool.state, tool, reply: tool.reply, source: "tool" };
+      // A booking written on a call: the text's offer joins the booked line, when it may be made.
+      const offered = textTools && tool.bookingWritten ? await textTools.offerAfterBooking(tool, now, input.language === "es" ? "es" : "en") : tool;
+      return { ...live, capture: merged, toolState: offered.state, tool: offered, reply: offered.reply, source: "tool" };
     }
   }
   // A reply that only repeats the turn before is said as written: silence would be worse.

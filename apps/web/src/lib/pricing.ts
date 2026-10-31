@@ -172,11 +172,9 @@ export function overageBlockPrices(plan: Plan): OverageBlockPrice[] {
  * metered price, so no number may be printed. The caller renders the
  * published-rate wording instead.
  *
- * With the flag off the block prices are printed, but they are still a
- * judgement until measured cost times a target margin replaces them (catalog
- * header, and docs/v1-product-spec.md "What still has to be computed"). Every
- * caller that prints this line also says the prices are provisional, and that
- * a started block is billed whole.
+ * With the flag off the block prices are printed. Every caller that prints
+ * this line also says a started block is billed whole, and none says anything
+ * of our own costs (owner, 30 October 2026).
  */
 export function overageLine(plan: Plan): string | null {
   if (OVERAGE_RATES_PROVISIONAL) return null;

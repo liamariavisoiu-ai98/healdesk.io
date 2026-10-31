@@ -50,8 +50,8 @@ export const dynamic = "force-dynamic";
  * Billing (plan Part F6; spec, "Billing"): the plan, its channels, locations
  * and steps (what it includes each month); when it starts, or the next charge
  * once it has; the price while not every channel is in service; the usage
- * meters against what is included, with the extra-100 price of each, marked
- * provisional; the three switches together (when the allowance runs out,
+ * meters against what is included, with the extra-100 price of each (nothing
+ * of our own costs: owner, 30 October 2026); the three switches together (when the allowance runs out,
  * usage alerts, auto-renew); changing the plan, a package and its steps, with
  * the setup-fee difference first; adding a location; Stripe's own portal for
  * the card and the invoices; and the agreement on file.
@@ -282,7 +282,7 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
                             ? `${meter.overUnits > 0 ? `${portalCount(meter.overUnits, one, many)} over: ${portalMoney(meter.overageCents)} so far. ` : "No overage. "}${daysLeft === 1 ? "1 day left" : `${daysLeft} days left`} in this month's allowance.`
                             : "Your allowance starts when your plan does."}
                         </p>
-                        {extra ? <p className="text-muted">Past it: {extra} (provisional).</p> : null}
+                        {extra ? <p className="text-muted">Past it: {extra}.</p> : null}
                         {meter.isWindowOpen && pastAlertMark(meter) && !ended ? (
                           <p className="mt-1">
                             You&rsquo;re past {USAGE_ALERT_PERCENT}% of this month&rsquo;s allowance.{" "}
@@ -300,8 +300,7 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
                 </ul>
                 <p className="text-muted mt-3 text-sm">
                   Extra blocks are billed only while &ldquo;Keep going and bill the extra&rdquo; is
-                  chosen below. Their prices are provisional until we&rsquo;ve measured what each
-                  minute and conversation costs us.
+                  chosen below.
                 </p>
               </>
             )}

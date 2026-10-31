@@ -6,8 +6,8 @@ import { setAutoConfirm } from "@/lib/booking/mode";
 import { markCalendarBrokenWithin } from "@/lib/connections/google-calendar";
 import { saveSetting, type SettingContext } from "@/lib/portal/settings";
 import { readSettingsView } from "@/lib/portal/settings-view";
-import { fullPaymentActive, readPaymentFacts } from "@/lib/portal/switch-resets";
-import { TEXT_NOT_READY_REASON, UNLOCK_REASONS } from "@/lib/portal/switch-rules";
+import { fullPaymentActive, paymentLinkTextOffered, readPaymentFacts } from "@/lib/portal/switch-resets";
+import { HEALDESK_SETTING_UP, TEXT_NOT_READY_REASON, UNLOCK_REASONS } from "@/lib/portal/switch-rules";
 import { saveSetupScreen } from "@/lib/setup/save";
 import { readSetupState } from "@/lib/setup/state";
 import { withTenant } from "@/lib/tenant";
@@ -104,6 +104,8 @@ async function textOnFromBeforeTheLock(c: PortalClinic) {
 }
 
 const TEXT_REFUSED = { ok: false, field: "text_payment_link", message: TEXT_NOT_READY_REASON } as const;
+/** The text's refusal before Stripe: the first of its checks the clinic can act on. */
+const TEXT_NEEDS_STRIPE = { ok: false, field: "text_payment_link", message: UNLOCK_REASONS.connect_stripe } as const;
 
 /** Stripe connected, a deposit on a treatment, and (optionally) a working calendar. */
 async function ready(c: PortalClinic, options: { calendar?: boolean } = {}) {
@@ -150,6 +152,9 @@ describeDb("payment switches", () => {
       calendarConnected: false,
       autoConfirm: true,
       hasVoice: true,
+      textPaymentLinkOn: false,
+      // Provisioning signs the current BAA, which covers the text.
+      agreementCoversText: true,
     });
   });
 
@@ -160,7 +165,7 @@ describeDb("payment switches", () => {
       field: "payment_ask",
       message: UNLOCK_REASONS.connect_stripe,
     });
-    expect(await saveSetting(ctx, "text_payment_link", true, tick())).toEqual(TEXT_REFUSED);
+    expect(await saveSetting(ctx, "text_payment_link", true, tick())).toEqual(TEXT_NEEDS_STRIPE);
     expect(await saveSetting(ctx, "deposits_enabled", true, tick())).toEqual({
       ok: false,
       field: "deposits_enabled",
@@ -177,7 +182,7 @@ describeDb("payment switches", () => {
       field: "payment_ask",
       message: UNLOCK_REASONS.connect_calendar,
     });
-    // No sender exists, so the text stays locked with Stripe connected too.
+    // healdesk's texting number is not ready, so the text stays locked with Stripe connected too.
     expect(await saveSetting(ctx, "text_payment_link", true, tick())).toEqual(TEXT_REFUSED);
 
     await insertGoogleConnection(clinic.clinicId, { managed: true });
@@ -209,6 +214,53 @@ describeDb("payment switches", () => {
       ok: false,
       message: "That setting isn't part of your plan.",
     });
+  });
+
+  test("with healdesk's texting number configured, the text can be switched on and is offered once every check holds", async () => {
+    const saved = process.env.HEALDESK_SMS_ORIGINATION_IDENTITY;
+    const savedCalls = process.env.HEALDESK_VOICE_REAL_CALLS;
+    process.env.HEALDESK_SMS_ORIGINATION_IDENTITY = "phone-0123456789abcdef0123456789abcdef";
+    // Healdesk's side is the number and real calls (healdeskTextReady).
+    process.env.HEALDESK_VOICE_REAL_CALLS = "1";
+    try {
+      const ctx = ctxFor(clinic);
+      const offered = () =>
+        withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) => paymentLinkTextOffered(tx, { realCalls: true }));
+      // Configured, but no Stripe: the clinic's own check comes first.
+      expect(await saveSetting(ctx, "text_payment_link", true, tick())).toEqual(TEXT_NEEDS_STRIPE);
+      expect(await offered()).toBe(false);
+      await ready(clinic);
+      // Every check but the switch: still not offered.
+      expect(await offered()).toBe(false);
+      expect(await saveSetting(ctx, "text_payment_link", true, tick())).toMatchObject({ ok: true });
+      expect(await offered()).toBe(true);
+      // The test-calls-only restriction keeps it off whatever the clinic chose.
+      expect(
+        await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) => paymentLinkTextOffered(tx, { realCalls: false })),
+      ).toBe(false);
+      // And the number unset again keeps it off, without touching the clinic's choice.
+      delete process.env.HEALDESK_SMS_ORIGINATION_IDENTITY;
+      expect(await offered()).toBe(false);
+      expect((await switches(clinic.clinicId)).text_payment_link).toBe(true);
+      // An agreement older than the one that covers the text keeps it off too,
+      // whatever the clinic chose: BAA 1.5.1 in effect (spec, "Only under an
+      // agreement that covers it").
+      process.env.HEALDESK_SMS_ORIGINATION_IDENTITY = "phone-0123456789abcdef0123456789abcdef";
+      expect(await offered()).toBe(true);
+      await migrator(
+        `update baa_acceptances set document_version = '1.5.1'
+          where organization_id = (select organization_id from clinics where id = $1)`,
+        [clinic.clinicId],
+      );
+      expect(await offered()).toBe(false);
+      const facts = await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, readPaymentFacts);
+      expect(facts.agreementCoversText).toBe(false);
+    } finally {
+      if (saved === undefined) delete process.env.HEALDESK_SMS_ORIGINATION_IDENTITY;
+      else process.env.HEALDESK_SMS_ORIGINATION_IDENTITY = saved;
+      if (savedCalls === undefined) delete process.env.HEALDESK_VOICE_REAL_CALLS;
+      else process.env.HEALDESK_VOICE_REAL_CALLS = savedCalls;
+    }
   });
 
   test("Auto-confirm off returns full payment to deposit only in the same transaction, audited, with one email", async () => {
@@ -396,7 +448,7 @@ describeDb("payment switches", () => {
     expect(await save({ ...consultation, textPaymentLink: true })).toEqual({
       ok: false,
       field: "textPaymentLink",
-      message: TEXT_NOT_READY_REASON,
+      message: UNLOCK_REASONS.connect_stripe,
     });
     expect((await switches(clinic.clinicId)).text_payment_link).toBe(false);
 
@@ -404,7 +456,7 @@ describeDb("payment switches", () => {
       `update clinics set stripe_connect_account_id = 'acct_1LaneWizard', stripe_connect_connected_at = now() where id = $1`,
       [clinic.clinicId],
     );
-    // With Stripe the text is still locked: no sender exists.
+    // With Stripe the text is still locked: healdesk's texting number is not ready.
     expect(await save({ ...consultation, textPaymentLink: true, paymentAsk: "deposit_only" })).toEqual({
       ok: false,
       field: "textPaymentLink",
@@ -527,7 +579,18 @@ describeDb("payment switches", () => {
       calendarConnected: true,
       rules: {
         full_payment: { enabled: true, reason: null },
-        text_payment_link: { enabled: false, reason: TEXT_NOT_READY_REASON, unlock: null },
+        text_payment_link: {
+          enabled: false,
+          reason: TEXT_NOT_READY_REASON,
+          unlock: null,
+          checks: [
+            { id: "phone", met: true },
+            { id: "payments", met: true },
+            { id: "agreement", met: true },
+            { id: "switch", met: false },
+            { id: "healdesk", met: false, waiting: HEALDESK_SETTING_UP },
+          ],
+        },
         deposits: { enabled: true },
       },
     });

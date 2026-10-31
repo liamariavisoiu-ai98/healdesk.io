@@ -96,15 +96,21 @@ type Prepared =
   | { kind: "create"; row: DepositPayment; serviceNames: string[] };
 
 /**
+ * Where the link goes: a chat channel, or `voice`, the one text after a call
+ * a caller agreed to (lib/sms/payment-text.ts). A call itself never collects.
+ */
+export type DepositLinkChannel = "web" | "meta" | "voice";
+
+/**
  * The payment link for one appointment's deposit, on the clinic's connected
- * account. `channel` is the chat channel it will be sent on (voice never
- * collects). The amount is the appointment's own `deposit_usd`, set when it
+ * account. `channel` is where it will be sent: a chat channel, or the text
+ * after a call (`voice`); the refusals are the same for each. The amount is the appointment's own `deposit_usd`, set when it
  * was booked from the service's deposit or the clinic default.
  */
 export async function createDepositLink(
   clinicId: string,
   appointmentId: string,
-  options: { channel: "web" | "meta"; now?: Date; stripe?: Stripe },
+  options: { channel: DepositLinkChannel; now?: Date; stripe?: Stripe },
 ): Promise<DepositLinkResult> {
   const now = options.now ?? new Date();
   if (publicOriginProblem()) return { status: "unavailable", reason: "no_public_origin" };
@@ -230,7 +236,7 @@ export function depositLinkText(url: string): string {
 async function prepare(
   clinicId: string,
   appointmentId: string,
-  channel: "web" | "meta",
+  channel: DepositLinkChannel,
   now: Date,
 ): Promise<Prepared> {
   return withTenant({ clinicId, actor: LINK_ACTOR }, async (tx): Promise<Prepared> => {

@@ -311,8 +311,9 @@ describe("every apps/web email before a purchase", () => {
     (_name, email) => {
       // A DPA's copy (P6) names the practice's clients, never patients; an
       // email to a practice whose kind nobody has said yet names both.
+      // The demo-ready email is the owner's own wording (30 October 2026): the same promise, in his words.
       expect(email.text).toMatch(
-        /Replies reach the healdesk team\. Please leave out (?:patient details|your clients' details|patient or client details)\./,
+        /Replies reach (?:the healdesk team\. Please leave out (?:patient details|your clients' details|patient or client details)|our team\. Please don't include (?:patient|client) details)\./,
       );
       expect(email.text).not.toContain("is a service of");
       // apps/web's words, or apps/app's in the agreement copy both apps send (P6).
@@ -323,8 +324,9 @@ describe("every apps/web email before a purchase", () => {
   test.each(EMAILS.filter((e) => e.commercial).map((e) => [e.name, e] as const))(
     "%s: commercial, so the one-click opt-out and the postal address (CAN-SPAM)",
     (_name, email) => {
+      // "Unsubscribe:" is the owner's word for it in the demo-ready email.
       expect(email.text).toMatch(
-        /Stop these emails: https:\/\/\S+\/api\/email\/unsubscribe\?t=\S+/,
+        /(?:Stop these emails|Unsubscribe): https:\/\/\S+\/api\/email\/unsubscribe\?t=\S+/,
       );
       expect(email.text).toContain("Wilmington, DE 19801");
     },

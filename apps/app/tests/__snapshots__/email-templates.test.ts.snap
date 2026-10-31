@@ -1119,7 +1119,7 @@ exports[`each template's output > allowance_fallback, for clients: the snapshot 
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">You chose “Stop and fall back” for when your allowance runs out.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">All 1,000 voice minutes in your plan are used for this period. You chose “Stop and fall back” for when that happens, so until Friday 6 November, when your allowance resets, AYA doesn&#39;t answer new calls: they go to your direct line instead. A call she&#39;s already on carries on.</p>
-<p style="margin:0 0 16px;">To keep AYA answering instead, switch to “Keep going and bill the extra” in Billing. Usage past the allowance is then billed for each started block of 100 voice minutes at your plan&#39;s overage rates, which are provisional until we&#39;ve measured our costs.</p>
+<p style="margin:0 0 16px;">To keep AYA answering instead, switch to “Keep going and bill the extra” in Billing. Usage past the allowance is then billed for each started block of 100 voice minutes at your plan&#39;s overage rates.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Change it in Billing</a></p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
@@ -1132,7 +1132,7 @@ exports[`each template's output > allowance_fallback, for clients: the snapshot 
   "subject": "Allowance used: calls go to your direct line until 6 November",
   "text": "All 1,000 voice minutes in your plan are used for this period. You chose “Stop and fall back” for when that happens, so until Friday 6 November, when your allowance resets, AYA doesn't answer new calls: they go to your direct line instead. A call she's already on carries on.
 
-To keep AYA answering instead, switch to “Keep going and bill the extra” in Billing. Usage past the allowance is then billed for each started block of 100 voice minutes at your plan's overage rates, which are provisional until we've measured our costs.
+To keep AYA answering instead, switch to “Keep going and bill the extra” in Billing. Usage past the allowance is then billed for each started block of 100 voice minutes at your plan's overage rates.
 
 Change it in Billing: https://app.healdesk.test/
 
@@ -1165,7 +1165,7 @@ exports[`each template's output > allowance_fallback, for patients: the snapshot
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">You chose “Stop and fall back” for when your allowance runs out.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">All 1,000 voice minutes in your plan are used for this period. You chose “Stop and fall back” for when that happens, so until Friday 6 November, when your allowance resets, AYA doesn&#39;t answer new calls: they go to your direct line instead. A call she&#39;s already on carries on.</p>
-<p style="margin:0 0 16px;">To keep AYA answering instead, switch to “Keep going and bill the extra” in Billing. Usage past the allowance is then billed for each started block of 100 voice minutes at your plan&#39;s overage rates, which are provisional until we&#39;ve measured our costs.</p>
+<p style="margin:0 0 16px;">To keep AYA answering instead, switch to “Keep going and bill the extra” in Billing. Usage past the allowance is then billed for each started block of 100 voice minutes at your plan&#39;s overage rates.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Change it in Billing</a></p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
@@ -1178,7 +1178,7 @@ exports[`each template's output > allowance_fallback, for patients: the snapshot
   "subject": "Allowance used: calls go to your direct line until 6 November",
   "text": "All 1,000 voice minutes in your plan are used for this period. You chose “Stop and fall back” for when that happens, so until Friday 6 November, when your allowance resets, AYA doesn't answer new calls: they go to your direct line instead. A call she's already on carries on.
 
-To keep AYA answering instead, switch to “Keep going and bill the extra” in Billing. Usage past the allowance is then billed for each started block of 100 voice minutes at your plan's overage rates, which are provisional until we've measured our costs.
+To keep AYA answering instead, switch to “Keep going and bill the extra” in Billing. Usage past the allowance is then billed for each started block of 100 voice minutes at your plan's overage rates.
 
 Change it in Billing: https://app.healdesk.test/
 
@@ -9589,7 +9589,6 @@ exports[`each template's output > welcome, for clients: the snapshot 1`] = `
 <p style="margin:0 0 4px;"><strong>Monthly price:</strong> $520</p>
 <p style="margin:0 0 4px;"><strong>Past the allowance:</strong> $104 for each started block of 100 extra voice minutes, and $52 for each started block of 100 extra chat conversations</p>
 <p style="margin:0 0 4px;"><strong>Setup fee:</strong> Paid</p>
-<p style="margin:0 0 16px;">The extra-block prices are provisional until we&#39;ve measured what each minute and conversation costs us.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://invoice.stripe.com/i/acct_1Pfixture/test_YWNjdF8xUGZpeHR1cmU" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Your setup-fee receipt</a></p>
 <p style="margin:0 0 16px;">Monthly billing ($520) starts the day AYA first answers a client. Until then, nothing more is charged. The setup fee is non-refundable.</p>
 <p style="margin:0 0 16px;">To cancel online, turn off Auto-renew in Billing. Before your plan starts, that means it won&#39;t start, and nothing more is charged.</p>
@@ -9634,8 +9633,6 @@ Billing: Monthly
 Monthly price: $520
 Past the allowance: $104 for each started block of 100 extra voice minutes, and $52 for each started block of 100 extra chat conversations
 Setup fee: Paid
-
-The extra-block prices are provisional until we've measured what each minute and conversation costs us.
 
 Your setup-fee receipt: https://invoice.stripe.com/i/acct_1Pfixture/test_YWNjdF8xUGZpeHR1cmU
 
@@ -9696,7 +9693,6 @@ exports[`each template's output > welcome, for patients: the snapshot 1`] = `
 <p style="margin:0 0 4px;"><strong>Monthly price:</strong> $520</p>
 <p style="margin:0 0 4px;"><strong>Past the allowance:</strong> $104 for each started block of 100 extra voice minutes, and $52 for each started block of 100 extra chat conversations</p>
 <p style="margin:0 0 4px;"><strong>Setup fee:</strong> Paid</p>
-<p style="margin:0 0 16px;">The extra-block prices are provisional until we&#39;ve measured what each minute and conversation costs us.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://invoice.stripe.com/i/acct_1Pfixture/test_YWNjdF8xUGZpeHR1cmU" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Your setup-fee receipt</a></p>
 <p style="margin:0 0 16px;">Monthly billing ($520) starts the day AYA first answers a patient. Until then, nothing more is charged. The setup fee is non-refundable.</p>
 <p style="margin:0 0 16px;">To cancel online, turn off Auto-renew in Billing. Before your plan starts, that means it won&#39;t start, and nothing more is charged.</p>
@@ -9741,8 +9737,6 @@ Billing: Monthly
 Monthly price: $520
 Past the allowance: $104 for each started block of 100 extra voice minutes, and $52 for each started block of 100 extra chat conversations
 Setup fee: Paid
-
-The extra-block prices are provisional until we've measured what each minute and conversation costs us.
 
 Your setup-fee receipt: https://invoice.stripe.com/i/acct_1Pfixture/test_YWNjdF8xUGZpeHR1cmU
 

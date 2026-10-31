@@ -4875,7 +4875,7 @@ export const depositPayments = pgTable(
     appointmentId: uuid("appointment_id").references(() => appointments.id, {
       onDelete: "set null",
     }),
-    channel: text("channel").$type<"web" | "meta">().notNull(),
+    channel: text("channel").$type<"web" | "meta" | "voice">().notNull(),
     amountCents: integer("amount_cents").notNull(),
     currency: text("currency").notNull().default("usd"),
     stripeAccountId: text("stripe_account_id").notNull(),
@@ -4895,7 +4895,8 @@ export const depositPayments = pgTable(
     uniqueIndex("deposit_payments_open_appointment_idx")
       .on(t.clinicId, t.appointmentId)
       .where(sql`${t.status} in ('creating', 'open') and ${t.appointmentId} is not null`),
-    check("deposit_payments_channel_check", sql`${t.channel} in ('web', 'meta')`),
+    // 'voice': the link texted after a call (drizzle/0141, lib/sms/payment-text.ts).
+    check("deposit_payments_channel_check", sql`${t.channel} in ('web', 'meta', 'voice')`),
     check("deposit_payments_amount_check", sql`${t.amountCents} > 0`),
     check(
       "deposit_payments_status_check",
@@ -4905,6 +4906,101 @@ export const depositPayments = pgTable(
 );
 
 export type DepositPayment = typeof depositPayments.$inferSelect;
+
+/**
+ * Where the one payment-link text of a booking stands (drizzle/0141). `queued`
+ * is written before AWS is asked, so a crash mid-send leaves the row and no
+ * second text ever follows; the other three are where a send ended.
+ * `declined`: offered on the call and turned down (or never confirmed), so it
+ * is never offered again for that booking.
+ */
+export const PAYMENT_LINK_TEXT_STATUSES = ["queued", "sent", "failed", "opted_out", "declined"] as const;
+export type PaymentLinkTextStatus = (typeof PAYMENT_LINK_TEXT_STATUSES)[number];
+
+/** Why a send failed, closed words only: never AWS's message. */
+export const PAYMENT_LINK_TEXT_FAILURES = [
+  "invalid_number",
+  "throttled",
+  "not_configured",
+  "error",
+  "link_unavailable",
+  "refused",
+  /** AWS did not answer inside our deadline: the text may or may not have gone. */
+  "unknown",
+] as const;
+export type PaymentLinkTextFailure = (typeof PAYMENT_LINK_TEXT_FAILURES)[number];
+
+/**
+ * The ledger of the optional payment-link text after a call (owner, 28 and
+ * 30 October 2026; lib/sms/payment-text.ts): ONE row per appointment, the
+ * unique key that makes the send idempotent. A retried tool call, a
+ * reconnected call or a duplicate event finds the row and returns its
+ * outcome; nothing ever texts the booking twice.
+ *
+ * What it keeps is the evidence and the outcome, never the message: the
+ * caller's yes and their read-back confirmation (both times), the call as an
+ * opaque reference (SHA-256 of Retell's call id, never the id), the deposit
+ * link's row (itself only an amount and an opaque id) and AWS's message id.
+ * NEVER the phone number (the send is synchronous, inside the call, so the
+ * number is held in the call's memory only) and never the body (fixed words
+ * in code, lib/sms/send.ts). Tenant RLS, forced; the BAA gate, as on every
+ * patient table; deleted with its appointment (the foreign key's cascade),
+ * and by the clinic's destruction.
+ */
+export const paymentLinkTexts = pgTable(
+  "payment_link_texts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    appointmentId: uuid("appointment_id")
+      .notNull()
+      .references(() => appointments.id, { onDelete: "cascade" }),
+    /** SHA-256, hex, of the call's Retell id: which call the yes was given on, never the id itself. */
+    callRefHash: text("call_ref_hash").notNull(),
+    status: text("status").$type<PaymentLinkTextStatus>().notNull(),
+    failureCode: text("failure_code").$type<PaymentLinkTextFailure>(),
+    /** When the caller said yes to the text: the opt-in. Null on a declined row. */
+    optedInAt: timestamp("opted_in_at", { withTimezone: true }),
+    /** When the caller confirmed the number read back to them. Null on a declined row. */
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    /**
+     * The deposit link texted, once one was made: an opaque id, with no
+     * foreign key. The deposit purge (app_purge_deposit_payments) may delete
+     * the deposit before its appointment, and a key's SET NULL would be an
+     * UPDATE here, which the closed-account freeze refuses: purging a closed
+     * clinic's deposits would fail on the ledger (drizzle/0141).
+     */
+    depositPaymentId: uuid("deposit_payment_id"),
+    /** AWS's id for the message, once it was accepted. */
+    awsMessageId: text("aws_message_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** When the row reached its final status. */
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+  },
+  (t) => [
+    unique("payment_link_texts_appointment_key").on(t.appointmentId),
+    index("payment_link_texts_clinic_idx").on(t.clinicId, t.createdAt),
+    check("payment_link_texts_status_check", sql`${t.status} in (${sqlList(PAYMENT_LINK_TEXT_STATUSES)})`),
+    check(
+      "payment_link_texts_failure_check",
+      sql`(${t.status} = 'failed') = (${t.failureCode} is not null) and (${t.failureCode} is null or ${t.failureCode} in (${sqlList(PAYMENT_LINK_TEXT_FAILURES)}))`,
+    ),
+    check("payment_link_texts_ref_check", sql`${t.callRefHash} ~ '^[0-9a-f]{64}$'`),
+    check(
+      "payment_link_texts_evidence_check",
+      sql`(${t.status} = 'declined') = (${t.optedInAt} is null) and (${t.optedInAt} is null) = (${t.confirmedAt} is null) and (${t.confirmedAt} is null or ${t.confirmedAt} >= ${t.optedInAt})`,
+    ),
+    check(
+      "payment_link_texts_message_check",
+      sql`(${t.status} = 'sent') = (${t.awsMessageId} is not null) and (${t.awsMessageId} is null or ${t.awsMessageId} ~ '^[A-Za-z0-9-]{1,100}$')`,
+    ),
+    check("payment_link_texts_settled_check", sql`(${t.status} = 'queued') = (${t.settledAt} is null)`),
+  ],
+);
+
+export type PaymentLinkText = typeof paymentLinkTexts.$inferSelect;
 
 /**
  * Dedupe and dead-letter ledger for the Stripe Connect webhook, like
@@ -6704,6 +6800,8 @@ export const TENANT_SCOPED_TABLES = [
   "answer_outages",
   "miss_cases",
   "missed_contacts",
+  // The payment-link text's ledger (drizzle/0141).
+  "payment_link_texts",
 ] as const;
 
 // -----------------------------------------------------------------------------

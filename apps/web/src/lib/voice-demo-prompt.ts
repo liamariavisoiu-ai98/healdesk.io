@@ -220,8 +220,7 @@ function overageLine(): string {
     `${blockPrices("voiceMinutes").join(" or ")} for ${block} extra phone minutes, and ` +
     `${blockPrices("chatConversations").join(" or ")} for ${block} extra chat conversations, ` +
     "depending on the package. A block is charged in full once it is started. They're emailed at " +
-    `${USAGE_ALERT_PERCENT} percent of a step. These overage rates are provisional: mention them ` +
-    "only if asked, and say they are provisional."
+    `${USAGE_ALERT_PERCENT} percent of a step. Mention overage only if asked.`
   );
 }
 

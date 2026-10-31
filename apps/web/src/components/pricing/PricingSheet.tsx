@@ -190,7 +190,7 @@ const unitWord = (product: ProductId) => (PRODUCTS[product].unit === "minute" ? 
 /** The product table's column headings, written once: the header row and each phone card's labels read them. */
 const PER_100_HEADING = (interval: BillingInterval) =>
   `Per 100 a month${interval === "year" ? ", billed yearly" : ""}`;
-const EXTRA_100_HEADING = "Each extra 100 (provisional)";
+const EXTRA_100_HEADING = "Each extra 100";
 const SETUP_HEADING = "One-time setup";
 
 function ProductTable({ interval, offer }: { interval: BillingInterval; offer: SiteOffer }) {
@@ -272,10 +272,10 @@ function ProductTable({ interval, offer }: { interval: BillingInterval; offer: S
       </div>
       <p className="text-muted mt-4 max-w-[80ch] text-sm font-medium">
         Prices are per location, in US dollars, before any sales tax. Annual billing is{" "}
-        {annualSavingsPercent()}% off the monthly price.{" "}
+        {annualSavingsPercent()}% off the monthly price.
         {OVERAGE_RATES_PROVISIONAL
-          ? "Usage above your step is not billed until we publish those prices, and you will see them in writing before they apply."
-          : "The extra-100 prices are provisional until we have measured what a minute and a conversation cost to serve."}
+          ? " Usage above your step is not billed until we publish those prices, and you will see them in writing before they apply."
+          : null}
       </p>
     </section>
   );

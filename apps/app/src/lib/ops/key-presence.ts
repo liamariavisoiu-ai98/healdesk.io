@@ -59,6 +59,9 @@ export const KEY_PRESENCE_NAMES = [
   "SLACK_SUPPORT_CHANNEL",
   "SLACK_OPERATOR_IDS",
   "HEALDESK_APPROVAL_PASSCODE_HASH",
+  // The toll-free number that sends the optional payment-link text after a
+  // call (lib/sms/config.ts): pasting it is what turns the text on.
+  "HEALDESK_SMS_ORIGINATION_IDENTITY",
   // Generated inside AWS by the db-bootstrap task.
   "BETTER_AUTH_SECRET",
   "HEALDESK_IDENTIFIER_REF_KEY",

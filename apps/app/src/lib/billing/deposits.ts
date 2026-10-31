@@ -23,8 +23,10 @@ import {
   lockAutoConfirm,
 } from "@/lib/billing/settings";
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
+import { notifyOps } from "@/lib/ops/notify";
 import { readCalendarConnected, readHasVoice } from "@/lib/portal/switch-facts";
 import { switchRules, type RuledSwitch, type SwitchFacts } from "@/lib/portal/switch-rules";
+import { agreementCoversText } from "@/lib/sms/agreement";
 import type { SettingsHistoryField } from "@/lib/setup/screen-ids";
 import type { TenantTx } from "@/lib/tenant";
 
@@ -354,6 +356,8 @@ export type DepositSettings = {
   calendarConnected: boolean;
   /** The clinic bought phone. */
   hasVoice: boolean;
+  /** The clinic's accepted agreement covers the payment-link text (lib/sms/agreement.ts). */
+  agreementCoversText: boolean;
   isConnected: boolean;
   connectedAt: Date | null;
   disconnectedAt: Date | null;
@@ -395,6 +399,7 @@ export async function getDepositSettings(tx: TenantTx): Promise<DepositSettings>
     autoConfirm: settings.autoConfirmBookings,
     calendarConnected: await readCalendarConnected(tx),
     hasVoice: await readHasVoice(tx),
+    agreementCoversText: await agreementCoversText(tx),
     isConnected,
     connectedAt: isConnected ? (clinic?.connectedAt ?? null) : null,
     disconnectedAt: clinic?.disconnectedAt ?? null,
@@ -422,6 +427,8 @@ export function switchFactsOf(settings: DepositSettings): SwitchFacts {
     calendarConnected: settings.calendarConnected,
     autoConfirm: settings.autoConfirm,
     hasVoice: settings.hasVoice,
+    textPaymentLinkOn: settings.textPaymentLink,
+    agreementCoversText: settings.agreementCoversText,
   };
 }
 
@@ -771,7 +778,7 @@ export async function recordDepositLapsed(
     resourceId: input.depositId,
     metadata: { outcome: input.status },
   });
-  if (row.appointmentId) await flagForFrontDesk(tx, row.appointmentId);
+  if (row.appointmentId) await flagForFrontDesk(tx, row.appointmentId, { depositId: input.depositId });
   return { changed: true, appointmentId: row.appointmentId };
 }
 
@@ -790,8 +797,23 @@ export async function recordDepositLapsed(
 export async function flagForFrontDesk(
   tx: TenantTx,
   appointmentId: string,
-  options: { mayBePaid?: boolean } = {},
+  /** `depositId`: the link that lapsed, so its alert is its own (BookingAlertRef.depositId). */
+  options: { mayBePaid?: boolean; depositId?: string } = {},
 ): Promise<boolean> {
+  return (await flagForFrontDeskReporting(tx, appointmentId, options)).moved;
+}
+
+/**
+ * flagForFrontDesk, saying also whether the L10 is queued (inserted now, or
+ * already there under its key). notifyBookingAlert never throws, so a caller
+ * that must not leave the desk unannounced (lib/email/superseded.ts) reads
+ * `queued` before it closes anything else.
+ */
+export async function flagForFrontDeskReporting(
+  tx: TenantTx,
+  appointmentId: string,
+  options: { mayBePaid?: boolean; depositId?: string } = {},
+): Promise<{ moved: boolean; queued: boolean }> {
   const moved = await tx.db
     .update(appointments)
     .set({ depositStatus: "pending_front_desk" })
@@ -803,10 +825,18 @@ export async function flagForFrontDesk(
       ),
     )
     .returning({ id: appointments.id });
-  if (moved.length === 0) return false;
-  await notifyBookingAlert(tx, "deposit_to_collect", {
+  if (moved.length === 0) return { moved: false, queued: false };
+  const queued = await notifyBookingAlert(tx, "deposit_to_collect", {
     appointmentId,
     ...(options.mayBePaid ? { mayBePaid: true } : {}),
+    ...(options.depositId ? { depositId: options.depositId } : {}),
   });
-  return true;
+  if (!queued) {
+    // The deposit is the front desk's now and nobody was emailed: a person is
+    // told, once per booking an hour (notifyOps's dedupe), ids only. Not
+    // awaited, so the caller's transaction is never held for an email; a
+    // failure to tell is logged by notifyOps itself.
+    void notifyOps("deposit_alert_not_queued", { clinicId: tx.clinicId, appointmentId });
+  }
+  return { moved: true, queued };
 }

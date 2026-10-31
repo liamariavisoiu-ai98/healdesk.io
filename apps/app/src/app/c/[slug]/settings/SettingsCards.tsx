@@ -469,6 +469,7 @@ export function PaymentsCard({
           line={TEXT_LINK_LINE}
           initial={payments.textPaymentLink}
           blockedLine={rules.text_payment_link.enabled ? null : rules.text_payment_link.reason}
+          checklist={{ id: "text-link-checks", checks: rules.text_payment_link.checks, targets }}
           explainerId="explain-text-link"
           explainer={
             <TextLinkExplainer id="explain-text-link" rule={rules.text_payment_link} targets={targets} />

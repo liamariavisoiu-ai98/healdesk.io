@@ -214,9 +214,9 @@ export function extraBlockPrices(
 /**
  * Past the allowance: the package's own price for each started block of 100
  * extra minutes or conversations, which is how overage is billed (owner,
- * 6 October 2026; the prices are the sheet of 13 October), said to be
- * provisional because it is (CLAUDE.md, "Claims and copy"). The block and its
- * price, never a per-unit rate.
+ * 6 October 2026; the prices are the sheet of 13 October). The block and its
+ * price, never a per-unit rate, and nothing of our own costs (owner,
+ * 30 October 2026).
  */
 export function overageSentence(plan: Plan, interval: BillingInterval): string {
   const blocks = extraBlockPrices(plan).map(
@@ -224,10 +224,7 @@ export function overageSentence(plan: Plan, interval: BillingInterval): string {
       `${block.price} for each started block of ${OVERAGE_BLOCK_UNITS} extra ${block.unitsLong}`,
   );
   const when = interval === "year" ? "invoiced monthly" : "on your next invoice";
-  return (
-    `Past that: ${blocks.join(" and ")}, ${when}. These rates are provisional until we have ` +
-    "measured what a minute and a conversation cost to serve."
-  );
+  return `Past that: ${blocks.join(" and ")}, ${when}.`;
 }
 
 /**

@@ -244,9 +244,11 @@ describeDb(
       expect(JSON.stringify(params)).not.toMatch(/peel|Chemical|\+1555|\bmeta\b|instagram|messenger|whatsapp/i);
     });
 
-    test("never on a call: the ledger refuses a link for any channel but website chat and Meta", async () => {
+    test("the ledger refuses a link for any channel but website chat, Meta and the one text after a call", async () => {
       // BAA 1.3.0 release gate 10 (docs/counsel/agreement-changes.md § 12.14):
-      // links only in website chat and on Meta. The type allows only those two;
+      // links only in website chat and on Meta; BAA 1.6.0 (§ 20) adds the one
+      // optional text after a call, `voice` (drizzle/0141), which only
+      // lib/sms/payment-text.ts asks for. The type allows only those three;
       // this is the check behind it, and createDepositLink's first write meets
       // it before Stripe is called.
       const c = await depositClinic("link-not-on-a-call");
@@ -258,10 +260,13 @@ describeDb(
             [c.clinicId, channel, ACCOUNT],
           ),
         );
-      await expect(insert("voice")).rejects.toMatchObject({
-        code: "23514",
-        constraint: "deposit_payments_channel_check",
-      });
+      for (const channel of ["sms", "phone", "email"]) {
+        await expect(insert(channel)).rejects.toMatchObject({
+          code: "23514",
+          constraint: "deposit_payments_channel_check",
+        });
+      }
+      await expect(insert("voice")).resolves.toBeDefined();
       await expect(insert("web")).resolves.toBeDefined();
       await expect(insert("meta")).resolves.toBeDefined();
       expect(sessions).toBe(0);

@@ -202,8 +202,9 @@ describe("price, precisely", () => {
     expect(outsideList).not.toMatch(spoken);
   });
 
-  test("overage is called provisional, as copy must", () => {
-    expect(list).toContain("These overage rates are provisional");
+  test("overage is quoted only if asked, never as provisional (owner, 30 October 2026)", () => {
+    expect(list).toContain("Mention overage only if asked.");
+    expect(list).not.toMatch(/provisional|costs us|cost to serve/i);
   });
 
   test("overage is quoted per started block of 100, as it is billed, never per minute", () => {

@@ -169,6 +169,8 @@ export const TOOLS: readonly ToolDef[] = [
   { id: "exports", name: "Export bucket", role: "Amazon S3: a leaving clinic's records", kind: "aws", category: "vault", icon: "archive", side: "patient" },
   // Lane P7g: support mail received on in.healdesk.io; lane P7h: held until the drafter has read it, then deleted (infra/aws/ses-inbound.tf).
   { id: "ses-in", name: "Support mail in", role: "SES receiving: clinics' emails to support", kind: "aws", category: "vault", icon: "mail", side: "patient" },
+  // The one optional text after a call (apps/app lib/sms/send.ts; owner, 30 October 2026).
+  { id: "aws-sms", name: "Amazon texting", role: "End User Messaging SMS: the one payment-link text", kind: "aws", category: "bookings", icon: "phone", side: "patient" },
   { id: "aws-console", name: "AWS console", role: "CloudShell, stored keys, alarms", kind: "aws", category: "vault", icon: "terminal", side: "patient" },
   { id: "claude-baa", name: "Claude", role: "Anthropic, patient account, under a BAA", kind: "vendor", category: "brain", icon: "sparkles", side: "patient" },
   { id: "gcal", name: "Google Calendar", role: "Each clinic's own diary", kind: "vendor", category: "bookings", icon: "calendar", side: "patient" },
@@ -716,6 +718,16 @@ export const KEYS: readonly KeyDef[] = [
       when: "anyone else may have seen the passcode, or approvals locked when you were not typing",
       how: `This is the SAME hash as HEALDESK_APPROVAL_PASSCODE_HASH in Vercel, so change it in BOTH: run node apps/web/scripts/hash-approval-passcode.mjs, paste the hash in Vercel and redeploy, then in AWS CloudShell run bash put-external-secrets.sh HEALDESK_APPROVAL_PASSCODE_HASH and restart (deploy-app.yml, restart_only). Unset here, nothing approves from Slack.`,
     },
+  },
+  {
+    id: "aws.HEALDESK_SMS_ORIGINATION_IDENTITY",
+    env: "HEALDESK_SMS_ORIGINATION_IDENTITY",
+    home: "aws",
+    label: "The toll-free number that sends the payment-link text after a call (its AWS phone-number id)",
+    need: "later",
+    waitsFor:
+      "AWS lets the account out of the SMS sandbox, approves the toll-free number's registration (up to 15 business days), the task role's send permission is applied (infra.yml), and real calls are switched on (voice_real_calls). Then paste it with bash put-external-secrets.sh HEALDESK_SMS_ORIGINATION_IDENTITY and restart (deploy-app.yml, restart_only). Pasting it is what turns the text on, for the clinics that switched it on",
+    rotation: { kind: "public" },
   },
   {
     id: "aws.BETTER_AUTH_SECRET",
@@ -1567,6 +1579,24 @@ export const BRIDGES: readonly BridgeDef[] = [
     build: "partial",
     buildNote:
       "Clinics can connect their Stripe from the deposits step of set-up (if they bought a chat channel) or in Settings, and disconnect it in Settings. Website chat sends the link once it books a service that needs a deposit (lib/booking/deposit-gate.ts chatDepositFor, after the booking is in the calendar, which is written owing the deposit; a link that cannot be made, or is never made because the process stopped first, goes to the front desk with its alert, the second from the worker's sweep, lib/billing/deposit-sweep.ts), and a call books and flags the deposit for staff, never a link. Website chat's link waits until direct booking is switched on (the booking bridge to Google Calendar). On Instagram, Messenger and WhatsApp the link goes after staff confirm a request on Bookings while that conversation has at least five minutes of its 24-hour window left: one fixed line with no amount, treatment or time, sent after the decision commits (lib/meta/deposit-link.ts); a line that cannot go expires the session and hands the deposit to the front desk with its alert. No clinic can connect Stripe until STRIPE_CONNECT_CLIENT_ID is set in production, so no link has been sent; tested against a fake Stripe and a fake Meta sender only. Set-up already tells a clinic that has connected that AYA sends the link in chat.",
+  },
+  {
+    // The one designed exception to inbound only (owner, 28 and 30 October 2026).
+    id: "app-aws-sms",
+    theme: "serving",
+    from: "app",
+    to: "aws-sms",
+    title: "One text with the deposit link, after a call booking",
+    carries:
+      "A caller's mobile number and fixed words around the clinic's own Stripe checkout link, once per booking; never a treatment, a time, an amount or the clinic's name. STOP and HELP replies are AWS's and the carrier's; nobody reads replies",
+    example:
+      "A caller books a peel on the phone and the deposit is due. AYA is designed to offer to text a secure link; the caller says yes, gives a mobile number, and confirms it when AYA reads it back. The engine sends one text from healdesk's toll-free number, and if it cannot go, the booking stands and the front desk takes the deposit as for any call.",
+    keys: ["aws.HEALDESK_SMS_ORIGINATION_IDENTITY", "aws.STRIPE_SECRET_KEY", "clinic.stripe"],
+    phi: true,
+    build: "partial",
+    buildNote:
+      "Built in code on 30 October 2026 and never sent: AWS End User Messaging SMS from one toll-free number healdesk registers once (apps/app lib/sms/send.ts, lib/sms/payment-text.ts). It is offered only while every check holds: the clinic bought phone, connected Stripe and switched the text on, the number's id is pasted (HEALDESK_SMS_ORIGINATION_IDENTITY), real calls are on, and the clinic's accepted agreement covers the text: BAA 1.6.0 or DPA 1.1.0 and later, checked again at send time (lib/sms/agreement.ts); a clinic on BAA 1.5.x or DPA 1.0.0 is never offered it. The caller's yes and read-back are read from AYA's structured answer, never her words; the send is once per booking (one ledger row per appointment, no number or words kept) and passes the contact policy's one-text gate. AWS is asked once, with no SDK retry and a 4.5-second deadline; no answer in time counts as possibly sent, and the front desk is told to check Stripe before collecting. A failed text leaves the booking standing and the deposit with the front desk; a cause that is ours emails you (payment_text_not_sent). The booking's deposit-to-collect email is held while the text is offered and is never sent once the link has gone out; if that link lapses unpaid the front desk gets one of its own, from Stripe's expiry or, if that never arrives, from the deposit sweep. Waiting on: the SMS sandbox exit, the toll-free registration, the infra apply, the pasted id and a real test call. Tested against a fake AWS and a fake Stripe only; which identity forms SendTextMessage accepts is unverified against the live API.",
+    dependsOn: "app-clinic-stripe",
   },
   {
     id: "clinic-stripe-app",

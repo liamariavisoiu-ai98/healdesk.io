@@ -118,7 +118,7 @@ Switching a channel off in Settings → Channels stops AYA there at once: calls 
 
 - The plan is a package, priced per location: AYA Voice, AYA Web Chat, AYA Meta Chat (which includes website chat), Voice + Web Chat, or Voice + Meta Chat. Each has usage steps of 100: from 100 to 1,500 voice minutes or chat conversations a month. Annual billing is 20% off.
 - Billing starts the day AYA first answers a patient or client. Until then there is a $0 line on the subscription.
-- When the monthly allowance runs out (Billing): "Keep going" bills the extra in blocks of 100 at the package's extra-100 price (${EXTRA_100}; provisional until measured); "Stop and fall back" sends calls to the direct line and turns website chat into a contact form instead.
+- When the monthly allowance runs out (Billing): "Keep going" bills the extra in blocks of 100 at the package's extra-100 price (${EXTRA_100}); "Stop and fall back" sends calls to the direct line and turns website chat into a contact form instead.
 - Usage alerts (Billing) email the practice at 90% and 100% of the included amount. At 90% it can move up a step instead.
 - Moving up or down a step, adding a channel and adding a location are done in Billing.
 - Invoices and the card are in Stripe's own portal, through "See invoices" and "Change the card" in Billing.

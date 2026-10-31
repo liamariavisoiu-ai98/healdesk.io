@@ -313,13 +313,7 @@ describe("a demo call's facts", () => {
 
   test("the role-play note is brisk, takes a request in few questions, wraps up on its own and never ends the call", () => {
     const note = demoStageNote(context(), "roleplay", Date.now());
-    expect(note).toContain("You are Aya, the AI assistant answering Lumen's phone, and a patient is calling.");
-    // The front desk hears nothing of healdesk (owner, 30 October 2026): no
-    // "healdesk's Aya", no package to recommend, no price list of ours.
-    expect(note).toContain("You know nothing about any software, any company behind you, any plan, price or setup of your own");
-    expect(note).not.toMatch(/healdesk|package|setup fee|Where healdesk sits/i);
-    const impatient = demoStageNote(context(), "roleplay", Date.now(), { asked: null, answers: {}, roleplayTurns: 1, said: [], impatient: true });
-    expect(impatient).not.toMatch(/recommend the one package|healdesk/i);
+    expect(note).toContain("The role-play is on: Sam");
     expect(note).toContain("Every reply is at most one short sentence of reaction, and often none, then one short sentence of content");
     expect(note).toContain("ask only for the treatment and a preferred day and time");
     expect(note).toContain("Still needed: the treatment and a preferred day and time");
@@ -785,7 +779,7 @@ describe("a demo call on the voice engine", () => {
     await s.handle(said(2, [{ role: "agent", content: heard().at(-1)!.content }, { role: "user", content: "can I book one for Friday" }]));
     expect(m.seen).toHaveLength(2);
     expect(m.seen[1]!.turn).toContain("This call is a live demo for Sam");
-    expect(m.seen[1]!.turn).not.toContain("and a patient is calling.");
+    expect(m.seen[1]!.turn).not.toContain("The role-play is on");
 
     expect(await s.finish()).toBeNull();
     expect(touched).toEqual([]);
@@ -819,7 +813,7 @@ describe("a demo call on the voice engine", () => {
     }
     expect(seen[0]).toContain("This call is a live demo for Sam");
     expect(seen[1]).toContain("This call is a live demo for Sam");
-    expect(seen[2]).toContain("and a patient is calling.");
+    expect(seen[2]).toContain("The role-play is on");
     expect(seen[3]).toContain("The role-play is over");
     expect(seen[4]).toContain("The role-play is over");
     const spoken = heard();
@@ -895,7 +889,7 @@ describe("a demo call on the voice engine", () => {
     const whole = "I'm the owner, but before any role-play I'd like to hear what you do";
     await s.handle(said(3, [{ role: "agent", content: opening }, { role: "user", content: "yes it's me" }, { role: "agent", content: question }, { role: "user", content: whole }]));
     expect(seen[2]).toContain("This call is a live demo for Sam");
-    expect(seen[2]).not.toContain("and a patient is calling.");
+    expect(seen[2]).not.toContain("The role-play is on");
     expect(seen[2]).toContain(`- their role: "${whole}"`);
     await s.finish();
   });

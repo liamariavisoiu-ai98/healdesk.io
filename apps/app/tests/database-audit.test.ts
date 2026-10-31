@@ -820,7 +820,9 @@ describeDb("database audit (0031)", () => {
     // healdesk, passed to the practice (L32); 0098 the list of who an incident
     // affected, which names contacts; 0108 the redial records of calls that
     // ended early, sealed turns keyed to a caller; 0139 the 30-day record of
-    // a missed call or chat, which keeps the caller's number.
+    // a missed call or chat, which keeps the caller's number; 0140 the
+    // payment-link text's ledger, which records a caller was texted about
+    // their appointment.
     const expected = [
       "appointments",
       "booking_requests",
@@ -837,6 +839,7 @@ describeDb("database audit (0031)", () => {
       "meta_booking_drafts",
       "missed_contacts",
       "patient_requests",
+      "payment_link_texts",
       "record_amendments",
       "slot_holds",
       "suppressions",

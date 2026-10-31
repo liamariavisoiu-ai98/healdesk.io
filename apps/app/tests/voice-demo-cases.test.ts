@@ -16,7 +16,7 @@ import { sealDemoCallContext, type DemoCallContext } from "@healdesk/catalog";
 import { guardedLine, movingOnLine, type GuardRefusal } from "@/lib/assistant/guard";
 import { SPOKEN_END } from "@/lib/assistant/prompt";
 import { CALLBACK_FAILED_LINE } from "@/lib/voice/demo-callback";
-import { demoStageNote } from "@/lib/voice/demo-facts";
+import { demoSalesPrompt } from "@/lib/voice/demo-facts";
 import type { AssistantResponder } from "@/lib/assistant/turn";
 import { DEMO_CASE_CLINIC, DEMO_CASE_FIRST_NAME, DEMO_CASES, type DemoCase } from "@/lib/voice/demo-cases";
 import { RetellCallSession, type RetellOutbound } from "@/lib/voice/retell";
@@ -58,12 +58,18 @@ function contextFor(c: DemoCase): DemoCallContext {
   };
 }
 
-/** A model that streams each scripted answer in pieces, as the API does, and records the turn context it was given. */
+/**
+ * A model that streams each scripted answer in pieces, as the API does, and
+ * records what it was told: the stable prompt and the turn's context
+ * together, since what holds on every turn of the demo is said once, in its
+ * own prompt (demoSalesPrompt), and only the step that is next in the note.
+ */
 function scripted() {
   const queue: string[] = [];
   const seen: string[] = [];
   const responder: AssistantResponder = async ({ system, onText }) => {
-    seen.push((system as { turn: string }).turn);
+    const told = system as { stable: string; turn: string };
+    seen.push(`${told.stable}\n${told.turn}`);
     const text = queue.shift();
     if (text === undefined) throw new Error("the case scripted no more model answers for this turn");
     if (onText) for (const piece of text.split(/(?<=[.!?] )/)) onText(piece);
@@ -154,14 +160,9 @@ describe("the demo's regression cases, through the real demo pipeline", () => {
   test("6a: every scripted line in the pitch is at most two short sentences, and the cases' replies are short", () => {
     const words = (text: string) => text.split(/\s+/).filter(Boolean).length;
     const sentences = (text: string) => text.split(/(?<=[.!?])\s+/).filter(Boolean).length;
-    const offer = { percentOfSetupFee: 50, endsAt: Date.now() + 40 * 3_600_000 };
-    const note = demoStageNote(
-      { firstName: "Josh", clinic: DEMO_CASE_CLINIC, offer, buyButton: "Book Onboarding", mode: "phone" },
-      "pitch",
-      Date.now(),
-      { asked: null, answers: { goal: "x", volume: "5", volumeCheck: "yes", missed: "voicemail", coverage: "after hours" }, roleplayTurns: 0, said: [] },
-    );
-    const beats = note.split("\n").filter((line) => /^\d\. \(/.test(line));
+    // The value points are a menu in the demo's own prompt (demoSalesPrompt), one line each.
+    const prompt = demoSalesPrompt({ firstName: "Josh", clinic: DEMO_CASE_CLINIC, mode: "phone" });
+    const beats = prompt.split("\n").filter((line) => /^- (?:pain|reveal|number|finish|anchor|value|recommend|noStrings|refund): /.test(line));
     expect(beats).toHaveLength(9);
     for (const beat of beats) {
       // A placeholder ("[the step of 100 that covers their volume]") is said as one or two words.

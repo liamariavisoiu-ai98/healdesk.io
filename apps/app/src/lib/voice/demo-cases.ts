@@ -39,7 +39,7 @@ import {
  * a clinic's owner talking about their business, never a patient.
  */
 
-export const DEMO_CASES_VERSION = "2026-10-31.1";
+export const DEMO_CASES_VERSION = "2026-10-31.2";
 
 /** The made-up clinic every case calls about. */
 export const DEMO_CASE_CLINIC: DemoCallClinic = {
@@ -322,7 +322,7 @@ const discovery: DemoCase[] = [
             { asked: "goal" },
           ),
         ],
-        check: { noteIncludes: ["If channels come up at any point", "Aya Meta Chat for Instagram, Messenger and WhatsApp"], noGuardLine: true },
+        check: { noteIncludes: ["If channels come up, however they ask", "Aya Meta Chat for Instagram, Messenger and WhatsApp"], noGuardLine: true },
       },
       {
         caller: "What about social media?",
@@ -422,7 +422,7 @@ const josh: DemoCase = {
       model: [
         modelSays("Not at all: Aya Voice for your phone, Aya Web Chat for your site, and Aya Meta Chat for Instagram, Messenger and WhatsApp. So, what made you look into this?", { asked: "goal" }),
       ],
-      check: { noGuardLine: true, noteIncludes: ["If channels come up at any point"] },
+      check: { noGuardLine: true, noteIncludes: ["If channels come up, however they ask"] },
     },
     {
       caller: "What about social media?",
@@ -632,7 +632,7 @@ const phase6: DemoCase[] = [
       {
         caller: "Okay, and?",
         model: [modelSays("What happens with those calls after hours right now?", { asked: "missed" })],
-        check: { noteIncludes: ['and not "skip", which you used last'], noteExcludes: ['Next: react to what they said in a few words, then ask: "Generally, how many calls do you get a day?"'] },
+        check: { noteIncludes: ['The pushback move you used last: "skip"'], noteExcludes: ['Next: react to what they said in a few words, then ask: "Generally, how many calls do you get a day?"'] },
       },
     ],
   },
@@ -666,7 +666,7 @@ const phase6: DemoCase[] = [
         check: {
           ends: true,
           quirks: [],
-          noteIncludes: ['If they firmly refuse to go on at all ("leave me alone", "stop calling", "I said no"), skip that question', 'one brief, positive goodbye with no "Talk soon"'],
+          noteIncludes: ['If they firmly refuse to go on at all ("leave me alone", "stop calling", "I said no"), never offer anything more', 'one brief, positive goodbye with no "Talk soon"'],
         },
       },
     ],
@@ -746,7 +746,7 @@ const positioning: DemoCase[] = [
         check: {
           noGuardLine: true,
           heardIncludes: ["Unlike a phone-only bot"],
-          noteIncludes: ["Say with confidence that Aya does more than the usual options", 'never name, describe or quote any company, and never say "the only"', "designed to send the clinic's own deposit link"],
+          noteIncludes: ["say with confidence that Aya does more", 'never name, describe or quote any company, and never say "the only"', "designed to send the clinic's own deposit link"],
         },
       },
     ],
@@ -869,8 +869,16 @@ const thomas: DemoCase = {
     {
       caller: "I don't know. Like, five.",
       model: [modelSays("What happens with those calls after hours, or when your team's busy?", { asked: "missed" })],
-      // A hedged count is his answer: no maths walked through on it.
-      check: { answers: { volume: "I don't know. Like, five." }, noteExcludes: ["Check the total with them"], noteIncludes: ['Next: ask: "What happens with those calls after hours'] },
+      // A hedged count is his answer: no maths walked through on it. And
+      // with what he is after and how he wants her to help already answered,
+      // the call is selling (owner, 31 October 2026, items 9 and 10): the
+      // note asks no more questions, where on the call she asked about missed
+      // calls and he hung up on the next turn.
+      check: {
+        answers: { volume: "I don't know. Like, five." },
+        noteExcludes: ["Check the total with them", 'Next: ask: "What happens with those calls after hours'],
+        noteIncludes: ["They have answered the discovery questions: now the pitch, then the close."],
+      },
     },
     {
       caller: "You tired me, honestly. It's not straight to the point. I'm done with repeating myself.",
@@ -1010,7 +1018,7 @@ const round5: DemoCase[] = [
       {
         caller: "What's special about healdesk?",
         model: [modelSays("We're one Aya across your phone, website chat, Instagram, Messenger and WhatsApp. Want to hear more?")],
-        check: { noteIncludes: ["You are healdesk's Aya, and the product they are hearing is you."], noGuardLine: true },
+        check: { noteIncludes: ["You are healdesk's Aya, and the product they are hearing is you"], noGuardLine: true },
       },
     ],
   },
@@ -1159,7 +1167,7 @@ const a17b5aff: DemoCase[] = [
   },
   {
     id: "compare-and-stalled-pitch",
-    title: "\"What makes you better?\" gets one positioning line; a talk that finds nothing out in five turns goes to the pitch",
+    title: "\"What makes you better?\" gets one positioning line and opens the close; a talk that finds nothing out in five turns goes to the pitch",
     why: "Transcript a17b5aff: nine turns after the role-play, a question on the competition and one on how she'd improve, and not one pitch beat.",
     turns: [
       ...TO_PITCH,
@@ -1167,7 +1175,13 @@ const a17b5aff: DemoCase[] = [
       {
         caller: "Tell me what makes you so special. Why are you better than the competition?",
         model: [modelSays("One Aya covers your phone, website chat, Instagram, Messenger and WhatsApp, with the same knowledge of your clinic.")],
-        check: { progress: { metaAsk: "compare" }, noteIncludes: ["They asked what makes you better than the alternatives."], noteExcludes: CLOSE_WORDS },
+        // A buying signal since 31 October 2026 (owner: "What makes you better
+        // than the competition?" should move her towards the pitch and a
+        // close): the close opens on it, discovery or not.
+        check: {
+          progress: { metaAsk: "compare", buying: true },
+          noteIncludes: ["They asked what makes you better than the alternatives.", "They showed a buying signal: now value and the close.", `Want to get ${SHORT} set up?`],
+        },
       },
       {
         caller: "If you were to improve yourself, what would you change?",

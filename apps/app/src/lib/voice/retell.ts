@@ -45,6 +45,7 @@ import {
   demoPitchFacts,
   demoIntroRecovery,
   demoRecovery,
+  demoSalesPrompt,
   demoStageNote,
   demoRoleplayOpener,
   demoStateFrom,
@@ -52,6 +53,7 @@ import {
   isBareYes,
   listedIn,
   nextDemoStage,
+  selling,
   offeredRoleplayChoice,
   WHICH_ONE_LINE,
   withDemoAnswer,
@@ -709,6 +711,8 @@ export class RetellCallSession {
   private demoStage: DemoStage = "intro";
   /** What a demo call has found out (demo-facts.ts, DemoProgress); in memory only. */
   private demoProgress: DemoProgress = DEMO_OPENED_PROGRESS;
+  /** The demo's own prompt outside the role-play (demoSalesPrompt), built once a call: it is the cached prefix. */
+  private demoSalesPromptText: string | null = null;
   /** The human stall (stall.ts): whether this call has used it, and whether the last reply was it. */
   private stalled = false;
   private stallPending = false;
@@ -1239,6 +1243,12 @@ export class RetellCallSession {
    * and the connection to the API kept open. Never alongside a turn, never
    * once the call is closing; a failure is nothing, the turn simply runs cold.
    */
+  /** healdesk's own prompt for a demo call, outside the role-play; the same for every turn of the call. */
+  private demoPrompt(): string {
+    this.demoSalesPromptText ??= demoSalesPrompt(this.demoContext!);
+    return this.demoSalesPromptText;
+  }
+
   private warm(): void {
     const prewarm = this.deps.responder?.prewarm;
     const facts = this.facts;
@@ -1247,7 +1257,8 @@ export class RetellCallSession {
     // Booking tools change the stable prompt (prompt.ts BOOKING_TOOLS); a
     // demo has none, and a clinic's call with them live still gets the
     // connection kept open.
-    const stable = buildAssistantPrompt(facts, "voice", { bookingTools: false });
+    // A demo is warmed on the prompt its next turn is on.
+    const stable = this.demoContext && this.demoStage !== "roleplay" ? this.demoPrompt() : buildAssistantPrompt(facts, "voice", { bookingTools: false });
     prewarm({ stable, turn: "" }, "voice").catch(() => {});
   }
 
@@ -1558,7 +1569,7 @@ export class RetellCallSession {
     // well, and a patient's guard line in answer to them is a non-sequitur.
     // Never in the role-play, where the caller plays a patient.
     const recovery =
-      this.demoContext && progress && this.demoStage === "pitch"
+      this.demoContext && progress && (this.demoStage === "pitch" || (this.demoStage === "intro" && selling(progress)))
         ? demoRecovery(this.demoContext, progress)
         : this.demoContext && progress && this.demoStage === "intro"
           ? demoIntroRecovery(this.demoContext)
@@ -1575,7 +1586,7 @@ export class RetellCallSession {
     ];
     const turn = await answerTurn({
       // A demo's pitch may quote healdesk's own prices; nothing else may (demo-facts.ts).
-      facts: this.demoContext && progress && this.demoStage === "pitch" ? demoPitchFacts(facts, this.demoContext, this.now().getTime(), progress) : facts,
+      facts: this.demoContext && progress && this.demoStage !== "roleplay" && (this.demoStage === "pitch" || selling(progress)) ? demoPitchFacts(facts, this.demoContext, this.now().getTime(), progress) : facts,
       channel: "voice",
       acknowledge: acknowledgeable
         ? {
@@ -1621,6 +1632,9 @@ export class RetellCallSession {
       // The note for the stage the demo is in (demo-facts.ts), so no stage's
       // instructions are ever repeated into another, a role-play above all.
       notes: turnNotes.length > 0 ? turnNotes : null,
+      // Outside the role-play she is healdesk's Aya, on healdesk's own short
+      // prompt; in it, the clinic's front-desk prompt she plays (demo-facts.ts).
+      stablePrompt: this.demoContext && this.demoStage !== "roleplay" ? this.demoPrompt() : null,
       softRefusal: recovery ? { line: recovery.line, alternate: recovery.alternate, bridge: recovery.bridge } : null,
       callerFirstName: this.demoContext?.firstName ?? null,
       // After a caller showed frustration, the call never ends on "Talk soon!" (demo-facts.ts, impatient).
@@ -1687,7 +1701,13 @@ export class RetellCallSession {
       this.demoStage = nextDemoStage(
         stageBefore,
         turn.reply,
-        { asked: update?.asked ?? null, roleplay: signal?.roleplay ?? null, resume: update?.resume === true && Boolean(progress.lastRoleplay) },
+        {
+          asked: update?.asked ?? null,
+          roleplay: signal?.roleplay ?? null,
+          resume: update?.resume === true && Boolean(progress.lastRoleplay),
+          // A buying signal in the intro moves the call on to the value and the close.
+          buying: progress.buying === true || update?.buying === true,
+        },
         progress.roleplayFrom ?? "intro",
         progress.roleplayTurns,
       );

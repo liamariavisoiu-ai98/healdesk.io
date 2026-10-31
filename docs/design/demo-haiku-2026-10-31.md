@@ -29,12 +29,16 @@ again?", mirroring, contractions, no filler, the name at most twice, the
 signature touches, "we" for healdesk, the role-play opener and exit said by
 the call.
 
-Owner-only: add `VOICE_EVAL_ANTHROPIC_API_KEY` (the eval's own key, never the
-HIPAA organisation's) as an Actions secret, and optionally
+After launch (owner, 31 October 2026; plan task `DEMO-EVAL-LIVE`, not a
+go-live blocker): add `VOICE_EVAL_ANTHROPIC_API_KEY` (the eval's own key,
+never the HIPAA organisation's) as an Actions secret, and optionally
 `VOICE_EVAL_DEMO_BUDGET_USD` as a repository variable (5 when unset; one run
 is estimated at about $0.90, so a pull request, base and head, about $1.80).
-Until then the workflow says it skipped. The first live run is the baseline;
-nothing here has been measured on a real model yet.
+Until then the workflow says it skipped, and demo changes before launch rest
+on the scripted regression cases and the owner's test calls. The first live
+run is the baseline; nothing here has been measured on a real model yet. The
+steps in section 2 that say "must beat the eval's baseline" are measured that
+way once it runs; before then, by the scripted cases and a test call.
 
 ## 2. Proposal: what would make Haiku smooth
 

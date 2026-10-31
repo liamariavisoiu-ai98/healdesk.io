@@ -120,7 +120,8 @@ at least the printed cap. `.github/workflows/demo-eval.yml` runs it on every
 pull request that touches the voice or assistant code: the base first, then
 the head, both on the real model, with the comparison in the run's summary
 and the transcripts kept 14 days as an artifact. It skips until the owner
-adds the key as an Actions secret.
+adds the key as an Actions secret, which he placed after launch (31 October
+2026; plan task `DEMO-EVAL-LIVE`).
 
 ## How tuning cannot weaken safety
 

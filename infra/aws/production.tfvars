@@ -22,6 +22,12 @@ healdesk_email_from = "healdesk <hello@healdesk.io>"
 # .env.example has the values. Set them once the support line's voicemail
 # emails a notification only, with no recording or transcript.
 app_environment = {
+  # Most AYA numbers automatic provisioning may buy from Retell in one UTC
+  # day, across every clinic (owner, 31 October 2026: 100, not the default 20,
+  # so a burst of paying clinics is not held to the next day). Each clinic has
+  # paid its first invoice before a number is bought; the cap only limits the
+  # damage of a bug or a run of payments that do not hold.
+  HEALDESK_VOICE_PROVISION_DAILY_CAP = "100"
   # HEALDESK_SUPPORT_PHONE    = "<E.164 number>"
   # HEALDESK_CALL_BOOKING_URL = "<https scheduling page>"
 }

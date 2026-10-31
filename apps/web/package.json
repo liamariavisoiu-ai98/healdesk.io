@@ -22,29 +22,29 @@
     "admin:totp": "tsx --env-file-if-exists=.env.local scripts/set-admin-totp.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.115.0",
+    "@anthropic-ai/sdk": "^0.137.0",
     "@healdesk/catalog": "*",
-    "motion": "^13.0.0",
-    "next": "^16.4.2",
-    "posthog-js": "^1.430.3",
+    "motion": "^13.5.1",
+    "next": "^16.4.3",
+    "posthog-js": "^1.441.0",
     "qrcode": "^1.5.4",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "retell-client-js-sdk": "^3.0.2",
-    "stripe": "^22.6.1"
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "retell-client-js-sdk": "^3.0.3",
+    "stripe": "^22.6.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
-    "@types/node": "^22.10.2",
+    "@types/node": "^22.20.5",
     "@types/qrcode": "^1.5.6",
-    "@types/react": "^19.2.0",
-    "@types/react-dom": "^19.2.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "eslint": "^9.39.5",
-    "eslint-config-next": "^16.3.0",
+    "eslint-config-next": "^16.4.3",
     "happy-dom": "^21.0.4",
-    "postcss": "^8.5.1",
+    "postcss": "^8.5.32",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.7.2",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.12"
   }
 }

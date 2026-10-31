@@ -106,7 +106,7 @@ export const DEFAULT_MOCK: MockBehaviour = {
   },
   // The demo's listener hears nothing in a dry run unless a demo mock says otherwise (demo/run.ts).
   listener() {
-    return JSON.stringify({ name: null, role: null, goal: null, callsPerDay: null, missed: null, coverage: null, buying: false, impatient: false, wantsRoleplay: false, speakingAsThemselves: false, leaving: false });
+    return JSON.stringify({ name: null, role: null, goal: null, callsPerDay: null, missed: null, coverage: null, buying: false, impatient: false, wantsRoleplay: false, speakingAsThemselves: false, speakingAsPatient: false, leaving: false });
   },
   caller(_params, context) {
     const scripted = context.scenario?.scripted ?? [];

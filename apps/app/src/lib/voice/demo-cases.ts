@@ -40,7 +40,7 @@ import {
  * a clinic's owner talking about their business, never a patient.
  */
 
-export const DEMO_CASES_VERSION = "2026-10-31.2";
+export const DEMO_CASES_VERSION = "2026-10-31.3";
 
 /** The made-up clinic every case calls about. */
 export const DEMO_CASE_CLINIC: DemoCallClinic = {
@@ -79,7 +79,7 @@ export function modelSays(
     roleplay?: "start" | "cancel" | "end";
     answered?: DemoQuestion[];
     impatient?: boolean;
-    booking?: { service?: string; day?: string; time?: string };
+    booking?: { service?: string; day?: string; time?: string; name?: string; phone?: string; status?: "requested" | "rescheduled" | "cancelled" };
     end?: boolean;
   } | null = {},
 ): string {
@@ -166,9 +166,11 @@ export const CLOSE_WORDS: readonly string[] = [`Want to get ${SHORT} set up?`, "
  * ROLEPLAY_MAX_TURNS caller turns end it otherwise (step 4), so the cases of
  * that ceiling walk this many more turns than they did at four.
  */
-const ROLEPLAY_FILLER: DemoCaseTurn[] = ["How long does it take?", "Do I need to prepare anything?", "Is there a cancellation fee?", "Can I pay when I'm there?"]
-  .slice(0, ROLEPLAY_MAX_TURNS - 4)
-  .map((caller) => ({ caller, model: [modelSays("Good question, the team can go through that with you.")] }));
+const FILLER_QUESTIONS = ["How long does it take?", "Do I need to prepare anything?", "Is there a cancellation fee?", "Can I pay when I'm there?"];
+const ROLEPLAY_FILLER: DemoCaseTurn[] = Array.from({ length: ROLEPLAY_MAX_TURNS - 4 }, (_, i) => ({
+  caller: FILLER_QUESTIONS[i % FILLER_QUESTIONS.length]!,
+  model: [modelSays("Good question, the team can go through that with you.")],
+}));
 
 /** The start every case walks: who they are, their role, the choice, a short role-play, and out of it. */
 const TO_PITCH: DemoCaseTurn[] = [
@@ -193,7 +195,7 @@ const TO_PITCH: DemoCaseTurn[] = [
     check: { stage: "roleplay" },
   },
   {
-    caller: "Sure, Friday morning.",
+    caller: "Sure, Friday morning. Thanks, bye!",
     model: [modelSays("Perfect, the team will confirm Friday morning. Take care! And that's the role-play! So, how was that?")],
     check: { stage: "pitch" },
   },
@@ -278,7 +280,7 @@ const discovery: DemoCase[] = [
         caller: "Five",
         model: [modelSays(SPOKEN_MONTH, { asked: "volumeCheck" }), modelSays(SPOKEN_MONTH, { asked: "volumeCheck" })],
         check: {
-          heard: "Sorry, I lost my train of thought for a second there. You said 5 calls a day, so would it be fair to say about 25 calls a week?",
+          heard: "I'll skip that one. You said 5 calls a day, so would it be fair to say about 25 calls a week?",
           noGuardLine: true,
           answers: { volume: "Five" },
           asked: "volumeCheck",
@@ -420,7 +422,8 @@ const josh: DemoCase = {
       check: { heardExcludes: ["I don't have a price for that one"] },
     },
     {
-      caller: "Okay, sure.",
+      // The patient signs off: the owner ends the role-play (c4093be6: never her).
+      caller: "Okay, sure. That's all, thanks.",
       model: [modelSays("Done, the team will confirm. Take care! And that's the role-play! So, how was that?")],
       check: { stage: "pitch" },
     },
@@ -713,7 +716,7 @@ const phase6: DemoCase[] = [
           heardExcludes: ["Ring ring"],
           noteIncludes: [
             'never refusing and never starting over with "Ring ring"',
-            `Where it stopped: they said "Sure, Friday morning.", and you said "Perfect, the team will confirm Friday morning. Take care!"`,
+            `Where it stopped: they said "Sure, Friday morning. Thanks, bye!", and you said "Perfect, the team will confirm Friday morning. Take care!"`,
           ],
         },
       },
@@ -827,7 +830,7 @@ const thomas: DemoCase = {
     {
       caller: "Hi. I'd like to book an appointment at your clinic, please.",
       model: [modelSays("Lovely! Which treatment are you thinking of?")],
-      check: { stage: "roleplay", noteIncludes: ["Still needed: the treatment and a preferred day and time"], noGuardLine: true },
+      check: { stage: "roleplay", noteIncludes: ["Still needed before the request goes in: treatment, day and time, first name, number"], noGuardLine: true },
     },
     {
       caller: "Something for my skin. How much does it cost?",
@@ -847,19 +850,31 @@ const thomas: DemoCase = {
     },
     {
       caller: "Let's say, Monday, ten PM.",
-      model: [modelSays("We're open 9 to 6 on Mondays: would 4 or 5pm work?", { booking: { service: "Botox", day: "Monday" } })],
+      // A time outside the hours is answered by the call itself, from the hours, before any model (c4093be6: "I'll take Thursday at nine PM, though our hours don't run that late").
+      model: [],
       check: {
-        noteIncludes: ["On file for this booking: the treatment: Botox", "Opening hours: Mon-Fri 9am-6pm", "offer two real times inside them on the day they asked for"],
-        noteExcludes: ["Still needed: the treatment"],
+        heardIncludes: ["We're open 9 AM to 6 PM on Mondays, so 10 PM is outside our hours.", "at 4 PM or 5 PM work instead?"],
         progress: { rpBooking: { service: "Botox", day: "Monday" } },
         noGuardLine: true,
       },
     },
     {
       caller: "Five PM.",
-      model: [modelSays("Perfect, the team will confirm Monday at 5pm within a day. Take care!", { roleplay: "end", booking: { service: "Botox", day: "Monday", time: "5pm" } })],
-      // The call steps out with the scripted line, after a role-play that ran.
-      check: { heardIncludes: [`Take care! ${DEMO_ROLEPLAY_EXIT}`], stage: "pitch" },
+      // Her end before the patient signed off does not stand (c4093be6): no name or number yet.
+      model: [modelSays("Perfect, Monday at 5pm. Can I get your first name?", { roleplay: "end", booking: { service: "Botox", day: "Monday", time: "5pm" } })],
+      check: { stage: "roleplay", heardExcludes: [DEMO_ROLEPLAY_EXIT], noteIncludes: ["which is within Lumen's hours: take it as their preferred time"] },
+    },
+    {
+      caller: "Thomas.",
+      model: [modelSays("Thanks, Thomas. What's the best number to reach you?", { booking: { name: "Thomas" } })],
+      // The answer to "your first name?" is on file in code, before she writes a word.
+      check: { stage: "roleplay", noteIncludes: ["their first name: Thomas", "Still needed before the request goes in: number"], progress: { rpBooking: { service: "Botox", day: "Monday", time: "5pm", name: "Thomas" } } },
+    },
+    {
+      caller: "The one I'm calling from. That's all, thanks.",
+      model: [modelSays("Perfect, the team will confirm Monday at 5pm within a day. Take care!", { roleplay: "end", booking: { phone: "the one they're calling from" } })],
+      // The patient signed off: the call steps out with the scripted line, after a role-play that ran.
+      check: { heardIncludes: [`Take care! ${DEMO_ROLEPLAY_EXIT}`], stage: "pitch", noteIncludes: ["You have everything: say in one sentence that the team will confirm that time within a day"] },
     },
     {
       caller: "It was okay.",
@@ -1004,7 +1019,8 @@ const round5: DemoCase[] = [
       {
         caller: "What do you think of Botox during pregnancy?",
         model: [modelSays("Botox is perfectly safe during pregnancy.", { asked: null }), modelSays("Botox is safe for pregnant women, honestly.", { asked: null })],
-        check: { heardIncludes: ["Sorry, I lost my train of thought there."], noGuardLine: true, stage: "intro" },
+        // Never filler (c4093be6: "Anyway, where were we?"): an honest skip, then a real question.
+        check: { heardIncludes: ["I'll skip that one."], heardExcludes: ["where were we", "train of thought"], noGuardLine: true, stage: "intro" },
       },
     ],
   },
@@ -1063,16 +1079,22 @@ const a17b5aff: DemoCase[] = [
         caller: "Tuesday morning,",
         model: [modelSays("Tuesday works. What time that morning suits you?")],
         // The role-play's own calendar since 31 October 2026 (step 4): real free times from the clinic's hours, never invented ones.
-        check: { stage: "roleplay", noteIncludes: ["This role-play's calendar has these free times", "Never invent another free time", "never ask which one they mean"] },
+        check: { stage: "roleplay", noteIncludes: ["This role-play's calendar has these free times", "never invent another free time", "never ask which one they mean"] },
       },
       {
         caller: "Next Tuesday, let's call it I don't know. Do you have any slots for eleven AM?",
         model: [modelSays("Eleven works, so would Tuesday, November 3 at 11:00 AM suit you?", { roleplay: "end" })],
-        // Her end waits for the answer to her question, then comes on the next reply, whatever the turn count (step 4).
+        // Her end never stands before the owner ends it (c4093be6), and never straight after her own question (a17b5aff).
+        check: { stage: "roleplay", heardExcludes: ["And that's the role-play"], progress: { rpEndPending: false } },
+      },
+      {
+        caller: "Yeah. That's all, thanks.",
+        model: [modelSays("Lovely! And can I get your first name for the request?", { roleplay: "end" })],
+        // The patient signed off, but her reply asks in character: the end waits for the answer (a17b5aff).
         check: { stage: "roleplay", heardExcludes: ["And that's the role-play"], progress: { rpEndPending: true } },
       },
       {
-        caller: "Yeah.",
+        caller: "Josh.",
         model: [modelSays("Perfect, the team will confirm Tuesday at 11. See you then!")],
         check: { stage: "pitch", heardIncludes: [`See you then! ${DEMO_ROLEPLAY_EXIT}`] },
       },
@@ -1170,14 +1192,14 @@ const a17b5aff: DemoCase[] = [
         check: { heard: "One Aya answers your phone, website chat, Instagram, Messenger and WhatsApp. Want to hear more, or try a quick role-play?", noGuardLine: true },
       },
       { caller: "Let's do the role play.", model: [modelSays(`Let's do it, you be the patient. ${demoRoleplayOpener(CLINIC)}`)], check: { stage: "roleplay" } },
-      { caller: "Can I book a facial Friday morning?", model: [modelSays("Perfect, the team will confirm Friday morning. Take care!", { roleplay: "end" })], check: { stage: "pitch" } },
+      { caller: "Can I book a facial Friday morning? Thanks, bye!", model: [modelSays("Perfect, the team will confirm Friday morning. Take care!", { roleplay: "end" })], check: { stage: "pitch" } },
       {
         caller: "you got confused there.",
         model: [
           modelSays("Wait, we've ended up in the wrong place. This isn't the caller and I'm not Aya for this flow, so I'll stop there."),
           modelSays("Honestly, I can't actually check the schedule or book anything myself."),
         ],
-        check: { heardExcludes: ["flow", "not Aya", "book anything"], heardIncludes: ["Sorry, I lost my train of thought for a second there."], noGuardLine: true },
+        check: { heardExcludes: ["flow", "not Aya", "book anything", "where were we"], heardIncludes: ["I'll skip that one."], noGuardLine: true },
       },
     ],
   },

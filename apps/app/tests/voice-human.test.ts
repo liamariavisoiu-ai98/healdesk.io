@@ -183,13 +183,14 @@ describe("the human stall (VOICE-T16a)", () => {
 });
 
 describe("jumping in (VOICE-T16c)", () => {
-  const SATURDAY = "Hi, I'd love to book a HydraFacial for this Saturday morning if you have anything.";
+  // Friday: the clinic is closed on Saturdays, and a closed day is answered by the call itself (c4093be6), never by a jump-in.
+  const FRIDAY = "Hi, I'd love to book a HydraFacial for this Friday morning if you have anything.";
 
   test("at the end of a sentence, now and then, the jump-in is said over the caller and kept", async () => {
     const c = await demoCall({ random: () => 0 });
     await c.toRoleplay();
-    const jump = "Oh, Saturday morning works great - want the ten o'clock?";
-    await c.live(SATURDAY, says(jump));
+    const jump = "Oh, Friday morning works great - want the ten o'clock?";
+    await c.live(FRIDAY, says(jump));
     await vi.waitFor(() => expect(c.interrupts()).toHaveLength(1));
     expect(c.interrupts()[0]).toMatchObject({ response_type: "agent_interrupt", content: jump, content_complete: true, no_interruption_allowed: false });
     expect(c.seen.at(-1)).toContain("The caller has NOT finished talking");
@@ -202,7 +203,7 @@ describe("jumping in (VOICE-T16c)", () => {
   test("WAIT, a guess the ordinary reply overtakes, and urgent words are never said over anyone", async () => {
     const waits = await demoCall({ random: () => 0 });
     await waits.toRoleplay();
-    await waits.live(SATURDAY, says("WAIT"));
+    await waits.live(FRIDAY, says("WAIT"));
     await vi.waitFor(() => expect(waits.queue).toHaveLength(0));
     await new Promise((r) => setTimeout(r, 20));
     expect(waits.interrupts()).toHaveLength(0);
@@ -210,13 +211,13 @@ describe("jumping in (VOICE-T16c)", () => {
     const late = await demoCall({ random: () => 0 });
     await late.toRoleplay();
     let release!: () => void;
-    const slow = () => new Promise<string>((resolve) => (release = () => resolve(says("Oh, Saturday works!"))));
-    await late.live(SATURDAY, slow);
+    const slow = () => new Promise<string>((resolve) => (release = () => resolve(says("Oh, Friday works!"))));
+    await late.live(FRIDAY, slow);
     await vi.waitFor(() => expect(late.queue).toHaveLength(0));
     // Retell asks for the ordinary reply before the guess is ready: the guess is dropped unsaid.
-    const answered = late.turn(SATURDAY, says("Saturday morning works - want ten?"));
+    const answered = late.turn(FRIDAY, says("Friday morning works - want ten?"));
     release();
-    expect(await answered).toBe("Saturday morning works - want ten?");
+    expect(await answered).toBe("Friday morning works - want ten?");
     await new Promise((r) => setTimeout(r, 20));
     expect(late.interrupts()).toHaveLength(0);
 
@@ -239,14 +240,14 @@ describe("jumping in (VOICE-T16c)", () => {
       if (prepare) await c.toRoleplay();
       else await c.turn("Yeah, that's me.", says("Great! What's your role?", { asked: "role" }));
       const before = c.seen.length;
-      await c.live(SATURDAY);
+      await c.live(FRIDAY);
       await new Promise((r) => setTimeout(r, 20));
       expect(c.seen.length, label).toBe(before);
     }
     const midway = await demoCall({ random: () => 0 });
     await midway.toRoleplay();
     const before = midway.seen.length;
-    await midway.live("Hi, I'd love to book a HydraFacial for this Saturday morning and");
+    await midway.live("Hi, I'd love to book a HydraFacial for this Friday morning and");
     await new Promise((r) => setTimeout(r, 20));
     expect(midway.seen.length).toBe(before);
   });

@@ -249,7 +249,7 @@ export async function runDemoBuild(slug: string, options: { sendEmail?: boolean 
       mark("auditing the demo");
       const gated = await auditWithRepair(session, scraped.pages, profile, extract, started + AUDIT_BY_MS);
       mark("saving the audit");
-      const done = await recordVerdict(slug, gated);
+      const done = await recordVerdict(slug, gated, session.readyAt);
       const emailWanted = options.sendEmail || session.emailRequested;
       if (done?.status === "ready" && emailWanted && !done.emailSentAt) return await emailWithoutFailing(done);
       return done;
@@ -345,7 +345,14 @@ export async function auditWithRepair(
     : { kind: "audited", profile, report: { ...first, decision: decide(first, { canRepair: false }) } };
 }
 
-async function recordVerdict(slug: string, gated: Gated): Promise<DemoSession | null> {
+/**
+ * `readyBefore` is when the demo was first ready, if it was: a rebuild that
+ * ships keeps it, because the setup offer's 48 hours run from then
+ * (demoOfferEndsAt). Until 31 October 2026 every rebuild set it afresh, and
+ * demo call c4093be6 told an owner "the next 47 hours" of an offer that had
+ * started the day before.
+ */
+async function recordVerdict(slug: string, gated: Gated, readyBefore: Date | null = null): Promise<DemoSession | null> {
   const now = new Date();
   const base = {
     profile: gated.profile as unknown as Record<string, unknown>,
@@ -376,7 +383,7 @@ async function recordVerdict(slug: string, gated: Gated): Promise<DemoSession | 
     auditVerdict: report.decision === "pass" ? "pass" : report.decision === "flagged" ? "flagged" : "held",
     auditScore: report.overall,
     auditReport: report as unknown as Record<string, unknown>,
-    readyAt: ships ? now : null,
+    readyAt: ships ? (readyBefore ?? now) : null,
   });
   console.info("[healdesk] demo audited", { slug, decision: report.decision, score: report.overall, round: report.round, blockers: report.blockers.length });
 

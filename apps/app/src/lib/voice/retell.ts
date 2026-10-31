@@ -7,7 +7,7 @@ import { clinics, clinicSettings } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { bookingTools, EMPTY_TOOL_STATE, type BookingTools, type BookingToolState } from "@/lib/assistant/booking-tools";
 import { assistantFacts, type AssistantFacts } from "@/lib/assistant/facts";
-import { buildAssistantPrompt } from "@/lib/assistant/prompt";
+import { buildAssistantPrompt, SPOKEN_END } from "@/lib/assistant/prompt";
 import { checkMenu } from "@/lib/assistant/menu-check";
 import { openingLine } from "@/lib/assistant/opening";
 import { answerTurn, EMPTY_CAPTURE, failureLine, languageTerms, spokenOnly, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
@@ -43,12 +43,28 @@ import {
   demoAssistantFacts,
   demoContextFromCall,
   demoPitchFacts,
+  demoRoleplayFacts,
+  DEMO_ROLEPLAY_EXIT,
+  DISCOUNT_SAID,
+  OWN_EXIT,
+  PATIENT_BYE,
+  RING_RING,
+  ROLEPLAY_RESTART_LEAD,
+  roleplayCancelAllowed,
+  roleplayEndAllowed,
+  roleplayCheckedReply,
+  roleplayHolds,
+  roleplayMove,
+  roleplayTimeLine,
+  ROLEPLAY_UNKNOWN_LINE,
+  withoutOwnExit,
   demoIntroRecovery,
   demoRecovery,
   demoSalesPrompt,
   demoStageNote,
   demoRoleplayOpener,
   demoStateFrom,
+  endsOnQuestion,
   handsOver,
   isBareYes,
   listedIn,
@@ -979,7 +995,8 @@ export class RetellCallSession {
     const sealed = demoContextFromCall(this.demoCall);
     this.demoCall = null;
     const secret = this.deps.demo?.secret ?? null;
-    const context = sealed && secret ? openDemoCallContext(sealed, secret) : null;
+    // Against the call's own clock (deps.now in a test), so a pinned call opens at any real time.
+    const context = sealed && secret ? openDemoCallContext(sealed, secret, this.now().getTime()) : null;
     // On the newest request, if the caller spoke while the details came.
     const responseId = Math.max(this.latestResponseId, 0);
     if (!context) {
@@ -1261,10 +1278,10 @@ export class RetellCallSession {
    * (a responder without `json`), when it is late, or when it fails: the
    * phrase lists then stand alone, as before.
    */
-  private listen(words: string): Promise<DemoHeard | null> | null {
+  private listen(words: string, stage: DemoStage): Promise<DemoHeard | null> | null {
     const json = this.deps.responder?.json;
     if (!json) return null;
-    const asked = json({ system: LISTENER_SYSTEM, user: listenerInput(this.turns, this.demoStage, words), schema: LISTENER_SCHEMA, maxTokens: 300 }).then(heardFrom);
+    const asked = json({ system: LISTENER_SYSTEM, user: listenerInput(this.turns, stage, words, Boolean(this.demoProgress.lastRoleplay)), schema: LISTENER_SCHEMA, maxTokens: 300 }).then(heardFrom);
     return withDeadline(asked, LISTEN_DEADLINE_MS).catch((error: unknown) => {
       log.info("retell demo listener", { callId: this.callId, status: error instanceof Deadline ? "late" : "failed" });
       return null;
@@ -1547,6 +1564,8 @@ export class RetellCallSession {
     // The reply's sentences as they are written and guarded (turn.ts, speak),
     // appended to the response after the acknowledgement.
     let streamed = "";
+    // A sentence held back from streaming (speak), and everything after it.
+    let held = false;
     const ackChoices = ackLines.filter((line) => line !== this.lastAcknowledgement);
     const ackLine = ackChoices[Math.floor((this.deps.random ?? Math.random)() * ackChoices.length)] ?? ackChoices[0] ?? "";
     // Said only if the reply has not started by then: the first sentence,
@@ -1560,7 +1579,29 @@ export class RetellCallSession {
     this.lastModelAt = Date.now();
     // When the model's first words came, apart from ours (the log below).
     let modelFirstAt: number | null = null;
-    const base = this.deps.responder;
+    // The role-play moved in code, before the model answers (demo call
+    // c4093be6; demo-facts.ts, roleplayMove): a stop or a restart is the
+    // call's own line, a start the caller asked for is started, and patient
+    // talk after a role-play goes back into it. Kept only once the reply is
+    // said, like every other change to the stage (demoBefore).
+    const move = this.demoContext ? roleplayMove(this.demoStage, words, this.demoProgress, this.demoContext.clinic.services.map((svc) => svc.name)) : null;
+    // The stage this turn is answered in: the role-play again for a resume.
+    const stageNow: DemoStage = move === "resume" ? "roleplay" : this.demoStage;
+    const progressNow: DemoProgress =
+      move === "resume"
+        ? { ...this.demoProgress, roleplayFrom: this.demoStage, roleplayTurns: 0, rpResume: false, rpResumed: true, asked: null }
+        : move === "start"
+          ? { ...this.demoProgress, rpWanted: true }
+          : this.demoProgress;
+    // These words as the answer to the demo's last question, kept once the reply is said.
+    const progress = this.demoContext ? withDemoAnswer(progressNow, stageNow, words) : null;
+    // In the role-play, a time outside the hours, a closed day, or a question
+    // about free times is answered by the call itself, from the hours
+    // (roleplayTimeLine; c4093be6).
+    const rpTimeLine = this.demoContext && progress && stageNow === "roleplay" && move === null ? roleplayTimeLine(this.demoContext, progress, words) : null;
+    // A stop, a restart or a time line says the call's line, with no model call: its words would be replaced unsaid.
+    const fixedMove = move === "stop" || move === "restart" || rpTimeLine !== null;
+    const base: AssistantResponder | null | undefined = fixedMove ? async () => `Okay.\n${SPOKEN_END}\n{"handoff":false,"end":false}` : this.deps.responder;
     const responder: AssistantResponder | null = base
       ? (request) =>
           base({
@@ -1575,24 +1616,24 @@ export class RetellCallSession {
               : {}),
           })
       : null;
-    // These words as the answer to the demo's last question, kept once the reply is said.
-    const progress = this.demoContext ? withDemoAnswer(this.demoProgress, this.demoStage, words) : null;
     // The listener (demo-listener.ts): at the same time as the turn, so it adds no wait; what it heard shapes the next turn.
-    const listenStage = this.demoStage;
+    const listenStage = stageNow;
     const listenSeq = ++this.listenSeq;
-    const listening = this.demoContext ? this.listen(words) : null;
+    const listening = this.demoContext ? this.listen(words, stageNow) : null;
     // The turn that takes a demo's call back (demo-callback.ts): her words in
     // it are replaced by the call's own line once it is known whether the team
     // has it, so none of them is spoken as it is written.
-    const takingCallback = Boolean(progress && this.demoStage !== "roleplay" && progress.asked === "callbackNote" && !progress.callback);
+    const takingCallback = Boolean(progress && stageNow !== "roleplay" && progress.asked === "callbackNote" && !progress.callback);
     // A bare yes to "the role-play, or more on what I do?" chooses neither
     // (test call 72dc66b7: "Yes, please." started a role-play he did not
     // want): if her reply starts one, the call asks which instead. Said
     // whole, so none of her words go out before that is known.
     const lastSaid = [...this.turns].reverse().find((t) => t.speaker === "assistant")?.text;
-    const ambiguousChoice = Boolean(progress && this.demoStage !== "roleplay" && isBareYes(words) && offeredRoleplayChoice(lastSaid));
+    const ambiguousChoice = Boolean(progress && stageNow !== "roleplay" && isBareYes(words) && offeredRoleplayChoice(lastSaid));
+    // The caller's words before these, for where a role-play they stop was left.
+    const lastCaller = [...this.turns].reverse().find((t) => t.speaker === "person")?.text ?? "";
     // A jump-in try is written whole and said whole, or not at all.
-    const quiet = takingCallback || ambiguousChoice || jump !== null;
+    const quiet = takingCallback || ambiguousChoice || jump !== null || fixedMove;
     // After the role-play the call is with a clinic's owner about their own
     // business: a refused reply is asked again, then heard as a person losing
     // the thread and moving on, never as the guard's line for a patient
@@ -1601,9 +1642,9 @@ export class RetellCallSession {
     // well, and a patient's guard line in answer to them is a non-sequitur.
     // Never in the role-play, where the caller plays a patient.
     const recovery =
-      this.demoContext && progress && (this.demoStage === "pitch" || (this.demoStage === "intro" && selling(progress)))
+      this.demoContext && progress && (stageNow === "pitch" || (stageNow === "intro" && selling(progress)))
         ? demoRecovery(this.demoContext, progress, this.saidLines())
-        : this.demoContext && progress && this.demoStage === "intro"
+        : this.demoContext && progress && stageNow === "intro"
           ? demoIntroRecovery(this.demoContext, this.saidLines())
           : null;
     // The human stall (stall.ts): once per call, never ahead of a line that
@@ -1611,14 +1652,20 @@ export class RetellCallSession {
     const stallOpen = !this.stalled && nothingDue && !jump;
     const afterStall = this.stallPending && !jump;
     const turnNotes = [
-      ...(this.demoContext ? [demoStageNote(this.demoContext, this.demoStage, this.now().getTime(), progress ?? undefined)] : []),
+      ...(this.demoContext ? [demoStageNote(this.demoContext, stageNow, this.now().getTime(), progress ?? undefined)] : []),
       ...(stallOpen ? [stallNote(language.language)] : []),
       ...(afterStall ? [afterStallNote(language.language)] : []),
       ...(jump ? [ANTICIPATE_NOTE] : []),
     ];
     const turn = await answerTurn({
       // A demo's pitch may quote healdesk's own prices; nothing else may (demo-facts.ts).
-      facts: this.demoContext && progress && this.demoStage !== "roleplay" && (this.demoStage === "pitch" || selling(progress)) ? demoPitchFacts(facts, this.demoContext, this.now().getTime(), progress) : facts,
+      // In the role-play, the clinic's own facts with healdesk's words on its never-say list (c4093be6).
+      facts:
+        this.demoContext && progress && stageNow === "roleplay"
+          ? demoRoleplayFacts(facts)
+          : this.demoContext && progress && (stageNow === "pitch" || selling(progress))
+            ? demoPitchFacts(facts, this.demoContext, this.now().getTime(), progress)
+            : facts,
       channel: "voice",
       acknowledge: acknowledgeable
         ? {
@@ -1641,6 +1688,19 @@ export class RetellCallSession {
         ? (sentence: string) => {
             stopAck();
             if (responseId !== this.latestResponseId || this.closing) return;
+            // Her own "Ring ring", and her own exit line in a role-play, are
+            // never said as she writes them, nor anything after: the call says
+            // the scripted line itself, once, if the stage moves (c4093be6:
+            // two greetings in one reply).
+            // Nor, in a role-play, a sentence saying the request is in, which waits
+            // until the turn's booking is known (roleplayCheckedReply).
+            if (
+              held ||
+              (this.demoContext && (RING_RING.test(sentence) || (stageNow === "roleplay" && (OWN_EXIT.test(sentence) || roleplayHolds(sentence, progress?.rpBooking)))))
+            ) {
+              held = true;
+              return;
+            }
             const lead = acknowledgement || streamed ? " " : "";
             this.send({ response_type: "response", response_id: responseId, content: `${lead}${sentence}`, content_complete: false, end_call: false });
             streamed = streamed ? `${streamed} ${sentence}` : sentence;
@@ -1666,13 +1726,15 @@ export class RetellCallSession {
       notes: turnNotes.length > 0 ? turnNotes : null,
       // Outside the role-play she is healdesk's Aya, on healdesk's own short
       // prompt; in it, the clinic's front-desk prompt she plays (demo-facts.ts).
-      stablePrompt: this.demoContext && this.demoStage !== "roleplay" ? this.demoPrompt() : null,
+      stablePrompt: this.demoContext && stageNow !== "roleplay" ? this.demoPrompt() : null,
       softRefusal: recovery ? { line: recovery.line, alternate: recovery.alternate, bridge: recovery.bridge } : null,
       callerFirstName: this.demoContext?.firstName ?? null,
       // After a caller showed frustration, the call never ends on "Talk soon!" (demo-facts.ts, impatient).
       noSignOff: progress?.impatient === true,
       // One question a reply when she talks with the owner, outside a call back's read-back, which asks two by design (a17b5aff).
-      oneQuestion: progress && this.demoStage !== "roleplay" && progress.asked !== "callback" ? { keep: [DEMO_CALLBACK_OFFER.text] } : null,
+      oneQuestion: progress && stageNow !== "roleplay" && progress.asked !== "callback" ? { keep: [DEMO_CALLBACK_OFFER.text] } : null,
+      // The live discount and its deadline, once said, are never said again (c4093be6: seven times).
+      dropSentences: this.demoContext && stageNow !== "roleplay" && this.demoProgress.offerSaid ? DISCOUNT_SAID : null,
     }).finally(() => {
       stopAck();
       this.answering = false;
@@ -1687,7 +1749,7 @@ export class RetellCallSession {
     if (jump) {
       // A jump-in only when the model wrote one, the guard passed it, and the
       // caller has not already gone well past the sentence it answers.
-      const waited = turn.source !== "model" || /^\s*WAIT\b/i.test(turn.reply) || turn.end || turn.handoff || turn.urgent;
+      const waited = turn.source !== "model" || fixedMove || /^\s*WAIT\b/i.test(turn.reply) || turn.end || turn.handoff || turn.urgent;
       const late = wordCount(this.liveCallerWords) - wordCount(jump.words) > ANTICIPATE_LATE_WORDS;
       if (waited || late) {
         log.info("retell anticipation", { callId: this.callId, status: waited ? "waited" : "late" });
@@ -1707,14 +1769,45 @@ export class RetellCallSession {
     // A demo's stage moves on only with an answer that is said. A goodbye
     // inside the role-play, its "patient" signing off included, never ends
     // the call: the pitch comes after it.
-    const stageBefore = this.demoStage;
+    const stageBefore = stageNow;
     // The line said in place of her words when a call back was taken.
     let callbackLine: string | null = null;
     // The role-play's scripted opener or exit line, said by the call itself when her state moves the stage.
     let roleplayLine: string | null = null;
-    if (this.demoContext && progress && turn.source !== "fallback") {
+    // A stop or a restart the owner asked for (roleplayMove): the call's own
+    // line, never her words, and the stage moved here. An urgent reply, which
+    // is matched before any of this, still wins.
+    const codeMoved = Boolean(this.demoContext && progress && fixedMove && turn.source === "model");
+    if (codeMoved && progress) {
+      if (rpTimeLine) {
+        // The day they named stays on the booking; a time outside the hours never does.
+        roleplayLine = rpTimeLine;
+        const named = progress.rpDay !== null && progress.rpDay !== undefined ? ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][progress.rpDay] : undefined;
+        const after = afterDemoReply(progress, "roleplay", "roleplay", null, words);
+        this.demoProgress = { ...after, rpBooking: { ...after.rpBooking, ...(named && !after.rpBooking?.day ? { day: named } : {}) } };
+      } else if (move === "stop") {
+        roleplayLine = DEMO_ROLEPLAY_EXIT;
+        this.demoStage = "pitch";
+        this.demoProgress = {
+          ...afterDemoReply(progress, "roleplay", "pitch", null, words),
+          lastRoleplay: { caller: lastCaller.slice(0, 200), aya: (lastSaid ?? "").slice(0, 200) },
+        };
+      } else {
+        // From the top, with one greeting: a fresh booking, a fresh count.
+        roleplayLine = `${ROLEPLAY_RESTART_LEAD} ${demoRoleplayOpener(this.demoContext!.clinic.clinicName)}`;
+        this.demoStage = "roleplay";
+        this.demoProgress = { ...afterDemoReply(progress, "roleplay", "roleplay", null, words), roleplayTurns: 0, rpBooking: {}, rpDay: null, rpTime: null, rpEndPending: false, rpOut: false };
+      }
+      // The question it asks, word for word, for "what was your question?" (a17b5aff).
+      const asked = roleplayLine ? lastQuestionIn(roleplayLine) : null;
+      if (asked) this.demoProgress = { ...this.demoProgress, lastQuestion: asked.slice(0, 300) };
+      log.info("retell demo roleplay", { callId: this.callId, status: move ?? "time" });
+    }
+    if (this.demoContext && progress && turn.source !== "fallback" && !codeMoved) {
       // Her structured state update, or the recovery line's own question.
       const recovered = recovery && turn.source === "guard" && [recovery.line, recovery.alternate, recovery.bridge].some((line) => turn.reply.endsWith(line));
+      // Her end of the role-play did not stand: its goodbye goes with it (roleplayCheckedReply).
+      let endRefused = false;
       let update = recovered ? { asked: recovery.asks, beats: [], callback: null } : demoStateFrom(turn.state, turn.reply);
       if (!update && turn.source === "model" && stageBefore !== "roleplay") {
         log.warn("demo reply without its state update", { callId: this.callId, kind: stageBefore });
@@ -1728,16 +1821,41 @@ export class RetellCallSession {
           // A cancel is for a role-play the caller turned down straight away; later, it ends as any other.
           update = { ...update, roleplay: stageBefore === "roleplay" ? "end" : null };
         }
+        // The role-play ends only when the owner ends it (c4093be6): her end
+        // stands only once they signed off, stepped out, or the ceiling is
+        // past; her cancel only when their first words turned it down.
+        if (stageBefore === "roleplay" && update.roleplay === "end" && !roleplayEndAllowed(progress, words)) {
+          update = { ...update, roleplay: null };
+          endRefused = true;
+        }
+        if (stageBefore === "roleplay" && update.roleplay === "cancel" && !roleplayCancelAllowed(progress, words)) update = { ...update, roleplay: null };
+      }
+      // Her own exit line, written while the role-play may not end, is taken
+      // out (speak held it back): it was never said, and the stage stays.
+      const ownExit = stageBefore === "roleplay" && turn.source === "model" && OWN_EXIT.test(turn.reply);
+      const keepExit = ownExit && roleplayEndAllowed(progress, words);
+      const replyNow = ownExit && !keepExit ? withoutOwnExit(turn.reply) : turn.reply;
+      if (ownExit && !keepExit) {
+        roleplayLine = replyNow || "What else can I help you with?";
+        endRefused = true;
       }
       const signal = turn.source === "model" ? update : null;
+      // Their own "role play" ask starts it (roleplayMove), whatever her state said.
+      // The listener heard them step out of the role-play: it ends on this reply.
+      // So does an end she signalled last reply, held back by her own question,
+      // and the patient signing off (the owner ending it in character).
+      // Not ahead of a question she still had to ask first (their role), which the opener would bury.
+      const startsNow = move === "start" && turn.source === "model" && (stageBefore === "pitch" || Boolean(progress.answers.role)) && (!endsOnQuestion(turn.reply) || handsOver(turn.reply) || RING_RING.test(turn.reply));
+      const rpSignal =
+        startsNow
+          ? "start"
+          : (signal?.roleplay ?? (stageBefore === "roleplay" && (progress.rpOut || progress.rpEndPending || PATIENT_BYE.test(words.trim())) ? "end" : null));
       this.demoStage = nextDemoStage(
         stageBefore,
-        turn.reply,
+        replyNow,
         {
           asked: update?.asked ?? null,
-          // The listener heard them step out of the role-play: it ends on this reply.
-          // So does an end she signalled last reply, held back by her own question.
-          roleplay: signal?.roleplay ?? (stageBefore === "roleplay" && (progress.rpOut || progress.rpEndPending) ? "end" : null),
+          roleplay: rpSignal,
           resume: update?.resume === true && Boolean(progress.lastRoleplay),
           // A buying signal in the intro moves the call on to the value and the close.
           buying: progress.buying === true || update?.buying === true,
@@ -1747,17 +1865,25 @@ export class RetellCallSession {
       );
       this.demoProgress = afterDemoReply(progress, stageBefore, this.demoStage, update, words);
       // An end she signalled while asking in character waits for the answer, then ends on the next reply.
-      if (stageBefore === "roleplay" && this.demoStage === "roleplay" && signal?.roleplay === "end") this.demoProgress = { ...this.demoProgress, rpEndPending: true };
+      if (stageBefore === "roleplay" && this.demoStage === "roleplay" && rpSignal === "end") this.demoProgress = { ...this.demoProgress, rpEndPending: true };
       // The scripted lines, word for word, by the call: the opener carries the
       // AI notice the owner is meant to hear, and the exit line comes only
-      // after a role-play that ran.
-      if (!roleplayLine && turn.source === "model") {
+      // after a role-play that ran, never after a cancel (c4093be6: "How can I
+      // help? And that's the role-play!" before the caller said a word). Read
+      // against what was actually said (`streamed`), so a greeting she began
+      // is never said twice.
+      const cancelled = stageBefore === "roleplay" && this.demoStage !== "roleplay" && signal?.roleplay === "cancel";
+      if (turn.source === "model" && (!roleplayLine || ownExit)) {
         if (stageBefore !== "roleplay" && this.demoStage === "roleplay" && !update?.resume) {
-          roleplayLine = withRoleplayOpener(turn.reply, demoRoleplayOpener(this.demoContext.clinic.clinicName), turn.spoken ?? "");
-        } else if (stageBefore === "roleplay" && this.demoStage === "pitch") {
-          roleplayLine = withRoleplayExit(turn.reply, turn.spoken ?? "");
+          roleplayLine = withRoleplayOpener(turn.reply, demoRoleplayOpener(this.demoContext.clinic.clinicName), streamed);
+        } else if (stageBefore === "roleplay" && this.demoStage !== "roleplay" && !cancelled) {
+          roleplayLine = withRoleplayExit(turn.reply, streamed);
+        } else if (cancelled && ownExit) {
+          roleplayLine = withoutOwnExit(turn.reply) || null;
         }
       }
+      // The setup discount said once, outside a role-play: never again (c4093be6).
+      if (stageBefore !== "roleplay" && DISCOUNT_SAID.test(roleplayLine ?? turn.reply)) this.demoProgress = { ...this.demoProgress, offerSaid: true };
       // A role-play offered again, outside one: counted, so the note stops offering it (0a45870b).
       if (stageBefore !== "roleplay" && this.demoStage !== "roleplay" && /role-?play/i.test(roleplayLine ?? turn.reply)) {
         this.demoProgress = { ...this.demoProgress, roleplayOffers: (this.demoProgress.roleplayOffers ?? 0) + 1 };
@@ -1776,6 +1902,22 @@ export class RetellCallSession {
       if (stageBefore === "roleplay" && this.demoStage === "pitch") {
         const inCharacter = turn.reply.split(/and that's the role-play/i)[0]!.trim() || ([...this.turns].reverse().find((t) => t.speaker === "assistant")?.text ?? "");
         this.demoProgress = { ...this.demoProgress, lastRoleplay: { caller: words.slice(0, 200), aya: inCharacter.slice(0, 200) } };
+      }
+      // In the role-play, the booking's last word is the code's (roleplayCheckedReply, c4093be6):
+      // a treatment on the menu that they or she named is on file even when her state forgot it,
+      // and no request is said to be in, or a cancelled one pending, before it may be.
+      if (stageBefore === "roleplay" && this.demoStage === "roleplay" && !turn.urgent && (turn.source === "model" || turn.source === "guard")) {
+        const booking = this.demoProgress.rpBooking ?? {};
+        const named = booking.service ? null : listedIn(`${words} ${turn.reply}`, this.demoContext.clinic.services.map((svc) => svc.name))[0];
+        if (named) this.demoProgress = { ...this.demoProgress, rpBooking: { ...booking, service: named } };
+        // healdesk's words caught midway (demoRoleplayFacts): the reply ends on what was said, with no guard line after a real answer.
+        // Refused before a word was said: what a front desk says to what it does not know.
+        const neverSaid = turn.source === "guard" && turn.guard === "never_say" && !roleplayLine;
+        const heardNow = neverSaid ? (streamed || ROLEPLAY_UNKNOWN_LINE) : (roleplayLine ?? turn.reply);
+        const checked = roleplayCheckedReply(heardNow, this.demoProgress.rpBooking, { guard: turn.source === "guard" ? (turn.guard ?? null) : null, spokenBefore: streamed, endRefused });
+        // Words already out stand: what replaces the guard's line follows them.
+        if (checked !== (roleplayLine ?? turn.reply)) roleplayLine = streamed && !checked.startsWith(streamed) ? `${streamed} ${checked}` : checked;
+        else if (neverSaid) roleplayLine = heardNow;
       }
       // A call back, only in the turn that takes it and only from her state:
       // sent to apps/web, and the caller told the team has it only once it
@@ -1926,7 +2068,9 @@ export class RetellCallSession {
     if (transferTo) this.closing = true;
     // Spoken as it was written: only what is left goes now, after the
     // acknowledgement and the sentences already sent (turn.ts, `spoken`).
-    const already = turn.spoken && reply.startsWith(turn.spoken) ? turn.spoken : "";
+    // What actually went out (`streamed`), not what the turn wrote: a held
+    // "Ring ring" or exit line was never said, and is said now if it stands.
+    const already = streamed && reply.startsWith(streamed) ? streamed : "";
     this.say(responseId, already ? reply.slice(already.length).trim() : reply, {
       endCall: ends && !transferTo,
       transferTo,

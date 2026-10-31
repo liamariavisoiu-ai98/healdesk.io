@@ -24,7 +24,7 @@ import {
   type ToolTurn,
 } from "./booking-tools";
 import type { AssistantChannel, AssistantFacts } from "./facts";
-import { cardNumberIn, guardAssistantReply, guardedLine, movingOnLine, type GuardRefusal } from "./guard";
+import { cardNumberIn, guardAssistantReply, guardedLine, movingOnLine, routedAgainLine, routingProvider, type GuardRefusal } from "./guard";
 import { assistantTurnContext, buildAssistantPrompt, SPOKEN_END } from "./prompt";
 import { isModelRefusal, type AssistantMessage, type AssistantResponder } from "./responder";
 
@@ -429,6 +429,19 @@ export function spokenOnly(text: string): string {
   return at < 0 ? text : text.slice(0, at).replace(/[\s,:;"'-]+$/, "");
 }
 
+/**
+ * A full stop that ends an abbreviation, not a sentence: a title ("Dr.",
+ * "Mrs."), an address word ("St.", "Ste.", "Rd."), "No." before a number,
+ * "a.m."/"p.m.", "e.g."/"i.e.", "vs." and a single initial ("J."). A
+ * sentence that really ends on one ("...on Red Rd.") is only held a little
+ * longer and said with the next.
+ */
+const ABBREVIATION = /(?:^|[\s(])(?:dr|mr|mrs|ms|mx|prof|st|ste|rd|ave|blvd|no|jr|sr|vs|approx|dept|apt)\.$|(?:^|\s)(?:[ap]\.m|e\.g|i\.e)\.$|(?:^|\s)[A-Z]\.$/i;
+
+export function endsWithAbbreviation(text: string): boolean {
+  return ABBREVIATION.test(text);
+}
+
 /** Words a spoken piece needs before it goes out on its own: shorter ones ("Sure!") wait for the next; "Yep, we do!" goes. */
 const MIN_SPOKEN_WORDS = 3;
 
@@ -481,7 +494,12 @@ export class SpokenStream {
     const words = this.text.replace(/#+$/, "");
     const pending = words.slice(this.consumed);
     let cut = -1;
-    for (const m of pending.matchAll(/[.!?…]["'’”)\]]*(?=\s)/g)) cut = m.index! + m[0].length;
+    for (const m of pending.matchAll(/[.!?…]["'’”)\]]*(?=\s)/g)) {
+      // "Dr. Patel" is one name, not two sentences (demo call c4093be6: "that's
+      // a question for Dr." was said alone, and the rest of the reply lost).
+      if (m[0] === "." && endsWithAbbreviation(pending.slice(0, m.index! + 1))) continue;
+      cut = m.index! + m[0].length;
+    }
     if (cut > 0) {
       this.emit(pending.slice(0, cut));
       this.consumed += cut;
@@ -720,9 +738,9 @@ const LEADING_APOLOGY = /^(?:(?:oh|ah|aw+),?\s+)?(?:i'?m\s+)?(?:so\s+|really\s+)
  */
 export function shapeVoiceReply(
   text: string,
-  options: { name: string | null; nameUses: number; apologised: boolean; first: boolean; noSignOff: boolean; oneQuestion?: boolean; askedAlready?: boolean; keepQuestions?: readonly string[] },
+  options: { name: string | null; nameUses: number; apologised: boolean; first: boolean; noSignOff: boolean; oneQuestion?: boolean; askedAlready?: boolean; keepQuestions?: readonly string[]; drop?: RegExp | null },
 ): string {
-  let out = sentencesOf(text).filter((sentence) => !(options.noSignOff && /\btalk soon\b/i.test(sentence)));
+  let out = sentencesOf(text).filter((sentence) => !(options.noSignOff && /\btalk soon\b/i.test(sentence)) && !options.drop?.test(sentence));
   if (options.oneQuestion) {
     let asked = options.askedAlready === true;
     out = out.filter((sentence) => {
@@ -773,9 +791,44 @@ function guardLineFor(
   language: "en" | "es",
   channel: AssistantChannel,
   history: readonly TranscriptTurn[],
+  providerNames?: readonly string[] | null,
 ): string {
   if (reason === "price" && channel === "voice" && SAID_A_PRICE.test(lastAssistantLine(history) ?? "")) return PRICE_LINE_AFTER_QUOTE[language];
-  return guardedLine(reason, clinicName, language, channel === "voice");
+  return guardedLine(reason, clinicName, language, channel === "voice", routingProvider(providerNames));
+}
+
+/**
+ * The providers a refusal may name (guard.ts, routingProvider): on a demo
+ * call only, for now (demo call c4093be6). A clinic's own calls and chats
+ * keep the fixed lines the safety suite pins, until the owner decides those
+ * name the provider too.
+ */
+function routedTo(facts: Pick<AssistantFacts, "providerNames"> & Partial<Pick<AssistantFacts, "demoCall">>): readonly string[] | null {
+  return facts.demoCall === true ? (facts.providerNames ?? null) : null;
+}
+
+/** An answer to the offer ("Yes, please", "Sure"): the loop the hand-over is for. */
+const ASSENT = /^\W*(?:yes|yeah|yep|yup|sure|ok(?:ay)?|please|go ahead|sounds good|that'?d be great|that would be great|absolutely|definitely|s[ií]|claro|por favor)\b/i;
+
+/**
+ * The provider's line in other words, when the same clinical or price
+ * question is asked again rather than the offer answered (routedAgainLine);
+ * null when it was answered, or when that line was itself the last thing
+ * said: the turn then hands over, as before.
+ */
+function routedAskedAgain(
+  reason: GuardRefusal,
+  facts: Pick<AssistantFacts, "providerNames"> & Partial<Pick<AssistantFacts, "demoCall">>,
+  personText: string,
+  language: "en" | "es",
+  channel: AssistantChannel,
+  history: readonly TranscriptTurn[],
+): string | null {
+  if (ASSENT.test(personText)) return null;
+  const names = routedTo(facts);
+  if (!names) return null;
+  const again = routedAgainLine(reason, names, language, channel === "voice");
+  return again && !saidLast(history, again) ? again : null;
 }
 
 /** Whether `line` is the last thing said, alone or after an acknowledgement. */
@@ -890,7 +943,17 @@ const REPEAT_MIN_WORDS = 3;
 /** Words a sentence from earlier in the call needs to count: "Anything else I can help with?" (six) may come back, a whole answer may not. */
 const EARLIER_REPEAT_MIN_WORDS = 7;
 
-const sentencesOf = (text: string): string[] => text.split(/(?<=[.!?…]["'’”)\]]*)\s+/).filter((s) => s.trim());
+const sentencesOf = (text: string): string[] =>
+  text
+    .split(/(?<=[.!?…]["'’”)\]]*)\s+/)
+    .filter((s) => s.trim())
+    // "Dr." ends no sentence: its piece goes back with the name after it (endsWithAbbreviation).
+    .reduce<string[]>((out, piece) => {
+      const last = out.at(-1);
+      if (last !== undefined && endsWithAbbreviation(last)) out[out.length - 1] = `${last} ${piece}`;
+      else out.push(piece);
+      return out;
+    }, []);
 const sameWords = (sentence: string): string =>
   sentence.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").replace(/\s+/g, " ").trim();
 
@@ -1017,6 +1080,12 @@ export async function answerTurn(input: {
    * scripted lines whose questions always stay (the call-back offer asks two).
    */
   oneQuestion?: { keep: readonly string[] } | null;
+  /**
+   * On a call, sentences matching this are left out of what is said
+   * (shapeVoiceReply), as words only ever are: a fact said once a call and
+   * never again (a demo's setup discount once it was said; retell.ts).
+   */
+  dropSentences?: RegExp | null;
   /** This is the one second try after a refusal (answerAgain); never set by a caller. */
   retried?: boolean;
   /**
@@ -1152,6 +1221,7 @@ export async function answerTurn(input: {
           oneQuestion: Boolean(input.oneQuestion),
           keepQuestions: input.oneQuestion?.keep,
           askedAlready: spoken.some((line) => line.includes("?")),
+          drop: input.dropSentences ?? null,
         })
       : text;
   const stream =
@@ -1243,13 +1313,15 @@ export async function answerTurn(input: {
     const reason: GuardRefusal | null = refusedMidway ?? (restVerdict && !restVerdict.ok ? restVerdict.reason : null);
     if (reason && (reason === "price" || input.softRefusal) && spoken.length === 0 && channel === "voice" && !input.retried) return answerAgain(input, reason);
     if (reason && spoken.length === 0 && !input.softRefusal) {
-      const line = guardLineFor(reason, facts.clinicName, language === "es" ? "es" : "en", channel, input.history);
+      const line = guardLineFor(reason, facts.clinicName, language === "es" ? "es" : "en", channel, input.history, routedTo(facts));
       if (saidLast(input.history, line)) {
+        const again = routedAskedAgain(reason, facts, personText, language === "es" ? "es" : "en", channel, input.history);
+        if (again) return { ...base, toolsLive, capture: merged, reply: again, source: "guard", guard: reason };
         return { ...base, toolsLive, capture: merged, handoff: true, reply: movingOnLine(facts.clinicName, language === "es" ? "es" : "en", channel === "voice"), source: "guard", guard: reason };
       }
     }
     const tail = reason
-      ? (softLine(input, spoken.length > 0) ?? guardLineFor(reason, facts.clinicName, language === "es" ? "es" : "en", channel, input.history))
+      ? (softLine(input, spoken.length > 0) ?? guardLineFor(reason, facts.clinicName, language === "es" ? "es" : "en", channel, input.history, routedTo(facts)))
       : (rest ?? "");
     const reply = [saidSoFar(), tail].filter(Boolean).join(" ");
     // The guard read each sentence alone; read the whole once more, so a rule
@@ -1317,11 +1389,13 @@ export async function answerTurn(input: {
     const said = messageLanguage(replyText, { knownTerms: languageTerms(facts) });
     const spanish =
       language === "es" || said === "es" || (said === "other" && messageLanguage(personText, { knownTerms: languageTerms(facts) }) === "es");
-    const line = guardLineFor(verdict.reason, facts.clinicName, spanish ? "es" : "en", channel, input.history);
+    const line = guardLineFor(verdict.reason, facts.clinicName, spanish ? "es" : "en", channel, input.history, routedTo(facts));
     // The same refusal as the last thing said: the person answered it ("yes,
     // please") and the model's next try was refused again. Saying it a third
     // time is a loop (test call of 23 October 2026), so the turn hands over.
     if (saidLast(input.history, line)) {
+      const again = routedAskedAgain(verdict.reason, facts, personText, spanish ? "es" : "en", channel, input.history);
+      if (again) return { ...live, capture: merged, handoff: answer.handoff, reply: again, source: "guard", guard: verdict.reason };
       return { ...live, capture: merged, handoff: true, reply: movingOnLine(facts.clinicName, spanish ? "es" : "en", channel === "voice"), source: "guard", guard: verdict.reason };
     }
     return { ...live, capture: merged, handoff: answer.handoff, reply: line, source: "guard", guard: verdict.reason };

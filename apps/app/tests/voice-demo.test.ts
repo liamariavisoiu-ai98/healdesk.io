@@ -219,12 +219,13 @@ describe("a demo clinic's durations and time zone", () => {
 describe("a demo call's facts", () => {
   const facts = demoAssistantFacts(context());
 
-  test("come from the profile alone, with no clinic id, no number and no alert", () => {
+  test("come from the profile alone, with no clinic id, no number to put a call through to and no alert", () => {
     expect(facts.clinicId).toBe("demo:lumen-aesthetics-austin");
     expect(facts.clinicName).toBe("Lumen Aesthetics");
     expect(facts.specialty).toBe("med-spa");
     expect(facts.timeZone).toBe("America/Chicago");
-    expect([facts.phone, facts.assistantNumber, facts.urgentPhone, facts.vetReferralPhone, facts.directLine]).toEqual([null, null, null, null, null]);
+    // The practice's published number is the one an urgent reply reads out (c4093be6), never a line to put the call through to.
+    expect([facts.phone, facts.assistantNumber, facts.urgentPhone, facts.vetReferralPhone, facts.directLine]).toEqual([null, null, "+15125550100", null, null]);
     expect(facts.urgentAlertsReady).toBe(false);
     expect(facts.hours).toEqual(["Mon-Fri: 9am-6pm"]);
     expect(facts.services).toEqual([
@@ -397,13 +398,18 @@ describe("a demo call's facts", () => {
     expect(chose).toMatch(/never mention a website, scraping or how you learned anything/);
   });
 
-  test("the role-play note is brisk, takes a request in few questions, wraps up on its own and never ends the call", () => {
+  test("the role-play note is brisk, takes a request with its name and number, ends only when they end it and never ends the call", () => {
     const note = demoStageNote(context(), "roleplay", Date.now());
     expect(note).toContain("Role-play: you are healdesk's Aya, playing Lumen's front desk to show Sam");
     expect(note).toContain("Every reply is at most one short sentence of reaction, and often none, then one short sentence of content");
-    expect(note).toContain("ask only for the treatment and a preferred day and time");
-    expect(note).toContain("Still needed: the treatment and a preferred day and time");
+    // c4093be6: the request "passed to the team" with no name or number.
+    expect(note).toContain("you need four things, asked one at a time: the treatment, a day and time, their first name, and the best number to reach them");
+    expect(note).toContain("Still needed before the request goes in: treatment, day and time, first name, number");
     expect(note).toContain("never a figure they said");
+    // c4093be6: she ended the role-play herself while the patient was moving their booking.
+    expect(note).toContain("The role-play ends only when they end it");
+    expect(note).toContain("Never wrap it up or say goodbye on your own");
+    expect(note).not.toContain("As soon as the request is taken");
     expect(note).toContain('add "roleplay": "end" to the state; the call then steps out of character itself with "And that\'s the role-play! So, how was that?"');
     expect(note).toContain('add "roleplay": "cancel"');
     expect(note).toContain('Never set "end" to true during the role-play');
@@ -413,7 +419,7 @@ describe("a demo call's facts", () => {
     // A pushback on a price just quoted is about that price.
     expect(note).toContain("the pushback is about that price");
     expect(note).toContain('Never answer it with "I don\'t have a price for that one": you just gave one.');
-    // After four of the caller's turns, one exchange resolves where it stands (an objection answered, the request offered), then it wraps.
+    // Past the ceiling (a guard against a stuck role-play, never the way it ends), one exchange resolves where it stands, then it wraps.
     const long = demoStageNote(context(), "roleplay", Date.now(), { asked: null, answers: {}, roleplayTurns: ROLEPLAY_MAX_TURNS, said: [] });
     expect(long).toContain("The role-play has run long enough: resolve where it stands in this reply");
     expect(long).toContain('offer to take the booking request ("Want me to put that request in for you?"); the next reply then wraps up');
@@ -649,11 +655,12 @@ describe("a demo call's facts", () => {
     expect(demoStageNote(context({ offer }), "pitch", now, covered)).toContain('"Want to get Lumen set up?"');
   });
 
-  test("twice refused after the role-play: a person who lost the thread, then the next question, never the clinicians' line", () => {
+  test("twice refused after the role-play: an honest skip, then the next question, never the clinicians' line", () => {
     const at = (answers: DemoProgress["answers"]) => demoRecovery(context(), { asked: null, answers, roleplayTurns: 0, said: [] });
+    // An honest skip and a real question, never filler (c4093be6: "Anyway, where were we?" in place of ten answers).
     expect(at({ goal: "x", volume: "Five" })).toEqual({
-      line: "Sorry, I lost my train of thought for a second there. You said 5 calls a day, so would it be fair to say about 25 calls a week?",
-      alternate: "Let me put that another way. You said 5 calls a day, so would it be fair to say about 25 calls a week?",
+      line: "I'll skip that one. You said 5 calls a day, so would it be fair to say about 25 calls a week?",
+      alternate: "Let me not guess at that one. You said 5 calls a day, so would it be fair to say about 25 calls a week?",
       bridge: "So would it be fair to say about 25 calls a week?",
       asks: "volumeCheck",
     });
@@ -954,14 +961,14 @@ describe("a demo call on the voice engine", () => {
     await s.open();
     await s.handle(details({ retell_llm_dynamic_variables: { demo_context: sealed() } }));
     await vi.waitFor(() => expect(raw()).toHaveLength(1));
-    const words = ["yes it's me", "I'm the owner", "whatever is best", "hi, what do you have", "a HydraFacial", "Friday", "morning please", "pretty good", "we miss calls when we're busy", "Five."];
+    const words = ["yes it's me", "I'm the owner", "whatever is best", "hi, what do you have", "a HydraFacial", "Friday", "morning please, that's all, thanks", "pretty good", "we miss calls when we're busy", "Five."];
     for (const [i, text] of words.entries()) {
       await s.handle(said(i + 1, [{ role: "agent", content: heard().at(-1)!.content }, { role: "user", content: text }]));
     }
     // The role, once said, is known and never asked again.
     expect(seen[1]).toContain('- their role: "I\'m the owner"');
     expect(seen[1]).not.toContain("Next: greet them by name");
-    // Four of the patient's turns is no longer a wrap-up (step 4): the role-play ends on her own goodbye.
+    // Four of the patient's turns is no longer a wrap-up (step 4): the role-play ends when the patient signs off (c4093be6).
     expect(seen[5]).not.toContain("run long enough");
     expect(seen[6]).not.toContain("run long enough");
     // After it, discovery first, and "Five" is kept: never "how many calls" again.

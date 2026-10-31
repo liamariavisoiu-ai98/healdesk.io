@@ -70,7 +70,7 @@ Tech Provider, Meta deposit links) follow as separate go-lives.
 | **Meta bot (Instagram, Messenger, WhatsApp)** | Webhook, connect flows, 24-hour window in the adapter, clinical screen, never-say list; takes booking requests only (`lib/meta/front-door.ts`) | `qa:meta` 13/13 once on 22 Oct (one sample) | DONE-UNVERIFIED | No deposit link on Meta (promised, blocking); WhatsApp embedded signup is off (`meta_whatsapp_config_id = ""`, needs Tech Provider); App Review not evidenced; Meta policy risk (section 6) |
 | **Clinic portal and wizard** | Home, Settings, Knowledge, Conversations, Bookings, Billing, Setup, step-up and passkeys under `apps/app/src/app/c/[slug]` | Nobody outside tests has signed in as a clinic | DONE-UNVERIFIED | A full synthetic clinic run in production |
 | **Checkout, billing, Stripe** | Checkout, agreement signing, Sheet records, provisioning on first paid invoice, overage, dunning | No live purchase | DONE-UNVERIFIED | `stripe:setup` never run with a live key (`docs/handover.md`); live webhook endpoint unknown; `STRIPE_PAYMENT_METHOD_CONFIGURATION` (your step); `STRIPE_CONNECT_CLIENT_ID` empty, so no clinic can connect a deposit gateway |
-| **Booking (Google Calendar)** | Engine, 60-second holds, idempotent writes, manual mode, closures; wired into calls and web chat (`lib/assistant/booking-tools.ts`) | No | DONE-UNVERIFIED, switched off | Direct booking is offered only when the switch, counsel's addendum and a live calendar all allow; until then every channel takes requests for staff. Google OAuth verification not submitted (consent screenshot "not yet") |
+| **Booking (Google Calendar)** | Engine, 60-second holds, idempotent writes, manual mode, closures; wired into calls and web chat (`lib/assistant/booking-tools.ts`) | No | DONE-UNVERIFIED, switched off | Direct booking is offered only when the switch, counsel's addendum and a live calendar all allow; until then every channel takes requests for staff. Google OAuth verification not submitted (status: `docs/google-verification/STATUS.md`) |
 | **Deposits** | Stripe Checkout on the clinic's connected account, web chat sends after a booking | No | DONE-UNVERIFIED, off | Depends on direct booking and on Stripe Connect; nothing on Meta |
 | **Support system** | Portal support chat, cases, drafter, approval inbox, inbound mail on SES (applied, subscribed), Slack approvals (deployed, off) | `/api/webhooks/inbound-mail` answers as configured; no case seen end to end | DONE-UNVERIFIED | Your mailbox forwarding, the Slack app and its five parameters (still `__unset__`), the `support-*` jobs switched on |
 | **Ops console (`/admin` on Vercel)** | Clinics, Jobs, Inbox and Approvals, Compliance, Incidents, Rights, Recordings, Map, SEO | Deployed; Claude cannot sign in to check | DONE-UNVERIFIED | Nobody has opened the newest screens since Phases 6 and 7 |
@@ -217,7 +217,7 @@ Legal pages carry an AI review, not a lawyer's.
 
 **Accounts and approvals**
 - [ ] Meta App Review submission; WhatsApp Tech Provider access verification, then the WhatsApp login configuration id; WhatsApp payment method for each clinic's account.
-- [ ] Google OAuth verification (the consent-screen screenshot is still to take).
+- [ ] Google OAuth verification: the demo video and the submission are left (`docs/google-verification/STATUS.md`).
 - [ ] Retell: the workspace key that holds the product agents; confirm outage mode; numbers for the first clinic.
 - [ ] Independent security assessment.
 

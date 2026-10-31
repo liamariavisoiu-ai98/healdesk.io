@@ -1,5 +1,10 @@
 # Google OAuth verification: screenshots
 
+> **Not needed for the submission** (31 October 2026): Google's form asks for
+> the video and the written reason, not screenshots. These shots are the
+> video's storyboard and our own record; 02 and 07 are optional. Status:
+> [STATUS.md](./STATUS.md). How to submit: [SUBMISSION.md](./SUBMISSION.md).
+
 Seven screenshots for Google's review of healdesk's Calendar connection, in the
 order a practice meets them: the button that starts the sign-in, Google's
 consent screen, choosing the calendar, the connected state, the free times

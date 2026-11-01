@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { ContinueButton } from "@/app/sign-in/ContinueButton";
 import { SignInShell } from "@/app/sign-in/shell";
 import { CardBadge, CardLede, CardTitle, PRIMARY_BUTTON } from "@/app/sign-in/ui";
 import { auth } from "@/lib/auth";
@@ -17,7 +18,6 @@ import {
 import { markPayingBrowser } from "@/lib/sign-in/paying-browser";
 
 import { AutoSubmit } from "./AutoSubmit";
-import { ContinueButton } from "./ContinueButton";
 
 export const metadata: Metadata = {
   title: "Sign in to healdesk",

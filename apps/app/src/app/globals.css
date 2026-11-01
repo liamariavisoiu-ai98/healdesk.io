@@ -570,6 +570,13 @@
     box-shadow: inset 0 0 0 1px rgb(230 38 39 / 0.12);
     color: var(--color-red-deep);
   }
+  /* Good news (a payment received): the portal's success pair, mint with the
+     forest green that "Done ✓" uses as text. */
+  .si-badge-done {
+    background: radial-gradient(circle at 30% 25%, #f6fcf2, var(--color-tint-mint) 70%);
+    box-shadow: inset 0 0 0 1px rgb(45 106 79 / 0.16);
+    color: var(--color-green);
+  }
 }
 
 /* The sign-in pages' motion, each of it once and then still, like everything

@@ -66,6 +66,16 @@ export type AssistantFacts = {
   vetReferralPhone: string | null;
   /** The direct line: a number that reaches a person and never forwards back to us. */
   directLine: string | null;
+  /**
+   * Where a call is put through when the caller asks for a person (the
+   * spec's "Transfer live calls", Settings › Alerts): the transfer number,
+   * else the direct line, only while the clinic's switch is on; null when it
+   * is off. Whether the practice is open at that moment, and whether the
+   * line loops back to us, is decided on the call (voice/retell.ts,
+   * liveTransferLine), which also takes it out of the prompt while closed.
+   * Absent counts as off.
+   */
+  transferLine?: string | null;
   address: string | null;
   /** Weekly hours, one line a day, in the clinic's own zone. */
   hours: string[];
@@ -229,6 +239,7 @@ export async function assistantFacts(
     }),
     vetReferralPhone: settings.vetReferralE164,
     directLine: settings.directLineE164,
+    transferLine: settings.transferLiveCalls ? (settings.transferE164 ?? settings.directLineE164) : null,
     address: clinic.address,
     hours: hoursLines(clinic.openingHours),
     openingHours: clinic.openingHours ?? null,

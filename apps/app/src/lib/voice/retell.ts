@@ -10,7 +10,7 @@ import { assistantFacts, type AssistantFacts } from "@/lib/assistant/facts";
 import { buildAssistantPrompt, SPOKEN_END } from "@/lib/assistant/prompt";
 import { checkMenu } from "@/lib/assistant/menu-check";
 import { openingLine } from "@/lib/assistant/opening";
-import { answerTurn, EMPTY_CAPTURE, failureLine, languageTerms, spokenOnly, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
+import { answerTurn, EMPTY_CAPTURE, failureLine, languageTerms, openNow, spokenOnly, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
 import { assistantFallbackRefused, patientDataRefused, voiceAnswerDecision, type AnswerDecision } from "@/lib/billing/answering";
 import {
   noteResolved,
@@ -1076,6 +1076,22 @@ export class RetellCallSession {
     return this.usable(line);
   }
 
+  /**
+   * Where a caller who asks for a person is put through right now (the
+   * spec's "Transfer live calls": "during opening hours"): the clinic's
+   * transfer number, else its direct line (facts.transferLine, null while the
+   * switch is off), only while the practice's own hours and closed days say
+   * it is open (openNow true; unknown hours do not count), and only if the
+   * line is usable: never the number the call came in on, the published
+   * number or AYA's own. Never on a demo call. Null means she takes their
+   * details for a call back, as before.
+   */
+  private liveTransferLine(facts: AssistantFacts): string | null {
+    if (this.deps.demo || this.demoContext || !facts.transferLine) return null;
+    if (openNow(facts, this.now()) !== true) return null;
+    return this.usable(facts.transferLine);
+  }
+
   /** The request kept while the start was found, if it is still the newest and has words to answer. */
   private keptRequest(): RetellEvent | null {
     const kept = this.pendingStart;
@@ -1588,9 +1604,13 @@ export class RetellCallSession {
       ...(afterStall ? [afterStallNote(language.language)] : []),
       ...(jump ? [ANTICIPATE_NOTE] : []),
     ];
+    // Transfer live calls: where a request for a person goes on this turn,
+    // and the prompt says so only while it would (prompt.ts, LIVE_TRANSFER).
+    const liveTransfer = this.liveTransferLine(facts);
+    const turnFacts = liveTransfer || !facts.transferLine ? facts : { ...facts, transferLine: null };
     const turn = await answerTurn({
       // A demo: the clinic's own facts, with healdesk's words on its never-say list (c4093be6).
-      facts: this.demoContext ? demoRoleplayFacts(facts) : facts,
+      facts: this.demoContext ? demoRoleplayFacts(turnFacts) : turnFacts,
       channel: "voice",
       acknowledge: acknowledgeable
         ? {
@@ -1689,6 +1709,12 @@ export class RetellCallSession {
     this.capture = turn.capture;
     this.toolState = turn.toolState;
     this.handoff ||= turn.handoff;
+    // The caller asked for a person while Transfer live calls is on and the
+    // practice is open: the call is put through with the fixed transfer line,
+    // in place of whatever she wrote, and no call-back alert is raised (they
+    // reach the team now). Never ahead of an urgent reply, which has its own
+    // transfer, nor on a reply that failed.
+    const handoffTo = turn.handoff && !turn.urgent && turn.source !== "fallback" ? liveTransfer : null;
     // A demo's stage moves on only with an answer that is said. A goodbye
     // inside the role-play, its "patient" signing off included, never ends
     // the call: the pitch comes after it.
@@ -1772,7 +1798,7 @@ export class RetellCallSession {
     // L11: the caller asked for a person. Once per call, and not after an
     // urgent alert, which already has the clinic looking at it. Kept for
     // Bookings' Needs you as well as alerted (lib/handovers/record.ts).
-    if (turn.handoff && !this.handoverAlerted && !this.urgent && !this.deps.demo) {
+    if (turn.handoff && !handoffTo && !this.handoverAlerted && !this.urgent && !this.deps.demo) {
       this.handoverAlerted = true;
       try {
         await withDeadline(
@@ -1796,7 +1822,7 @@ export class RetellCallSession {
     const said = this.turns.filter((t) => t.speaker === "assistant").map((t) => t.text);
     const pick = this.deps.random ?? Math.random;
     const guardStall = stallOpen && !roleplayLine && turn.source === "guard" && !turn.spoken && !turn.handoff && turn.guard !== undefined && STALL_REASONS.has(turn.guard);
-    const ownStall = stallOpen && turn.source === "model" && turn.state?.stall === true && isStallReply(turn.reply);
+    const ownStall = stallOpen && !handoffTo && turn.source === "model" && turn.state?.stall === true && isStallReply(turn.reply);
     if (guardStall || ownStall) {
       if (guardStall) stallLine = pickUnsaid(STALL_LINES[language.language], said, pick);
       this.stalled = true;
@@ -1811,7 +1837,7 @@ export class RetellCallSession {
       // A late start answering the caller's words: her first reply is the answer's start.
       this.answerStartedAt ??= this.now();
     }
-    let reply0 = stallLine ?? roleplayLine ?? (sorry ? `${sorry} ${turn.reply}` : turn.reply);
+    let reply0 = handoffTo ? this.lines.transfer : (stallLine ?? roleplayLine ?? (sorry ? `${sorry} ${turn.reply}` : turn.reply));
     // A demo's urgent reply: a word of sympathy, and the number as the clinical team's own (demoUrgentLine, a44374c9).
     if (this.demoContext && turn.urgent) reply0 = demoUrgentLine(reply0);
     if (turn.source === "fallback") {
@@ -1847,7 +1873,7 @@ export class RetellCallSession {
     // alert is not known to be queued, it must not say so either.
     let reply = turn.urgent && this.urgentUntold ? withoutTeamTold(reply0) : reply0;
     // A bare "hi" is always answered with a question (call-lines.ts): "Hi there!" alone left a silence, then "Still with me?".
-    if (!turn.urgent && turn.source !== "fallback") reply = withGreetingQuestion(words, reply);
+    if (!turn.urgent && !handoffTo && turn.source !== "fallback") reply = withGreetingQuestion(words, reply);
     // A call back after a cut-off call: the fixed welcome-back line, once,
     // before the first reply that is not urgent, after the opening line.
     // It says the team was told only while that is true (welcomeBackLine).
@@ -1870,9 +1896,11 @@ export class RetellCallSession {
       this.disclosurePlayedAt = this.now();
     }
     // An urgent turn at a practice with a line that reaches a person: the
-    // fixed reply ends "I'll put you through", and the call is.
-    const transferTo = turn.urgent ? (turn.transferTo ?? null) : null;
+    // fixed reply ends "I'll put you through", and the call is. A request
+    // for a person while Transfer live calls is on: the same (handoffTo).
+    const transferTo = turn.urgent ? (turn.transferTo ?? null) : handoffTo;
     if (transferTo) this.closing = true;
+    if (handoffTo) log.info("retell live transfer", { clinicId: this.clinicId, callId: this.callId });
     // Spoken as it was written: only what is left goes now, after the
     // acknowledgement and the sentences already sent (turn.ts, `spoken`).
     // What actually went out (`streamed`), not what the turn wrote: a held

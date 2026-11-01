@@ -58,11 +58,15 @@ export function BreakableEmail({ email }: { email: string }) {
   );
 }
 
-/** The round badge above a state's heading: a sent link, a link that no longer works. */
-export function CardBadge({ icon }: { icon: "mail" | "link" }) {
+/**
+ * The round badge above a state's heading: a sent link, a link that no longer
+ * works, a device to add, a payment received. `done` draws it in the portal's
+ * success pair (mint with the forest green, as "Done ✓" is) for good news.
+ */
+export function CardBadge({ icon, done = false }: { icon: "mail" | "link" | "device" | "check"; done?: boolean }) {
   return (
-    <div className="si-badge" aria-hidden="true">
-      {icon === "mail" ? <MailGlyph /> : <LinkGlyph />}
+    <div className={done ? "si-badge si-badge-done" : "si-badge"} aria-hidden="true">
+      {icon === "mail" ? <MailGlyph /> : icon === "link" ? <LinkGlyph /> : icon === "device" ? <DeviceGlyph /> : <CheckGlyph />}
     </div>
   );
 }
@@ -88,6 +92,23 @@ function MailGlyph() {
     <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="5.5" width="18" height="13" rx="2.5" />
       <path d="m3.8 7.2 7.1 5.3a1.8 1.8 0 0 0 2.2 0l7.1-5.3" />
+    </svg>
+  );
+}
+
+function DeviceGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="6.5" y="2.75" width="11" height="18.5" rx="2.5" />
+      <path d="M10.5 18h3" />
+    </svg>
+  );
+}
+
+function CheckGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m5 12.5 4.5 4.5L19 7.5" />
     </svg>
   );
 }

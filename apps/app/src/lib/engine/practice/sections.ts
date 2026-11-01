@@ -8,7 +8,7 @@ import type { PracticeSection } from "./types";
  */
 
 export type SectionWords = {
-  /** "Knowledge → Prices". */
+  /** "Your practice → Prices". */
   place: string;
   /** The screen and its anchor, under /c/<slug>/. */
   path: string;
@@ -20,49 +20,49 @@ export type SectionWords = {
 
 export const PRACTICE_SECTION_WORDS: Readonly<Record<PracticeSection, SectionWords>> = {
   practice: {
-    place: "Knowledge → Your practice",
+    place: "Your practice → Contact details",
     path: "knowledge#practice",
     one: "detail",
     many: "details",
-    name: "Your practice",
+    name: "Contact details",
   },
   prices: {
-    place: "Knowledge → Prices",
+    place: "Your practice → Prices",
     path: "knowledge#prices",
     one: "price",
     many: "prices",
     name: "Prices",
   },
   policies: {
-    place: "Knowledge → Policies",
+    place: "Your practice → Policies",
     path: "knowledge#policies",
     one: "policy",
     many: "policies",
     name: "Policies",
   },
   promotions: {
-    place: "Knowledge → Promotions",
+    place: "Your practice → Promotions",
     path: "knowledge#promotions",
     one: "line",
     many: "lines",
     name: "Promotions",
   },
   quick_answers: {
-    place: "Knowledge → Quick answers",
+    place: "Your practice → Quick answers",
     path: "knowledge#quick-answers",
     one: "answer",
     many: "answers",
     name: "Quick answers",
   },
   never_say: {
-    place: "Knowledge → Never say",
+    place: "Your practice → Never say",
     path: "knowledge#never-say",
     one: "phrase",
     many: "phrases",
     name: "Never say",
   },
   hours: {
-    place: "Knowledge → Hours",
+    place: "Your practice → Hours",
     path: "knowledge#hours",
     one: "line",
     many: "lines",

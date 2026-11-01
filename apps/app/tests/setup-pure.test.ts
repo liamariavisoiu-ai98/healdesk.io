@@ -756,7 +756,7 @@ describe("the build tracker", () => {
       "Being checked by our team; ready by Wednesday 7 October.",
     ]);
     expect(engine(run({ status: "failed", failedSection: "prices", failedCount: 2 }))[1]![1]).toBe(
-      "One thing to fix: 2 prices in Knowledge → Prices. Fix it there and she answers them again.",
+      "One thing to fix: 2 prices in Your practice → Prices. Fix it there and she answers them again.",
     );
     // Answers no longer set up: neither stage is done, whatever an earlier run said.
     expect(engine(run(), setupState()).map(([state]) => state)).toEqual(["not_done", "not_done"]);
@@ -1025,7 +1025,7 @@ describe("what skipping step 1 costs, from what is stored", () => {
         expect.arrayContaining(["your hours", "your most-asked question"]),
       );
       expect(skipCost(empty, "hours")).toBe(
-        "AYA isn't built until your hours are confirmed, so no channel can go live. You can confirm them later in Knowledge.",
+        "AYA isn't built until your hours are confirmed, so no channel can go live. You can confirm them later in Your practice.",
       );
       expect(skipCost(empty, "question")).toBe(
         "AYA isn't built until you add it, so no channel can go live. You can add it later from Setup.",
@@ -1036,7 +1036,7 @@ describe("what skipping step 1 costs, from what is stored", () => {
     const read = setupState({ clinic: { ...setupState().clinic, openingHours: hours } });
     expect(answersMissing(read)).toContain("your hours");
     expect(skipCost(read, "hours")).toBe(
-      "the hours we filled in stay unconfirmed, and AYA isn't built until your hours are confirmed, so no channel can go live. You can confirm them later in Knowledge.",
+      "the hours we filled in stay unconfirmed, and AYA isn't built until your hours are confirmed, so no channel can go live. You can confirm them later in Your practice.",
     );
     // Already answered: a skip on a revisit keeps what is there.
     const done = setupState({

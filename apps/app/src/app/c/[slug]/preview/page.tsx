@@ -82,7 +82,7 @@ export default async function PreviewPage({ params }: { params: Promise<{ slug: 
             Preview: nothing here reaches {shell.audience}, and nothing is booked.
           </p>
           <p className="text-muted mt-4">
-            Ask what your {shell.audience} ask. AYA answers from your Knowledge and Settings, with
+            Ask what your {shell.audience} ask. AYA answers from Your practice and Settings, with
             the line she opens every chat with. Please type made-up details, never a real{" "}
             {shell.audience === "clients" ? "client's" : "patient's"}. Nothing here is kept: leaving
             the page ends the conversation.

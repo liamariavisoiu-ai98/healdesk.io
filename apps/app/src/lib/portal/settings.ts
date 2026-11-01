@@ -393,7 +393,7 @@ async function write(
       const on = requireBoolean(value, key);
       await save({ mentionPromotions: on });
       return on
-        ? "Promotions on. AYA mentions what's in Knowledge → Promotions, on phone and website chat."
+        ? "Promotions on. AYA mentions what's in Your practice → Promotions, on phone and website chat."
         : "Promotions off. AYA won't mention your promotions.";
     }
 

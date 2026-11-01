@@ -341,7 +341,7 @@ export function TalkCard({ view }: { view: SettingsView }) {
             slug={view.slug}
             settingKey="mention_promotions"
             label="Mention promotions"
-            line="Whether AYA uses what you write in Knowledge → Promotions, on phone and website chat."
+            line="Whether AYA uses what you write in Your practice → Promotions, on phone and website chat."
             applies={view.applies.mention_promotions}
             initial={talk.mentionPromotions}
           />
@@ -456,7 +456,7 @@ export function PaymentsCard({
               href={`${sectionPath(view.slug, "knowledge")}#prices`}
               className="text-ink font-semibold underline"
             >
-              Set them in Knowledge → Prices
+              Set them in Your practice → Prices
             </a>
           ) : null}
         </p>

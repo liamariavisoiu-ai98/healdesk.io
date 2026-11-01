@@ -251,7 +251,32 @@ export type DemoProgress = {
   callerMaxWords?: number;
   /** How many turns the caller has taken, "which part?" included. */
   callerTurns?: number;
+  /** The times the call itself offered, newest last (roleplayTimeOffer): "Monday works" picks from them, and none is offered twice. */
+  offered?: readonly DemoSlot[];
+  /** Every time offered so far in the call, so "whatever you have" never hears the same list again (demo call a44374c9). */
+  offeredAll?: readonly DemoSlot[];
+  /** The booking was confirmed aloud (demoConfirmLine): never said again unless they ask what they are booked for. */
+  rpConfirmed?: boolean;
+  /** The day and time it was confirmed for: a move is confirmed again only to a different one. */
+  confirmedAt?: DemoSlot | null;
+  /** They said they are in a hurry ("running into a meeting", "fast as possible"): brisk from then on. */
+  hurried?: boolean;
+  /** They showed frustration ("repeating yourself", "frustrating"): one apology at most, and no "Glad that works!" to sarcasm. */
+  frustrated?: boolean;
+  /** A doctor they named who is not on the practice's list ("Dr. Smith"), this turn only. */
+  unknownDoctor?: string | null;
+  /** Their latest words asked what they are booked for ("what time was that?"): the booking may be said again. */
+  askedBooking?: boolean;
+  /** Their latest words show frustration, or sarcasm after it ("convenient."): this turn only. */
+  frustratedNow?: boolean;
+  /** She has apologised in this call: an apology on its own is never said again (a44374c9: three in a row). */
+  apologised?: boolean;
+  /** The offered time their latest words picked (slotPicked): it stands over a day or time her state gives. */
+  pickedSlot?: DemoSlot | null;
 };
+
+/** A time on a weekday, 0 Sunday to 6, in minutes after midnight. */
+export type DemoSlot = { day: number; minutes: number };
 
 export const DEMO_START_PROGRESS: DemoProgress = { asked: null, roleplayTurns: 0 };
 
@@ -276,12 +301,30 @@ export function withDemoAnswer(progress: DemoProgress, _stage: DemoStage, words:
     saidNo: SAID_NO.test(words.trim()),
     callerMaxWords: Math.max(progress.callerMaxWords ?? 0, words.trim().split(/\s+/).filter(Boolean).length),
     callerTurns: (progress.callerTurns ?? 0) + 1,
+    hurried: progress.hurried === true || HURRIED.test(words),
+    frustrated: progress.frustrated === true || FRUSTRATED.test(words),
+    frustratedNow: FRUSTRATED.test(words) || (progress.frustrated === true && SARCASM.test(words)),
+    unknownDoctor: null,
+    askedBooking: ASKED_BOOKING.test(words),
     ...roleplayHeard(progress, words),
   };
 }
 
+/** "I'm running into a meeting", "fast as possible", "I'm in a hurry": a caller short of time (a44374c9). */
+const HURRIED = /\b(?:in a (?:hurry|rush)|(?:running|heading|going) (?:in)?to (?:a |my )?(?:meeting|call|work)|(?:fast|quick|soon) as (?:possible|you can)|asap|quick(?:ly)? please|i(?:'m| am) (?:short on|pressed for) time|make it quick|don'?t have (?:much|a lot of) time)\b/i;
+
+/** "You're repeating yourself", "frustrating", "that's really bad": a caller who is fed up (a44374c9). */
+const FRUSTRATED = /\b(?:repeating yourself|you(?:'re| are) repeating|frustrat\w*|annoying|bothering|(?:that'?s|this is|it'?s) (?:really |so |quite )?(?:bad|terrible|awful|useless|ridiculous)|not convenient|a real (?:person|receptionist)|real receptionist|waste of (?:my )?time)\b/i;
+
+/** A one-word "convenient." or "great." after a complaint: sarcasm, never agreement (a44374c9). */
+const SARCASM = /^\W*(?:convenient|great|perfect|wonderful|awesome|fantastic|lovely|nice|sure)\W*$/i;
+
+/** "What time was that again?", "When is my appointment?": a question about the booking, which may then be said again. */
+const ASKED_BOOKING = /^\W*(?:what|sorry|pardon|huh|come again|say again)\W*$|\b(?:what|which|when)\b[^.?!]{0,30}\b(?:time|day|date|booked|booking|appointment)\b|\b(?:remind me|say (?:that|it) again|repeat (?:that|the time)|confirm(?:ed)?)\b|\b(?:am i|is it|is that) (?:booked|confirmed|set)\b/i;
+
 /** The progress once a reply is said: the booking details her state gave, a cancel the caller just asked for standing over a stale status. */
 export function afterDemoReply(progress: DemoProgress, _from: DemoStage, _to: DemoStage, update: DemoStateUpdate | null, callerWords = ""): DemoProgress {
+  const picked = progress.pickedSlot ?? null;
   return {
     ...progress,
     rpBooking: update?.booking
@@ -289,6 +332,12 @@ export function afterDemoReply(progress: DemoProgress, _from: DemoStage, _to: De
           ...progress.rpBooking,
           ...update.booking,
           ...(progress.rpBooking?.status === "cancelled" && CANCEL_ASK.test(callerWords) ? { status: "cancelled" as const } : {}),
+          // The time they picked from the call's offer is the code's, whatever her state says (a44374c9).
+          ...(picked ? { day: WEEKDAY_NAMES[picked.day], time: clock(picked.minutes) } : {}),
+          // A status her state gives never undoes the call's own: booked, or moved and waiting to be said.
+          ...(progress.rpBooking?.status === "booked" || progress.rpBooking?.status === "rescheduled"
+            ? { status: update.booking.status === "cancelled" ? ("cancelled" as const) : progress.rpBooking.status }
+            : {}),
         }
       : progress.rpBooking,
   };
@@ -314,6 +363,20 @@ export function demoStageNote(
   return [
     `You are Aya, ${clinic}'s AI receptionist, answering a caller. Everything above about the practice is yours to use. ${NAME_RULE}${clinic === full ? "" : ` Call the clinic "${clinic}": its full name was said once, in the opening line.`}`,
     ...confusedRule(progress),
+    ...(progress.hurried
+      ? [`They're in a hurry. Every reply is one short sentence with one question at most: no pleasantries, no description of the practice, no small talk, nothing they didn't ask for.`]
+      : []),
+    ...(progress.frustrated
+      ? [
+          `They're frustrated. Apologise at most once in the whole call (never if you already have), then fix what bothered them in one short sentence, or offer one concrete choice. Never repeat anything you have said, and never sum up the booking. A one-word "convenient", "great" or "perfect" after a complaint is sarcasm: never answer it with "Glad that works!".`,
+        ]
+      : []),
+    ...(progress.pickedSlot
+      ? [`They just picked ${nextDateOn(ctx, progress.pickedSlot.day)} at ${clock(progress.pickedSlot.minutes)}, from the times the call offered: that is the time, never another.`]
+      : []),
+    ...(progress.unknownDoctor
+      ? [`They asked for ${progress.unknownDoctor}, who is not on the team. Say so in a few words and name who is (${context.clinic.providers.map((p) => p.name).slice(0, 3).join(", ") || "the team"}), before anything else; never book them with someone they did not ask for without saying so.`]
+      : []),
     ...(progress.saidNo ? [`They just said no. Nothing is confirmed, requested or set up on that: never say it's all set or done. Take the no, and ask what they would like instead in a few words.`] : []),
     `Give a real answer to what they ask; if they are unsure what to book, name one or two treatments from the list that suit what they want (no price that is not on the list, and never a figure they said) and offer a consultation. Never read out more than two prices at once: give the lowest "from" price and offer to say more.`,
     `If they ask what a price per unit means, or what an area costs, say close to these words: "The price is per unit, and the total depends on the area, which ${provider ?? "the provider"} works out with you at a consultation. Want me to request one?" Never say what a unit is or how many anyone needs: the clinic's screen refuses it.`,
@@ -329,7 +392,7 @@ export function demoStageNote(
       : []),
     `If they push back on cost right after you quoted a price from the list, the pushback is about that price: acknowledge it in a few words, say plainly what it is for, and offer a consultation where the team can go through options. Never answer it with "I don't have a price for that one": you just gave one.`,
     `When they say goodbye, say a short, warm goodbye and set "end" to true.`,
-    `In the JSON details, add a "state" object: {"booking": {"service", "day", "time", "name", "phone", "status"} with whatever of these the caller has given so far for the booking, in their words, and "status": "requested" once you have told them the request is in}.`,
+    `In the JSON details, add a "state" object: {"booking": {"service", "day", "time", "name", "phone", "status"} with whatever of these the caller has given so far for the booking, in their words (the day as a weekday, the time as a clock time such as "4 PM"), and "status": "cancelled" or "rescheduled" only when they cancel it or move it}.`,
   ].join("\n");
 }
 
@@ -357,8 +420,8 @@ export type RoleplayBooking = {
   name?: string;
   /** The number to reach them on, in their words ("the one I'm calling from"). */
   phone?: string;
-  /** Where the request stands: put in, moved, or cancelled. */
-  status?: "requested" | "rescheduled" | "cancelled";
+  /** Where the request stands: put in, moved, cancelled, or booked by the demo's own calendar (demoConfirmLine). */
+  status?: "requested" | "rescheduled" | "cancelled" | "booked";
 };
 
 const BOOKING_STATUSES: ReadonlySet<string> = new Set(["requested", "rescheduled", "cancelled"]);
@@ -401,7 +464,7 @@ export function weekdayIn(words: string): number | null {
 }
 
 /** In a role-play, what the caller's words do to the booking in code: a cancel or a move, and the weekday they name. */
-function roleplayHeard(progress: DemoProgress, words: string): Pick<DemoProgress, "rpBooking" | "rpDay" | "rpTime"> {
+function roleplayHeard(progress: DemoProgress, words: string): Pick<DemoProgress, "rpBooking" | "rpDay" | "rpTime" | "pickedSlot"> {
   const booking = progress.rpBooking ?? {};
   const day = weekdayIn(words);
   const status = CANCEL_ASK.test(words) ? "cancelled" : MOVE_ASK.test(words) && booking.status !== "cancelled" && (booking.day || booking.time) ? "rescheduled" : booking.status;
@@ -411,11 +474,22 @@ function roleplayHeard(progress: DemoProgress, words: string): Pick<DemoProgress
   const said = words.trim().replace(/^(?:it'?s|my name is|my name'?s|this is|i'?m)\s+/i, "").replace(/[.!?]+$/, "");
   const name = !booking.name && /\bname\b/i.test(asked) && said && said.split(/\s+/).length <= 3 && !SAID_NO.test(words.trim()) ? said.slice(0, 60) : booking.name;
   const phone = !booking.phone && /\bnumber\b/i.test(asked) && said && !SAID_NO.test(words.trim()) ? said.slice(0, 60) : booking.phone;
-  const next: RoleplayBooking = { ...booking, ...(status ? { status } : {}), ...(name ? { name } : {}), ...(phone ? { phone } : {}) };
+  // "Monday works", "the second one", "5 PM", "yes": a time the call just offered, picked in code.
+  const slot = slotPicked(words, progress.offered ?? []);
+  const next: RoleplayBooking = {
+    ...booking,
+    ...(status ? { status } : {}),
+    ...(name ? { name } : {}),
+    ...(phone ? { phone } : {}),
+    ...(slot ? { day: WEEKDAY_NAMES[slot.day], time: clock(slot.minutes) } : {}),
+  };
+  // A booking confirmed and then moved is booked again only once the new time is said.
+  if (slot && booking.status === "booked") next.status = "rescheduled";
   return {
     rpBooking: next,
-    rpDay: day ?? progress.rpDay ?? null,
-    rpTime: requestedTime(words),
+    rpDay: slot ? slot.day : (day ?? progress.rpDay ?? null),
+    rpTime: slot ? null : requestedTime(words),
+    pickedSlot: slot,
   };
 }
 
@@ -471,7 +545,7 @@ export function listedIn(reply: string, menu: readonly string[]): string[] {
     .map((h) => h.name);
 }
 
-const NAME_RULE = `Your name is Aya: write it exactly "Aya", never "AYA" and never spelled out.`;
+const NAME_RULE = `Your name is Aya: write it exactly "Aya", never "AYA" and never spelled out. Never say the caller's first name yourself: the call says it once, when it confirms the booking.`;
 
 /** "I don't understand", in a row (test call 72dc66b7: the same price list twice, then the same line twice). */
 function confusedRule(progress: DemoProgress): string[] {
@@ -513,8 +587,10 @@ function rpBookingLines(progress: DemoProgress, context: Pick<DemoCallContext, "
       ? `On file for this booking: ${known.join("; ")}. Never ask for any of it again; use it.`
       : `To take a booking request you need four things, asked one at a time: the treatment, a day and time, their first name, and the best number to reach them (the number they are calling from is fine if they say so).`,
     missing.length > 0
-      ? `Still needed before the request goes in: ${missing.join(", ")}. Ask for the next one only, in one short question.`
-      : `You have everything${b.status === "rescheduled" ? ", with the new time" : ""}: say in one sentence that the team will confirm ${b.status === "rescheduled" ? "the new time" : "that time"} within a day, then ask if there is anything else.`,
+      ? `Still needed before it can be booked: ${missing.join(", ")}. Ask for the next one only, in one short question, and nothing else in that reply.`
+      : progress.rpConfirmed === true
+        ? `It is booked, and the call has told them so. Never say it again, nor any part of it (the day, the time, "your request", "the team will confirm"), unless they ask what they are booked for; then say it once, in one short sentence. Answer what they ask now, and only that.`
+        : `You have everything: the call books it and tells them itself. Say nothing about it being booked, requested or confirmed.`,
     hoursLine,
   ];
 }
@@ -535,7 +611,7 @@ function calendarLines(context: Pick<DemoCallContext, "clinic" | "issuedAt">, cl
     return [`You can't see ${clinic}'s calendar: never say a time is available, free or open. Take the time they ask for as their preferred time, for the team to confirm (a17b5aff: "Eleven AM is available").`];
   }
   return [
-    `The calendar has these free times: ${slots.join("; ")}. When they want to book, offer one or two of them; if they want another time within the hours, take it as their preferred time. Never say a time "works", is free or is open unless it is one of these, never invent another free time, and never say a time is booked, held or confirmed: you put the request in and the team confirms it within a day.`,
+    `The calendar has these free times: ${slots.join("; ")}. When they want to book, offer one or two of them, never all three, and never a list you already read them; any other time they ask for within the hours is free too. When they ask about times, the call often answers itself first: never read out times it did not just say. Never say a time is booked, set, held or confirmed, and never that you can't confirm: once it has the treatment, the day and time, their first name and their number, the call books it and says so in its own words.`,
   ];
 }
 
@@ -636,8 +712,26 @@ function twoTimes(span: { open: number; close: number }, ask: RequestedTime | nu
  * or when the hours cannot be read; she then answers as usual.
  */
 export function roleplayTimeLine(context: Pick<DemoCallContext, "clinic" | "issuedAt">, progress: DemoProgress, words: string): string | null {
-  const line = timeAnswer(context, progress, words);
-  return line ? `${calendarLead(context, progress)} ${line}` : null;
+  return roleplayTimeOffer(context, progress, words)?.line ?? null;
+}
+
+/** A time line the call says itself, and the times it offers in it: the next turn picks from them, and none is offered twice. */
+export type TimeOffer = { line: string; offered: DemoSlot[]; seen: DemoSlot[] };
+
+/**
+ * The time line with the times it offers (roleplayTimeLine), opened by her
+ * look at the calendar, and by a word about a doctor they named who is not on
+ * the practice's list (a44374c9: "doctor Smith" became Dr. Patel unsaid).
+ */
+export function roleplayTimeOffer(context: Pick<DemoCallContext, "clinic" | "issuedAt">, progress: DemoProgress, words: string): TimeOffer | null {
+  const answer = timeAnswer(context, progress, words);
+  if (!answer) return null;
+  const doctor = unknownDoctorIn(context.clinic, words);
+  return {
+    line: `${doctor ? `${unknownDoctorLine(context.clinic, doctor)} ` : ""}${calendarLead(context, progress)} ${answer.line}`,
+    offered: answer.offered,
+    seen: [...(answer.taken ? [answer.taken] : []), ...answer.offered],
+  };
 }
 
 /**
@@ -648,7 +742,8 @@ export function roleplayTimeLine(context: Pick<DemoCallContext, "clinic" | "issu
  */
 export function calendarLead(context: Pick<DemoCallContext, "clinic" | "issuedAt">, progress: DemoProgress): string {
   // A caller who keeps it brief (two turns or more, none over five words) gets no pleasantry: she mirrors their efficiency (owner, 1 November 2026).
-  if (progress.lookedUp || isBriefCaller(progress)) return "Let me take a look...";
+  // So does one in a hurry (a44374c9: "I'm running into a meeting").
+  if (progress.lookedUp || isBriefCaller(progress) || progress.hurried) return "Let me take a look...";
   const day = weekdayOf(new Date(context.issuedAt), demoTimeZone(context.clinic.address));
   if (day === 1 || day === 2) return "I hope your week's off to a great start! Let me pull up our calendar...";
   if (day === 4 || day === 5) return `Happy ${WEEKDAY_NAMES[day]}! Let's get this sorted so you can head into the weekend. Let me see what we have open...`;
@@ -669,27 +764,49 @@ function nearTimes(span: { open: number; close: number }, minutes: number): numb
   return [at - 60, at + 60, at - 120, at + 120, at + 180, at - 180].filter((m) => m >= first && m <= last).slice(0, 2).sort((a, b) => a - b);
 }
 
-function timeAnswer(context: Pick<DemoCallContext, "clinic" | "issuedAt">, progress: DemoProgress, words: string): string | null {
+function timeAnswer(context: Pick<DemoCallContext, "clinic" | "issuedAt">, progress: DemoProgress, words: string): { line: string; offered: DemoSlot[]; taken?: DemoSlot } | null {
   const spans = openSpans(context);
   if (spans.size === 0) return null;
+  const said = (line: string, offered: DemoSlot[] = []) => ({ line, offered });
   const ask = progress.rpTime ?? null;
   const day = weekdayIn(words) ?? (ask ? (progress.rpDay ?? null) : null);
   const offer = (d: number, times: number[]) => (times.length === 2 ? `${nextDateOn(context, d)} at ${clock(times[0]!)} or ${clock(times[1]!)}` : times.length === 1 ? `${nextDateOn(context, d)} at ${clock(times[0]!)}` : null);
+  const on = (d: number, times: number[]): DemoSlot[] => times.map((minutes) => ({ day: d, minutes }));
   const nextOpen = (from: number) => [1, 2, 3, 4, 5, 6, 7].map((k) => (from + k) % 7).find((d) => spans.has(d));
-  if (day !== null && !spans.has(day) && (ask || AVAILABILITY_ASK.test(words) || /\b(?:book|appointment|come in)\b/i.test(words))) {
+  // A cancel is the cancellation's, never a time to offer.
+  if (CANCEL_ASK.test(words)) return null;
+  // Booked already: "any day, whatever you have" is heard as wanting it sooner, and the earliest
+  // time not yet offered is offered as a move, the booking said once with it (a44374c9).
+  if (progress.rpConfirmed === true && progress.confirmedAt && !MOVE_ASK.test(words) && (ANY_TIME.test(words) || AVAILABILITY_ASK.test(words)) && !windowIn(words) && weekdayIn(words) === null) {
+    const booked = progress.confirmedAt;
+    const sooner = freeSlots(context, progress, { from: null, to: null }, null).find((slot) => slotOrder(context, slot) < slotOrder(context, booked));
+    // The booking is said with the first offer only; a later one names just the new time (a44374c9: never the same words twice).
+    const again = (progress.lastQuestion ?? "").includes("move it");
+    if (!sooner) return said(again ? `That's the earliest I have. Anything else I can help with?` : `You're booked for ${slotSaid(context, booked)}, the earliest I have. Anything else I can help with?`);
+    return said(
+      again ? `I can also do ${slotSaid(context, sooner)}. Want me to move it to that?` : `You're booked for ${slotSaid(context, booked)}. If you'd like it sooner, I have ${slotSaid(context, sooner)}. Want me to move it?`,
+      [sooner],
+    );
+  }
+  // "After four PM next week", "before noon on Friday" (a44374c9: three times offered, two of them before four).
+  const window = windowIn(words);
+  if (window) return windowAnswer(context, progress, window, weekdayIn(words));
+  if (day !== null && !spans.has(day) && (ask || AVAILABILITY_ASK.test(words) || ANY_TIME.test(words) || BOOK_INTENT.test(words))) {
     const d = nextOpen(day);
-    const times = d === undefined ? null : offer(d, twoTimes(spans.get(d)!, ask));
-    return `We're closed on ${WEEKDAY_NAMES[day]}s.${times ? ` Would ${times} work instead?` : " Which other day would suit you?"}`;
+    const times = d === undefined ? [] : twoTimes(spans.get(d)!, ask);
+    const instead = d === undefined ? null : offer(d, times);
+    return said(`We're closed on ${WEEKDAY_NAMES[day]}s.${instead ? ` Would ${instead} work instead?` : " Which other day would suit you?"}`, d === undefined ? [] : on(d, times));
   }
   if (ask?.minutes !== null && ask?.minutes !== undefined) {
     if (day === null) {
       const inside = [...spans.values()].some((span) => ask.minutes! >= span.open && ask.minutes! <= span.close - 30);
-      return inside ? null : `Sorry, ${ask.said} is outside our hours. What day would suit you? I'll find you a time within them.`;
+      return inside ? null : said(`Sorry, ${ask.said} is outside our hours. What day would suit you? I'll find you a time within them.`);
     }
     const span = spans.get(day)!;
     if (ask.minutes < span.open || ask.minutes > span.close - 30) {
-      const times = offer(day, twoTimes(span, ask));
-      return `We're open ${clock(span.open)} to ${clock(span.close)} on ${WEEKDAY_NAMES[day]}s, so ${ask.said} is outside our hours.${times ? ` Would ${times} work instead?` : ""}`;
+      const times = twoTimes(span, ask);
+      const instead = offer(day, times);
+      return said(`We're open ${clock(span.open)} to ${clock(span.close)} on ${WEEKDAY_NAMES[day]}s, so ${ask.said} is outside our hours.${instead ? ` Would ${instead} work instead?` : ""}`, on(day, times));
     }
     // The first time they ask for, once a call, is already taken, and two near it are offered at once
     // (owner, 1 November 2026: show that she is proactive). Never a time she just offered them.
@@ -697,23 +814,172 @@ function timeAnswer(context: Pick<DemoCallContext, "clinic" | "issuedAt">, progr
     if (!progress.takenShown && !offered) {
       const near = nearTimes(span, ask.minutes);
       if (near.length === 2) {
-        return `Ah, ${clock(Math.floor(ask.minutes / 60) * 60)} on ${nextDateOn(context, day)} is already taken, but I can do ${clock(near[0]!)} or ${clock(near[1]!)} that day. Would either of those work?`;
+        return said(`Ah, ${clock(Math.floor(ask.minutes / 60) * 60)} on ${nextDateOn(context, day)} is already taken, but I can do ${clock(near[0]!)} or ${clock(near[1]!)} that day. Would either of those work?`, on(day, near));
       }
     }
     return null;
   }
-  if (!AVAILABILITY_ASK.test(words)) return null;
+  // "Thursday afternoon, please" asks for a time as surely as "do you have anything Thursday?" (a44374c9).
+  // Never a day they speak of in the past ("I had Botox last Friday").
+  const bookingADay = day !== null && BOOK_INTENT.test(words) && !PAST_DAY.test(words) && progress.rpConfirmed !== true;
+  if (!AVAILABILITY_ASK.test(words) && !ANY_TIME.test(words) && !bookingADay) return null;
   if (day === null) {
-    const first = demoSlots(context)[0];
-    return first ? `The earliest I have is ${first}. Would that work?` : null;
+    // The earliest time not yet offered: "whatever you have" never hears the same list again (a44374c9).
+    const first = freeSlots(context, progress, { from: null, to: null }, null)[0];
+    return first ? said(`The earliest I have is ${slotSaid(context, first)}. Would that work?`, [first]) : null;
   }
   const span = spans.get(day)!;
   const times = twoTimes(span, ask);
   if (times.length === 0) {
-    const instead = offer(day, twoTimes(span, null));
-    return `We close at ${clock(span.close)} on ${WEEKDAY_NAMES[day]}s.${instead ? ` Would ${instead} work instead?` : ""}`;
+    const fallback = twoTimes(span, null);
+    const instead = offer(day, fallback);
+    return said(`We close at ${clock(span.close)} on ${WEEKDAY_NAMES[day]}s.${instead ? ` Would ${instead} work instead?` : ""}`, on(day, fallback));
   }
-  return `On ${nextDateOn(context, day)}, I have ${times.map(clock).join(" or ")}. Would ${times.length === 2 ? "either of those" : "that"} work?`;
+  return said(`On ${nextDateOn(context, day)}, I have ${times.map(clock).join(" or ")}. Would ${times.length === 2 ? "either of those" : "that"} work?`, on(day, times));
+}
+
+/** "Any day", "anytime", "whatever you have", "as soon as possible", "first available": no time asked, the earliest wanted. */
+const ANY_TIME =
+  /\b(?:any ?(?:day|time)|anytime|whenever(?: you (?:have|can))?|what ?ever (?:you(?:'ve| have| got)|is (?:free|open|available))|(?:first|earliest|soonest|next) (?:available|thing|opening|slot)|as soon as (?:possible|you can)|asap|give me (?:whatever|anything|something))\b/i;
+
+/** A day spoken of in the past: "last Friday", "I had it done Monday". */
+const PAST_DAY = /\blast\s+(?:sun|mon|tue|wed|thu|fri|sat)|\b(?:had|got|did|was|were|went)\b/i;
+
+/** Words that ask to book something, with a day named ("I need a consult Thursday afternoon"). */
+const BOOK_INTENT = /\b(?:book|appointment|consult(?:ation)?|come in|get in|schedule|see (?:dr|the doctor|someone)|need|want|looking for|available|free|open)\b/i;
+
+/** A window of the day the caller asked for: from a time, before one, or both, in minutes; and how they said it. */
+type DemoWindow = { from: number | null; to: number | null; said: string };
+
+const CLOCK_WORDS = String.raw`(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)(?::(\d{2}))?\s*(a\.?\s?m\b\.?|p\.?\s?m\b\.?|o'?clock)?`;
+
+/** "After four PM", "before noon", "later than 5": the window, read in code; null when they named none. */
+export function windowIn(words: string): DemoWindow | null {
+  const after = new RegExp(String.raw`\b(?:after|from|later than|past|any ?time after)\s+${CLOCK_WORDS}`, "i").exec(words);
+  const before = new RegExp(String.raw`\b(?:before|earlier than|no later than)\s+(?:${CLOCK_WORDS}|(noon|midday))`, "i").exec(words);
+  const at = (m: RegExpExecArray, i: number): number | null => {
+    if (m[i + 3]) return 12 * 60;
+    const raw = m[i];
+    if (!raw) return null;
+    const hour = HOUR_WORDS[raw.toLowerCase()] ?? Number(raw);
+    if (!(hour >= 1 && hour <= 12)) return null;
+    const part = (m[i + 2] ?? "").toLowerCase();
+    // No AM or PM: a front desk's hours decide (1 to 7 is the afternoon, 8 to 11 the morning).
+    const pm = part.startsWith("p") || (!part.startsWith("a") && (hour <= 7 || hour === 12));
+    return ((hour % 12) + (pm ? 12 : 0)) * 60 + Number(m[i + 1] ?? 0);
+  };
+  const from = after ? at(after, 1) : null;
+  const to = before ? at(before, 1) : null;
+  if (from === null && to === null) return null;
+  const saidAt = (m: number) => clock(m);
+  return { from, to, said: from !== null && to !== null ? `between ${saidAt(from)} and ${saidAt(to)}` : from !== null ? `after ${saidAt(from)}` : `before ${saidAt(to!)}` };
+}
+
+/**
+ * Free times in a window, from the day after the call was issued, on the
+ * hour, inside each day's hours, never one offered before in the call; on
+ * one weekday when they named it. The demo's calendar is made up (the page
+ * says so): every hour inside the hours is free, but for the one shown taken.
+ */
+function freeSlots(context: Pick<DemoCallContext, "clinic" | "issuedAt">, progress: DemoProgress, window: { from: number | null; to: number | null }, weekday: number | null): DemoSlot[] {
+  const spans = openSpans(context);
+  const zone = demoTimeZone(context.clinic.address);
+  // Never one offered before, shown taken, or the one they are booked for.
+  const seen = [...(progress.offeredAll ?? []), ...(progress.confirmedAt ? [progress.confirmedAt] : [])];
+  const out: DemoSlot[] = [];
+  // The demo's own earliest time first (demoSlots), so "what's your earliest?" keeps its answer.
+  for (const slot of weekday === null && window.from === null && window.to === null ? demoSlotTimes(context) : []) {
+    if (!seen.some((s) => s.day === slot.day && s.minutes === slot.minutes)) out.push(slot);
+  }
+  for (let k = 1; k <= 14 && out.length < 6; k += 1) {
+    const d = weekdayOf(new Date(context.issuedAt + k * 86_400_000), zone);
+    if (weekday !== null && d !== weekday) continue;
+    const span = spans.get(d);
+    if (!span) continue;
+    const first = Math.ceil(Math.max(span.open, window.from ?? 0) / 60) * 60;
+    const last = Math.floor((Math.min(span.close, window.to ?? 24 * 60) - 60) / 60) * 60;
+    for (let m = first; m <= last && out.length < 6; m += 60) {
+      if (out.some((s) => s.day === d && s.minutes === m) || seen.some((s) => s.day === d && s.minutes === m)) continue;
+      out.push({ day: d, minutes: m });
+    }
+    if (weekday !== null) break;
+  }
+  return out;
+}
+
+/** How far after the call a time is, in minutes, for "sooner than what they are booked for". */
+function slotOrder(context: Pick<DemoCallContext, "clinic" | "issuedAt">, slot: DemoSlot): number {
+  const zone = demoTimeZone(context.clinic.address);
+  for (let k = 1; k <= 7; k += 1) if (weekdayOf(new Date(context.issuedAt + k * 86_400_000), zone) === slot.day) return k * 1440 + slot.minutes;
+  return 8 * 1440 + slot.minutes;
+}
+
+/** A time as a person says it: "Monday, November 2 at 4 PM". */
+function slotSaid(context: Pick<DemoCallContext, "clinic" | "issuedAt">, slot: DemoSlot): string {
+  return `${nextDateOn(context, slot.day)} at ${clock(slot.minutes)}`;
+}
+
+/** Two times said together: "4 PM or 5 PM that day", or each with its own date. */
+function twoSaid(context: Pick<DemoCallContext, "clinic" | "issuedAt">, slots: readonly DemoSlot[], sameDayAs: number | null): string {
+  const [a, b] = slots;
+  if (!a) return "";
+  if (!b) return a.day === sameDayAs ? `${clock(a.minutes)} that day` : slotSaid(context, a);
+  if (a.day === b.day) return a.day === sameDayAs ? `${clock(a.minutes)} or ${clock(b.minutes)} that day` : `${nextDateOn(context, a.day)} at ${clock(a.minutes)} or ${clock(b.minutes)}`;
+  const first = a.day === sameDayAs ? `${clock(a.minutes)} that day` : slotSaid(context, a);
+  return `${first} or ${slotSaid(context, b)}`;
+}
+
+/** The answer to a window ("after four PM next week"): the first time in it shown taken once a call, then two that fit. */
+function windowAnswer(context: Pick<DemoCallContext, "clinic" | "issuedAt">, progress: DemoProgress, window: DemoWindow, weekday: number | null): { line: string; offered: DemoSlot[]; taken?: DemoSlot } {
+  const free = freeSlots(context, progress, window, weekday);
+  if (free.length === 0) {
+    const fallback = freeSlots(context, progress, { from: null, to: null }, weekday).slice(0, 2);
+    const instead = fallback.length > 0 ? ` Would ${twoSaid(context, fallback, null)} work instead?` : "";
+    return { line: `I don't have anything ${window.said}${weekday !== null ? ` on ${WEEKDAY_NAMES[weekday]}` : ""}.${instead}`, offered: fallback };
+  }
+  if (!progress.takenShown && free.length >= 3) {
+    const [taken, ...rest] = free;
+    const two = rest.slice(0, 2);
+    return { line: `Ah, ${slotSaid(context, taken!)} is already taken, but I can do ${twoSaid(context, two, taken!.day)}. Would either of those work?`, offered: two, taken: taken! };
+  }
+  const two = free.slice(0, 2);
+  return { line: `I have ${twoSaid(context, two, null)}. Would ${two.length === 2 ? "either of those" : "that"} work?`, offered: two };
+}
+
+const YES_PICK = /^\W*(?:yes|yeah|yep|yup|sure|ok(?:ay)?|perfect|great|sounds (?:good|great)|that (?:works|one|'?s (?:fine|great|perfect))|works for me|let'?s do (?:it|that)|book (?:it|that)|do it|please do)\b/i;
+const NOT_PICK = /\b(?:no|not|can'?t|cannot|don'?t|doesn'?t|won'?t|neither|other)\b/i;
+
+/** The offered time their words pick ("Monday works", "the second one", "5 PM", "yes" to a single time); null when none. */
+export function slotPicked(words: string, offered: readonly DemoSlot[]): DemoSlot | null {
+  if (offered.length === 0 || NOT_PICK.test(words) || SAID_NO.test(words.trim())) return null;
+  const minutes = requestedTime(words)?.minutes ?? null;
+  const bare = minutes === null ? /\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)(?::(\d{2}))?\b/i.exec(words) : null;
+  const hour = bare ? (HOUR_WORDS[bare[1]!.toLowerCase()] ?? Number(bare[1])) : null;
+  const day = weekdayIn(words);
+  const fits = offered.filter(
+    (s) => (minutes === null || s.minutes === minutes) && (hour === null || (Math.floor(s.minutes / 60) % 12) === hour % 12) && (day === null || s.day === day),
+  );
+  if ((minutes !== null || hour !== null || day !== null) && fits.length === 1) return fits[0]!;
+  if (/\b(?:first|earlier|former)\b/i.test(words)) return offered[0]!;
+  if (offered.length === 2 && /\b(?:second|later|latter|last)\b/i.test(words)) return offered[1]!;
+  if (YES_PICK.test(words) && offered.length === 1) return offered[0]!;
+  return null;
+}
+
+/** A doctor they asked for by name who is not on the practice's list ("doctor Smith"); null when none or when it is one of theirs. */
+export function unknownDoctorIn(clinic: Pick<DemoCallClinic, "providers">, words: string): string | null {
+  const m = /\b(?:Dr\.?|[Dd]octor)\s+([A-Z][a-z]{2,})\b/.exec(words);
+  if (!m) return null;
+  const surname = m[1]!;
+  if (WEEKDAY_NAMES.some((d) => d === surname) || /^(?:Who|Office|Appointment|Visit)$/.test(surname)) return null;
+  return clinic.providers.some((p) => new RegExp(`\\b${surname}\\b`, "i").test(p.name)) ? null : `Dr. ${surname}`;
+}
+
+/** What she says of a doctor not on the list: who is, so nobody is booked with someone who isn't there. */
+export function unknownDoctorLine(clinic: Pick<DemoCallClinic, "providers">, doctor: string): string {
+  const names = clinic.providers.map((p) => p.name).slice(0, 3);
+  if (names.length === 0) return `Just so you know, we don't have a ${doctor} here.`;
+  return `Just so you know, we don't have a ${doctor} here; ${names.length === 1 ? `our physician is ${names[0]}` : `our providers are ${names.slice(0, -1).join(", ")} and ${names.at(-1)}`}.`;
 }
 
 /** A question about free times: "Do you have anything Thursday afternoon?", "What's your earliest opening?" */
@@ -730,9 +996,84 @@ const REQUEST_IN =
 /** "...your Friday morning request" after it was cancelled: any "your ... request" that is not the cancellation. */
 const STILL_PENDING = /\byour\b[^.?!]*\b(?:request|booking|appointment)\b/i;
 
+/**
+ * Her words that a booking is made, set or confirmed, or that she can't
+ * confirm it (a44374c9): the call says the booking itself (demoConfirmLine),
+ * once, so hers are held and checked.
+ */
+const BOOKED_SAID =
+  /\b(?:you'?re (?:all )?(?:set|booked|confirmed|locked in)|(?:i'?ve|i have) (?:got )?you (?:booked|down|in|set|scheduled)|(?:is|are|it'?s|that'?s) (?:now )?(?:booked|confirmed|locked in|all set|scheduled)|lock(?:ed)? (?:you|it|that) in|booked (?:you|it|that)|i (?:can'?t|cannot) confirm)\b/i;
+
+/** A sentence naming a weekday or a date and a clock time: the booking said again once it is made (a44374c9: seven times). */
+const DAY_AND_TIME = /\b(?:sun|mon|tues?|wed(?:nes)?|thu(?:rs?)?|fri|sat(?:ur)?)(?:day)?\b[^.?!]*\b\d{1,2}(?::\d{2})?\s*(?:a\.?m|p\.?m)\b/i;
+
 /** Whether a role-play sentence must wait until the turn's booking is known (speak holds it back). */
-export function roleplayHolds(sentence: string, booking: RoleplayBooking | undefined): boolean {
-  return REQUEST_IN.test(sentence) || (booking?.status === "cancelled" && STILL_PENDING.test(sentence) && !/\bcancel/i.test(sentence));
+export function roleplayHolds(
+  sentence: string,
+  booking: RoleplayBooking | undefined,
+  progress: Pick<DemoProgress, "rpConfirmed" | "askedBooking" | "frustrated" | "apologised"> = {},
+): boolean {
+  return (
+    REQUEST_IN.test(sentence) ||
+    // An apology on its own, once she has made one, waits to be taken out (a44374c9).
+    (progress.apologised === true && APOLOGY_ONLY.test(sentence)) ||
+    // "Glad that works!" to sarcasm waits too, so the check can take it out before it is said (a44374c9).
+    (progress.frustrated === true && GLAD_IT_WORKS.test(sentence)) ||
+    BOOKED_SAID.test(sentence) ||
+    // A day and a time wait too: the booking may be said by the call this turn, or must not be said again.
+    (progress.askedBooking !== true && DAY_AND_TIME.test(sentence)) ||
+    (booking?.status === "cancelled" && STILL_PENDING.test(sentence) && !/\bcancel/i.test(sentence))
+  );
+}
+
+/** A sentence that is only an apology: "I'm sorry this has been so frustrating." */
+const APOLOGY_ONLY = /^\W*(?:i'?m |i am )?(?:so |really |very )?(?:sorry|apologi[sz]e)\b[^.?!]*[.!]?$/i;
+/** What she says when nothing of her reply stands, never twice in a row. */
+const CALM_NEXT = ["Anything else I can help with?", "Is there anything else you need?", "What else can I do for you?"] as const;
+const FRUSTRATED_NEXT = ["I hear you. What would make this easier for you?", "Understood. Is there anything I can sort out for you right now?", "Got it. What would you like me to do?"] as const;
+
+/** "Glad that works!" said to "convenient." after a complaint (a44374c9): sarcasm is never taken as agreement. */
+const GLAD_IT_WORKS = /^\W*(?:(?:so )?glad|great|awesome|wonderful|perfect)\b[^.?!]{0,25}\b(?:works?|helps?|that|it)\b[^.?!]*[.!]?$/i;
+
+/**
+ * The booking said in the call's own words, once it has a treatment, a day
+ * and time inside the hours, a first name and a number (owner, 1 November
+ * 2026, on a44374c9: "take it to 10/10"). A demo's calendar is made up, as
+ * its page says, so the booking is confirmed the way a clinic's is with its
+ * calendar connected and "Auto-confirm bookings" on, the product's default:
+ * not "the team will confirm within a day", which a caller heard seven times.
+ * Her first name for the caller is said here, once.
+ */
+export function demoConfirmLine(context: Pick<DemoCallContext, "clinic" | "issuedAt">, booking: RoleplayBooking, slot: DemoSlot, moved = false): string {
+  const provider = routingProvider(context.clinic.providers.map((p) => p.name));
+  const menu = listedIn(booking.service ?? "", context.clinic.services.map((svc) => svc.name))[0];
+  const service = (menu ?? booking.service ?? "appointment")
+    .replace(/[®™]/g, "")
+    .replace(/^\s*(?:a|an|the|my|your)\s+/i, "")
+    .replace(/\s+(?:with|for)\s+(?:dr\.?|doctor)\b.*$/i, "")
+    .trim();
+  const withWhom = provider && !new RegExp(`\\b${provider.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(service) ? ` with ${provider}` : "";
+  const when = `${nextDateOn(context, slot.day)} at ${clock(slot.minutes)}`;
+  if (moved) return `Done! I've moved your ${service}${withWhom} to ${when}. Anything else I can help with?`;
+  const name = (booking.name ?? "").trim().split(/\s+/)[0] ?? "";
+  const first = name ? `, ${name.charAt(0).toUpperCase()}${name.slice(1)}` : "";
+  return `You're all set${first}! Your ${service}${withWhom} is booked for ${when}. Anything else I can help with?`;
+}
+
+/** The booking's day and time when the call may confirm it: a treatment, a name, a number, and a day and time inside the hours; else null. */
+export function demoBookable(context: Pick<DemoCallContext, "clinic" | "issuedAt">, booking: RoleplayBooking | undefined): DemoSlot | null {
+  const b = booking ?? {};
+  if (b.status === "cancelled" || !b.service || !b.name || !b.phone || !b.day || !b.time) return null;
+  const day = weekdayIn(b.day);
+  if (day === null) return null;
+  const span = openSpans(context).get(day);
+  if (!span) return null;
+  const exact = requestedTime(b.time)?.minutes ?? null;
+  const bare = exact === null ? /\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)(?::(\d{2}))?\b/i.exec(b.time) : null;
+  const hour = bare ? (HOUR_WORDS[bare[1]!.toLowerCase()] ?? Number(bare[1])) : null;
+  const candidates = exact !== null ? [exact] : hour !== null && hour >= 1 && hour <= 12 ? [(hour % 12) * 60, ((hour % 12) + 12) * 60].map((m) => m + Number(bare![2] ?? 0)) : [];
+  const minutes = candidates.find((m) => m >= span.open && m <= span.close - 30);
+  return minutes === undefined ? null : { day, minutes };
 }
 
 /** Her goodbye, which goes when the end it was for does not stand (roleplayEndAllowed). */
@@ -746,6 +1087,17 @@ const NEXT_ASK: Readonly<Record<ReturnType<typeof bookingMissing>[number], strin
   number: "And what's the best number to reach you on?",
 };
 
+/** A reply's sentences, never cut after "Dr." or "a.m." (a44374c9: "...with Dr." and "Patel for Monday" as two). */
+function splitSentences(reply: string): string[] {
+  const out: string[] = [];
+  for (const piece of reply.split(/(?<=[.!?])\s+/).filter(Boolean)) {
+    const last = out.at(-1);
+    if (last && /\b(?:Dr|Mr|Mrs|Ms|Prof|St|Ste|Rd|Ave|Blvd|vs|e\.g|i\.e|a\.m|p\.m)\.$/i.test(last)) out[out.length - 1] = `${last} ${piece}`;
+    else out.push(piece);
+  }
+  return out;
+}
+
 /**
  * Her role-play reply once the turn's booking is known, the code's last word
  * on criterion 6 of c4093be6: no request is said to be in before the
@@ -758,7 +1110,17 @@ const NEXT_ASK: Readonly<Record<ReturnType<typeof bookingMissing>[number], strin
 export function roleplayCheckedReply(
   reply: string,
   booking: RoleplayBooking | undefined,
-  options: { guard?: string | null; spokenBefore?: string; endRefused?: boolean } = {},
+  options: {
+    guard?: string | null;
+    spokenBefore?: string;
+    endRefused?: boolean;
+    confirmed?: boolean;
+    askedBooking?: boolean;
+    frustrated?: boolean;
+    frustratedNow?: boolean;
+    apologised?: boolean;
+    said?: readonly string[];
+  } = {},
 ): string {
   const b = booking ?? {};
   const cancelled = b.status === "cancelled";
@@ -772,15 +1134,33 @@ export function roleplayCheckedReply(
     if (/\b(?:dr\.?|doctor|consult(?:ation)?|provider)\b/i.test(before)) return `${before} Want me to put in a request for a consultation?`;
     const fresh = bookingMissing(cancelled ? {} : b);
     const next = fresh.length > 0 ? askFor(fresh[0]!) : null;
-    return next ? [before, `I can't confirm it myself, but I can put the request in. ${next}`].filter(Boolean).join(" ") : reply;
+    return next ? [before, `Great, let's get that booked. ${next}`].filter(Boolean).join(" ") : reply;
   }
-  const sentences = reply.split(/(?<=[.!?])\s+/).filter(Boolean);
+  // Once the booking is said, it is never said again unless they ask (a44374c9: seven times), nor "the team will confirm".
+  const restated = (s: string) => options.confirmed === true && !cancelled && options.askedBooking !== true && (REQUEST_IN.test(s) || BOOKED_SAID.test(s) || DAY_AND_TIME.test(s));
+  // "I can't offer a discount, but I can request your evaluation for Monday at 4 PM": the answer before "but" stays.
+  const sentences = splitSentences(reply).map((s) => {
+    const lead = /^(.{8,}?),\s+but\b/i.exec(s);
+    return lead && restated(s) && !restated(`${lead[1]}.`) ? `${lead[1]}.` : s;
+  });
   const kept = sentences.filter(
     // A goodbye goes too while the request still needs something: the call is not over (c4093be6: "have a great day!" mid-booking).
-    (s) => !(ask && REQUEST_IN.test(s)) && !(cancelled && STILL_PENDING.test(s) && !/\bcancel/i.test(s)) && !((options.endRefused || (ask && sentences.some((x) => REQUEST_IN.test(x)))) && BYE_SAID.test(s)),
+    (s) =>
+      !(ask && (REQUEST_IN.test(s) || BOOKED_SAID.test(s))) &&
+      !restated(s) &&
+      !(options.frustrated === true && GLAD_IT_WORKS.test(s)) &&
+      !(options.apologised === true && APOLOGY_ONLY.test(s)) &&
+      !(cancelled && STILL_PENDING.test(s) && !/\bcancel/i.test(s)) &&
+      !((options.endRefused || (ask && sentences.some((x) => REQUEST_IN.test(x)))) && BYE_SAID.test(s)),
   );
-  if (kept.length === sentences.length) return reply;
-  if (kept.length === 0) return ask ? `${cancelled ? "Sure." : "Happy to put that in."} ${ask}` : "Anything else I can help with?";
+  // Nothing taken out or cut short: her words as written.
+  if (kept.length === sentences.length && kept.join(" ") === splitSentences(reply).join(" ")) return reply;
+  if (kept.length === 0) {
+    if (ask) return `${cancelled ? "Sure." : "Great, let's get that booked."} ${ask}`;
+    // Never a line she has said in the call (a44374c9): to frustration, an offer to make it easier.
+    const choices = options.frustratedNow === true ? FRUSTRATED_NEXT : CALM_NEXT;
+    return choices.find((line) => !(options.said ?? []).some((before) => before.includes(line))) ?? choices.at(-1)!;
+  }
   if (!ask) return /\?\W*$/.test(kept.at(-1)!) || !options.endRefused ? kept.join(" ") : `${kept.join(" ")} Anything else I can help with?`;
   return /\?\W*$/.test(kept.at(-1)!) ? kept.join(" ") : `${kept.join(" ")} ${ask}`;
 }
@@ -792,7 +1172,7 @@ function timeLines(context: Pick<DemoCallContext, "clinic" | "issuedAt">, progre
   if (ask?.minutes === null || ask?.minutes === undefined || day === null) return [];
   const span = openSpans(context).get(day);
   if (!span || ask.minutes < span.open || ask.minutes > span.close - 30) return [];
-  return [`They asked for ${WEEKDAY_NAMES[day]} at ${ask.said}, on ${nextDateOn(context, day)}, which is within ${clinic}'s hours: take it as their preferred time for the team to confirm. Never say it is free, booked or confirmed.`];
+  return [`They asked for ${WEEKDAY_NAMES[day]} at ${ask.said}, on ${nextDateOn(context, day)}, which is within ${clinic}'s hours and free: take it, and ask for whatever the booking still needs. Never say it is booked yourself: the call does, once it has everything.`];
 }
 
 const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
@@ -846,22 +1226,44 @@ function clock(minutes: number): string {
  * the hours cannot be read.
  */
 export function demoSlots(context: Pick<DemoCallContext, "clinic" | "issuedAt">): string[] {
+  return demoSlotTimes(context).map((slot) => slotSaid(context, slot));
+}
+
+/** The demo's three free times (demoSlots), as weekdays and minutes. */
+export function demoSlotTimes(context: Pick<DemoCallContext, "clinic" | "issuedAt">): DemoSlot[] {
   const zone = demoTimeZone(context.clinic.address);
   const open = openSpans(context);
   if (open.size === 0) return [];
-  const days: { label: string; span: { open: number; close: number } }[] = [];
+  const days: { day: number; span: { open: number; close: number } }[] = [];
   for (let k = 1; k <= 10 && days.length < 2; k += 1) {
-    const at = new Date(context.issuedAt + k * 86_400_000);
-    const span = open.get(weekdayOf(at, zone));
-    if (!span) continue;
-    days.push({ label: at.toLocaleDateString("en-US", { timeZone: zone, weekday: "long", month: "long", day: "numeric" }), span });
+    const day = weekdayOf(new Date(context.issuedAt + k * 86_400_000), zone);
+    const span = open.get(day);
+    if (span) days.push({ day, span });
   }
   const [first, second] = days;
   if (!first) return [];
   const round = (m: number) => Math.round(m / 60) * 60;
-  const out = [`${first.label} at ${clock(round(first.span.open + 120))}`, `${first.label} at ${clock(round(first.span.close - 120))}`];
-  if (second) out.push(`${second.label} at ${clock(round(second.span.open + 60))}`);
+  const out: DemoSlot[] = [
+    { day: first.day, minutes: round(first.span.open + 120) },
+    { day: first.day, minutes: round(first.span.close - 120) },
+  ];
+  if (second) out.push({ day: second.day, minutes: round(second.span.open + 60) });
   return out;
+}
+
+/**
+ * The fixed urgent reply as a demo says it (owner, 1 November 2026, on
+ * a44374c9: "I have some swelling after my last procedure" heard a cold
+ * "please call Miami Skin & Vein", the practice the caller was calling): a
+ * word of sympathy first, and the number named as the clinical team's
+ * direct line. "AI assistant", the 9-1-1 sentence and the number stay as
+ * the catalog has them; a clinic's own calls keep the catalog's lines,
+ * which wait on the medical director's sign-off.
+ */
+export function demoUrgentLine(reply: string): string {
+  return reply
+    .replace("I'm an AI assistant, so I can't help with anything urgent here.", "I'm so sorry you're dealing with that. I'm an AI assistant, so I can't advise on symptoms.")
+    .replace(/Otherwise, please call .+? on ([^.]+)\./, "Otherwise, please call our clinical team directly on $1, so they can help.");
 }
 
 /** A published US number as E.164, or null for anything that is not ten digits (with or without the 1). */

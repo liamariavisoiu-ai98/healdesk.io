@@ -738,9 +738,10 @@ const LEADING_APOLOGY = /^(?:(?:oh|ah|aw+),?\s+)?(?:i'?m\s+)?(?:so\s+|really\s+)
  */
 export function shapeVoiceReply(
   text: string,
-  options: { name: string | null; nameUses: number; apologised: boolean; first: boolean; noSignOff: boolean; oneQuestion?: boolean; askedAlready?: boolean; keepQuestions?: readonly string[]; drop?: RegExp | null },
+  options: { name: string | null; nameUses: number; nameLimit?: number; apologised: boolean; first: boolean; noSignOff: boolean; oneQuestion?: boolean; askedAlready?: boolean; keepQuestions?: readonly string[]; drop?: RegExp | null },
 ): string {
-  let out = sentencesOf(text).filter((sentence) => !(options.noSignOff && /\btalk soon\b/i.test(sentence)) && !options.drop?.test(sentence));
+  // A trademark sign is never spoken: a voice reads "BOTOX®" as "Botox registered" (demo call a44374c9).
+  let out = sentencesOf(text.replace(/\s*[®™]/g, "")).filter((sentence) => !(options.noSignOff && /\btalk soon\b/i.test(sentence)) && !options.drop?.test(sentence));
   if (options.oneQuestion) {
     let asked = options.askedAlready === true;
     out = out.filter((sentence) => {
@@ -751,7 +752,7 @@ export function shapeVoiceReply(
       return true;
     });
   }
-  if (options.name && options.nameUses >= 2) {
+  if (options.name && options.nameUses >= (options.nameLimit ?? 2)) {
     const name = options.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     out = out.map((sentence) => {
       if (/\btalk soon\b/i.test(sentence)) return sentence;
@@ -1068,6 +1069,22 @@ export async function answerTurn(input: {
    */
   callerFirstName?: string | null;
   /**
+   * How many times the caller's first name may be said before it is taken
+   * out of her sentences (shapeVoiceReply); 2 when not given. A demo call
+   * passes 0: its code says the name once, in the booking's confirmation
+   * (demo-facts.ts demoConfirmLine; demo call a44374c9 said "Thomas" three times).
+   */
+  nameLimit?: number;
+  /**
+   * A demo call, whose claims that a booking is made are the call's own code's
+   * to check (demo-facts.ts: roleplayHolds, roleplayCheckedReply,
+   * demoConfirmLine): the guard does not refuse them. Never set for a
+   * clinic's call, where only the tool layer's write lets one through
+   * (demo call a44374c9: "I can't confirm it myself" four times, answering
+   * "what?" and "Yep, that works").
+   */
+  bookingClaimsOwned?: boolean;
+  /**
    * On a call, never end on "Talk soon": a demo whose caller showed
    * frustration (lib/voice/demo-facts.ts, `impatient`). A sentence holding it
    * is left out of what is said.
@@ -1207,6 +1224,8 @@ export async function answerTurn(input: {
   const fresh = (text: string) => (before ? withoutRepeats(text, [...before, ...spoken], earlierLines) : text);
   // A call's register, enforced (shapeVoiceReply): the opening line is fixed and not counted.
   const callerName = capture.firstName?.trim() || input.callerFirstName?.trim() || null;
+  // A demo's booking claims are checked by its own code (bookingClaimsOwned); every other turn's by the tool layer.
+  const written = input.bookingClaimsOwned === true ? ({ bookingWritten: true } as const) : NO_BOOKING_WRITTEN;
   const nameSaid = (lines: readonly string[]) =>
     callerName ? lines.filter((line) => new RegExp(`\\b${callerName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(line)).length : 0;
   const apologisedBefore = assistantLines.slice(1).some((line) => /\b(?:sorry|apologi[sz]e)\b/i.test(line) && !SAY_AGAIN.test(line));
@@ -1215,6 +1234,7 @@ export async function answerTurn(input: {
       ? shapeVoiceReply(text, {
           name: callerName,
           nameUses: nameSaid(assistantLines.slice(1)) + nameSaid(spoken),
+          nameLimit: input.nameLimit,
           apologised: apologisedBefore,
           first,
           noSignOff: input.noSignOff === true,
@@ -1250,7 +1270,7 @@ export async function answerTurn(input: {
           // Read with everything already said, so a rule that needs the
           // sentence before it (a question asked back, the reply's language)
           // reads it as the whole reply would; what came before has passed.
-          const verdict = guardAssistantReply([saidSoFar(), piece].filter(Boolean).join(" "), facts, NO_BOOKING_WRITTEN);
+          const verdict = guardAssistantReply([saidSoFar(), piece].filter(Boolean).join(" "), facts, written);
           if (!verdict.ok && verdict.reason === "language") {
             unplaced = piece;
             return;
@@ -1309,7 +1329,7 @@ export async function answerTurn(input: {
     // guarded on its own, or the fixed line for the sentence the guard refused.
     const merged = mergeCapture(capture, answer.booking);
     const rest = refusedMidway ? null : shaped(fresh([unplaced, stream.remainder()].filter(Boolean).join(" ")), spoken.length === 0) || null;
-    const restVerdict = rest ? guardAssistantReply([saidSoFar(), rest].filter(Boolean).join(" "), facts, NO_BOOKING_WRITTEN) : null;
+    const restVerdict = rest ? guardAssistantReply([saidSoFar(), rest].filter(Boolean).join(" "), facts, written) : null;
     const reason: GuardRefusal | null = refusedMidway ?? (restVerdict && !restVerdict.ok ? restVerdict.reason : null);
     if (reason && (reason === "price" || input.softRefusal) && spoken.length === 0 && channel === "voice" && !input.retried) return answerAgain(input, reason);
     if (reason && spoken.length === 0 && !input.softRefusal) {
@@ -1326,7 +1346,7 @@ export async function answerTurn(input: {
     const reply = [saidSoFar(), tail].filter(Boolean).join(" ");
     // The guard read each sentence alone; read the whole once more, so a rule
     // that only a whole reply breaks is at least seen. Kind only, never words.
-    const whole = guardAssistantReply(reply, facts, NO_BOOKING_WRITTEN);
+    const whole = guardAssistantReply(reply, facts, written);
     if (!reason && !whole.ok) log.warn("streamed reply refused whole after its sentences passed", { channel, kind: whole.reason });
     return {
       ...base,
@@ -1377,7 +1397,7 @@ export async function answerTurn(input: {
   const unrepeated = (before && fresh(answer.reply)) || answer.reply;
   const unfilled = channel === "voice" ? withoutLeadingFiller(unrepeated) || unrepeated : unrepeated;
   const replyText = shaped(unfilled, true) || unfilled;
-  const verdict = guardAssistantReply(replyText, facts, NO_BOOKING_WRITTEN);
+  const verdict = guardAssistantReply(replyText, facts, written);
   if (!verdict.ok && (verdict.reason === "price" || input.softRefusal) && channel === "voice" && !input.retried) return answerAgain(input, verdict.reason);
   const soft = verdict.ok ? null : softLine(input);
   if (soft) return { ...live, capture: merged, handoff: false, reply: soft, source: "guard", guard: (verdict as { reason: GuardRefusal }).reason };

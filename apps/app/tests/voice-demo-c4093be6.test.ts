@@ -424,7 +424,7 @@ function judge(row: ReplayRow, rows: readonly ReplayRow[]): Verdict {
   mark(1, !FILLER.test(heard), "filler heard");
   if (row.tags.includes("clinical")) mark(2, /Dr\.? (?:Shaun )?Patel/.test(heard) && /consult/i.test(heard), "no routing line naming the provider with a consultation");
   if (row.tags.includes("urgent")) {
-    mark(3, /9-1-1/.test(heard) && /call Miami Skin & Vein on three oh five/i.test(heard), "no clinic number or no 9-1-1");
+    mark(3, /9-1-1/.test(heard) && /call our clinical team directly on three oh five/i.test(heard), "no clinic number or no 9-1-1");
     v.note.push("C3: nothing is flagged from a demo (no alert is ever sent); a patient's call raises the urgent alert and says \"I've told the team.\"");
   }
   if (inRoleplay) mark(4, !PITCH.test(heard), "healdesk pitch, offer or contact in the role-play");
@@ -509,7 +509,8 @@ describe("demo call c4093be6, replayed line by line", () => {
     expect(at("Do you have anything Thursday afternoon?").after).toBe("Let me pull up our calendar... On Thursday, November 5, I have 2 PM or 4 PM. Would either of those work?");
     expect(at("Let's say nine PM.").after).toBe("Let me take a look... We're open 9 AM to 5 PM on Thursdays, so 9 PM is outside our hours. Would Thursday, November 5 at 3 PM or 4 PM work instead?");
     // The guard's booking line no longer says the request was passed on before a name and a number.
-    expect(at("Yeah. That works.").after).toBe("I can't confirm it myself, but I can put the request in. What time on Thursday suits you best?");
+    // Her "you're all set" before a name and a number: the call asks for the next one (a44374c9: never "I can't confirm it myself").
+    expect(at("Yeah. That works.").after).toBe("Great, let's get that booked. Can I get your first name?");
     // Her own end before the patient signed off does not stand, and its goodbye goes with it; the request waits for a name.
     expect(at("Okay. Oh, uh, actually, can we move that to Friday morning?").after).toBe("Friday morning, got it. Can I get your first name?");
     expect(at("No. It's okay. What's your earliest of opening?").after).toBe("Let me take a look... The earliest I have is Monday, November 2 at 11 AM. Would that work?");
@@ -532,6 +533,8 @@ describe("demo call c4093be6, replayed line by line", () => {
     const urgent = rows.find((x) => x.tags.includes("urgent"))!;
     expect(urgent.modelAsked).toBe(false);
     expect(urgent.after).toContain("If this is an emergency, hang up and call 9-1-1 now.");
-    expect(urgent.after).toContain("Otherwise, please call Miami Skin & Vein on three oh five — five five five — oh one four two.");
+    // A word of sympathy, and the number as the clinical team's direct line (demoUrgentLine, a44374c9).
+    expect(urgent.after).toMatch(/^I'm so sorry you're dealing with that\. I'm an AI assistant/);
+    expect(urgent.after).toContain("Otherwise, please call our clinical team directly on three oh five — five five five — oh one four two, so they can help.");
   });
 });

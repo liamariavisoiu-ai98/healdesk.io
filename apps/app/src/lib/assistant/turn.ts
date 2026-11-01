@@ -385,9 +385,20 @@ export const MOODS = ["warm", "cheerful", "excited", "sympathetic", "apologetic"
 const LEADING_MOOD = /^\s*\[[a-z]{3,14}\]\s*/i;
 const ANY_MOOD = new RegExp(`\\s*\\[(?:${MOODS.join("|")})\\]\\s*`, "gi");
 
-/** `text` without its mood tag (MOODS): what is said. */
+/**
+ * A note the model wrote about its own tools or turn, in brackets, which is never said: "(find_times: service
+ * "Botox Cosmetic", day "", after "21:00")" and "(Friday's times aren't checked yet, so no booking action this
+ * turn.)" were read out on a call of 1 November 2026. A phone number's "(305)" is not one.
+ */
+const STAGE_NOTE = /\s*[([](?=[^()[\]]*(?:find_times|choose_time|offer_again|\b(?:tool|tools|action|this turn|no booking|not checked|aren'?t checked|isn'?t checked)\b|\w+:\s*"|\b(?:service|day|after|before)\s*[:=]))[^()[\]]*[)\]]/gi;
+
+export function withoutStageNotes(text: string): string {
+  return text.replace(STAGE_NOTE, "").replace(/\s{2,}/g, " ");
+}
+
+/** `text` without its mood tag (MOODS) or a note on its tools (STAGE_NOTE): what is said. */
 export function withoutMood(text: string): string {
-  return text.replace(LEADING_MOOD, "").replace(ANY_MOOD, " ").trim();
+  return withoutStageNotes(text.replace(LEADING_MOOD, "").replace(ANY_MOOD, " ")).trim();
 }
 
 /** The details object of a call's answer, read as the JSON form's fields are; anything unreadable is nothing. */
@@ -524,7 +535,7 @@ export class SpokenStream {
 
   /** Out with a sentence, or held with the next while it is under MIN_SPOKEN_WORDS; `last` sends whatever is held. */
   private emit(chunk: string, last = false): void {
-    const sentence = clean(`${this.held} ${chunk}`, MAX_TEXT);
+    const sentence = clean(withoutStageNotes(`${this.held} ${chunk}`), MAX_TEXT);
     this.held = "";
     if (!sentence) return;
     if (!last && sentence.split(" ").length < MIN_SPOKEN_WORDS) {
@@ -830,12 +841,23 @@ const HOUR_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, 
  * (and its day, when they named one); null otherwise. An hour with no AM or PM
  * is read as a front desk hears it: one to seven in the afternoon.
  */
+/** The offered times a line of hers names, one per sentence or "but" clause. */
+function offeredTimeNamedIn(line: string, offered: readonly { at: string }[], timeZone: string, now: Date): string[] {
+  return [...new Set(line.split(/(?<=(?<!\bDr|\bMr|\bMrs|\bMs)[.!?])\s+|,\s*but\s+/).map((part) => offeredTimeNamed(part, offered, timeZone, now)).filter((at): at is string => Boolean(at)))];
+}
+
 export function offeredTimeNamed(words: string, offered: readonly { at: string }[], timeZone: string, now: Date): string | null {
   if (offered.length === 0) return null;
   // A time turned down is never taken as picked ("No, 4 doesn't work").
   if (/\b(?:no|not|nope|don'?t|doesn'?t|can'?t|cannot|won'?t|isn'?t|never|other than|instead of|anything but)\b/i.test(words)) return null;
+  // A date is never an hour ("Monday, November 2 at 4 PM" names 4, not 2): the month's day is taken out first.
+  const said = words;
+  words = words.replace(/\b((?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?)\s+\d{1,2}(?:st|nd|rd|th)?\b/gi, "$1");
   const m = /\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|noon)(?::(\d{2}))?\s*(a\.?m|p\.?m|o'?clock)?\b/i.exec(words);
   if (!m) return null;
+  // "One" is a time only when said as one ("at one", "one PM", "one o'clock"): "the one I'm calling from" is not
+  // (c4093be6 replayed: it held a 1 o'clock slot).
+  if (m[1]!.toLowerCase() === "one" && !m[3] && !/\bat$/i.test(words.slice(0, m.index).trim())) return null;
   // Said as a time: with AM, PM or o'clock, after "at" or "the", before "works", "then" or "please", or the whole
   // answer a few words long; never a count ("my 2 kids", "3 units").
   const before = words.slice(0, m.index).trim();
@@ -855,7 +877,7 @@ export function offeredTimeNamed(words: string, offered: readonly { at: string }
   if (pm && hour < 12) hour += 12;
   if (!pm && hour === 12) hour = 0;
   if (m[1]!.toLowerCase() === "noon") hour = 12;
-  const day = dayNamedIn(words, now, timeZone);
+  const day = dayNamedIn(said, now, timeZone);
   const local = (iso: string) => {
     const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(iso));
     const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
@@ -883,7 +905,7 @@ const GOODBYE_SAID = /\b(?:bye|have a (?:great|good|lovely|nice|wonderful)|take 
 
 /** The person asks which times are free ("what do you have Thursday?", "anything after five?"), not for a treatment. */
 const ASKS_TIMES =
-  /\b(?:what|which|any)\s+(?:other\s+)?(?:times?|slots?|openings?|availability|appointments?)\b|\bwhat (?:do|have) you (?:got|have)\b|\bwhat(?:'s| is) (?:open|free|available)\b|\b(?:are|is) (?:you|there) (?:free|open|available|anything)\b|\banything (?:open|available|free)\b|\bavailabilit(?:y|ies)\b/i;
+  /\b(?:earliest|soonest|next available|first available|next opening)\b|\b(?:what|which|any)\s+(?:other\s+)?(?:times?|slots?|openings?|availability|appointments?)\b|\bwhat (?:do|have) you (?:got|have)\b|\bwhat(?:'s| is) (?:open|free|available)\b|\b(?:are|is) (?:you|there) (?:free|open|available|anything)\b|\banything (?:open|available|free)\b|\bavailabilit(?:y|ies)\b/i;
 
 export function asksForTimes(words: string): boolean {
   return ASKS_TIMES.test(words);
@@ -896,6 +918,11 @@ export function claimsFreeTime(reply: string): boolean {
 const DAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
 
 /** The date a person named ("Thursday", "tomorrow"), YYYY-MM-DD in the practice's zone; null when none. */
+/** The practice's calendar day of an ISO time, "YYYY-MM-DD". */
+function localDay(iso: string, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso));
+}
+
 export function dayNamedIn(words: string, now: Date, timeZone: string): string | null {
   const dateIn = (at: Date) => new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
   const weekdayAt = (at: Date) => DAY_NAMES.indexOf(new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long" }).format(at).toLowerCase() as (typeof DAY_NAMES)[number]);
@@ -1412,7 +1439,38 @@ export async function answerTurn(input: {
       const first = plain(svc.name).split(/\s+/)[0] ?? "";
       return first.length > 2 && !plain(service ?? "").startsWith(first) && new RegExp(`\\b${first.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(heard);
     });
-    if (service && asksForTimes(personText) && (day || window.after || window.before) && !otherService) {
+    // Times on offer and the caller asks to hear them again ("what?"), or names one of their days with no hour
+    // ("Monday works"): the times on offer, never a new search (a44374c9 replayed: "Monday works" got Monday's
+    // morning times, not the after-four ones just offered).
+    if (toolState.offered.length > 0 && !/\d|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|noon|morning|afternoon|evening|after|before|other|else|next|any)\b/i.test(personText)) {
+      const sayAgain = /^\W*(?:what|sorry|pardon|huh|come again|say (?:that|it) again|again|repeat that)\W*$/i.test(personText);
+      const onDay = day ? toolState.offered.filter((slot) => localDay(slot.at, facts.timeZone) === day).map((slot) => slot.at) : [];
+      // A yes to the one offered time her last line named ("Monday at 4 PM work?" "Yep, that works."): that time.
+      const yes = !day && /^\W*(?:yes|yeah|yep|yup|sure|ok(?:ay)?|perfect|great|sounds good|that works|works for me)\b/i.test(personText) && !/\b(?:no|not|don'?t|doesn'?t|can'?t|but)\b/i.test(personText);
+      // Her last two lines, so a question asked between ("what's so special about you?") does not lose it.
+      const last = yes ? input.history.filter((t) => t.speaker === "assistant").slice(-2).reverse().map((t) => t.text).find((text) => offeredTimeNamedIn(text, toolState.offered, facts.timeZone, now).length === 1) ?? "" : "";
+      const named = yes ? offeredTimeNamedIn(last, toolState.offered, facts.timeZone, now) : [];
+      // "The earliest of those works", "the first one": the earliest time on offer.
+      const firstOne = /\b(?:earliest|first|soonest|earlier) (?:one )?of (?:those|them|these)\b|\bthe (?:first|earliest) one\b/i.test(personText)
+        ? [...toolState.offered].sort((a, b) => Date.parse(a.at) - Date.parse(b.at))[0]?.at ?? null
+        : null;
+      const action =
+        firstOne
+          ? ({ type: "choose_time", at: firstOne } as const)
+          : named.length === 1
+          ? ({ type: "choose_time", at: named[0]! } as const)
+          : onDay.length === 1 ? ({ type: "choose_time", at: onDay[0]! } as const) : onDay.length > 1 ? ({ type: "offer_again", only: onDay } as const) : sayAgain ? ({ type: "offer_again" } as const) : null;
+      const tool = action ? await input.tools!.run({ action, capture, state: toolState, callerPhone: input.callerPhone ?? null, words: personText, now, ...(input.language ? { language: input.language } : {}) }) : null;
+      if (tool) {
+        const kind = action!.type === "choose_time" ? toolMoment(tool, action!, true) : null;
+        const reply = kind ? withToolMoment({ line: forVoice(tool.reply), kind, spoken: "", day: null, timeZone: facts.timeZone, history: input.history, language: input.language === "es" ? "es" : "en" }) : forVoice(tool.reply);
+        return { ...base, toolsLive, toolState: tool.state, tool, reply, source: "tool" };
+      }
+    }
+    // "What's your earliest opening?" needs no day: the calendar's next free times are the answer.
+    const earliest = /\b(?:earliest|soonest|next available|first available|next opening)\b/i.test(personText);
+    // With no treatment named yet, the earliest times once they have been looking at times (c4093be6 replayed).
+    if ((service || (earliest && toolState.offered.length > 0)) && asksForTimes(personText) && (day || window.after || window.before || earliest) && !otherService) {
       const tool = await input.tools!.run({
         action: { type: "find_times", service, day, ...window },
         capture,
@@ -1763,6 +1821,35 @@ export async function answerTurn(input: {
   const replyText = shaped(unfilled, true) || unfilled;
   const verdict = guardAssistantReply(replyText, facts, written);
   if (!verdict.ok && (verdict.reason === "price" || input.softRefusal) && channel === "voice" && !input.retried) return answerAgain(input, verdict.reason);
+  if (!verdict.ok && (verdict.reason === "never_say" || (verdict.reason === "booking_confirmation" && facts.demoCall))) {
+    // Only the sentences that say something on the never-say list go; the rest of the answer stands, read by the
+    // guard again as a whole (c4093be6 replayed: "Where are you located?" lost the address with the pitch after it).
+    const kept = replyText.split(/(?<=(?<!\bDr|\bMr|\bMrs|\bMs)[.!?])\s+/).filter((sentence) => guardAssistantReply(sentence, facts, written).ok).join(" ").trim();
+    if (kept.split(/\s+/).filter(Boolean).length >= 4 && guardAssistantReply(kept, facts, written).ok) {
+      return { ...live, capture: merged, handoff: answer.handoff, end: answer.end, reply: kept, source: "model", state: answer.state ?? null };
+    }
+  }
+  // A demo only for now: a clinic's call keeps the guard's fixed line, which its safety suites pin.
+  if (facts.demoCall && toolsLive && input.tools && !answer.handoff && ((!verdict.ok && verdict.reason === "booking_confirmation") || REQUEST_CLAIM.test(replyText))) {
+    // With booking live, a booking only the model claims, or a request it says it passed on, is never said and
+    // never answered "I'll pass your request to the team" (a44374c9 replayed: "what?" heard "I can't confirm it
+    // myself"). The rest of the reply stands ("Fair point, I'll keep it tight."); with nothing left, the tool layer
+    // says the times on offer again, or looks for some, never a fresh search over times already on offer.
+    const kept = replyText
+      .split(/(?<=(?<!\bDr|\bMr|\bMrs|\bMs)[.!?])\s+/)
+      // "Glad that works!" agreed to a booking that was not made: it goes with the claim (a44374c9: said to sarcasm).
+      .filter((sentence) => !REQUEST_CLAIM.test(sentence) && !claimsFreeTime(sentence) && !/\b(?:booked|confirmed|all set)\b|^\W*(?:so )?glad (?:that|it) works\b/i.test(sentence) && guardAssistantReply(sentence, facts, written).ok)
+      .join(" ")
+      .trim();
+    // They asked for times, or opened up the days ("I can do any day"): the times are the answer, not what is left.
+    const widened = /\bany ?(?:day|time|date)\b|\bwhenever\b|\bwhatever you have\b/i.test(personText);
+    if (!widened && !asksForTimes(personText) && kept.split(/\s+/).filter(Boolean).length >= 4 && guardAssistantReply(kept, facts, written).ok) {
+      return { ...live, capture: merged, handoff: false, end: answer.end, reply: kept, source: "model", state: answer.state ?? null };
+    }
+    const action = toolState.offered.length > 0 && !widened ? ({ type: "offer_again", only: toolState.offered.map((slot) => slot.at) } as const) : ({ type: "find_times", service: toolState.service ?? null, day: null } as const);
+    const tool = await input.tools.run({ action, capture: merged, state: toolState, callerPhone: input.callerPhone ?? null, words: personText, now, ...(input.language ? { language: input.language } : {}) });
+    if (tool) return { ...live, capture: merged, toolState: tool.state, tool, reply: channel === "voice" ? forVoice(tool.reply) : tool.reply, source: "tool" };
+  }
   const soft = verdict.ok ? null : softLine(input);
   if (soft) return { ...live, capture: merged, handoff: false, reply: soft, source: "guard", guard: (verdict as { reason: GuardRefusal }).reason };
   if (!verdict.ok) {
@@ -1786,6 +1873,13 @@ export async function answerTurn(input: {
   }
   return { ...live, capture: merged, handoff: answer.handoff, end: answer.end, reply: replyText, source: "model", state: answer.state ?? null };
 }
+
+/**
+ * A reply saying a time was passed to the team as a request. True only when booking is off; with booking live
+ * nothing was requested, so the tool layer answers instead (a44374c9 replayed: "the time I've requested ... the
+ * team will confirm that time within a day").
+ */
+const REQUEST_CLAIM = /\b(?:team will confirm|(?:they'?ll|they will) confirm|confirm (?:that|it|the time|that time) within a day|(?:i'?ve|i have) (?:requested|put in)|is the time i'?ve requested|your request (?:is|has been) (?:in|sent|passed)|put in your request|can'?t confirm (?:it|that|the appointment|the booking|your booking|the time))/i;
 
 /**
  * On a call, the one second try after a refused reply with nothing said yet:

@@ -233,7 +233,7 @@ describe("the review's fixes (1 November 2026)", () => {
     expect(vet).not.toMatch(/breastfeeding/);
     const spa = voiceExamples({ services: [svc], providerNames: ["Dr. Kim"], specialty: "med-spa" });
     expect(spa).toMatch(/breastfeeding/);
-    expect(spa).toContain("choose_time, with the exact value the system gave");
+    expect(spa).toContain("Details: choose_time, the exact value the system gave");
   });
 });
 

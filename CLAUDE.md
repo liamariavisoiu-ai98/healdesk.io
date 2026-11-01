@@ -210,8 +210,9 @@ enforceable rather than aspirational.
    (`demoUrgentLine`; a clinic's own urgent lines wait on the medical
    director's sign-off). `tests/voice-demo-be078f77.test.ts` and
    `tests/voice-demo-sound-alike.test.ts` replay the owner's test calls on
-   this path (the replays of c4093be6 and a44374c9 went with the demo booking
-   code they judged).
+   this path, as do `tests/voice-demo-c4093be6.test.ts` and
+   `tests/voice-demo-a44374c9.test.ts`, restored on it on 1 November 2026
+   (owner's approval), and `tests/voice-call-2026-11-01-evening.test.ts`.
    On every call, a clinic's and a demo,
    a word that sounds like the menu, a provider or what she just said is taken
    as that, never questioned ("this port" is Dysport; `lib/voice/sound-alike.ts`,

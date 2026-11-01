@@ -251,7 +251,7 @@ describe("a call, with the tools live for this run only", () => {
   test("the deposit booking: held as soon as it is chosen, written once, and the deposit the desk will take said; never a link", async () => {
     const outcome = await runPracticeChannel({ channel: "voice", facts: FACTS, booking: LIVE }, KNOWLEDGE, deps(model()));
     const deposit = byId(outcome.cases, "deposit_booking");
-    expect(failing(deposit)).toEqual([]);
+    expect(failing(deposit), JSON.stringify(deposit.answered)).toEqual([]);
     // The call's own lines (BOOKING_LINES_VOICE_EN), after the moment a person takes to hold it (pauses.ts).
     expect(deposit.answered[1]).toMatch(/I'm holding .+ for you\./);
     // The number given is read back first (answered[2]); the booking and its deposit follow the caller's yes.

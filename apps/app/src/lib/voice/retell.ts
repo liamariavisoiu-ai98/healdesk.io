@@ -50,7 +50,8 @@ export function keyFactOf(reply: string): string | null {
   if (price) return verdict ? `${verdict.charAt(0).toUpperCase()}${verdict.slice(1).toLowerCase()}, ${price}.` : `${price.charAt(0).toUpperCase()}${price.slice(1)}.`;
   const time = /\b(?:mon|tues|wednes|thurs|fri|satur|sun)day(?: the \d{1,2}(?:st|nd|rd|th))?(?: at \d{1,2}(?::\d{2})?(?: [AP]M)?)?/i.exec(reply)?.[0];
   if (time && / at /.test(time)) return `${time.charAt(0).toUpperCase()}${time.slice(1)}.`;
-  const first = reply.split(/(?<=[.!?])\s+/)[0] ?? reply;
+  // "Dr." never ends a sentence (a44374c9 replayed: "Patel. Anything else I can help with?").
+  const first = reply.split(/(?<=(?<!\bDr|\bMr|\bMrs|\bMs)[.!?])\s+/)[0] ?? reply;
   const clause = first.split(/,\s+|\s+(?:and|but|so)\s+/)[0]?.replace(/[.!?]+$/, "");
   if (clause && clause.length + 8 < first.length && clause.split(/\s+/).length >= 3) return `${clause}.`;
   return null;
@@ -261,7 +262,22 @@ export const REMINDER_LINES = ["Still with me?", "Hm, you there?"] as const;
 const NOT_TWICE = [
   "That one's for the team, I'm afraid.",
   "I'd need the team for that one.",
+  "I'd have to check that one.",
+  "Not one I can answer, sorry.",
+  "Anything else I can help with?",
 ] as const;
+/** In place of a line of hers that was not a refusal, said twice: a move on, never a refusal they did not ask for. */
+const MOVE_ON = ["Anything else I can help with?", "What else can I do for you?", "Is there anything else you need?", "Anything else?"] as const;
+/** After an apology already made, in place of another: what would help, never a third sorry (a44374c9). */
+const FRUSTRATED_NEXT = ["I hear you. What would make this easier for you?", "Understood. What would you like me to do?", "Got it. What can I sort out for you?"] as const;
+/** Asked once, when the caller turns to Spanish: the call goes on in Spanish only on their yes (owner, 1 November 2026). */
+export const SPANISH_OFFER_LINE = "Oh, ¿quiere que sigamos en español?";
+/** "Hello?", "Are you there?", "Can you hear me?" alone. */
+const CHECK_IN = /^\W*(?:(?:hi|hello|hey)(?: there)?|(?:are )?you (?:still )?there|is anyone there|can you hear me|(?:hi|hello|hey),? (?:are )?you (?:still )?there|aya)\W*$/i;
+/** Her answer to a check-in, never the same twice in a call. */
+const STILL_HERE = ["Yes, I'm here! Go ahead.", "Still here, go ahead.", "I'm right here."] as const;
+/** In place of the same times said twice: the question, not the times again. */
+const PICK_ONE = ["Which of those works for you?", "Any of those suit you?", "Want one of those?"] as const;
 export const REMINDER_CLOSE_LINE = "Looks like I lost you. I'll let you go, call back any time!";
 
 /** The lines above, for a call the caller has taken into Spanish. Awaiting a native speaker's review. */
@@ -597,6 +613,11 @@ export function paceOf(transcript: unknown): "quick" | "slow" | null {
 const CALLER_GOODBYE = /\b(?:bye|goodbye|bye-bye|have a (?:good|great|nice) (?:day|one|night)|adi[oó]s|hasta luego)\b/i;
 const HER_GOODBYE = /\b(?:bye|goodbye|have a (?:great|good|lovely|nice|wonderful) (?:day|one|evening|weekend|night)|take care|adi[oó]s|que tenga)\b/i;
 
+/** A turn that hands the call over: its end is the transfer, not a goodbye. */
+function transferIntent(turn: { urgent?: boolean; handoff?: boolean }): boolean {
+  return Boolean(turn.urgent || turn.handoff);
+}
+
 /** Both said goodbye, and she asked nothing: the call ends, whatever the model's "end" said (be078f77, section G). */
 export function mutualGoodbye(callerWords: string, reply: string): boolean {
   return CALLER_GOODBYE.test(callerWords) && !/\?/.test(callerWords) && HER_GOODBYE.test(reply) && !/\?/.test(reply);
@@ -706,6 +727,8 @@ export class RetellCallSession {
   private disclosurePlayedAt: Date | null = null;
   /** The language the call is being spoken in, and the evidence for it (call-language.ts). */
   private callLanguage: CallLanguageState = START_LANGUAGE;
+  /** Whether she asked to go on in Spanish, and the answer (SPANISH_OFFER_LINE). */
+  private spanishOffer: "none" | "asked" | "accepted" | "declined" = "none";
   /** The Spanish AI and transcription line has been said on this call. */
   private spanishDisclosed = false;
   private callerPhone: string | null = null;
@@ -1657,10 +1680,23 @@ export class RetellCallSession {
     // The language these words leave the call in. Kept only once this
     // answer is said: a newer request carries these words again, and must
     // not count them twice.
-    const language = nextCallLanguage(this.callLanguage, words, {
+    let language = nextCallLanguage(this.callLanguage, words, {
       knownTerms: languageTerms(facts),
       spanishAllowed: facts.languages.includes("es"),
     });
+    // The caller turned to Spanish (owner, 1 November 2026): she asks once whether to go on in Spanish and waits
+    // for their answer; a yes, or an answer in Spanish, turns the call, and anything else keeps it in English.
+    let spanishAsk = false;
+    if (this.spanishOffer === "asked") {
+      const yes = /^[^\p{L}]*(?:s[ií]|yes|yeah|yep|claro|por favor|vale|ok(?:ay)?|bueno|perfecto|de acuerdo|espa[nñ]ol)(?!\p{L})/iu.test(words) || language.language === "es";
+      language = yes ? { language: "es", leaning: "es", streak: Math.max(language.streak, 2) } : this.callLanguage;
+      this.spanishOffer = yes ? "accepted" : "declined";
+    } else if (this.demoContext && this.spanishOffer === "none" && language.language === "es" && this.callLanguage.language === "en") {
+      // The turn is still read as Spanish, so urgent words get the Spanish urgent line; the call itself stays in
+      // English until their yes (below, where the question is said).
+      spanishAsk = true;
+    }
+    const languageBefore = this.callLanguage;
     // A demo call books through the same tool layer as a clinic's call, on the demo's own calendar,
     // kept nowhere (demo-booking.ts; owner, 1 November 2026: "go ahead with the restructure").
     this.tools ??= this.deps.demo
@@ -1750,7 +1786,12 @@ export class RetellCallSession {
     const fragment = !jump && isFragment(words);
     const business = businessLine(words, officeNumber);
     // "Are you always full?" is the model's to answer since 1 November 2026 (row 17); a free time it names is taken out.
-    const callLine = business ?? (fragment ? fragmentLine(this.fragmentsInRow + 1) : null);
+    // "Hello?" or "Are you there?" once the call is under way: she is there, said in a few words, never her
+    // introduction again (a call of 1 November 2026: "Hi there, it's Aya. Are you still there?").
+    const underWay = this.turns.filter((t) => t.speaker === "assistant").length >= 2;
+    // Never after a failed turn: there "Hello?" is a caller in trouble, and the transfer to a person comes first.
+    const checkIn = underWay && !jump && this.failures === 0 && CHECK_IN.test(words) ? (STILL_HERE.find((line) => !this.turns.some((t) => t.speaker === "assistant" && t.text.includes(line))) ?? STILL_HERE[0]) : null;
+    const callLine = (spanishAsk ? SPANISH_OFFER_LINE : null) ?? business ?? checkIn ?? (fragment ? fragmentLine(this.fragmentsInRow + 1) : null);
     // What the line most likely heard: a word that sounds like the menu, a provider or what she just said (sound-alike.ts).
     const heardNote = soundAlikeNote(
       soundAlikes(words, {
@@ -1942,7 +1983,11 @@ export class RetellCallSession {
       if (this.demoContext && progress) {
         this.demoProgress = { ...afterDemoReply(progress, "roleplay", "roleplay", null, words), lastQuestion: lastQuestionIn(callLine)?.slice(0, 300) ?? null, offered: [] };
       }
-      log.info("retell call line", { callId: this.callId, status: business ? "business" : fragment ? "fragment" : "busy" });
+      if (spanishAsk) {
+        this.spanishOffer = "asked";
+        this.callLanguage = languageBefore;
+      }
+      log.info("retell call line", { callId: this.callId, status: spanishAsk ? "spanish_offer" : business ? "business" : checkIn ? "check_in" : fragment ? "fragment" : "busy" });
     } else if (turn.source === "model") {
       this.fragmentsInRow = 0;
     }
@@ -1969,21 +2014,39 @@ export class RetellCallSession {
     // A demo never says a line it has said before, word for word (a test call of 1 November 2026: the same refusal three times).
     if (this.demoContext && !streamed && !turn.urgent) {
       const before = this.turns.filter((t) => t.speaker === "assistant").map((t) => t.text.trim());
-      const now = (roleplayLine ?? turn.reply).trim();
-      if (before.includes(now)) {
+      // As it is said and kept: a pause marker is timing, never words, so it must not hide a repeat (c4093be6 replayed).
+      const now = withoutPauses(roleplayLine ?? turn.reply).trim();
+      // An apology on its own is said once a call (a44374c9: three in a row); after that, what would help.
+      const apologyOnly = (line: string) => /^\W*(?:i hear you,? and )?(?:i'?m |i am )?(?:so |really |very )?(?:sorry|apologi[sz]e)\b[^.?!]*[.!]?$/i.test(line);
+      if (apologyOnly(now) && before.some((b, i) => i > 0 && apologyOnly(b))) {
+        roleplayLine = FRUSTRATED_NEXT.find((line) => !before.includes(line)) ?? "What would you like me to do?";
+      } else if (before.includes(now)) {
         // A routing line said again keeps its provider, in other words; anything else gets a line not said yet.
-        const provider = /\bDr\.? [A-Z][a-z]+(?: [A-Z][a-z]+)?/.exec(now)?.[0] ?? null;
-        const again = provider ? [`That's one for ${provider} to go through with you. Want me to request a consultation?`] : [];
+        // A clinical, price or prescribing refusal, or any line offering a consultation, routes to the practice's provider.
+        const routes = turn.source === "guard" && (turn.guard === "clinical" || turn.guard === "price") || /consult/i.test(now);
+        const provider = /\bDr\.? [A-Z][a-z]+(?: [A-Z][a-z]+)?/.exec(now)?.[0] ?? (routes ? (facts.providerNames?.[0] ?? null) : null);
+        // Never a dodge: a clinical question asked again still names the provider and the consultation, each time in
+        // new and fewer words (c4093be6 replayed on 1 November 2026 heard "What else can I do for you?" instead).
+        const again = provider
+          ? [
+              `That's one for ${provider} to go through with you. Want me to request a consultation?`,
+              `${provider} can go through that with you at a consultation. Shall I request one?`,
+              `Best asked of ${provider} at a consultation. Want one?`,
+              `${provider} covers that at a consultation.`,
+            ]
+          : [];
         // A real answer asked for again is said again, shorter; a refusal, in words not said yet.
-        const first = now.split(/(?<=[.!?])\s+/)[0] ?? now;
+        const first = now.split(/(?<=(?<!\bDr|\bMr|\bMrs|\bMs)[.!?])\s+/)[0] ?? now;
         const answer = !/\b(?:don'?t have|don'?t know|can'?t|cannot|not able|isn'?t something|not sure)\b/i.test(now) && first.length > 12;
         // Never the same words twice (owner, 1 November 2026): a real answer asked for again is its key fact alone,
         // in the fewest words (keyFactOf); a refusal, in words not said yet.
-        const key = answer ? keyFactOf(now) : null;
+        const key = answer && turn.source !== "tool" ? keyFactOf(now) : null;
         roleplayLine =
           key && !before.includes(key)
             ? key
-            : ([...again, ...NOT_TWICE].find((line) => !before.some((b) => b.includes(line))) ?? "What else can I do for you?");
+            : ((provider ? again : turn.source === "guard" ? NOT_TWICE : turn.source === "tool" && /\bI've got\b/.test(now) ? PICK_ONE : MOVE_ON).find((line) => !before.some((b) => b.includes(line))) ??
+              // Every wording used: the shortest routing line again rather than a dodge.
+              (provider ? `${provider} covers that at a consultation.` : "What else can I do for you?"));
       }
     }
     // An apology said once is never said on its own again (roleplayCheckedReply, a44374c9).
@@ -2092,7 +2155,13 @@ export class RetellCallSession {
     // alert is not known to be queued, it must not say so either.
     let reply = turn.urgent && this.urgentUntold ? withoutTeamTold(reply0) : reply0;
     // A bare "hi" is always answered with a question (call-lines.ts): "Hi there!" alone left a silence, then "Still with me?".
-    if (!turn.urgent && !handoffTo && turn.source !== "fallback") reply = withGreetingQuestion(words, reply);
+    if (!turn.urgent && !handoffTo && turn.source !== "fallback" && !checkIn) reply = withGreetingQuestion(words, reply);
+    // A call never ends without her goodbye (a call of 1 November 2026 ended in silence on "No."): a warm one.
+    if (ends && !transferIntent(turn) && !HER_GOODBYE.test(withoutPauses(reply))) {
+      const bye = this.callLanguage.language === "es" ? "Muy bien, gracias por llamar. ¡Que tenga un buen día!" : "Alright, thanks so much for calling. Have a lovely day!";
+      // A word or two ("Okay.") or a question no one will answer gives way to the goodbye itself.
+      reply = withoutPauses(reply).trim().split(/\s+/).length > 3 && !/\?\s*$/.test(reply.trim()) ? `${reply.trim()} ${bye}` : bye;
+    }
     // A call back after a cut-off call: the fixed welcome-back line, once,
     // before the first reply that is not urgent, after the opening line.
     // It says the team was told only while that is true (welcomeBackLine).

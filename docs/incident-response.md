@@ -8,16 +8,18 @@ deadline is computed at open and the console lists what is overdue.
 
 | Class | Definition | Clinic must be told by | Source |
 | --- | --- | --- | --- |
-| Security incident | Attempted or successful unauthorised access, use, disclosure, modification or destruction of information, or interference with operations — whether or not PHI was involved (e.g. a credential leak, a suspicious login, a bug that exposed one clinic's rows to another), including anything a state breach-notification law treats as a breach of the security of the data | **24 hours** from becoming aware (immediately following it); the BAA's outer limit is 60 calendar days | BAA clause "Reporting breaches and security incidents" (c) |
-| Improper use or disclosure | PHI used or disclosed in a way the BAA does not permit, by us or a subprocessor (e.g. a report that carried a patient name; the agent reading appointment details to the wrong caller) | **24 hours** from becoming aware (immediately following it); the BAA's outer limit is 60 calendar days | BAA (a) |
-| Breach | Acquisition, access, use or disclosure of **unsecured** PHI not permitted by the Privacy Rule that compromises its security or privacy, per 45 CFR 164.402, after the four-factor risk assessment | **24 hours** from discovery (immediately following it) — far inside the 60 calendar days the BAA and 164.410 allow, on purpose, so the clinic's own 60-day clock to notify patients is not eaten by ours | BAA (b) |
+| Security incident | Attempted or successful unauthorised access, use, disclosure, modification or destruction of information, or interference with operations — whether or not PHI was involved (e.g. a credential leak, a suspicious login, a bug that exposed one clinic's rows to another), including anything a state breach-notification law treats as a breach of the security of the data | **24 hours** from becoming aware (immediately following it); the agreement's outer limit is 10 calendar days under BAA 1.7.0 and DPA 1.2.0, 60 under BAA 1.2.2 to 1.6.0, DPA 1.0.0 and DPA 1.1.0 | BAA clause "Reporting breaches and security incidents" (c) |
+| Improper use or disclosure | PHI used or disclosed in a way the BAA does not permit, by us or a subprocessor (e.g. a report that carried a patient name; the agent reading appointment details to the wrong caller) | **24 hours** from becoming aware (immediately following it); the agreement's outer limit is 10 calendar days under BAA 1.7.0 and DPA 1.2.0, 60 under BAA 1.2.2 to 1.6.0, DPA 1.0.0 and DPA 1.1.0 | BAA (a) |
+| Breach | Acquisition, access, use or disclosure of **unsecured** PHI not permitted by the Privacy Rule that compromises its security or privacy, per 45 CFR 164.402, after the four-factor risk assessment | **24 hours** from discovery (immediately following it) — far inside the 10 calendar days BAA 1.7.0 and DPA 1.2.0 allow, and the 60 that BAA 1.2.2 to 1.6.0, DPA 1.0.0, DPA 1.1.0 and 164.410 allow, on purpose, so the clinic's own 60-day clock to notify patients is not eaten by ours | BAA (b) |
 | Service complaint | "Your AI mishandled a call yesterday." Not a BAA clock; a service promise | First reply within 2 business days | Terms of service |
 
 BAA 1.2.1 allowed five business days for (a) and (c) and five calendar days
 for (b). Since BAA 1.2.2 (owner, 9 October 2026), and in the 1.3.0 and DPA
 drafts, the agreement promises all three "without unreasonable delay and in no
-case later than 60 calendar days" after discovery, the product spec's wording,
-and the public pages say the same. That is the outer limit, not the target.
+case later than 60 calendar days" after discovery, the product spec's wording.
+Since BAA 1.7.0 and DPA 1.2.0 (owner, 30 October 2026) the outer limit is 10
+calendar days, and the public pages say so. That is the outer limit, not the
+target.
 Notify every clinic within 24 hours of discovery, whichever version it signed:
 that meets every version, keeps a covered clinic's own 60-day clock to notify
 patients clear of ours, and is what still meets the state laws that require
@@ -44,8 +46,10 @@ general. The console's `ftc_notify_by` column is kept as a second clock, 30
 days from discovery: California's deadline for the clinic, as the owner of
 the data, to notify the people affected (Cal. Civ. Code 1798.82(a)(2)(A); the
 column held 60 days until 3 October 2026), so a non-covered breach is never
-left with only the contractual deadline. The 24-hour BAA clock applies to them
-as to every clinic.
+left with only the contractual deadline. healdesk's internal 24-hour target
+applies to them as to every clinic; it is an operating target, never a
+promise, and the agreement's own outer limit is the one in its Reporting
+clause.
 
 ## Who decides
 
@@ -68,8 +72,8 @@ categories; never paste patient data into it.
    number dead.
 2. **Open the incident** in the console (class, summary in ids, discovery time,
    conversation id if there is one). Two deadlines appear on the row: the
-   one the clinic's agreement promises (60 calendar days under BAA 1.2.2 on
-   and the DPA), and our internal 24-hour target, which is never quoted to a
+   one the clinic's agreement promises (10 calendar days under BAA 1.7.0
+   and DPA 1.2.0, 60 under BAA 1.2.2 to 1.6.0, DPA 1.0.0 and DPA 1.1.0), and our internal 24-hour target, which is never quoted to a
    clinic as a promise.
 3. **Preserve.** Do not delete the webhook payload, the transcript reference or
    the audit rows involved (healdesk keeps no call audio, and the voice provider's copy of a call is deleted within a day, so the ids of the calls involved are what can be preserved).

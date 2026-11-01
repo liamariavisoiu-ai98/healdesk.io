@@ -31,8 +31,9 @@ type Actions = {
 
 // What each class is. The clocks are the incident's own, from apps/app
 // (lib/incidents): the deadline the practice's agreement promises ("without
-// unreasonable delay and in no case later than 60 calendar days" under BAA
-// 1.2.2 on and the DPA), and healdesk's internal 24-hour target, which no
+// unreasonable delay and in no case later than" 10 "calendar days" under BAA
+// 1.7.0 and DPA 1.2.0, 60 under BAA 1.2.2 to 1.6.0 and DPA 1.0.0 and 1.1.0),
+// and healdesk's internal 24-hour target, which no
 // agreement states and nothing here presents as a promise (owner, 12 October
 // 2026). Neither is printed in a label, so neither can be mistaken for the other.
 const CLASS_LABELS: Record<IncidentClass, string> = {

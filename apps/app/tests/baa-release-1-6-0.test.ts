@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   BAA_1_6_0_RELEASED,
+  BAA_1_7_0_RELEASED,
   BAA_RELEASE_OVERLAP,
   BAA_TEMPLATES,
   baaTemplatesFor,
@@ -31,6 +32,10 @@ import { describe, expect, test } from "vitest";
  * requires exactly one release migration, journaled, accepting what the
  * released catalogue accepts; a revert of the switch alone fails it, because
  * an applied migration cannot be taken back (checklist, "Rollback").
+ *
+ * Since 1.7.0's release (30 October 2026) the functions read here take the
+ * 1.7.0 switch too; this file passes it false, so it keeps checking 1.6.0's
+ * release as it happened. baa-release-1-7-0.test.ts checks 1.7.0's.
  */
 
 const DRIZZLE = fileURLToPath(new URL("../drizzle/", import.meta.url));
@@ -52,43 +57,46 @@ function acceptableList(sql: string): string[] {
 }
 
 function acceptableUnder(released: boolean): string[] {
-  return baaTemplatesFor(released)
+  return baaTemplatesFor(released, false)
     .map((t) => t.version)
-    .filter((v) => baaVersionAcceptableWhen(released, v))
+    .filter((v) => baaVersionAcceptableWhen(released, v, false))
     .sort();
 }
 
 describe("the switch", () => {
-  test("today's catalogue is what the switch says", () => {
-    expect(BAA_TEMPLATES).toEqual(baaTemplatesFor(BAA_1_6_0_RELEASED));
-    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe(minAcceptableBaaVersionFor(BAA_1_6_0_RELEASED));
+  test("today's catalogue is what the switches say", () => {
+    expect(BAA_TEMPLATES).toEqual(baaTemplatesFor(BAA_1_6_0_RELEASED, BAA_1_7_0_RELEASED));
+    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe(
+      minAcceptableBaaVersionFor(BAA_1_6_0_RELEASED, BAA_1_7_0_RELEASED),
+    );
     for (const t of BAA_TEMPLATES) {
       expect(isBaaVersionAcceptable(t.version), t.version).toBe(
-        baaVersionAcceptableWhen(BAA_1_6_0_RELEASED, t.version),
+        baaVersionAcceptableWhen(BAA_1_6_0_RELEASED, t.version, BAA_1_7_0_RELEASED),
       );
     }
-    expect(CURRENT_BAA_VERSION).toBe(BAA_1_6_0_RELEASED ? "1.6.0" : "1.5.1");
   });
 
   test("off, 1.5.1 is offered and the floor, and 1.6.0 is a draft after it", () => {
-    const [first, second] = baaTemplatesFor(false);
+    const [first, second] = baaTemplatesFor(false, false);
     expect([first!.version, first!.approvedByCounsel]).toEqual(["1.5.1", true]);
     expect([second!.version, second!.approvedByCounsel]).toEqual(["1.6.0", false]);
-    expect(minAcceptableBaaVersionFor(false)).toBe("1.5.1");
+    expect(minAcceptableBaaVersionFor(false, false)).toBe("1.5.1");
     expect(acceptableUnder(false)).toEqual(["1.5.1"]);
   });
 
   test("on, 1.6.0 is offered and the floor, 1.5.1 follows it, released and refused at go-live", () => {
-    const [first, second] = baaTemplatesFor(true);
+    const [first, second] = baaTemplatesFor(true, false).filter((t) => t.version !== "1.7.0");
     expect([first!.version, first!.approvedByCounsel]).toEqual(["1.6.0", true]);
     expect([second!.version, second!.approvedByCounsel]).toEqual(["1.5.1", true]);
-    expect(minAcceptableBaaVersionFor(true)).toBe("1.6.0");
+    expect(minAcceptableBaaVersionFor(true, false)).toBe("1.6.0");
     expect(acceptableUnder(true)).toEqual(["1.6.0"]);
   });
 
   test("only the order of 1.5.1 and 1.6.0 and 1.6.0's flag move; every older template is the same object", () => {
-    const off = baaTemplatesFor(false);
-    const on = baaTemplatesFor(true);
+    // The 1.7.0 draft, which sits in both lists since 30 October 2026, is
+    // not part of what 1.6.0's release moved.
+    const off = baaTemplatesFor(false, false).filter((t) => t.version !== "1.7.0");
+    const on = baaTemplatesFor(true, false).filter((t) => t.version !== "1.7.0");
     expect(off.slice(2)).toHaveLength(on.length - 2);
     off.slice(2).forEach((t, i) => expect(on[i + 2]).toBe(t));
     expect(on[1]).toBe(off[0]);
@@ -102,7 +110,7 @@ describe("the switch", () => {
 
   test("the release keeps no overlap, so a tab left open on 1.5.1 is asked to reload", () => {
     expect(BAA_RELEASE_OVERLAP).toEqual({});
-    const current = baaTemplatesFor(true)[0]!;
+    const current = baaTemplatesFor(true, false)[0]!;
     expect(signableTemplate("1.6.0", { current }).version).toBe("1.6.0");
     expect(() => signableTemplate("1.5.1", { current })).toThrow(/reload/);
   });
@@ -113,10 +121,10 @@ describe("the release migration", () => {
     expect(acceptableList(readFileSync(STAGED, "utf8"))).toEqual(acceptableUnder(true));
   });
 
-  test("the switch is on: the owner released 1.6.0 on 29 October 2026", () => {
+  test("the switch is on: the owner released 1.6.0 on 29 October 2026 (1.7.0 followed on 30 October)", () => {
     expect(BAA_1_6_0_RELEASED).toBe(true);
-    expect(CURRENT_BAA_VERSION).toBe("1.6.0");
-    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe("1.6.0");
+    expect(CURRENT_BAA_VERSION).toBe(BAA_1_7_0_RELEASED ? "1.7.0" : "1.6.0");
+    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe(BAA_1_7_0_RELEASED ? "1.7.0" : "1.6.0");
   });
 
   test("it is in drizzle/ exactly when the switch is on", () => {

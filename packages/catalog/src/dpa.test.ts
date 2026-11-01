@@ -32,9 +32,9 @@ import {
 import {
   applicableDpaClauses,
   CALENDAR_EVENT_FALLBACK_QUOTED,
-  CALENDAR_PERSON_NOUNS,
   CURRENT_DPA_VERSION,
   currentDpaTemplate,
+  CALENDAR_PERSON_NOUNS,
   DPA_ACTION_LABEL,
   DPA_ASSENT_LABEL,
   DPA_PRACTICE_DESCRIPTORS,
@@ -138,7 +138,7 @@ const GOLDEN: Record<string, string> = {
 
 // dpa/1.0.0 by name, not "whatever is current": these freeze the released
 // text, and must keep passing unchanged when a later version (dpa/1.1.0,
-// dpa-1-1-0.test.ts) becomes current.
+// dpa-1-1-0.test.ts; dpa/1.2.0, dpa-1-2-0.test.ts) becomes current.
 const template = () => getDpaTemplate("dpa/1.0.0")!;
 const render = (overrides: Partial<DpaVariables>) =>
   prepareDpa(template(), { ...SAMPLE, ...overrides });
@@ -190,13 +190,14 @@ describe("DPA freeze", () => {
   });
 
   test("is registered once, namespaced and released, and nothing in the text ever said it was a draft", () => {
-    // dpa/1.1.0, released by the owner on 30 October 2026, is current; 1.0.0
-    // follows it once, still released (dpa-1-1-0.test.ts).
-    expect(DPA_TEMPLATES.map((t) => t.version)).toEqual(["dpa/1.1.0", "dpa/1.0.0"]);
+    // dpa/1.2.0 is current since it landed (reconciled 1 November 2026), and 1.1.0
+    // and 1.0.0 follow it once each, still released (dpa-1-2-0.test.ts,
+    // dpa-1-1-0.test.ts).
+    expect(DPA_TEMPLATES.map((t) => t.version)).toEqual(["dpa/1.2.0", "dpa/1.1.0", "dpa/1.0.0"]);
     expect(DPA_TEMPLATES.filter((t) => t.version === "dpa/1.0.0")).toEqual([template()]);
-    expect(CURRENT_DPA_VERSION).toBe("dpa/1.1.0");
+    expect(CURRENT_DPA_VERSION).toBe("dpa/1.2.0");
     expect(currentDpaTemplate()).not.toBe(template());
-    expect(DPA_TEMPLATES[1]).toBe(template());
+    expect(DPA_TEMPLATES[2]).toBe(template());
     expect(getDpaTemplate("1.0.0")).toBeUndefined();
     // Drafted 6 October 2026; released by the owner on 20 October 2026.
     expect(template().publishedOn).toBe("2026-10-20");

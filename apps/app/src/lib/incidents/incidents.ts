@@ -18,9 +18,10 @@ export { addBusinessDays } from "./reporting-rules";
  *   b. any breach of unsecured PHI;
  *   c. any security incident, a state-law breach of security included.
  *
- * Since BAA 1.2.2 (owner, 9 October 2026), and in BAA 1.3.0 and the DPA,
- * it promises each "without unreasonable delay and in no case later than 60
- * calendar days" after discovery, the product spec's wording. The clock this
+ * Since BAA 1.2.2 (owner, 9 October 2026), to 1.6.0 and in DPA 1.0.0 and
+ * 1.1.0, it promises each "without unreasonable delay and in no case later
+ * than 60 calendar days" after discovery, the product spec's wording; BAA
+ * 1.7.0 and DPA 1.2.0 say 10 (owner, 30 October 2026). The clock this
  * file keeps is stricter, and stays so on purpose: 24 hours from discovery
  * for all three classes at every clinic, whichever version it signed, as an
  * operating target the agreements no longer state (docs/incident-response.md).

@@ -19,10 +19,9 @@ export const RETELL_CALL_SETTINGS = {
   // listening sounds came on most turns; the marketing agents run 0.2.
   backchannel_frequency: 0.3,
   backchannel_words: ["mm-hmm", "uh-huh", "yeah", "I see"],
-  // A quiet front desk behind her (owner, 1 November 2026, realism item 5): Retell's office murmur, low.
-  // Its other choices are coffee-shop, convention-hall, summer-outdoor, mountain-outdoor and static-noise.
-  ambient_sound: "call-center",
-  ambient_sound_volume: 0.3,
+  // No background sound (owner, 1 November 2026, after a test call: "Remove the background noise altogether";
+  // under the office murmur her words sounded mechanical and cut off). null clears it on Retell.
+  ambient_sound: null,
   // Her mood word reaches her voice (owner, 1 November 2026, realism item 1): the call sends [happy] or
   // [empathetic] before her words, at most every few turns, only once it has read this setting off the
   // call's own agent (apps/app retell.ts, retellAgentExpressive). Platform voices only, as Sloane is.

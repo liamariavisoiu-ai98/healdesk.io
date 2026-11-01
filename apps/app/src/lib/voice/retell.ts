@@ -1668,7 +1668,14 @@ export class RetellCallSession {
       roleplayLine = rpTimeLine;
       const named = progress.rpDay !== null && progress.rpDay !== undefined ? (["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const)[progress.rpDay] : undefined;
       const after = afterDemoReply(progress, "roleplay", "roleplay", null, words);
-      this.demoProgress = { ...after, rpBooking: { ...after.rpBooking, ...(named && !after.rpBooking?.day ? { day: named } : {}) }, lastQuestion: lastQuestionIn(rpTimeLine)?.slice(0, 300) ?? after.lastQuestion ?? null };
+      this.demoProgress = {
+        ...after,
+        rpBooking: { ...after.rpBooking, ...(named && !after.rpBooking?.day ? { day: named } : {}) },
+        lastQuestion: lastQuestionIn(rpTimeLine)?.slice(0, 300) ?? after.lastQuestion ?? null,
+        // The day's pleasantry once, and the "already taken" once (roleplayTimeLine).
+        lookedUp: true,
+        takenShown: after.takenShown === true || / is already taken\b/.test(rpTimeLine),
+      };
       log.info("retell demo roleplay", { callId: this.callId, status: "time" });
     }
     if (this.demoContext && progress && turn.source !== "fallback" && !codeMoved) {

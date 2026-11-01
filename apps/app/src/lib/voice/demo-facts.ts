@@ -243,6 +243,10 @@ export type DemoProgress = {
   saidNo?: boolean;
   /** The last question she said, word for word (roleplayHeard reads a name or a number answered to it). */
   lastQuestion?: string | null;
+  /** She has looked at the calendar once on this call: the day's pleasantry is said only then (calendarLead). */
+  lookedUp?: boolean;
+  /** The first time asked for was "already taken", with two near it offered: once a call (roleplayTimeLine). */
+  takenShown?: boolean;
 };
 
 export const DEMO_START_PROGRESS: DemoProgress = { asked: null, roleplayTurns: 0 };
@@ -626,6 +630,33 @@ function twoTimes(span: { open: number; close: number }, ask: RequestedTime | nu
  * or when the hours cannot be read; she then answers as usual.
  */
 export function roleplayTimeLine(context: Pick<DemoCallContext, "clinic" | "issuedAt">, progress: DemoProgress, words: string): string | null {
+  const line = timeAnswer(context, progress, words);
+  return line ? `${calendarLead(context, progress)} ${line}` : null;
+}
+
+/**
+ * What she says as she looks at the calendar (owner, 1 November 2026: "she
+ * should use the filler to look into it"): the first time on a call, the
+ * day's pleasantry with it (RECEPTIONIST_MANNER in prompt.ts, in the clinic's
+ * zone on the day the call began); after that, a short "let me look".
+ */
+export function calendarLead(context: Pick<DemoCallContext, "clinic" | "issuedAt">, progress: DemoProgress): string {
+  if (progress.lookedUp) return "Let me take a look...";
+  const day = weekdayOf(new Date(context.issuedAt), demoTimeZone(context.clinic.address));
+  if (day === 1 || day === 2) return "I hope your week's off to a great start! Let me pull up our calendar...";
+  if (day === 4 || day === 5) return `Happy ${WEEKDAY_NAMES[day]}! Let's get this sorted so you can head into the weekend. Let me see what we have open...`;
+  return "Let me pull up our calendar...";
+}
+
+/** The two free hours nearest a time on a day, inside its hours: the "already taken" alternatives. */
+function nearTimes(span: { open: number; close: number }, minutes: number): number[] {
+  const at = Math.floor(minutes / 60) * 60;
+  const first = Math.ceil(span.open / 60) * 60;
+  const last = Math.floor((span.close - 60) / 60) * 60;
+  return [at - 60, at + 60, at - 120, at + 120, at + 180, at - 180].filter((m) => m >= first && m <= last).slice(0, 2).sort((a, b) => a - b);
+}
+
+function timeAnswer(context: Pick<DemoCallContext, "clinic" | "issuedAt">, progress: DemoProgress, words: string): string | null {
   const spans = openSpans(context);
   if (spans.size === 0) return null;
   const ask = progress.rpTime ?? null;
@@ -646,6 +677,15 @@ export function roleplayTimeLine(context: Pick<DemoCallContext, "clinic" | "issu
     if (ask.minutes < span.open || ask.minutes > span.close - 30) {
       const times = offer(day, twoTimes(span, ask));
       return `We're open ${clock(span.open)} to ${clock(span.close)} on ${WEEKDAY_NAMES[day]}s, so ${ask.said} is outside our hours.${times ? ` Would ${times} work instead?` : ""}`;
+    }
+    // The first time they ask for, once a call, is already taken, and two near it are offered at once
+    // (owner, 1 November 2026: show that she is proactive). Never a time she just offered them.
+    const offered = (progress.lastQuestion ?? "").includes(clock(Math.floor(ask.minutes / 60) * 60)) || demoSlots(context).some((slot) => slot.endsWith(` at ${clock(ask.minutes!)}`));
+    if (!progress.takenShown && !offered) {
+      const near = nearTimes(span, ask.minutes);
+      if (near.length === 2) {
+        return `Ah, ${clock(Math.floor(ask.minutes / 60) * 60)} on ${nextDateOn(context, day)} is already taken, but I can do ${clock(near[0]!)} or ${clock(near[1]!)} that day. Would either of those work?`;
+      }
     }
     return null;
   }

@@ -185,7 +185,11 @@ enforceable rather than aspirational.
    (`demoSlots`), and the repairs the turn needs. The booking is held in
    code (demo call c4093be6, 31 October 2026): a time outside the hours, a
    closed day and a question about free times are answered by the call from
-   the hours (`roleplayTimeLine`); no request is said to be in before a
+   the hours (`roleplayTimeLine`), each opened with her looking ("Let me pull
+   up our calendar...", with the day's pleasantry the first time,
+   `calendarLead`), and the first time a caller asks for, once a call, is
+   "already taken" with the two nearest free times offered, to show her
+   proactive (owner, 1 November 2026); no request is said to be in before a
    treatment, a day and time, a first name and a number (for a
    cancellation, the name and the number), a cancelled one is never pending,
    and a goodbye goes from a reply still asking for details

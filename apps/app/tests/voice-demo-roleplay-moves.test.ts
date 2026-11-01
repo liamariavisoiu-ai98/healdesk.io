@@ -36,15 +36,27 @@ describe("the role-play's booking, in code", () => {
   });
 
   test("a closed day, a time outside the hours and a question about free times are answered from the hours", () => {
-    const heard = (words: string, over: Partial<DemoProgress> = {}) => roleplayTimeLine(context, withDemoAnswer(at(over), "roleplay", words), words);
-    expect(heard("Do you have anything Thursday afternoon?")).toBe("On Thursday, November 5, I have 2 PM or 4 PM. Would either of those work?");
-    expect(heard("Let's say nine PM.", { rpDay: 4 })).toBe("We're open 9 AM to 6 PM on Thursdays, so 9 PM is outside our hours. Would Thursday, November 5 at 4 PM or 5 PM work instead?");
-    expect(heard("Can I come in Saturday at ten AM?")).toBe("We're closed on Saturdays. Would Monday, November 2 at 10 AM or 11 AM work instead?");
-    expect(heard("What's your earliest opening?")).toBe("The earliest I have is Monday, November 2 at 11 AM. Would that work?");
+    // After the first look at the calendar of the call, a short "let me look" (calendarLead).
+    const heard = (words: string, over: Partial<DemoProgress> = {}) => roleplayTimeLine(context, withDemoAnswer(at({ lookedUp: true, takenShown: true, ...over }), "roleplay", words), words);
+    expect(heard("Do you have anything Thursday afternoon?")).toBe("Let me take a look... On Thursday, November 5, I have 2 PM or 4 PM. Would either of those work?");
+    expect(heard("Let's say nine PM.", { rpDay: 4 })).toBe("Let me take a look... We're open 9 AM to 6 PM on Thursdays, so 9 PM is outside our hours. Would Thursday, November 5 at 4 PM or 5 PM work instead?");
+    expect(heard("Can I come in Saturday at ten AM?")).toBe("Let me take a look... We're closed on Saturdays. Would Monday, November 2 at 10 AM or 11 AM work instead?");
+    expect(heard("What's your earliest opening?")).toBe("Let me take a look... The earliest I have is Monday, November 2 at 11 AM. Would that work?");
     // A time inside the hours, and anything that is not about a time, is hers to answer.
     expect(heard("Thursday at 3 PM works.")).toBeNull();
-    expect(heard("Do you have parking available?")).toBeNull();
-    expect(heard("Do you have any Botox deals?")).toBeNull();
+  });
+
+  test("the first look of the call carries the day's pleasantry, and the first time asked for is taken, with two near it", () => {
+    // Owner, 1 November 2026: "she should use the filler to look into it, and find that it's already booked, but come up with 2 alternatives (show that she's proactive)".
+    const first = (words: string, over: Partial<DemoProgress> = {}) => roleplayTimeLine(context, withDemoAnswer(at(over), "roleplay", words), words);
+    // The call began on a Friday.
+    expect(first("Do you have anything Thursday afternoon?")).toBe(`Happy Friday! Let's get this sorted so you can head into the weekend. Let me see what we have open... On Thursday, November 5, I have 2 PM or 4 PM. Would either of those work?`);
+    expect(first("Can I come in Thursday at 3 PM?")).toBe(`Happy Friday! Let's get this sorted so you can head into the weekend. Let me see what we have open... Ah, 3 PM on Thursday, November 5 is already taken, but I can do 2 PM or 4 PM that day. Would either of those work?`);
+    // Once a call: the next time asked for, or one she just offered, is hers to take.
+    expect(first("Thursday at 3 PM then.", { lookedUp: true, takenShown: true })).toBeNull();
+    expect(first("2 PM is great.", { rpDay: 4, lastQuestion: "Ah, 3 PM on Thursday, November 5 is already taken, but I can do 2 PM or 4 PM that day. Would either of those work?" })).toBeNull();
+    expect(first("Do you have parking available?")).toBeNull();
+    expect(first("Do you have any Botox deals?")).toBeNull();
   });
 
   test("no request is said to be in before a treatment, a day and time, a name and a number; a cancelled one is never pending", () => {

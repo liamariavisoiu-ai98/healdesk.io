@@ -505,13 +505,14 @@ describe("demo call c4093be6, replayed line by line", () => {
   test("times are decided in code from the hours, and the booking's state is kept in code", async () => {
     const rows = await replay();
     const at = (caller: string) => rows.find((r) => r.caller === caller)!;
-    expect(at("Do you have anything Thursday afternoon?").after).toBe("On Thursday, November 5, I have 2 PM or 4 PM. Would either of those work?");
-    expect(at("Let's say nine PM.").after).toBe("We're open 9 AM to 5 PM on Thursdays, so 9 PM is outside our hours. Would Thursday, November 5 at 3 PM or 4 PM work instead?");
+    // The call began on a Saturday: the first look at the calendar says so plainly (calendarLead).
+    expect(at("Do you have anything Thursday afternoon?").after).toBe("Let me pull up our calendar... On Thursday, November 5, I have 2 PM or 4 PM. Would either of those work?");
+    expect(at("Let's say nine PM.").after).toBe("Let me take a look... We're open 9 AM to 5 PM on Thursdays, so 9 PM is outside our hours. Would Thursday, November 5 at 3 PM or 4 PM work instead?");
     // The guard's booking line no longer says the request was passed on before a name and a number.
     expect(at("Yeah. That works.").after).toBe("I can't confirm it myself, but I can put the request in. What time on Thursday suits you best?");
     // Her own end before the patient signed off does not stand, and its goodbye goes with it; the request waits for a name.
     expect(at("Okay. Oh, uh, actually, can we move that to Friday morning?").after).toBe("Friday morning, got it. Can I get your first name?");
-    expect(at("No. It's okay. What's your earliest of opening?").after).toBe("The earliest I have is Monday, November 2 at 11 AM. Would that work?");
+    expect(at("No. It's okay. What's your earliest of opening?").after).toBe("Let me take a look... The earliest I have is Monday, November 2 at 11 AM. Would that work?");
     expect(at("need I need to cancel my appointment.").booking).toMatchObject({ status: "cancelled" });
     expect(at("The one I'm calling you with, but you didn't take my name in order to cancel that.").booking).toMatchObject({ phone: expect.stringMatching(/^The one I'm calling you with/) });
     // A cancelled request is never "your Friday morning request" again.

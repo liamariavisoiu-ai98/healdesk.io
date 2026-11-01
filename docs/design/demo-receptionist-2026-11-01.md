@@ -93,3 +93,20 @@ invented this for demo purposes."
   profile, so `apps/app` needed no change.
 - **The deposit on a call:** voice still never takes a payment. The sample
   rule names a deposit, and Aya flags it as on any call.
+
+## Looking, and the first time "already taken" (same day)
+
+The owner, 1 November 2026: "when the prospect tries to book she should use
+the filler to look into it, and find that it's already booked then, but come
+up with 2 alternatives (show that she's proactive)".
+
+| What the caller says | What the demo answers |
+|---|---|
+| A question about free times, a time outside the hours, a closed day | Her lookup first. The first time in a call, with the day's pleasantry: "Happy Friday! Let's get this sorted so you can head into the weekend. Let me see what we have open..." (Monday and Tuesday: "I hope your week's off to a great start! Let me pull up our calendar..."; other days: "Let me pull up our calendar..."). After that: "Let me take a look...". Then the answer from the hours, as before. |
+| The first specific time inside the hours, once a call | "Let me pull up our calendar... Ah, 3 PM on Thursday, November 5 is already taken, but I can do 2 PM or 4 PM that day. Would either of those work?" |
+| A later time, or one she just offered | Hers to take, as their preferred time. |
+
+The lookup line, the made-up "taken" and the two nearest times come from code
+(`calendarLead`, `roleplayTimeLine` in `apps/app/src/lib/voice/demo-facts.ts`),
+with no model call. It is a demo only: a clinic's own calls check the real
+calendar.

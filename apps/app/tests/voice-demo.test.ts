@@ -378,7 +378,11 @@ describe("a demo call on the voice engine", () => {
     expect(m.seen[0]!.stable).toContain("How you run a booking");
     expect(m.seen[0]!.stable).not.toMatch(/healdesk.s Aya|Book Onboarding|the product they are hearing/);
 
+    // A day with a booking ask is answered by the call itself, from the hours, with no model call (a44374c9).
     await s.handle(said(2, [{ role: "agent", content: heard().at(-1)!.content }, { role: "user", content: "can I book one for Friday" }]));
+    expect(heard().at(-1)!.content).toMatch(/^Let me pull up our calendar\.\.\. On Friday, November \d+, I have \d+ [AP]M or \d+ [AP]M\. Would either of those work\?$/);
+    expect(m.seen).toHaveLength(1);
+    await s.handle(said(3, [{ role: "agent", content: heard().at(-1)!.content }, { role: "user", content: "and what's your cancellation policy" }]));
     expect(m.seen).toHaveLength(2);
     expect(m.seen[1]!.turn).toContain("You are Aya, Lumen's AI receptionist");
     expect(m.seen[1]!.turn).not.toMatch(/buying signal|the close|pitch/);

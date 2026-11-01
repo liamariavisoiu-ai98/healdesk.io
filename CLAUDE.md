@@ -189,15 +189,25 @@ enforceable rather than aspirational.
    up our calendar...", with the day's pleasantry the first time,
    `calendarLead`), and the first time a caller asks for, once a call, is
    "already taken" with the two nearest free times offered, to show her
-   proactive (owner, 1 November 2026); no request is said to be in before a
-   treatment, a day and time, a first name and a number (for a
-   cancellation, the name and the number), a cancelled one is never pending,
-   and a goodbye goes from a reply still asking for details
-   (`roleplayCheckedReply`); healdesk's words are on its never-say list
+   proactive (owner, 1 November 2026); "after four", "any day" and "whatever
+   you have" are read in code too and answered with two times that fit, none
+   offered twice, and "Monday works" picks from the offer (`windowIn`,
+   `slotPicked`); a demo books (demo call a44374c9, owner: "take it to
+   10/10"): once it has a treatment, a day and time inside the hours, a first
+   name and a number, the call says "You're all set" itself, once, with the
+   caller's name, and never restates it unless asked (`demoBookable`,
+   `demoConfirmLine`; the guard leaves a demo's booking words to that code,
+   `bookingClaimsOwned`); a cancelled one is never pending, and a goodbye
+   goes from a reply still asking for details (`roleplayCheckedReply`); a
+   doctor not on the team is named as such (`unknownDoctorIn`), a hurried
+   caller gets no pleasantry, sarcasm after a complaint never hears "Glad that
+   works!", and an apology is said once; healdesk's words are on its never-say list
    (`demoRoleplayFacts`); a refused reply gets the guard's line with the
    provider's name (`routingProvider`, on demo calls only until the owner
    decides a clinic's own lines name theirs); the urgent line reads out the
-   clinic's published number after 9-1-1. `tests/voice-demo-c4093be6.test.ts`
+   clinic's published number after 9-1-1, opened with a word of sympathy and
+   named as the clinical team's direct line (`demoUrgentLine`; a clinic's own
+   urgent lines wait on the medical director's sign-off). `tests/voice-demo-c4093be6.test.ts`
    replays that call's patient lines. The receptionist's manner (the day's
    pleasantry before the calendar, human words for a pause, a nod before
    each question, one sentence of validation once they choose, the caller's

@@ -5,6 +5,12 @@ import { endsWithAbbreviation } from "@/lib/assistant/turn";
 import {
   DEMO_START_PROGRESS,
   demoAssistantFacts,
+  demoBookable,
+  demoConfirmLine,
+  demoUrgentLine,
+  slotPicked,
+  unknownDoctorIn,
+  windowIn,
   demoRoleplayFacts,
   requestedTime,
   roleplayCheckedReply,
@@ -76,7 +82,7 @@ describe("the role-play's booking, in code", () => {
       "Parking's behind the building.",
     );
     // The guard's booking line asks for what is missing, or, after routing to the provider, offers the consultation.
-    expect(roleplayCheckedReply("x", partial, { guard: "booking_confirmation" })).toBe("I can't confirm it myself, but I can put the request in. What time on Thursday suits you best?");
+    expect(roleplayCheckedReply("x", partial, { guard: "booking_confirmation" })).toBe("Great, let's get that booked. What time on Thursday suits you best?");
     expect(roleplayCheckedReply("x", partial, { guard: "booking_confirmation", spokenBefore: "That's a question for Dr. Maya Chen." })).toBe(
       "That's a question for Dr. Maya Chen. Want me to put in a request for a consultation?",
     );
@@ -91,6 +97,83 @@ describe("the role-play's booking, in code", () => {
     expect(number.rpBooking).toMatchObject({ phone: "The one I'm calling from" });
     // "your cancellation policy" is a question, not a cancel.
     expect(withDemoAnswer(at({ rpBooking: { service: "Botox" } }), "roleplay", "What's your cancellation policy?").rpBooking?.status).toBeUndefined();
+  });
+});
+
+describe("the demo books, and keeps to what the caller asked (demo call a44374c9)", () => {
+  test("a window is read from the caller's words, and answered with times inside it", () => {
+    expect(windowIn("do you have anything available after four PM next week?")).toEqual({ from: 16 * 60, to: null, said: "after 4 PM" });
+    expect(windowIn("anything before noon on Friday")).toEqual({ from: null, to: 12 * 60, said: "before 12 PM" });
+    expect(windowIn("after 5")).toMatchObject({ from: 17 * 60 });
+    expect(windowIn("I get about ten calls a day")).toBeNull();
+    // The first time in it is shown taken, once a call; two that fit are offered, none before four.
+    const asked = "do you have anything available after four PM?";
+    const line = roleplayTimeLine(context, withDemoAnswer(at({ lookedUp: true }), "roleplay", asked), asked);
+    expect(line).toBe("Let me take a look... Ah, Monday, November 2 at 4 PM is already taken, but I can do 5 PM that day or Tuesday, November 3 at 4 PM. Would either of those work?");
+    const again = roleplayTimeLine(context, withDemoAnswer(at({ lookedUp: true, takenShown: true }), "roleplay", asked), asked);
+    expect(again).toBe("Let me take a look... I have Monday, November 2 at 4 PM or 5 PM. Would either of those work?");
+  });
+
+  test("a day with a booking ask is answered from the hours; a day in the past never is", () => {
+    const words = "I actually need a consult Thursday afternoon, fast as possible. I'm running into a meeting.";
+    const hurried = withDemoAnswer(at(), "roleplay", words);
+    expect(hurried.hurried).toBe(true);
+    // In a hurry: no pleasantry.
+    expect(roleplayTimeLine(context, hurried, words)).toBe("Let me take a look... On Thursday, November 5, I have 2 PM or 4 PM. Would either of those work?");
+    const past = "I had Botox last Thursday and want to book again";
+    expect(roleplayTimeLine(context, withDemoAnswer(at(), "roleplay", past), past)).toBeNull();
+  });
+
+  test("what they pick from the call's offer is read in code", () => {
+    const offered = [
+      { day: 1, minutes: 17 * 60 },
+      { day: 2, minutes: 16 * 60 },
+    ];
+    expect(slotPicked("Uh, Yeah. Monday works.", offered)).toEqual(offered[0]);
+    expect(slotPicked("the second one", offered)).toEqual(offered[1]);
+    expect(slotPicked("4 PM please", offered)).toEqual(offered[1]);
+    expect(slotPicked("yes", offered)).toBeNull();
+    expect(slotPicked("yes", [offered[0]!])).toEqual(offered[0]);
+    expect(slotPicked("I can't do Monday", offered)).toBeNull();
+    // The pick stands over the time her state gives.
+    const p = withDemoAnswer(at({ offered }), "roleplay", "Monday works.");
+    expect(p.rpBooking).toMatchObject({ day: "Monday", time: "5 PM" });
+  });
+
+  test("with a treatment, a day and time in the hours, a name and a number, the call books it in its own words", () => {
+    const booking = { service: "a consult with Dr. Smith", day: "Monday", time: "5", name: "thomas", phone: "this one" };
+    const slot = demoBookable(context, booking);
+    expect(slot).toEqual({ day: 1, minutes: 17 * 60 });
+    expect(demoConfirmLine(context, booking, slot!)).toBe("You're all set, Thomas! Your consult with Dr. Maya Chen is booked for Monday, November 2 at 5 PM. Anything else I can help with?");
+    expect(demoConfirmLine(context, { ...booking, service: "Botox" }, slot!, true)).toBe("Done! I've moved your Botox with Dr. Maya Chen to Monday, November 2 at 5 PM. Anything else I can help with?");
+    // Not before everything is in, never on a closed day or outside the hours, never a cancelled one.
+    expect(demoBookable(context, { ...booking, phone: undefined })).toBeNull();
+    expect(demoBookable(context, { ...booking, day: "Saturday" })).toBeNull();
+    expect(demoBookable(context, { ...booking, time: "9 PM" })).toBeNull();
+    expect(demoBookable(context, { ...booking, status: "cancelled" })).toBeNull();
+  });
+
+  test("once booked, it is never said again unless they ask; the answer before a 'but' stays; sarcasm and a second apology go", () => {
+    const booked = { service: "Botox", day: "Monday", time: "5 PM", name: "T", phone: "p", status: "booked" as const };
+    expect(roleplayCheckedReply("Fair point. Your request is in for Monday, November 2 at 5 PM, and the team will confirm it within a day.", booked, { confirmed: true })).toBe("Fair point.");
+    expect(roleplayCheckedReply("You're booked for Monday at 5 PM.", booked, { confirmed: true, askedBooking: true })).toBe("You're booked for Monday at 5 PM.");
+    expect(roleplayCheckedReply("I can't offer a discount, but I can request your Botox with Dr. Patel for Monday at 5 PM. Anything else?", booked, { confirmed: true })).toBe("I can't offer a discount. Anything else?");
+    expect(roleplayCheckedReply("Glad that works! Is there anything else?", booked, { confirmed: true, frustrated: true })).toBe("Is there anything else?");
+    expect(roleplayCheckedReply("I'm sorry this has been so frustrating.", booked, { confirmed: true, apologised: true, frustratedNow: true, said: [] })).toBe("I hear you. What would make this easier for you?");
+    expect(roleplayCheckedReply("I'm sorry about that.", booked, { confirmed: true, apologised: true, said: ["Anything else I can help with?"] })).toBe("Is there anything else you need?");
+  });
+
+  test("a doctor not on the team is named as such; the urgent line has a word of sympathy and the clinical team's number", () => {
+    expect(unknownDoctorIn(DEMO_CASE_CLINIC, "a consult for doctor Smith Thursday")).toBe("Dr. Smith");
+    expect(unknownDoctorIn(DEMO_CASE_CLINIC, "can I see Dr. Chen")).toBeNull();
+    expect(unknownDoctorIn(DEMO_CASE_CLINIC, "a doctor Thursday")).toBeNull();
+    expect(
+      demoUrgentLine(
+        "I'm an AI assistant, so I can't help with anything urgent here. If this is an emergency, hang up and call 9-1-1 now. Otherwise, please call Lumen Aesthetics on five one two — five five five — oh one hundred.",
+      ),
+    ).toBe(
+      "I'm so sorry you're dealing with that. I'm an AI assistant, so I can't advise on symptoms. If this is an emergency, hang up and call 9-1-1 now. Otherwise, please call our clinical team directly on five one two — five five five — oh one hundred, so they can help.",
+    );
   });
 });
 

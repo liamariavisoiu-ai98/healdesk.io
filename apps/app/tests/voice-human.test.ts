@@ -182,8 +182,8 @@ describe("the human stall (VOICE-T16a)", () => {
 });
 
 describe("jumping in (VOICE-T16c)", () => {
-  // Friday: the clinic is closed on Saturdays, and a closed day is answered by the call itself (c4093be6), never by a jump-in.
-  const FRIDAY = "Hi, I'd love to book a HydraFacial for this Friday morning if you have anything.";
+  // No day named: a day with a booking ask is answered by the call itself from the hours (c4093be6, a44374c9), never by a jump-in.
+  const FRIDAY = "Hi, I'd love to try a HydraFacial, a friend of mine raved about how good her skin looked after.";
 
   test("at the end of a sentence, now and then, the jump-in is said over the caller and kept", async () => {
     const c = await demoCall({ random: () => 0 });

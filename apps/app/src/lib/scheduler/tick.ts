@@ -214,7 +214,7 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   });
   // Every hour: an incident past our internal 24-hour notice target with no
   // notice recorded raises one ops alert, ever (BAA 1.3.0 release gate 5;
-  // the agreements' own limit is 60 calendar days).
+  // the agreements' own limit is 10 or 60 calendar days, by version).
   await record("incident-deadlines", () => runIncidentDeadlinesJob({ now }));
   // The transcript outbox (drizzle/0069, 0072): sent every minute from the
   // `billing-minute` queue; this is its backstop for a worker whose queue

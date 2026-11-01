@@ -9,19 +9,19 @@ import { KnowMore } from "@/components/KnowMore";
 import { Nav } from "@/components/Nav";
 import { Reviews } from "@/components/Reviews";
 import { PUBLISHED, summarize } from "@/lib/reviews";
-import { SAMPLE } from "@/lib/reviews.sample";
 
 /**
- * The reviews the wall shows: the published ones once there are any, and
- * until then the sample set.
+ * The reviews the wall shows: the published ones, and no wall at all while
+ * there are none.
  *
- * ⚠️ The sample set is invented (src/lib/reviews.sample.ts). Until 12
- * October 2026 the wall printed a line above the rating calling it examples;
- * the owner replaced that line with the section's heading that day and will
- * replace the set with real reviews before launch.
+ * Until 1 November 2026 an empty list showed the invented sample set
+ * (src/lib/reviews.sample.ts) and its invented rating, with no line calling
+ * it examples since 12 October. A visitor read it as real clinics' words, and
+ * US rules on fake reviews make that a legal risk, so the owner took it down
+ * before launch (D5 on docs/launch-board.html). The wall, and "Leave a review"
+ * under its score, come back with the first published review.
  */
-const SHOWING_EXAMPLES = PUBLISHED.length === 0;
-const REVIEWS = SHOWING_EXAMPLES ? SAMPLE : summarize(PUBLISHED);
+const REVIEWS = PUBLISHED.length > 0 ? summarize(PUBLISHED) : null;
 
 /**
  * The homepage is the one page with no metadata of its own, so it declares a
@@ -45,9 +45,8 @@ export const metadata: Metadata = {
  * are their own pages but are reachable only from the footer, so nothing
  * competes with the demo for a visitor's first click.
  *
- * What clinics say is the review wall. Until real reviews are published it
- * shows the sample set (see REVIEWS above). "Leave a review" sits under its
- * score.
+ * What clinics say is the review wall, shown only once a real review is
+ * published (see REVIEWS above). "Leave a review" sits under its score.
  *
  * ## Nothing is parked any more
  *
@@ -78,7 +77,7 @@ export default function HomePage() {
 
         {/* Social proof sits between the money question and the FAQ on
             purpose: the FAQ then answers whatever the reviews raised. */}
-        <Reviews summary={REVIEWS} />
+        {REVIEWS && <Reviews summary={REVIEWS} />}
 
         <KnowMore />
 

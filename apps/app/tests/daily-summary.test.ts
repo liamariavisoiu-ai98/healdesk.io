@@ -253,8 +253,8 @@ describe("L13 and L14 templates", () => {
     expect(r.text).toContain(
       "- 1 person left a message on your website: https://app.healdesk.test/c/radiance-med-spa/bookings",
     );
-    expect(r.html).toContain(
-      '<a href="https://app.healdesk.test/c/radiance-med-spa/bookings?request=5d0c1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b">Open in healdesk</a>',
+    expect(r.html).toMatch(
+      /<a href="https:\/\/app\.healdesk\.test\/c\/radiance-med-spa\/bookings\?request=5d0c1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b"[^>]*>Open in healdesk<\/a>/,
     );
     expect(r.text).toContain("This email carries no patient details on purpose");
     expect(

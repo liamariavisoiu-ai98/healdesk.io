@@ -440,10 +440,20 @@ describe("what each agreement promises (lib/incidents/reporting-rules.ts)", () =
     }
   });
 
-  test("60 calendar days from 1.2.2 on and in the DPA; five days before; the strictest without one", () => {
+  test("10 calendar days under 1.7.0 and DPA 1.2.0; 60 from 1.2.2 to 1.6.0 and in DPA 1.0.0 and 1.1.0; five days before; the strictest without one", () => {
     const discovered = new Date("2026-10-09T15:00:00Z"); // a Friday
     const day = (d: Date | null) => d?.toISOString().slice(0, 10);
-    for (const version of ["1.5.0", "1.4.0", "1.3.0", "1.2.2", `${DPA_VERSION_PREFIX}1.0.0`]) {
+    // The owner's release of 30 October 2026, landed as BAA 1.7.0 and DPA 1.2.0.
+    for (const version of ["1.7.0", `${DPA_VERSION_PREFIX}1.2.0`]) {
+      expect(reportingRuleFor(version), version).toEqual({ rule: "ten_calendar_days", basis: "agreement" });
+      for (const cls of ["breach", "security_incident", "improper_use_or_disclosure"]) {
+        expect(day(agreementReportDeadline(cls, discovered, version).notifyBy), version).toBe(
+          "2026-10-19",
+        );
+      }
+    }
+    // DPA 1.1.0, the payment-link text only, keeps 1.0.0's sixty days.
+    for (const version of ["1.6.0", "1.5.0", "1.4.0", "1.3.0", "1.2.2", `${DPA_VERSION_PREFIX}1.0.0`, `${DPA_VERSION_PREFIX}1.1.0`]) {
       for (const cls of ["breach", "security_incident", "improper_use_or_disclosure"]) {
         expect(day(agreementReportDeadline(cls, discovered, version).notifyBy), version).toBe(
           "2026-12-08",
@@ -464,9 +474,12 @@ describe("what each agreement promises (lib/incidents/reporting-rules.ts)", () =
     expect(agreementReportDeadline("service_complaint", discovered, "1.5.0").notifyBy).toBeNull();
   });
 
-  test("24 hours' subcontractor notice from 1.3.0 on and in the DPA; fifteen days before, and without one", () => {
-    for (const version of ["1.5.0", "1.4.0", "1.3.0", `${DPA_VERSION_PREFIX}1.0.0`]) {
+  test("24 hours' subcontractor notice from 1.3.0 to 1.6.0 and in DPA 1.0.0 and 1.1.0; fifteen days under 1.7.0 and DPA 1.2.0, before 1.3.0, and without one", () => {
+    for (const version of ["1.6.0", "1.5.0", "1.4.0", "1.3.0", `${DPA_VERSION_PREFIX}1.0.0`, `${DPA_VERSION_PREFIX}1.1.0`]) {
       expect(subcontractorNoticeRuleFor(version).rule, version).toBe("twenty_four_hours");
+    }
+    for (const version of ["1.7.0", `${DPA_VERSION_PREFIX}1.2.0`]) {
+      expect(subcontractorNoticeRuleFor(version), version).toEqual({ rule: "fifteen_days", basis: "agreement" });
     }
     for (const version of ["1.2.2", "1.2.1", "1.0.0", null, "9.9.9"]) {
       expect(subcontractorNoticeRuleFor(version).rule, String(version)).toBe("fifteen_days");

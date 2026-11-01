@@ -1,3 +1,5 @@
+import { BAA_1_7_0_RELEASED } from "@healdesk/catalog";
+
 import {
   FIRST_PERIOD_REFUND_DAYS,
   type PackageId,
@@ -62,12 +64,26 @@ import {
 // (owner, 30 October 2026: nothing client-facing talks about our costs);
 // prices, the block rule and section 4's price-change notice are unchanged.
 // It replaces the live 2026-10-30.1.
-// 2026-11-01.1 adds to privacy section 6 a file a clinic adds in its portal
-// ("Add from a file" on Your practice, owner, 1 November 2026): read once by
-// the AI model provider under the BAA and not stored by us. It replaces the
-// live 2026-10-30.2; the terms and the data-deletion page are unchanged.
-export const LEGAL_VERSION = "2026-11-01.1";
-export const LEGAL_LAST_UPDATED = "1 November 2026";
+// 2026-11-01.1 is BAA 1.7.0's and DPA 1.2.0's release text (owner, 30
+// October 2026; reconciled 1 November 2026, "Go C13" on docs/launch-board.html):
+// Terms' security annex and Privacy § 9 say a breach or security incident is
+// reported to the clinic in no case later than 10 calendar days after
+// discovery, where they said 60, as both agreements now do. It was first
+// numbered 2026-10-30.1 on the branch that built it (LEGAL-4), a number main
+// had already published for other text, so it never went out under it. It
+// replaces the live 2026-10-30.2. The number follows BAA_1_7_0_RELEASED, as
+// the pages' number of days does: off, the pages render 2026-10-30.2's text,
+// the live one, under its own number.
+// 2026-11-01.2 adds to Privacy § 6 a file a clinic adds in its portal ("Add
+// from a file" on Your practice, owner, 1 November 2026): read once by the AI
+// model provider under the BAA and not stored by us. It replaces the live
+// 2026-11-01.1; the terms and the data-deletion page are unchanged. The line
+// is not behind the flag, so with BAA_1_7_0_RELEASED off the pages would no
+// longer be 2026-10-30.2's text; 1.7.0 is released, and that side is not
+// published again.
+export const LEGAL_VERSION = BAA_1_7_0_RELEASED ? "2026-11-01.2" : "2026-10-30.2";
+export const LEGAL_LAST_UPDATED = BAA_1_7_0_RELEASED ? "1 November 2026" : "30 October 2026";
+
 
 export const ENTITY = {
   /** Full legal name, e.g. "Healdesk, Inc." Empty until the founder supplies it. */

@@ -954,7 +954,7 @@ Plan mode can't publish anything, which is why the page is the first step after 
 5. **Tokens are minted at send time and never stored.** Link emails (B1, B2, O5's confirmation, O6, O7, L22 and its reminders) carry a fresh single-use link; a retry mints a new link under a new key. P4, P5 and P7 carry the setup link minted in /admin. Every other email links to a page, which asks the reader to sign in.
 6. **Links go only to public origins,** over https, in bodies and headers: `publicUrl()` on apps/app, `site.url` on apps/web. Never `HEALDESK_APP_URL`.
 7. **Tracking is off** (opens and clicks), checked through Resend's API at launch. Click tracking would send tokens through a redirect host.
-8. **Plain text first,** with a light HTML twin built from the same blocks: one column, system fonts, no images, no remote content, under 100 KB (Gmail clips at 102 KB).
+8. **Plain text first,** with a light HTML twin built from the same blocks: one column, system fonts, no images, no remote content, under 100 KB (Gmail clips at 102 KB). *(1 November 2026: every email now wears healdesk's branded shell, and the logo is the one image fetched, at one fixed public URL; see `docs/design/email-branding-2026-11-01.md`.)*
 9. **Every email can be replied to,** and replies reach hello@healdesk.io. The footer carries:
    - the sender identity, as on the site: "healdesk is a service of Viixi FZC" and the US mailing address for correspondence;
    - why the recipient gets the email;

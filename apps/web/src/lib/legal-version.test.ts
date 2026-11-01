@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { BAA_1_6_0_RELEASED } from "@healdesk/catalog";
+import { BAA_1_6_0_RELEASED, BAA_1_7_0_RELEASED } from "@healdesk/catalog";
 import { describe, expect, test } from "vitest";
 
 import DataDeletionPage from "@/app/data-deletion/page";
@@ -52,8 +52,8 @@ import { LEGAL_LAST_UPDATED, LEGAL_VERSION } from "@/lib/legal";
  * never went out.
  */
 const PINNED_BEFORE_1_6_0 = {
-  version: "2026-11-01.1",
-  lastUpdated: "1 November 2026",
+  version: "2026-10-30.2",
+  lastUpdated: "30 October 2026",
   /**
    * The version these pages replace: the last one that went out, which was
    * main's live text when this one was numbered. A note may cite it, an earlier
@@ -62,13 +62,13 @@ const PINNED_BEFORE_1_6_0 = {
    * when you renumber a version that never did, because that number was never
    * published.
    */
-  replaces: "2026-10-30.2",
+  replaces: "2026-10-30.1",
   sha256: {
     // 2026-10-30.2: section 8's "Payment-link texts" softened and section 3's
     // "provisional" sentence dropped, without 1.6.0's section 9 sentence.
     "/terms": "2917808c14d1199bae75982aaecb0432e4837c8a7e81b1f701ab2cfad123309d",
     // Privacy does not read the flag: the same text as on the 1.6.0 side.
-    "/privacy": "b72c359280592f9a560fd413887b0637fe0e5fee5080f2cd1b9e0d3bb1654787",
+    "/privacy": "82ff31ac73c289db7b2565be604f7162c0ad24b414ddc272ee5cce5decd6aff2",
     "/data-deletion": "d77557279849e427006387afa3c427ee976e10be5afd29cbba04a7356afd1042",
   },
 } as const;
@@ -90,30 +90,64 @@ const PINNED_BEFORE_1_6_0 = {
  * `replaces` records the live text this one replaces: 2026-10-30.1.
  */
 const PINNED_WITH_1_6_0 = {
-  version: "2026-11-01.1",
+  version: "2026-10-30.2",
   /**
    * Written out, not copied from the pin above: LEGAL_LAST_UPDATED in
    * src/lib/legal.ts and this value move together (the page prints it,
    * outside the hash). "30 October 2026" is what legal.ts says today.
    */
-  lastUpdated: "1 November 2026",
+  lastUpdated: "30 October 2026",
   /**
    * 2026-10-30.1 is the live text this one replaces (healdesk.io/terms printed
    * it on 30 October 2026, checked when 2026-10-30.2 was numbered).
    */
-  replaces: "2026-10-30.2",
+  replaces: "2026-10-30.1",
   sha256: {
     ...PINNED_BEFORE_1_6_0.sha256,
     // 2026-10-30.2: section 8's "Payment-link texts" softened (2026-10-30.1),
     // and section 3 no longer calls the block prices provisional.
     "/terms": "ca53cfbe4da6da82471f80b353297953757755c4f3cdb228e6cfe132d325d893",
-    // Since 2026-10-29.5: Privacy § 6 lists the 30-day missed-contact record;
-    // since 2026-11-01.1, a file a clinic adds in its portal, not stored.
-    "/privacy": "b72c359280592f9a560fd413887b0637fe0e5fee5080f2cd1b9e0d3bb1654787",
+    // Since 2026-10-29.5: Privacy § 6 lists the 30-day missed-contact record.
+    "/privacy": "82ff31ac73c289db7b2565be604f7162c0ad24b414ddc272ee5cce5decd6aff2",
   },
 } as const;
 
-const PINNED = BAA_1_6_0_RELEASED ? PINNED_WITH_1_6_0 : PINNED_BEFORE_1_6_0;
+/**
+ * The text once BAA 1.7.0 and DPA 1.2.0 are released (BAA_1_7_0_RELEASED;
+ * the owner's release of 30 October 2026, reconciled 1 November 2026): Terms'
+ * security annex and Privacy § 9 say a breach or security incident is
+ * reported in no case later than 10 calendar days after discovery, where
+ * 2026-10-30.2 said 60. Nothing else moves, and the deletion page is word for
+ * word the same. Its branch numbered it 2026-10-30.1, which main had already
+ * published for other text, so it carries 2026-11-01.1.
+ */
+const PINNED_WITH_1_7_0 = {
+  version: "2026-11-01.2",
+  lastUpdated: "1 November 2026",
+  /**
+   * 2026-11-01.1, the 1.7.0 release text, is the live text this one replaces
+   * (its own privacy hash was 4540676f…3abd); 2026-11-01.2 adds Privacy § 6's
+   * line for a file a clinic adds in its portal, and nothing else.
+   */
+  replaces: "2026-11-01.1",
+  sha256: {
+    ...PINNED_WITH_1_6_0.sha256,
+    // 2026-10-30.2's text with the security annex's 60 calendar days said
+    // as 10, and nothing else (checked by swapping the number back: the
+    // hash is 2026-10-30.2's).
+    "/terms": "be63612cbc961b21af9554f094b0b20ba9d05b08e97a25d1bde6002dcea37ff1",
+    // Privacy § 9 with 10 for 60, and nothing else; the same text the
+    // branch pinned for its 2026-10-30.1.
+    // Since 2026-11-01.2, with § 6's file line.
+    "/privacy": "639ffbb31f3f316818d8537e5fbff25adcc86963e80a5bcfbdc4636fe6d86863",
+  },
+} as const;
+
+const PINNED = BAA_1_7_0_RELEASED
+  ? PINNED_WITH_1_7_0
+  : BAA_1_6_0_RELEASED
+    ? PINNED_WITH_1_6_0
+    : PINNED_BEFORE_1_6_0;
 
 const PAGES = [
   ["/terms", TermsPage],

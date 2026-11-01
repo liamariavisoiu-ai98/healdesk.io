@@ -1,4 +1,4 @@
-import { TRANSCRIPT_RETENTION_DAYS } from "@healdesk/catalog";
+import { BAA_1_7_0_RELEASED, TRANSCRIPT_RETENTION_DAYS } from "@healdesk/catalog";
 import type { Metadata } from "next";
 
 import { LegalPage, Section } from "@/components/LegalPage";
@@ -539,7 +539,7 @@ export default function PrivacyPage() {
           <li>Demo conversations: not stored by us at all; our AI model provider's own retention applies to its processing.</li>
           <li>A personalised demo, and what was read to build it: live for {DEMO_LIFETIME_DAYS} days, then deleted {DEMO_RETENTION_AFTER_EXPIRY_DAYS} days later, unless your clinic buys from it, when it is kept with your purchase.</li>
           <li>Your website's pages, read at checkout: not stored by us at all; our AI model provider's own retention applies to its processing. What was read from them, once you press Pay: kept with your purchase, and deleted 14 days after you last pressed Pay if the purchase is not completed, otherwise 90 days after your account is created.</li>
-          {/* Added 1 Nov 2026 (LEGAL_VERSION 2026-11-01.1) with "Add from a file" on Your
+          {/* Added 1 Nov 2026 (LEGAL_VERSION 2026-11-01.2) with "Add from a file" on Your
               practice: the file is read once in apps/app and kept nowhere. */}
           <li>A file your clinic adds in its portal to fill in its prices and information: not stored by us at all. It is read once by our AI model provider, under our business associate agreement with it, so your team can choose what to add; our AI model provider&apos;s own retention applies to its processing. What your team adds is kept with your clinic&apos;s account.</li>
           <li>The demo call itself: no recording or transcript is kept by us or by our voice provider, which keeps the call&apos;s basic record (time, length, how it ended) for 30 days. We hold the number only in the consent record above.</li>
@@ -664,8 +664,8 @@ export default function PrivacyPage() {
           Meta&apos;s systems, which we do not control. Email that would carry patient information
           goes only over an encrypted connection, and is not sent if the receiving server cannot
           accept one. A breach of unsecured patient information, or any other security incident,
-          is reported to the clinic without unreasonable delay and in no case later than 60 calendar days
-          after discovery.
+          is reported to the clinic without unreasonable delay and in no case later than{" "}
+          {BAA_1_7_0_RELEASED ? 10 : 60} calendar days after discovery.
         </p>
         <p>
           The product&apos;s servers and its database run in our cloud hosting provider&apos;s US

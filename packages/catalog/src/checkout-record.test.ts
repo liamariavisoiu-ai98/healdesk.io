@@ -127,7 +127,11 @@ describe("the seal", () => {
     // A seal recomputed by someone without the secret.
     expect(openSealedRecord({ json: edited.json, seal: sealOf(edited.json, "a-guess") }, SECRET)).toBeNull();
     expect(openSealedRecord(sealed, "another-secret")).toBeNull();
-    expect(openSealedRecord({ ...sealed, seal: `${sealed.seal.slice(0, -1)}A` }, SECRET)).toBeNull();
+    // One character changed, to one it is not: a fixed replacement is no
+    // change at all whenever the seal already ends in it.
+    const last = sealed.seal.slice(-1);
+    const tampered = `${sealed.seal.slice(0, -1)}${last === "A" ? "B" : "A"}`;
+    expect(openSealedRecord({ ...sealed, seal: tampered }, SECRET)).toBeNull();
     expect(openSealedRecord(null, SECRET)).toBeNull();
     expect(openSealedRecord({ json: sealed.json }, SECRET)).toBeNull();
     expect(openSealedRecord(sealed, "")).toBeNull();

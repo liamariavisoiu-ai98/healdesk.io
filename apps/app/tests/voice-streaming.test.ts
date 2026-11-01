@@ -123,7 +123,8 @@ describe("the reply spoken as it is written", () => {
     await s.open();
     await s.handle(said(1, [{ role: "agent", content: raw()[0]!.content }, { role: "user", content: "tell me about it" }]));
     const text = heard()[1]!.content;
-    expect(text).toContain("Happy to help with that today.");
+    // After a filler its first word is lowered ("Okay, happy to help"), as fillers.ts afterFiller joins them.
+    expect(text).toMatch(/[Hh]appy to help with that today\./);
     expect(text).not.toMatch(/six months|love them/);
     expect(text.endsWith(guardedLine("clinical", FACTS.clinicName, "en", true))).toBe(true);
     await s.finish();

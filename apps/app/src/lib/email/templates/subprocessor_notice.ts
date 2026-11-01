@@ -22,8 +22,9 @@ import type { EmailTemplate } from "./types";
  * practice's right to object. The words come from the catalog's closed list
  * (PHI_SUBCONTRACTORS), never from the console. The lead time is checked when
  * the broadcast is sent (lib/notices/operator-notices.ts), against each
- * practice's own agreement: 24 hours under BAA 1.3.0 on and the DPA, fifteen
- * days under the versions before. The email states the start, not the
+ * practice's own agreement: fifteen days under BAA 1.7.0 and DPA 1.2.0, 24
+ * hours under BAA 1.3.0 to 1.6.0, DPA 1.0.0 and DPA 1.1.0, fifteen days under
+ * the versions before. The email states the start, not the
  * period.
  *
  * It never links to a vendor list: there is none to link to. The current

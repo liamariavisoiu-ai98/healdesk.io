@@ -1,4 +1,4 @@
-import { SUBPROCESSOR_NOTICE_HOURS } from "./subprocessor-notice";
+import { SUBPROCESSOR_NOTICE_DAYS_1_7, SUBPROCESSOR_NOTICE_HOURS } from "./subprocessor-notice";
 
 /**
  * Why a BAA exists, explained to the person about to sign one.
@@ -177,6 +177,9 @@ const BULLETS_1_3_0: readonly BaaExplainerTerm[] = BAA_EXPLAINER.terms.map(
  */
 export const BAA_EXPLAINER_TERMS_BY_VERSION: Readonly<Record<string, readonly BaaExplainerTerm[]>> =
   {
+    // The 1.7.0 draft (30 October 2026): no bullet states a period, so the
+    // ten days and the fifteen days change none of them.
+    "1.7.0": BULLETS_1_3_0,
     "1.6.0": BULLETS_1_3_0,
     "1.5.1": BULLETS_1_3_0,
     "1.5.0": BULLETS_1_3_0,
@@ -392,6 +395,12 @@ export const BAA_CLAUSE_EXPLAINERS: Readonly<Record<ExplainedClauseId, BaaExplai
  * says the same; its other notes are 1.5.1's. 1.3.0's subcontractors note,
  * which 1.4.0, 1.5.0 and 1.5.1 show, stays as it is, because it must say
  * what the clause beside it says, and those clauses are frozen.
+ *
+ * In the 1.7.0 draft (30 October 2026) the subcontractors clause gives
+ * fifteen days' notice of a new vendor where 1.6.0 gives 24 hours, and the
+ * Reporting clause ten calendar days where 1.6.0 gives sixty. Its
+ * subcontractors note is 1.6.0's with "15 days" for "24 hours"; no note or
+ * bullet speaks of the reporting period, so nothing else moves.
  */
 const CLAUSE_NOTES_1_3_0: Partial<Record<ExplainedClauseId, BaaExplainerTerm>> = {
   "data-sources-none": {
@@ -452,26 +461,40 @@ const CLAUSE_NOTES_1_5_1: Partial<Record<ExplainedClauseId, BaaExplainerTerm>> =
   },
 };
 
+/**
+ * 1.6.0's subcontractors note, with the notice period the version gives:
+ * "24 hours" for 1.6.0, word for word what its checkout showed, and "15
+ * days" for the 1.7.0 draft, whose Subcontractors clause gives fifteen days'
+ * notice (subprocessorNoticeClauseBody15Days; agreement-changes.md §22).
+ */
+function subcontractorsNote160(notice: string): BaaExplainerTerm {
+  return {
+    plain:
+      "Every vendor that handles patient information signs the same obligations with " +
+      "healdesk before it does. The language model is Anthropic's: it receives conversation " +
+      "content only under a business associate agreement with healdesk, signed before any " +
+      "patient's information reaches it, keeps that content for no more than the 30 days of " +
+      "its standard retention, then deletes it (content its safety systems flag may be held " +
+      "for up to two years, and content the law requires it to keep for as long as the law " +
+      "requires), and doesn't train on it without healdesk's permission, which healdesk won't " +
+      `give. You're told by email at least ${notice} before a new ` +
+      "vendor handles patient information, and may end the agreement without penalty if you " +
+      "object on reasonable grounds before the change takes effect: the service ends with it, " +
+      "and fees you paid for the time after are refunded",
+    citation: "164.504(e)(2)(ii)(D), 164.308(b)(2)",
+  };
+}
+
 export const BAA_CLAUSE_EXPLAINERS_BY_VERSION: Readonly<
   Record<string, Partial<Record<ExplainedClauseId, BaaExplainerTerm>>>
 > = {
+  "1.7.0": {
+    ...CLAUSE_NOTES_1_5_1,
+    subcontractors: subcontractorsNote160(`${SUBPROCESSOR_NOTICE_DAYS_1_7} days`),
+  },
   "1.6.0": {
     ...CLAUSE_NOTES_1_5_1,
-    subcontractors: {
-      plain:
-        "Every vendor that handles patient information signs the same obligations with " +
-        "healdesk before it does. The language model is Anthropic's: it receives conversation " +
-        "content only under a business associate agreement with healdesk, signed before any " +
-        "patient's information reaches it, keeps that content for no more than the 30 days of " +
-        "its standard retention, then deletes it (content its safety systems flag may be held " +
-        "for up to two years, and content the law requires it to keep for as long as the law " +
-        "requires), and doesn't train on it without healdesk's permission, which healdesk won't " +
-        `give. You're told by email at least ${SUBPROCESSOR_NOTICE_HOURS} hours before a new ` +
-        "vendor handles patient information, and may end the agreement without penalty if you " +
-        "object on reasonable grounds before the change takes effect: the service ends with it, " +
-        "and fees you paid for the time after are refunded",
-      citation: "164.504(e)(2)(ii)(D), 164.308(b)(2)",
-    },
+    subcontractors: subcontractorsNote160(`${SUBPROCESSOR_NOTICE_HOURS} hours`),
   },
   "1.5.1": CLAUSE_NOTES_1_5_1,
   "1.5.0": {

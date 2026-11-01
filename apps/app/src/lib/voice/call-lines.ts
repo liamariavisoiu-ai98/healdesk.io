@@ -25,28 +25,6 @@ export function businessLine(words: string, officeNumber: string | null): string
     : "That's one for our office directly. Anything else?";
 }
 
-/** "Are you always busy?", "Is it full of clients all the time?": a question about how busy the practice is. */
-const BUSY = /\b(?:busy|packed|booked (?:up|solid)|full of (?:clients|patients|people)|(?:always|usually|really|very|so|all the time) full|full all the time)\b|\b(?:is|are) (?:it|you|the (?:clinic|practice|office|place)|[\w&' ]{2,40}?) (?:always |usually |really |very |so )?full\b/i;
-
-/**
- * Her answer to it: never an empty schedule ("Not at all, we have openings
- * this week") and never a claim the calendar does not show ("we never
- * double-book"); a time found for them instead.
- */
-export function busyLine(words: string): string | null {
-  // Off since 1 November 2026 (owner, approving docs/design/demo-aya-simpler-2026-11-01.md row 17): the
-  // model answers, under the prompt's rule that only the calendar says how busy it is. Kept so the
-  // pattern stays tested and can come back as a note.
-  void BUSY;
-  void words;
-  return null;
-}
-
-/** Whether the words ask how busy the practice is (BUSY), for a note rather than a fixed line. */
-export function asksHowBusy(words: string): boolean {
-  return BUSY.test(words);
-}
-
 /** Words that end a thought unfinished: "Before", "Besides Botox,", "is it". */
 const DANGLING = /^\W*(?:and|but|so|or|because|besides|before|after|except|other than|plus|also|like|um+|uh+|what about|how about)\b[^.?!]{0,30}$|\b(?:and|but|or|because|about|with|for|the|a|an|to|of|is it|like|besides|than)\W*$/i;
 

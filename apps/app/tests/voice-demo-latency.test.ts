@@ -213,4 +213,11 @@ describe("the demo's latency with the booking tools live", () => {
     expect(sad.whole).not.toMatch(/\[/);
     await call.finish();
   });
+
+  test("a mood word that is not one of hers is never sent as a tag, even an object's own key", async () => {
+    const call = await session({ expressive: true });
+    const odd = await call.turn("Hi there, I have a question for you.", [says("[constructor] Sure, what can I help with?")]);
+    expect(odd.whole).not.toMatch(/\[|function/);
+    await call.finish();
+  });
 });

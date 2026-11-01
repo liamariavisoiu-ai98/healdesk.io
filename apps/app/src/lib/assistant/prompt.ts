@@ -198,7 +198,7 @@ const ACTION = `
  * the booking system speaks (the times, the hold, the booking, the deposit)
  * are its own lines, so no example scripts them.
  */
-function voiceStyle(facts: Pick<AssistantFacts, "services" | "providerNames">): string {
+function voiceStyle(facts: Pick<AssistantFacts, "services" | "providerNames" | "specialty">): string {
   return `Style: this is a phone call. You are the best person at the front desk: warm, quick, curious about what they want and why, and glad to help; a smart peer, never a script or an automated menu.
 Five musts:
 - One or two short spoken sentences a turn, the first of a few words (it is said the moment it is written), and at most one question.
@@ -220,7 +220,9 @@ function sayable(name: string): string {
 }
 
 /** The four example calls, from the practice's own first priced services and first provider: never a fact it does not have. */
-export function voiceExamples(facts: Pick<AssistantFacts, "services" | "providerNames">): string {
+export function voiceExamples(facts: Pick<AssistantFacts, "services" | "providerNames" | "specialty">): string {
+  // A veterinary practice's callers are the owners of the animals it cares for (audienceLine): its examples are theirs.
+  const vet = audienceFor(facts.specialty) === "clients";
   const priced = facts.services.filter((svc) => svc.priceFromUsd !== null || svc.priceToUsd !== null);
   const one = priced[0] ?? null;
   const two = priced[1] ?? priced[0] ?? null;
@@ -233,20 +235,20 @@ export function voiceExamples(facts: Pick<AssistantFacts, "services" | "provider
   const cap = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
   return [
     `1. A nervous first-timer: warm and unhurried, one validation, then help.
-Caller: Hi, um, I've never had ${first} and I'm a bit nervous. How much is it?
-You: [reassuring] That's so normal! ${p1 ? `It's ${p1}, and ${who} goes` : `${cap(who)} goes`} through it all with you at a relaxed consultation. Want me to find you a time?
+Caller: Hi, um, ${vet ? `my dog's never had ${first} and I'm a bit nervous for her` : `I've never had ${first} and I'm a bit nervous`}. How much is it?
+You: [reassuring] That's so normal! ${p1 ? `It's ${p1}, and ${who} goes` : `${cap(who)} goes`} through it all with you ${vet ? "before anything is done" : "at a relaxed consultation"}. Want me to find you a time?
 Caller: Sure, maybe Thursday after work?
 You: [warm] Let's get you in after work so you're not rushing. Let me pull up the calendar... (find_times: Thursday, after 16:00)`,
     `2. A brisk caller: no pleasantries, crisp.
 Caller: ${cap(second)}, Friday morning, earliest you've got.
 You: [focused] On it. (find_times: Friday, before 12:00)
 Caller: The nine.
-You: [focused] Got it. (choose_time: the nine o'clock)`,
+You: [focused] Got it. (choose_time, with the exact value the system gave for the nine o'clock)`,
     `3. A repeat, a medical question, a goodbye: shorter in new words, no advice, a warm close.
 Caller: Sorry, what was the price again?
 You: [calm] ${p1 ? `${cap(p1)}.` : "It depends on what you need, and we go through it at a consultation."}
-Caller: And is it okay if I'm breastfeeding?
-You: [sympathetic] That's one for ${who} to go through with you. Shall I book you a consultation?
+Caller: ${vet ? "And is it okay if she's pregnant?" : "And is it okay if I'm breastfeeding?"}
+You: [sympathetic] That's one for ${who} to go through with you. Shall I book you ${vet ? "a visit" : "a consultation"}?
 Caller: No, that's it, thanks.
 You: [cheerful] Thanks for calling, have a lovely day! (end: true)`,
     `4. A frustrated caller on a bad line: empathy once, then their brevity.
@@ -259,7 +261,7 @@ You: [focused] Checking Friday morning. (find_times: Friday, before 12:00)`,
   ].join("\n");
 }
 
-function format(channel: AssistantChannel, facts: Pick<AssistantFacts, "services" | "providerNames">): string {
+function format(channel: AssistantChannel, facts: Pick<AssistantFacts, "services" | "providerNames" | "specialty">): string {
   return channel === "voice"
     ? voiceStyle(facts)
     : `Style: this is a chat on the practice's website. Answer in one to four short sentences of plain text. No markdown headings, no tables.`;

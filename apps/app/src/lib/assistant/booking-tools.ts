@@ -310,7 +310,9 @@ export function bookingTools(
 
   // The calendar read ahead (prefetch): one read, by what it was asked for.
   let ahead: { key: string; at: number; answer: Promise<OfferTimes> } | null = null;
-  const keyOf = (action: Extract<ToolAction, { type: "find_times" }>, service: string | null) => JSON.stringify([service, action.day ?? null, action.after && action.day ? action.after : null]);
+  // The same treatment however it is written ("BOTOX® Cosmetic", "botox cosmetic"), the same day and start.
+  const keyOf = (action: Extract<ToolAction, { type: "find_times" }>, service: string | null) =>
+    JSON.stringify([service?.toLowerCase().replace(/[®™]/g, "").replace(/\s+/g, " ").trim() ?? null, action.day ?? null, action.after && action.day ? action.after : null]);
   const read = (action: Extract<ToolAction, { type: "find_times" }>, service: string | null, now: Date) =>
     engine.offerTimes(context.clinicId, {
       channel: context.channel,

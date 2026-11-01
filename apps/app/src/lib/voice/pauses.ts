@@ -80,21 +80,26 @@ export function speakingMs(text: string): number {
  * tool layer replaced): never a name the clinic did not list, never the same
  * line twice in a call, and never the day, which the times line says itself.
  */
-export function lookupLine(_day: string | null, said: readonly string[], again: boolean): string {
+export function lookupLine(_day: string | null, said: readonly string[], again: boolean, spanish = false): string {
   // Never the day itself: the times line names it ("Let me pull up Thursday... Thursday the 5th, I've got" said it twice).
-  const lines = again
-    ? ["Let me check...", "One sec, let me look...", "Let me take another look..."]
-    : ["Let me pull up our calendar...", "Let me take a look...", "Let me check what we have..."];
+  // A Spanish call's lines await a native speaker's review, as its other lines do.
+  const lines = spanish
+    ? again
+      ? ["Déjeme revisar...", "A ver, déjeme mirar otra vez...", "Lo reviso..."]
+      : ["Déjeme ver el calendario...", "A ver, déjeme revisar...", "Déjeme ver qué tenemos..."]
+    : again
+      ? ["Let me check...", "One sec, let me look...", "Let me take another look..."]
+      : ["Let me pull up our calendar...", "Let me take a look...", "Let me check what we have..."];
   return lines.find((line) => !said.some((s) => s.includes(line))) ?? lines[lines.length - 1]!;
 }
 
 /** Lines said before holding the picked time, and before writing the booking: varied, never twice in a call. */
-export function holdLine(said: readonly string[]): string {
-  const lines = ["Let me grab that for you...", "Okay, let me hold that...", "One sec..."];
+export function holdLine(said: readonly string[], spanish = false): string {
+  const lines = spanish ? ["Déjeme apartarlo...", "Muy bien, lo aparto...", "Un segundo..."] : ["Let me grab that for you...", "Okay, let me hold that...", "One sec..."];
   return lines.find((line) => !said.some((s) => s.includes(line))) ?? lines[lines.length - 1]!;
 }
-export function writeLine(said: readonly string[]): string {
-  const lines = ["Okay, putting that in now...", "Let me pop that in...", "Just writing that in..."];
+export function writeLine(said: readonly string[], spanish = false): string {
+  const lines = spanish ? ["Muy bien, ya lo anoto...", "Déjeme anotarlo...", "Lo estoy anotando..."] : ["Okay, putting that in now...", "Let me pop that in...", "Just writing that in..."];
   return lines.find((line) => !said.some((s) => s.includes(line))) ?? lines[lines.length - 1]!;
 }
 

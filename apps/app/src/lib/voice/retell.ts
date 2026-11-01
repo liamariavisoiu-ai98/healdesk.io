@@ -98,7 +98,7 @@ import { fallbackLineFor, rememberDirectLine, rememberedDirectLine, usableLine, 
 import { forwardedFromCall, type ForwardedFrom } from "./forwarded-from";
 import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
 import { redialPromptBlock, takeRedialContext, welcomeBackLine, type RedialContext } from "./redial";
-import { businessLine, busyLine, fragmentLine, isFragment, withGreetingQuestion } from "./call-lines";
+import { businessLine, fragmentLine, isFragment, withGreetingQuestion } from "./call-lines";
 import { DEMO_CALLER_PHONE, demoBookingTools } from "./demo-booking";
 import { fillerFor } from "./fillers";
 import { retellAgentExpressive } from "./retell-api";
@@ -1733,7 +1733,8 @@ export class RetellCallSession {
     const officeNumber = this.demoContext ? (facts.urgentPhone ?? null) : (facts.phone ?? null);
     const fragment = !jump && isFragment(words);
     const business = businessLine(words, officeNumber);
-    const callLine = business ?? busyLine(words) ?? (fragment ? fragmentLine(this.fragmentsInRow + 1) : null);
+    // "Are you always full?" is the model's to answer since 1 November 2026 (row 17); a free time it names is taken out.
+    const callLine = business ?? (fragment ? fragmentLine(this.fragmentsInRow + 1) : null);
     // What the line most likely heard: a word that sounds like the menu, a provider or what she just said (sound-alike.ts).
     const heardNote = soundAlikeNote(
       soundAlikes(words, {
@@ -1769,7 +1770,9 @@ export class RetellCallSession {
     // Her mood as Retell's emotion tag, on an agent with Expressive Mode, at most every EXPRESSIVE_EVERY turns.
     const tagFor = (): string | null => {
       if (!this.expressive || this.turnCount - this.lastTagTurn < EXPRESSIVE_EVERY) return null;
-      const tag = EXPRESSIVE_TAG[moodOf(modelText) ?? ""] ?? null;
+      const mood = moodOf(modelText);
+      // Only the moods listed: a model-written "[constructor]" must never reach Object's prototype.
+      const tag = mood && Object.hasOwn(EXPRESSIVE_TAG, mood) ? EXPRESSIVE_TAG[mood]! : null;
       if (tag) this.lastTagTurn = this.turnCount;
       return tag;
     };

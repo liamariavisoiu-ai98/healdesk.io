@@ -3,7 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 import { bookingTools, EMPTY_TOOL_STATE, type BookingEngine, type BookingToolState } from "@/lib/assistant/booking-tools";
 import { EMPTY_CAPTURE, offeredTimeNamed, withoutFreeTimeClaims } from "@/lib/assistant/turn";
 import { BOOKING_LINES_VOICE_EN } from "@/lib/booking/lines";
-import { lookupLine, pause, PAUSE_MS, speakingMs, splitPauses, withoutPauses } from "@/lib/voice/pauses";
+import { holdLine, lookupLine, pause, PAUSE_MS, speakingMs, splitPauses, withoutPauses } from "@/lib/voice/pauses";
 import { fillerFor, FILLER_MAX_PER_CALL } from "@/lib/voice/fillers";
 import { keyFactOf, mutualGoodbye, paceOf } from "@/lib/voice/retell";
 import { pairingFor } from "@/lib/assistant/pairings";
@@ -201,5 +201,38 @@ describe("the calendar read ahead", () => {
     expect(offerTimes).toHaveBeenCalledTimes(1);
     await tools.run({ action: { type: "find_times", service: "Botox", day: "2026-11-06" }, capture: EMPTY_CAPTURE, state: EMPTY_TOOL_STATE, now });
     expect(offerTimes).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("the review's fixes (1 November 2026)", () => {
+  test("a restated booking or offered time is kept; only a new free time goes", () => {
+    expect(withoutFreeTimeClaims("I have you down for Thursday the 5th at 2.")).toBe("I have you down for Thursday the 5th at 2.");
+    expect(withoutFreeTimeClaims("Sure. The second one I offered was Monday at 4 PM.")).toBe("Sure. The second one I offered was Monday at 4 PM.");
+    expect(withoutFreeTimeClaims("Not at all, we have openings this week.")).toBe("It varies day to day.");
+  });
+
+  test("an hour is picked only when said as a time: never a count, never a time turned down, and twelve is noon", () => {
+    const offered = [{ at: "2026-11-02T17:00:00.000Z" }, { at: "2026-11-02T21:00:00.000Z" }, { at: "2026-11-03T19:00:00.000Z" }];
+    const now = new Date("2026-11-01T13:00:00Z");
+    expect(offeredTimeNamed("No, 4 doesn't work for me.", offered, TZ, now)).toBeNull();
+    expect(offeredTimeNamed("Can I bring my 2 kids along with me?", offered, TZ, now)).toBeNull();
+    expect(offeredTimeNamed("I'd like the 4 please.", offered, TZ, now)).toBe("2026-11-02T21:00:00.000Z");
+    expect(offeredTimeNamed("Twelve works.", offered, TZ, now)).toBe("2026-11-02T17:00:00.000Z");
+  });
+
+  test("a Spanish call's lead lines are Spanish", () => {
+    expect(lookupLine(null, [], false, true)).toBe("Déjeme ver el calendario...");
+    expect(holdLine([], true)).toBe("Déjeme apartarlo...");
+  });
+
+  test("a veterinary practice's examples are about the animal, never the caller's own treatment", async () => {
+    const { voiceExamples } = await import("@/lib/assistant/prompt");
+    const svc = { name: "Wellness exam", priceFromUsd: 65, priceToUsd: null, priceKind: "fixed", unit: null, durationMinutes: null, depositUsd: null } as never;
+    const vet = voiceExamples({ services: [svc], providerNames: ["Dr. Kim"], specialty: "veterinary" });
+    expect(vet).toContain("my dog's never had Wellness exam");
+    expect(vet).not.toMatch(/breastfeeding/);
+    const spa = voiceExamples({ services: [svc], providerNames: ["Dr. Kim"], specialty: "med-spa" });
+    expect(spa).toMatch(/breastfeeding/);
+    expect(spa).toContain("choose_time, with the exact value the system gave");
   });
 });

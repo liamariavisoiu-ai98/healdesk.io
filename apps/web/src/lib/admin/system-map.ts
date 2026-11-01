@@ -1403,8 +1403,8 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "retell",
     to: "clinic",
     title: "AYA puts the caller through to the clinic",
-    carries: "The live call, to the clinic's direct line",
-    example: "The clinic has paused AYA; Maria's call is answered with one line and put straight through to the front desk.",
+    carries: "The live call, to the clinic's direct line, or to its transfer number when a caller asks for a person",
+    example: "Maria asks to speak to someone during opening hours; the clinic has Transfer live calls on, so AYA says one line and puts her through to the front desk. The clinic has paused AYA; Ben's call is answered with one line and put straight through too.",
     // The transfer needs no key. The Retell key (on retell-app, where its
     // absence reads as one part off) only adds the fallback; listed here as
     // the bridge's only key, its absence would show every transfer off.
@@ -1414,7 +1414,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote:
-      "Wherever the clinic has set a direct line: when AYA is paused, capped or suspended, when the model fails twice, when answering a turn fails, and when a call starts while the database is down (the engine remembers each clinic's line from its last call, and otherwise reads it back from Retell). In Retell's outage mode, untested here, Retell would dial it without us. With no line known, the caller hears a closing line. The engine never puts a call through to a number that would bring it back to AYA: a direct line equal to the clinic's published number, its AYA number or the number called counts as no line, AYA answers with the safe script (or closes the call once the Services have ended), and you are emailed (voice_direct_line_loops).",
+      "When a caller asks for a person, the clinic has Transfer live calls on (Settings, Alerts) and its hours say it is open: to its transfer number, or its direct line when that is empty, never a number that loops back to AYA (built 1 November 2026; closed, or with the switch off, AYA takes their details for a call back). Wherever the clinic has set a direct line: when AYA is paused, capped or suspended, when the model fails twice, when answering a turn fails, and when a call starts while the database is down (the engine remembers each clinic's line from its last call, and otherwise reads it back from Retell). In Retell's outage mode, untested here, Retell would dial it without us. With no line known, the caller hears a closing line. The engine never puts a call through to a number that would bring it back to AYA: a direct line equal to the clinic's published number, its AYA number or the number called counts as no line, AYA answers with the safe script (or closes the call once the Services have ended), and you are emailed (voice_direct_line_loops).",
   },
   {
     id: "app-retell-recordings",

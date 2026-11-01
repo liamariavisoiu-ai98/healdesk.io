@@ -31,7 +31,7 @@ export const Glass: React.FC<{ children?: React.ReactNode; style?: React.CSSProp
  * The colour field behind the glass: large soft blobs that drift, so every
  * frosted surface has something moving through it.
  */
-export const Backdrop: React.FC<{ mood: "night" | "ivory" | "sage" | "dusk" | "dawn"; mix?: number; to?: "night" | "ivory" | "sage" | "dusk" | "dawn" }> = ({
+export const Backdrop: React.FC<{ mood: Mood; mix?: number; to?: Mood }> = ({
   mood,
   mix = 0,
   to,
@@ -69,7 +69,11 @@ export const Backdrop: React.FC<{ mood: "night" | "ivory" | "sage" | "dusk" | "d
   );
 };
 
+export type Mood = keyof typeof MOODS;
+
 const MOODS = {
+  space: { ground: "#04050B", blobs: ["rgba(38,52,120,0.55)", "rgba(86,40,120,0.42)", "rgba(18,58,110,0.38)"] },
+  white: { ground: "#FBFBFD", blobs: ["rgba(255,118,30,0.13)", "rgba(230,38,39,0.07)", "rgba(150,165,205,0.2)"] },
   night: { ground: "#14101A", blobs: ["rgba(75,46,85,0.75)", "rgba(42,22,48,0.9)", "rgba(60,50,90,0.55)"] },
   ivory: { ground: "#FAF6F0", blobs: ["rgba(255,122,89,0.30)", "rgba(201,164,92,0.28)", "rgba(160,120,190,0.22)"] },
   sage: { ground: "#F3EBDD", blobs: ["rgba(127,156,134,0.45)", "rgba(201,164,92,0.25)", "rgba(127,156,134,0.30)"] },
@@ -230,6 +234,33 @@ export const Kinetic: React.FC<{
     </div>
   );
 };
+
+/** A field of faint stars that drift and twinkle, for the deep-space ground. */
+export const Stars: React.FC<{ count?: number; opacity?: number }> = ({ count = 90, opacity = 1 }) => {
+  const frame = useFrame();
+  const { width, height } = useVideoConfig();
+  return (
+    <AbsoluteFill style={{ opacity }}>
+      {Array.from({ length: count }).map((_, i) => {
+        const x = ((i * 7919) % 1000) / 1000;
+        const y = ((i * 104729) % 1000) / 1000;
+        const s = 1 + ((i * 31) % 3);
+        const tw = 0.35 + 0.65 * Math.abs(Math.sin(frame / (25 + (i % 7) * 6) + i));
+        return <div key={i} style={{ position: "absolute", left: x * width, top: (y * height + frame * 0.15 * s) % height, width: s, height: s, borderRadius: "50%", background: "#fff", opacity: tw * 0.7 }} />;
+      })}
+    </AbsoluteFill>
+  );
+};
+
+/** The fictional clinic's mark: a leaf in a circle. */
+export const ClinicMark: React.FC<{ size: number; light?: boolean }> = ({ size, light }) => (
+  <div style={{ width: size, height: size, borderRadius: "50%", background: light ? c.white : c.sage, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+    <svg width={size * 0.56} height={size * 0.56} viewBox="0 0 24 24">
+      <path d="M5 19C5 10 11 5 20 4c0 9-5 15-14 15z" fill={light ? c.sage : c.white} />
+      <path d="M6 18c4-4 7-7 11-11" stroke={light ? c.white : c.sage} strokeWidth="1.6" fill="none" />
+    </svg>
+  </div>
+);
 
 /**
  * The gold coin, minted rather than flat: a milled rim, a bevel lit from the

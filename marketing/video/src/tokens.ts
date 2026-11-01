@@ -1,13 +1,10 @@
-import "@fontsource/plus-jakarta-sans/500.css";
-import "@fontsource/plus-jakarta-sans/600.css";
-import "@fontsource/plus-jakarta-sans/800.css";
+import "@fontsource-variable/inter";
 
 import { Easing } from "remotion";
 
 /**
- * The ad's own palette and type (SCRIPT.md, "Global specification"). It is
- * deliberately not the website's: night and mist until Aya arrives, and
- * coral only where she solves something.
+ * The ad's palette (SCRIPT.md, "Global specification") and its type. Night
+ * until Aya arrives, and coral only where she solves something.
  */
 export const c = {
   ivory: "#FAF6F0",
@@ -26,9 +23,19 @@ export const c = {
   sageDeep: "#4E6B57",
   cream: "#F3EBDD",
   dusk: "#1E2742",
+  // healdesk's own pair, off the logo (apps/web/src/app/globals.css).
+  healdeskRed: "#E62627",
+  healdeskOrange: "#FF761E",
 } as const;
 
-export const font = "'Plus Jakarta Sans', system-ui, sans-serif";
+/**
+ * Inter, the open face closest to Apple's SF Pro, which may not be used
+ * outside Apple's platforms. Variable, so any weight renders exactly.
+ */
+export const font = "'Inter Variable', system-ui, sans-serif";
+
+/** Apple-style tracking for the big centred lines: a touch open, never tight. */
+export const tracked = "0.01em";
 
 export const shadow = "0 24px 48px rgba(42,22,48,0.12)";
 export const radius = 28;

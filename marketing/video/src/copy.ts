@@ -4,12 +4,10 @@ import timeline from "./timeline.json";
  * Every word the ad says or prints, and the timeline, in one place, so the
  * claims can be checked against the spec without reading the scenes.
  *
- * Two hooks. `soft` is the default and the one to publish until a primary
- * source for the voicemail statistics is named (SCRIPT.md, "Before
- * publishing", item 1). `stat` carries the 85% and $1,500 lines as the
- * script wrote them, for the hook test once the source is in the small print.
+ * The cut follows the owner's Apple-style storyboard of 1 November 2026:
+ * missed calls, missed DMs, "Not on my watch.", Aya, every channel at once,
+ * the deposit, "Try Aya free."
  */
-export type Hook = "soft" | "stat";
 
 /**
  * Scene boundaries in global frames at 30 fps, from timeline.json, which
@@ -18,73 +16,38 @@ export type Hook = "soft" | "stat";
 export const SCENES = timeline.scenes;
 export const DURATION = timeline.scenes.close.to;
 
-/**
- * The opening, slow enough to read: two questions, one answer, one loss.
- * Both hooks share the questions; only the answer differs.
- */
-export const HOOK_COPY: Record<Hook, { line: string; loss: string; smallPrint: string | null }> = {
-  stat: {
-    line: "85% of callers who reach voicemail hang up without leaving a message.",
-    loss: "That's a $1,500 consult. Gone.",
-    smallPrint: "Source: name the primary study here before publishing.",
-  },
-  soft: {
-    line: "Most callers who hit voicemail never call back.",
-    loss: "That booking? Gone.",
-    smallPrint: null,
-  },
-};
+/** The storyboard's on-screen lines, in order. */
+export const LINES = {
+  calls: "Missed calls?",
+  dms: "Missed DMs?",
+  interrupt: "Not on my watch.",
+  hello: "Hi, I'm Aya, your 24/7 assistant.",
+  badges: ["Built for medspas", "We sign a BAA"],
+  channels: "Calls, DMs, chats, all at once.",
+  deposit: "You do the treatments. Aya handles the rush.",
+  close: "Try Aya free.",
+  domain: "healdesk.io",
+} as const;
 
 /** A voiceover line, spread evenly over [from, to) in global frames. */
 export type VoLine = { from: number; to: number; text: string; burn?: false };
 
 /**
- * The voiceover. Burned in as captions except where the same words are
- * already on screen (the opening questions, the black card, Aya's hello,
- * the closing line), so nothing
- * is read twice. Once a voice is recorded, replace these with its word
- * timestamps.
- *
- * Changes from SCRIPT.md, each because the line said something the product
- * does not do: "grab your free trial" became the closing line (healdesk has
- * no free trial: billing starts at the first answer and the setup fee is
- * paid at checkout); "Seconds later, I know your treatments" lost its
- * "seconds", and the closer says "a few minutes", because the demo built
- * from a URL estimates about three minutes and has not been timed yet
- * (apps/web/src/lib/demo/build-progress.ts).
+ * The voiceover, for a recording session: the storyboard's own lines. Every
+ * one is already on screen as type, so none is burned in as a subtitle
+ * (`burn: false`); a line added that is not on screen would be subtitled.
  */
-/** The global frame `frame` frames of scene time into `scene`, honouring its speed. */
 const at = (scene: keyof typeof SCENES, frame: number) => SCENES[scene].from + Math.round(frame / SCENES[scene].speed);
 
 export const VO: readonly VoLine[] = [
-  { from: at("hook", 10), to: at("hook", 200), text: "Missed calls? Missed DMs? After six, they're not waiting.", burn: false },
-  { from: at("interrupt", 6), to: at("interrupt", 40), text: "Not on my watch.", burn: false },
-  { from: at("aya", 6), to: at("aya", 66), text: "Hi, I'm Aya, your 24/7 assistant.", burn: false },
-  {
-    from: at("url", 10),
-    to: at("url", 172),
-    text: "Give me your website, and I learn your treatments, sound like your clinic, and get ready for your patients.",
-  },
-  {
-    from: at("channels", 10),
-    to: at("deposit", 110),
-    text: "Calls, DMs, chats, all at once. I book them straight in, and I send the deposit link right in the chat. Honestly? It's kind of my thing.",
-  },
-  {
-    from: at("night", 14),
-    to: at("night", 140),
-    text: "Now you close at six and still wake up to new bookings, deposits already in. And you get your evenings back.",
-  },
-  { from: at("close", 10), to: at("close", 120), text: "Try me out now. Just add your website, and I'll be ready in a few minutes.", burn: false },
+  { from: at("missed", 10), to: at("missed", 120), text: LINES.calls, burn: false },
+  { from: at("missed", 160), to: at("missed", 270), text: LINES.dms, burn: false },
+  { from: at("interrupt", 60), to: at("interrupt", 120), text: LINES.interrupt, burn: false },
+  { from: at("aya", 20), to: at("aya", 110), text: LINES.hello, burn: false },
+  { from: at("dashboard", 10), to: at("dashboard", 90), text: LINES.channels, burn: false },
+  { from: at("deposit", 90), to: at("deposit", 140), text: LINES.deposit, burn: false },
+  { from: at("close", 10), to: at("close", 60), text: LINES.close, burn: false },
 ];
-
-/** The closing scene's words. */
-export const CLOSE = {
-  line: "Try me out now.",
-  sub: "Just add your website, and I'll be ready in a few minutes.",
-  button: "Try Aya free →",
-  url: "yourwebsite.com",
-} as const;
 
 /** The fictional clinic of the demo. Prices are made up. */
 export const CLINIC = {
@@ -93,7 +56,7 @@ export const CLINIC = {
   treatments: [
     { name: "Botox", price: 299 },
     { name: "Lip filler", price: 650 },
-    { name: "HydraFacial", price: 199 },
+    { name: "HydraFacial", price: 200 },
   ],
   deposit: 100,
 } as const;
@@ -120,9 +83,9 @@ export type Channel = {
 export const CHANNELS: readonly Channel[] = [
   { key: "phone", icon: "phone-line.svg", title: "Phone call", meta: "0:14", ask: null, reply: "Fri 2:00 PM. You're booked ✓", day: 4, time: "2:00 PM", value: 299 },
   { key: "whatsapp", icon: "whatsapp.webp", title: "WhatsApp", meta: "6:58 PM", ask: "Can I come Thursday after work?", reply: "Thu 5:30 PM is yours ✓", day: 3, time: "5:30 PM", value: 650 },
-  { key: "instagram", icon: "instagram.webp", title: "Instagram", meta: "11:48 PM", ask: "do u have anything saturday?", reply: "Sat 11:00 AM, booked ✓", day: 5, time: "11:00 AM", value: 199 },
+  { key: "instagram", icon: "instagram.webp", title: "Instagram", meta: "11:48 PM", ask: "do u have anything saturday?", reply: "Sat 11:00 AM, booked ✓", day: 5, time: "11:00 AM", value: 200 },
   { key: "messenger", icon: "messenger.svg", title: "Messenger", meta: "9:12 PM", ask: "Any time next Wednesday?", reply: "Wed 1:00 PM, booked ✓", day: 2, time: "1:00 PM", value: 299 },
-  { key: "web", icon: "website-chat.webp", title: "Website chat", meta: "Now", ask: "First time. Can I book a HydraFacial?", reply: "$199. Mon 10:30 AM? Booked ✓", day: 0, time: "10:30 AM", value: 199 },
+  { key: "web", icon: "website-chat.webp", title: "Website chat", meta: "Now", ask: "First time. Can I book a HydraFacial?", reply: "$200. Mon 10:30 AM? Booked ✓", day: 0, time: "10:30 AM", value: 200 },
 ];
 
 export const BOOKED_VALUE = CHANNELS.reduce((sum, ch) => sum + ch.value, 0);

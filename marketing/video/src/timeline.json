@@ -1,13 +1,11 @@
 {
   "fps": 30,
   "scenes": {
-    "hook": { "from": 0, "to": 240, "speed": 1 },
-    "interrupt": { "from": 240, "to": 300, "speed": 1 },
-    "aya": { "from": 300, "to": 400, "speed": 0.75 },
-    "url": { "from": 400, "to": 640, "speed": 0.75 },
-    "channels": { "from": 640, "to": 880, "speed": 0.75 },
-    "deposit": { "from": 880, "to": 1040, "speed": 0.75 },
-    "night": { "from": 1040, "to": 1190, "speed": 1 },
-    "close": { "from": 1190, "to": 1340, "speed": 1 }
+    "missed": { "from": 0, "to": 300, "speed": 1 },
+    "interrupt": { "from": 300, "to": 450, "speed": 1 },
+    "aya": { "from": 450, "to": 750, "speed": 1 },
+    "dashboard": { "from": 750, "to": 1050, "speed": 1 },
+    "deposit": { "from": 1050, "to": 1200, "speed": 1 },
+    "close": { "from": 1200, "to": 1320, "speed": 1 }
   }
 }

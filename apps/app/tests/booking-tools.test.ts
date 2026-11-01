@@ -36,6 +36,7 @@ import { handleConnectEvent } from "@/lib/billing/connect-events";
 import { clampDepositExpiry, depositLinkText } from "@/lib/billing/deposit-link";
 import { __setStripeForTests } from "@/lib/billing/stripe-client";
 import { slotLabel } from "@/lib/booking/calendar";
+import { spokenSlotEn } from "@/lib/voice/spoken";
 import { HOLD_SECONDS } from "@/lib/booking/holds";
 import {
   BOOKING_LINES_EN,
@@ -663,7 +664,8 @@ describeDb("the booking tool layer in the web chat and the call", () => {
         const at = deskTime(3, 13);
         const said = await booking(f, "voice", at);
         expect(said).toMatchObject({ bookingWritten: true });
-        expect(said!.reply).toBe(`${bookedLine(slotLabel(at, DESK_TZ), "Facial")} ${depositLine({ action: "book_and_flag", amountUsd: 50, scope: "booking" })}`);
+        // A call says the time as a person says it (spokenSlotEn).
+        expect(said!.reply).toBe(`${bookedLine(spokenSlotEn(at, DESK_TZ), "Facial")} ${depositLine({ action: "book_and_flag", amountUsd: 50, scope: "booking" })}`);
         expect(said!.reply).not.toMatch(/https?:|link/i);
         expect(fake.calls).toEqual([]);
         expect(await appointment(f.clinicId)).toEqual([expect.objectContaining({ deposit_status: "pending_front_desk", deposit_usd: "50.00" })]);
@@ -793,7 +795,7 @@ describe("the booking tool layer's lines, on a scripted engine", () => {
     expect(booked!.reply).not.toMatch(/https?:|link/i);
     // English, or no language, is the English line byte for byte.
     const english = await tools.run({ action: { type: "find_times", service: "Consultation", day: null }, capture: EMPTY_CAPTURE, state: EMPTY_TOOL_STATE, now });
-    expect(english!.reply).toBe(`I have ${slotLabel(new Date(at), context.timeZone)}. Which would suit you?`);
+    expect(english!.reply).toBe(`I have ${spokenSlotEn(new Date(at), context.timeZone)}. Which would suit you?`);
   });
 
   test("the website chat stays English whatever language is passed, and the English set is the English lines themselves", async () => {

@@ -58,6 +58,14 @@ Each line describes Claude Code's **engineering assignment** and the **Owner-onl
 
 **Wave 5 — End-to-end acceptance:** LAUNCH. Execute the full synthetic journey, reconcile `apps/web/src/lib/admin/seo/launch.ts`, verify recovery and vendor settings, produce a go/no-go report. Owner makes final production decision.
 
+## After launch (not a go-live blocker)
+
+Work the Owner placed after launch. None of it blocks Wave 5 or the go/no-go report.
+
+| ID | What | Claude Code | Owner-only |
+| --- | --- | --- | --- |
+| `DEMO-EVAL-LIVE` | Withdrawn 1 November 2026: the demo eval scored the sales Aya and was removed with the pitch (DEMO-RECEPTIONIST-1, owner: "Remove the sales pitch completely. Aya is now only a receptionist") | Nothing to do. The two settings it waited for (`VOICE_EVAL_ANTHROPIC_API_KEY` as an Actions secret, `VOICE_EVAL_DEMO_BUDGET_USD`) are no longer needed in GitHub. | None. |
+
 ## Required technical verification
 
 - Run `npm test -w @healdesk/web`, `npm test -w @healdesk/app`, `npm run lint`, and `npm run qa:meta` when relevant. Database-backed security tests may skip without `TEST_APP_URL`; explicitly report skips and use the appropriate isolated test environment.

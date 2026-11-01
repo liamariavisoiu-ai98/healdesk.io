@@ -82,6 +82,14 @@ first-party list prices from the claude-api skill (cached 2026-10-06), cache
 writes 1.25x and reads 0.1x input. The judge's output is the largest and
 least certain term (about 70% of the total).
 
+## The demo eval (removed)
+
+The demo eval (`demo/`, `npm run voice-eval:demo`, `.github/workflows/demo-eval.yml`)
+scored simulated clinic owners talking to the sales Aya. It was removed on
+1 November 2026 with the pitch itself (owner: "Remove the sales pitch
+completely. Aya is now only a receptionist"). The receptionist call it left is
+the clinic's own front desk, which this eval already measures.
+
 ## How tuning cannot weaken safety
 
 - The proposer may replace one sentence, `TONE.warm`, and nothing else.

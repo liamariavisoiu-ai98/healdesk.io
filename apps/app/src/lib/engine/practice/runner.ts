@@ -1,3 +1,5 @@
+import { spokenSlotEn } from "@/lib/voice/spoken";
+import { forVoice } from "@/lib/assistant/turn";
 import { createHash } from "node:crypto";
 
 import {
@@ -318,8 +320,9 @@ function assistantBrain(
     booking,
     serviceNames: allServiceNames(booking, facts.services),
     bookedLineFor: (startsAt, service) => {
-      const line = bookedLine(slotLabel(new Date(startsAt), facts.timeZone), service);
-      return channel === "web_chat" ? forChat(line) : line;
+      // A call says the time as a person says it, and its lines are shaped for a voice (booking-tools.ts, turn.ts forVoice).
+      const line = bookedLine(channel === "web_chat" ? slotLabel(new Date(startsAt), facts.timeZone) : spokenSlotEn(new Date(startsAt), facts.timeZone), service);
+      return channel === "web_chat" ? forChat(line) : forVoice(line);
     },
     session(caseId) {
       const ledger = emptyLedger();

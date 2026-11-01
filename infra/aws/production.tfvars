@@ -22,6 +22,12 @@ healdesk_email_from = "healdesk <hello@healdesk.io>"
 # .env.example has the values. Set them once the support line's voicemail
 # emails a notification only, with no recording or transcript.
 app_environment = {
+  # Most AYA numbers automatic provisioning may buy from Retell in one UTC
+  # day, across every clinic (owner, 31 October 2026: 100, not the default 20,
+  # so a burst of paying clinics is not held to the next day). Each clinic has
+  # paid its first invoice before a number is bought; the cap only limits the
+  # damage of a bug or a run of payments that do not hold.
+  HEALDESK_VOICE_PROVISION_DAILY_CAP = "100"
   # HEALDESK_SUPPORT_PHONE    = "<E.164 number>"
   # HEALDESK_CALL_BOOKING_URL = "<https scheduling page>"
 }
@@ -76,13 +82,17 @@ voice_memory  = 2048
 # off means setting both to false in the same change.
 voice_real_calls = false
 
-# Automatic voice provisioning, the owner's spend switch: off until the owner
-# decides to spend. On, the worker buys each paid voice clinic's AYA number
-# from Retell and creates its agent (Retell bills every number); off, it makes
-# no Retell call and agents and numbers are set up by hand. The variable
-# exists (22 October 2026) but nobody has a paid voice plan yet. It needs
-# enable_voice. Never switched on by an agent.
-voice_provision_enabled = false
+# Automatic voice provisioning, the owner's spend switch: ON since
+# 31 October 2026 (owner, in chat: a clinic that buys phone must get its AYA
+# number and Retell agent without anyone making them by hand). The worker buys
+# each paid voice clinic's AYA number from Retell and creates its agent
+# (Retell bills every number), at most HEALDESK_VOICE_PROVISION_DAILY_CAP a
+# day (20 by default), with the voice retell-Sloane unless
+# HEALDESK_RETELL_VOICE_ID is set in app_environment. It needs enable_voice and
+# HEALDESK_RETELL_API_KEY in Parameter Store; it takes effect after infra.yml
+# applies it and a full deploy-app.yml run (not restart_only). Off again is
+# one `false` here, applied the same way. Only the owner changes it.
+voice_provision_enabled = true
 
 # Direct booking (DB-1; owner, 27 and 28 October 2026: launch with it, voice
 # included): ON. The owner released the Direct booking addendum on 28 October

@@ -37,7 +37,8 @@ export type Usage = {
   cache_read_input_tokens: number;
 };
 
-export type CallRole = "agent" | "caller" | "judge" | "proposer";
+/** `listener` is the demo call's side call (lib/voice/demo-listener.ts), on the agent's model. */
+export type CallRole = "agent" | "listener" | "caller" | "judge" | "proposer";
 
 export type LedgerEntry = { role: CallRole; model: string; usage: Usage; conversationId: string | null };
 
@@ -55,6 +56,7 @@ export const CHARS_PER_TOKEN = 4;
 /** Output tokens per call, thinking included, by role (see the file header). */
 export const ASSUMED_OUTPUT_TOKENS: Readonly<Record<CallRole, number>> = {
   agent: 150,
+  listener: 120,
   caller: 60,
   judge: 1_500,
   proposer: 3_000,

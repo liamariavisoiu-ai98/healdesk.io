@@ -516,6 +516,9 @@ describeDb("support replies operated from Slack (lane P7i)", () => {
 
   test("a wrong passcode is refused in the dialog; five lock Slack approvals, the right one included", async () => {
     const c = await waitingCase("slack-lock");
+    // Only an alert this test raised counts: a row left by an earlier run of the file is set aside
+    // (within the hour a repeat bumps that row's last_raised_at, notify.ts claimAlert).
+    const since = new Date(Date.now() - 1000);
     const view = await openDialog(c.value);
     const wrong = await hit(submission(view, { text: GOOD, code: "000000" }));
     expect(wrong.json).toEqual({ response_action: "errors", errors: { passcode: "That is not the approval passcode. Nothing was changed." } });
@@ -530,11 +533,18 @@ describeDb("support replies operated from Slack (lane P7i)", () => {
     expect(logged).not.toContain(PASSCODE);
     expect(logged).not.toContain(SECRET);
     expect(logged).toContain("approval_code_locked");
-    // The owner is told, as the console's lock tells him: an ops alert with the count only.
-    const { rows: alerts } = await getMigratorPool().query<{ fields: Record<string, unknown> }>(
-      `select fields from ops_alerts where event = 'slack_approvals_locked' order by raised_at desc limit 1`,
-    );
-    expect(alerts).toHaveLength(1);
+    // The owner is told, as the console's lock tells him: an ops alert with the count only. The lockout
+    // raises it without waiting (slack-passcode.ts, `void notifyOps`), so the row is waited for, not
+    // read at once: on a slow runner it lands after the dialog has answered (CI, 1 November 2026).
+    const lockAlerts = async () =>
+      (
+        await getMigratorPool().query<{ fields: Record<string, unknown> }>(
+          `select fields from ops_alerts where event = 'slack_approvals_locked' and last_raised_at >= $1 order by last_raised_at desc limit 1`,
+          [since],
+        )
+      ).rows;
+    await vi.waitFor(async () => expect(await lockAlerts()).toHaveLength(1), { timeout: 10_000 });
+    const alerts = await lockAlerts();
     expect(alerts[0]!.fields).toEqual({ count: 5 });
     expect(JSON.stringify(alerts[0]!.fields)).not.toContain(OWNER);
   });

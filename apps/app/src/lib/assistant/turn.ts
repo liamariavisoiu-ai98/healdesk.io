@@ -24,7 +24,7 @@ import {
   type ToolTurn,
 } from "./booking-tools";
 import type { AssistantChannel, AssistantFacts } from "./facts";
-import { cardNumberIn, guardAssistantReply, guardedLine, movingOnLine, type GuardRefusal } from "./guard";
+import { cardNumberIn, guardAssistantReply, guardedLine, movingOnLine, routedAgainLine, routingProvider, type GuardRefusal } from "./guard";
 import { assistantTurnContext, buildAssistantPrompt, SPOKEN_END } from "./prompt";
 import { isModelRefusal, type AssistantMessage, type AssistantResponder } from "./responder";
 
@@ -429,6 +429,19 @@ export function spokenOnly(text: string): string {
   return at < 0 ? text : text.slice(0, at).replace(/[\s,:;"'-]+$/, "");
 }
 
+/**
+ * A full stop that ends an abbreviation, not a sentence: a title ("Dr.",
+ * "Mrs."), an address word ("St.", "Ste.", "Rd."), "No." before a number,
+ * "a.m."/"p.m.", "e.g."/"i.e.", "vs." and a single initial ("J."). A
+ * sentence that really ends on one ("...on Red Rd.") is only held a little
+ * longer and said with the next.
+ */
+const ABBREVIATION = /(?:^|[\s(])(?:dr|mr|mrs|ms|mx|prof|st|ste|rd|ave|blvd|no|jr|sr|vs|approx|dept|apt)\.$|(?:^|\s)(?:[ap]\.m|e\.g|i\.e)\.$|(?:^|\s)[A-Z]\.$/i;
+
+export function endsWithAbbreviation(text: string): boolean {
+  return ABBREVIATION.test(text);
+}
+
 /** Words a spoken piece needs before it goes out on its own: shorter ones ("Sure!") wait for the next; "Yep, we do!" goes. */
 const MIN_SPOKEN_WORDS = 3;
 
@@ -481,7 +494,12 @@ export class SpokenStream {
     const words = this.text.replace(/#+$/, "");
     const pending = words.slice(this.consumed);
     let cut = -1;
-    for (const m of pending.matchAll(/[.!?…]["'’”)\]]*(?=\s)/g)) cut = m.index! + m[0].length;
+    for (const m of pending.matchAll(/[.!?…]["'’”)\]]*(?=\s)/g)) {
+      // "Dr. Patel" is one name, not two sentences (demo call c4093be6: "that's
+      // a question for Dr." was said alone, and the rest of the reply lost).
+      if (m[0] === "." && endsWithAbbreviation(pending.slice(0, m.index! + 1))) continue;
+      cut = m.index! + m[0].length;
+    }
     if (cut > 0) {
       this.emit(pending.slice(0, cut));
       this.consumed += cut;
@@ -718,11 +736,103 @@ const LEADING_APOLOGY = /^(?:(?:oh|ah|aw+),?\s+)?(?:i'?m\s+)?(?:so\s+|really\s+)
  * Words are only ever taken out, so the guard, which reads what is left,
  * screens exactly as it would have.
  */
+/** A day or a time said to be open: "Thursday afternoon works", "I have Monday at 11 AM", "we have openings this week". */
+const FREE_TIME_SAID =
+  /\b(?:openings?|slots?|availability|calendar|schedule)\b[^.?!]{0,60}?\b(?:\d{1,2}(?::\d{2})?\s*(?:a\.?m|p\.?m)|(?:mon|tues|wednes|thurs|fri|satur|sun)day)\b|\b(?:we|i)(?:'ve| have) (?:got )?(?:some |a few |an? )?(?:openings?|slots?|availability|times? (?:open|free|available))\b|\b(?:works|is (?:open|free|available)|are (?:open|free|available)|i (?:can (?:do|offer|fit you in)|have)|i'?ve got)\b[^.?!]{0,40}?\b(?:\d{1,2}(?::\d{2})?\s*(?:a\.?m|p\.?m)|noon|morning|afternoon|evening|(?:mon|tues|wednes|thurs|fri|satur|sun)day|tomorrow|this week|next week)\b|\b(?:\d{1,2}(?::\d{2})?\s*(?:a\.?m|p\.?m)|morning|afternoon|evening|(?:mon|tues|wednes|thurs|fri|satur|sun)day)\b[^.?!]{0,30}?\b(?:works|is (?:open|free|available)|are (?:open|free|available))\b/i;
+
+/** A part of the day a person asked for, as the booking action's window: "evening" from 16:00, "not mornings" from noon. */
+export function windowNamedIn(words: string): { after: string | null; before: string | null } {
+  const after = /\b(?:after|later than|past)\s+(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)(?::(\d{2}))?\s*(a\.?m|p\.?m)?/i.exec(words);
+  if (after) {
+    const n: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12 };
+    let h = n[after[1]!.toLowerCase()] ?? Number(after[1]);
+    const pm = after[3] ? /^p/i.test(after[3]) : h <= 7;
+    if (pm && h < 12) h += 12;
+    return { after: `${String(h).padStart(2, "0")}:${after[2] ?? "00"}`, before: null };
+  }
+  if (/\b(?:not?|don'?t (?:want|like)|can'?t do)\b[^.?!]{0,20}\bmornings?\b/i.test(words)) return { after: "12:00", before: null };
+  if (/\b(?:evenings?|after work|end of the day)\b/i.test(words)) return { after: "16:00", before: null };
+  if (/\bafternoons?\b/i.test(words)) return { after: "12:00", before: "17:00" };
+  if (/\bmornings?\b/i.test(words) && !/\bgood morning\b/i.test(words)) return { after: null, before: "12:00" };
+  return { after: null, before: null };
+}
+
+/** Whether a reply says a time is free. */
+export function claimsFreeTime(reply: string): boolean {
+  return FREE_TIME_SAID.test(reply);
+}
+
+const DAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
+
+/** The date a person named ("Thursday", "tomorrow"), YYYY-MM-DD in the practice's zone; null when none. */
+export function dayNamedIn(words: string, now: Date, timeZone: string): string | null {
+  const dateIn = (at: Date) => new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
+  const weekdayAt = (at: Date) => DAY_NAMES.indexOf(new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long" }).format(at).toLowerCase() as (typeof DAY_NAMES)[number]);
+  if (/\btomorrow\b/i.test(words)) return dateIn(new Date(now.getTime() + 86_400_000));
+  if (/\btoday\b/i.test(words)) return dateIn(now);
+  const m = /\b(sun|mon|tues?|wed(?:nes)?|thu(?:rs?)?|fri|sat(?:ur)?)(?:day)?s?\b/i.exec(words);
+  if (!m) return null;
+  const wanted = DAY_NAMES.findIndex((d) => d.startsWith(m[1]!.toLowerCase().slice(0, 3)));
+  for (let k = 1; k <= 7; k += 1) {
+    const at = new Date(now.getTime() + k * 86_400_000);
+    if (weekdayAt(at) === wanted) return dateIn(at);
+  }
+  return null;
+}
+
+/** "Our most popular", "best-selling", "everyone's favorite": a claim about the practice nobody wrote. */
+const POPULARITY = /\b(?:(?:our|the|its|their) most (?:popular|requested|loved|booked)|best[- ]?sell(?:ing|er)|(?:fan|everyone'?s|patients'?|our) favou?rite|everyone loves|most people (?:choose|get|love))\b/i;
+
+/** A price as a sentence says it: "from $6 per unit", "at $950 per syringe", "$199". */
+const PRICE_PHRASE = /\s*(?:(?:starting |which (?:is|starts) )?(?:from|at|for|is|are|costs?|starts at)\s+)?\$\s?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:\s*(?:per|a|an|\/)\s*(?:unit|syringe|vial|session|area|treatment|visit|month)s?)?/gi;
+
+/** A sentence with more than two prices loses the prices and keeps the names (six in one reply on that call). */
+function atMostTwoPrices(sentence: string): string {
+  const prices = sentence.match(/\$\s?\d/g) ?? [];
+  if (prices.length <= 2) return sentence;
+  return sentence.replace(PRICE_PHRASE, "").replace(/\s+,/g, ",").replace(/\s{2,}/g, " ").trim();
+}
+
+/** Short forms a voice reads badly in an address: "Red Rd" is "Red Road". */
+const STREET_WORDS: readonly [RegExp, string][] = [
+  [/\bRd\b\.?/g, "Road"],
+  [/\bAve\b\.?/g, "Avenue"],
+  [/\bBlvd\b\.?/g, "Boulevard"],
+  [/\bSte\b\.?/g, "Suite"],
+  [/\bHwy\b\.?/g, "Highway"],
+  [/\bPkwy\b\.?/g, "Parkway"],
+  [/\bDr\b\.?(?=,|\s+(?:Suite|Ste|#|\d|,))/g, "Drive"],
+  [/\bSt\b\.?(?=,|\s+(?:Suite|Ste|#|\d|,))/g, "Street"],
+];
+
+/** Acronyms a voice should say letter by letter: never written as a word. */
+const ACRONYMS = new Set(["IPL", "BBL", "PRP", "PRF", "HIFU", "CO2", "MD", "DO", "NP", "PA", "RN", "AM", "PM", "USA", "HIPAA", "FDA", "AI", "LED", "RF", "TCA", "FL", "NY", "CA", "TX"]);
+
+/**
+ * A reply made for a voice: no trademark signs; a name in capitals said as a
+ * word ("BOTOX" was read letter by letter, as "AYA" was); an address without
+ * its state and zip code and with its short forms said in full; and a phone
+ * number as a person says it, in groups (a test call of 1 November 2026:
+ * "6705 Red Rd, Suite 608, Coral Gables, FL 33143" and "(786) 618-5039").
+ */
+export function forVoice(text: string): string {
+  let out = text.replace(/\s*[®™]/g, "");
+  out = out.replace(/\b[A-Z][A-Z0-9]{3,}\b/g, (word) => (ACRONYMS.has(word) ? word : word.charAt(0) + word.slice(1).toLowerCase()));
+  out = out.replace(/,?\s*\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/g, "");
+  for (const [short, full] of STREET_WORDS) out = out.replace(short, full);
+  out = out.replace(/(?<![\d$])(?:\+?1[\s.-]?)?\(?(\d{3})\)?[\s.-]?(\d{3})[\s.-]?(\d{4})(?!\d)/g, (_m, a: string, b: string, c: string) => spokenPhone(`+1${a}${b}${c}`));
+  return out;
+}
+
 export function shapeVoiceReply(
   text: string,
-  options: { name: string | null; nameUses: number; apologised: boolean; first: boolean; noSignOff: boolean; oneQuestion?: boolean; askedAlready?: boolean; keepQuestions?: readonly string[] },
+  options: { name: string | null; nameUses: number; nameLimit?: number; apologised: boolean; first: boolean; noSignOff: boolean; oneQuestion?: boolean; askedAlready?: boolean; keepQuestions?: readonly string[]; drop?: RegExp | null },
 ): string {
-  let out = sentencesOf(text).filter((sentence) => !(options.noSignOff && /\btalk soon\b/i.test(sentence)));
+  // A trademark sign is never spoken: a voice reads "BOTOX®" as "Botox registered" (demo call a44374c9).
+  let out = sentencesOf(forVoice(text)).filter((sentence) => !(options.noSignOff && /\btalk soon\b/i.test(sentence)) && !options.drop?.test(sentence));
+  // Never a popularity claim stated as the practice's fact (prompt.ts RECEPTIONIST_MANNER; a test call of 1 November 2026:
+  // "Botox is our most popular injectable"), and never more than two prices in one sentence: the names stay, the prices go.
+  out = out.filter((sentence) => !POPULARITY.test(sentence)).map(atMostTwoPrices);
   if (options.oneQuestion) {
     let asked = options.askedAlready === true;
     out = out.filter((sentence) => {
@@ -733,7 +843,7 @@ export function shapeVoiceReply(
       return true;
     });
   }
-  if (options.name && options.nameUses >= 2) {
+  if (options.name && options.nameUses >= (options.nameLimit ?? 2)) {
     const name = options.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     out = out.map((sentence) => {
       if (/\btalk soon\b/i.test(sentence)) return sentence;
@@ -773,9 +883,44 @@ function guardLineFor(
   language: "en" | "es",
   channel: AssistantChannel,
   history: readonly TranscriptTurn[],
+  providerNames?: readonly string[] | null,
 ): string {
   if (reason === "price" && channel === "voice" && SAID_A_PRICE.test(lastAssistantLine(history) ?? "")) return PRICE_LINE_AFTER_QUOTE[language];
-  return guardedLine(reason, clinicName, language, channel === "voice");
+  return guardedLine(reason, clinicName, language, channel === "voice", routingProvider(providerNames));
+}
+
+/**
+ * The providers a refusal may name (guard.ts, routingProvider): on a demo
+ * call only, for now (demo call c4093be6). A clinic's own calls and chats
+ * keep the fixed lines the safety suite pins, until the owner decides those
+ * name the provider too.
+ */
+function routedTo(facts: Pick<AssistantFacts, "providerNames"> & Partial<Pick<AssistantFacts, "demoCall">>): readonly string[] | null {
+  return facts.demoCall === true ? (facts.providerNames ?? null) : null;
+}
+
+/** An answer to the offer ("Yes, please", "Sure"): the loop the hand-over is for. */
+const ASSENT = /^\W*(?:yes|yeah|yep|yup|sure|ok(?:ay)?|please|go ahead|sounds good|that'?d be great|that would be great|absolutely|definitely|s[ií]|claro|por favor)\b/i;
+
+/**
+ * The provider's line in other words, when the same clinical or price
+ * question is asked again rather than the offer answered (routedAgainLine);
+ * null when it was answered, or when that line was itself the last thing
+ * said: the turn then hands over, as before.
+ */
+function routedAskedAgain(
+  reason: GuardRefusal,
+  facts: Pick<AssistantFacts, "providerNames"> & Partial<Pick<AssistantFacts, "demoCall">>,
+  personText: string,
+  language: "en" | "es",
+  channel: AssistantChannel,
+  history: readonly TranscriptTurn[],
+): string | null {
+  if (ASSENT.test(personText)) return null;
+  const names = routedTo(facts);
+  if (!names) return null;
+  const again = routedAgainLine(reason, names, language, channel === "voice");
+  return again && !saidLast(history, again) ? again : null;
 }
 
 /** Whether `line` is the last thing said, alone or after an acknowledgement. */
@@ -890,7 +1035,17 @@ const REPEAT_MIN_WORDS = 3;
 /** Words a sentence from earlier in the call needs to count: "Anything else I can help with?" (six) may come back, a whole answer may not. */
 const EARLIER_REPEAT_MIN_WORDS = 7;
 
-const sentencesOf = (text: string): string[] => text.split(/(?<=[.!?…]["'’”)\]]*)\s+/).filter((s) => s.trim());
+const sentencesOf = (text: string): string[] =>
+  text
+    .split(/(?<=[.!?…]["'’”)\]]*)\s+/)
+    .filter((s) => s.trim())
+    // "Dr." ends no sentence: its piece goes back with the name after it (endsWithAbbreviation).
+    .reduce<string[]>((out, piece) => {
+      const last = out.at(-1);
+      if (last !== undefined && endsWithAbbreviation(last)) out[out.length - 1] = `${last} ${piece}`;
+      else out.push(piece);
+      return out;
+    }, []);
 const sameWords = (sentence: string): string =>
   sentence.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").replace(/\s+/g, " ").trim();
 
@@ -991,10 +1146,35 @@ export async function answerTurn(input: {
    */
   notes?: readonly string[] | null;
   /**
+   * The stable prefix in place of the practice's own prompt
+   * (buildAssistantPrompt), when the adapter is not answering as the
+   * practice: a personalised demo call outside its role-play, where Aya is
+   * healdesk's and talks with a clinic's owner (lib/voice/demo-facts.ts,
+   * demoSalesPrompt). The facts still decide every screen and the guard;
+   * only what the model is told changes, never what it may say.
+   */
+  stablePrompt?: string | null;
+  /**
    * On a call, the caller's first name when the adapter knows it before the
    * model has captured one (a demo's requester), for voiceHabits.
    */
   callerFirstName?: string | null;
+  /**
+   * How many times the caller's first name may be said before it is taken
+   * out of her sentences (shapeVoiceReply); 2 when not given. A demo call
+   * passes 0: its code says the name once, in the booking's confirmation
+   * (demo-facts.ts demoConfirmLine; demo call a44374c9 said "Thomas" three times).
+   */
+  nameLimit?: number;
+  /**
+   * A demo call, whose claims that a booking is made are the call's own code's
+   * to check (demo-facts.ts: roleplayHolds, roleplayCheckedReply,
+   * demoConfirmLine): the guard does not refuse them. Never set for a
+   * clinic's call, where only the tool layer's write lets one through
+   * (demo call a44374c9: "I can't confirm it myself" four times, answering
+   * "what?" and "Yep, that works").
+   */
+  bookingClaimsOwned?: boolean;
   /**
    * On a call, never end on "Talk soon": a demo whose caller showed
    * frustration (lib/voice/demo-facts.ts, `impatient`). A sentence holding it
@@ -1008,6 +1188,12 @@ export async function answerTurn(input: {
    * scripted lines whose questions always stay (the call-back offer asks two).
    */
   oneQuestion?: { keep: readonly string[] } | null;
+  /**
+   * On a call, sentences matching this are left out of what is said
+   * (shapeVoiceReply), as words only ever are: a fact said once a call and
+   * never again (a demo's setup discount once it was said; retell.ts).
+   */
+  dropSentences?: RegExp | null;
   /** This is the one second try after a refusal (answerAgain); never set by a caller. */
   retried?: boolean;
   /**
@@ -1101,7 +1287,7 @@ export async function answerTurn(input: {
     notes.push(`If your answer is slow to start, "${input.acknowledge.line}" is said out loud for you first: begin with the answer itself, never with an acknowledgement or filler.`);
   }
   const system = {
-    stable: buildAssistantPrompt(facts, channel, { bookingTools: toolsLive }),
+    stable: input.stablePrompt ?? buildAssistantPrompt(facts, channel, { bookingTools: toolsLive }),
     turn: assistantTurnContext(
       facts,
       now,
@@ -1129,6 +1315,9 @@ export async function answerTurn(input: {
   const fresh = (text: string) => (before ? withoutRepeats(text, [...before, ...spoken], earlierLines) : text);
   // A call's register, enforced (shapeVoiceReply): the opening line is fixed and not counted.
   const callerName = capture.firstName?.trim() || input.callerFirstName?.trim() || null;
+  // A booking this conversation's tool layer wrote may be said on any later turn ("What time was my booking?" was
+  // refused as an unconfirmed claim); a demo's claims were its own code's to check (bookingClaimsOwned).
+  const written = input.bookingClaimsOwned === true || toolState.done?.kind === "booked" ? ({ bookingWritten: true } as const) : NO_BOOKING_WRITTEN;
   const nameSaid = (lines: readonly string[]) =>
     callerName ? lines.filter((line) => new RegExp(`\\b${callerName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(line)).length : 0;
   const apologisedBefore = assistantLines.slice(1).some((line) => /\b(?:sorry|apologi[sz]e)\b/i.test(line) && !SAY_AGAIN.test(line));
@@ -1137,12 +1326,14 @@ export async function answerTurn(input: {
       ? shapeVoiceReply(text, {
           name: callerName,
           nameUses: nameSaid(assistantLines.slice(1)) + nameSaid(spoken),
+          nameLimit: input.nameLimit,
           apologised: apologisedBefore,
           first,
           noSignOff: input.noSignOff === true,
           oneQuestion: Boolean(input.oneQuestion),
           keepQuestions: input.oneQuestion?.keep,
           askedAlready: spoken.some((line) => line.includes("?")),
+          drop: input.dropSentences ?? null,
         })
       : text;
   const stream =
@@ -1171,7 +1362,7 @@ export async function answerTurn(input: {
           // Read with everything already said, so a rule that needs the
           // sentence before it (a question asked back, the reply's language)
           // reads it as the whole reply would; what came before has passed.
-          const verdict = guardAssistantReply([saidSoFar(), piece].filter(Boolean).join(" "), facts, NO_BOOKING_WRITTEN);
+          const verdict = guardAssistantReply([saidSoFar(), piece].filter(Boolean).join(" "), facts, written);
           if (!verdict.ok && verdict.reason === "language") {
             unplaced = piece;
             return;
@@ -1230,22 +1421,24 @@ export async function answerTurn(input: {
     // guarded on its own, or the fixed line for the sentence the guard refused.
     const merged = mergeCapture(capture, answer.booking);
     const rest = refusedMidway ? null : shaped(fresh([unplaced, stream.remainder()].filter(Boolean).join(" ")), spoken.length === 0) || null;
-    const restVerdict = rest ? guardAssistantReply([saidSoFar(), rest].filter(Boolean).join(" "), facts, NO_BOOKING_WRITTEN) : null;
+    const restVerdict = rest ? guardAssistantReply([saidSoFar(), rest].filter(Boolean).join(" "), facts, written) : null;
     const reason: GuardRefusal | null = refusedMidway ?? (restVerdict && !restVerdict.ok ? restVerdict.reason : null);
     if (reason && (reason === "price" || input.softRefusal) && spoken.length === 0 && channel === "voice" && !input.retried) return answerAgain(input, reason);
     if (reason && spoken.length === 0 && !input.softRefusal) {
-      const line = guardLineFor(reason, facts.clinicName, language === "es" ? "es" : "en", channel, input.history);
+      const line = guardLineFor(reason, facts.clinicName, language === "es" ? "es" : "en", channel, input.history, routedTo(facts));
       if (saidLast(input.history, line)) {
+        const again = routedAskedAgain(reason, facts, personText, language === "es" ? "es" : "en", channel, input.history);
+        if (again) return { ...base, toolsLive, capture: merged, reply: again, source: "guard", guard: reason };
         return { ...base, toolsLive, capture: merged, handoff: true, reply: movingOnLine(facts.clinicName, language === "es" ? "es" : "en", channel === "voice"), source: "guard", guard: reason };
       }
     }
     const tail = reason
-      ? (softLine(input, spoken.length > 0) ?? guardLineFor(reason, facts.clinicName, language === "es" ? "es" : "en", channel, input.history))
+      ? (softLine(input, spoken.length > 0) ?? guardLineFor(reason, facts.clinicName, language === "es" ? "es" : "en", channel, input.history, routedTo(facts)))
       : (rest ?? "");
     const reply = [saidSoFar(), tail].filter(Boolean).join(" ");
     // The guard read each sentence alone; read the whole once more, so a rule
     // that only a whole reply breaks is at least seen. Kind only, never words.
-    const whole = guardAssistantReply(reply, facts, NO_BOOKING_WRITTEN);
+    const whole = guardAssistantReply(reply, facts, written);
     if (!reason && !whole.ok) log.warn("streamed reply refused whole after its sentences passed", { channel, kind: whole.reason });
     return {
       ...base,
@@ -1277,9 +1470,17 @@ export async function answerTurn(input: {
     live = { ...live, toolState: text.state };
   }
   if (toolsLive && !answer.handoff) {
+    // Free times come from the booking system, never the model: a reply that says a time or a day is open, with no
+    // action and no time chosen yet, is the system's question to answer, for the day the person named (demo call
+    // be078f77 and the calls before it: "Thursday afternoon works", "we have openings this week" with nothing checked).
+    const action =
+      answer.action ??
+      (!toolState.chosen && claimsFreeTime(answer.reply)
+        ? ({ type: "find_times", service: toolState.service ?? merged.service ?? null, day: dayNamedIn(personText, now, facts.timeZone), ...windowNamedIn(personText) } as const)
+        : null);
     // The tool layer, on what the model asked for and what is now known.
     const tool = await input.tools!.run({
-      action: answer.action,
+      action,
       capture: merged,
       state: toolState,
       callerPhone: input.callerPhone ?? null,
@@ -1289,14 +1490,21 @@ export async function answerTurn(input: {
     if (tool) {
       // A booking written on a call: the text's offer joins the booked line, when it may be made.
       const offered = textTools && tool.bookingWritten ? await textTools.offerAfterBooking(tool, now, input.language === "es" ? "es" : "en") : tool;
-      return { ...live, capture: merged, toolState: offered.state, tool: offered, reply: offered.reply, source: "tool" };
+      // A fixed line said on a call is shaped for a voice too: no "BOTOX®" read out (demo call be078f77).
+      return { ...live, capture: merged, toolState: offered.state, tool: offered, reply: channel === "voice" ? forVoice(offered.reply) : offered.reply, source: "tool" };
     }
+  }
+  if (input.tools && toolState.done && !answer.handoff && claimsFreeTime(answer.reply)) {
+    // The conversation's one booking is made, so the tools are off; a free time the model names still is not its to
+    // name: the tool layer says the booking stands (be078f77: "we have openings Monday at 11 AM" after booking).
+    const tool = await input.tools.run({ action: { type: "find_times", service: toolState.service, day: null }, capture: merged, state: toolState, callerPhone: input.callerPhone ?? null, now, ...(input.language ? { language: input.language } : {}) });
+    if (tool) return { ...live, capture: merged, toolState: tool.state, tool, reply: channel === "voice" ? forVoice(tool.reply) : tool.reply, source: "tool" };
   }
   // A reply that only repeats the turn before is said as written: silence would be worse.
   const unrepeated = (before && fresh(answer.reply)) || answer.reply;
   const unfilled = channel === "voice" ? withoutLeadingFiller(unrepeated) || unrepeated : unrepeated;
   const replyText = shaped(unfilled, true) || unfilled;
-  const verdict = guardAssistantReply(replyText, facts, NO_BOOKING_WRITTEN);
+  const verdict = guardAssistantReply(replyText, facts, written);
   if (!verdict.ok && (verdict.reason === "price" || input.softRefusal) && channel === "voice" && !input.retried) return answerAgain(input, verdict.reason);
   const soft = verdict.ok ? null : softLine(input);
   if (soft) return { ...live, capture: merged, handoff: false, reply: soft, source: "guard", guard: (verdict as { reason: GuardRefusal }).reason };
@@ -1308,11 +1516,13 @@ export async function answerTurn(input: {
     const said = messageLanguage(replyText, { knownTerms: languageTerms(facts) });
     const spanish =
       language === "es" || said === "es" || (said === "other" && messageLanguage(personText, { knownTerms: languageTerms(facts) }) === "es");
-    const line = guardLineFor(verdict.reason, facts.clinicName, spanish ? "es" : "en", channel, input.history);
+    const line = guardLineFor(verdict.reason, facts.clinicName, spanish ? "es" : "en", channel, input.history, routedTo(facts));
     // The same refusal as the last thing said: the person answered it ("yes,
     // please") and the model's next try was refused again. Saying it a third
     // time is a loop (test call of 23 October 2026), so the turn hands over.
     if (saidLast(input.history, line)) {
+      const again = routedAskedAgain(verdict.reason, facts, personText, spanish ? "es" : "en", channel, input.history);
+      if (again) return { ...live, capture: merged, handoff: answer.handoff, reply: again, source: "guard", guard: verdict.reason };
       return { ...live, capture: merged, handoff: true, reply: movingOnLine(facts.clinicName, spanish ? "es" : "en", channel === "voice"), source: "guard", guard: verdict.reason };
     }
     return { ...live, capture: merged, handoff: answer.handoff, reply: line, source: "guard", guard: verdict.reason };

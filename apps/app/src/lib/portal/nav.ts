@@ -31,7 +31,7 @@ export type NavItem =
 const SECTIONS: readonly { section: PortalSection; label: string; path: string }[] = [
   { section: "home", label: "Home", path: "" },
   { section: "settings", label: "Settings", path: "/settings" },
-  { section: "knowledge", label: "Knowledge", path: "/knowledge" },
+  { section: "knowledge", label: "Your practice", path: "/knowledge" },
   { section: "conversations", label: "Conversations", path: "/conversations" },
   { section: "bookings", label: "Bookings", path: "/bookings" },
   { section: "billing", label: "Billing", path: "/billing" },

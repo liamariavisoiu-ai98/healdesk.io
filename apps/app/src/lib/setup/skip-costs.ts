@@ -66,7 +66,7 @@ function hoursCost(state: SetupState): string {
     return "AYA keeps the hours you confirmed.";
   }
   const read = state.clinic.openingHours ? "the hours we filled in stay unconfirmed, and " : "";
-  return `${read}${NOT_BUILT} your hours are confirmed, so no channel can go live. You can confirm them later in Knowledge.`;
+  return `${read}${NOT_BUILT} your hours are confirmed, so no channel can go live. You can confirm them later in Your practice.`;
 }
 
 /** Whether the clinic has answered this screen, rather than left what we filled in. */

@@ -18,13 +18,13 @@ import type {
  */
 
 const SECTION_LABELS: Record<PracticeSection, string> = {
-  practice: "Knowledge → Your practice",
-  prices: "Knowledge → Prices",
-  policies: "Knowledge → Policies",
-  promotions: "Knowledge → Promotions",
-  quick_answers: "Knowledge → Quick answers",
-  never_say: "Knowledge → Never say",
-  hours: "Knowledge → Hours",
+  practice: "Your practice → Contact details",
+  prices: "Your practice → Prices",
+  policies: "Your practice → Policies",
+  promotions: "Your practice → Promotions",
+  quick_answers: "Your practice → Quick answers",
+  never_say: "Your practice → Never say",
+  hours: "Your practice → Hours",
   how_aya_talks: "Settings → How AYA talks",
   safety_net: "Settings → Safety net",
 };

@@ -70,7 +70,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Every answer until this is fixed sends people to a consultation instead of the services the clinic sells. You hear this at most once an hour, per channel, while the gap lasts.",
     steps: [
       "Open the clinic's Setup tab and read the Agent script card: it lists the services AYA may name, and its title says whether the script is approved.",
-      "Open the Queues page and go to Site reads if the card lists no services: press Read it again for this clinic if it is listed there, and a successful read fills its setup from its website, services included. If it is not listed, the clinic adds its services on the Knowledge page of its portal, or you add them on the Agent script card and press Save script.",
+      "Open the Queues page and go to Site reads if the card lists no services: press Read it again for this clinic if it is listed there, and a successful read fills its setup from its website, services included. If it is not listed, the clinic adds its services on the Your practice page of its portal, or you add them on the Agent script card and press Save script.",
       "Press Ask the practice questions again on the Channels card if services are listed but the script is not approved, and check the practice-questions row is on under the Jobs page. A run they flag waits for your decision under Reviews on the Queues page.",
       "Check the Setup tab again later. You are done when the Agent script card lists services and says approved, and this alert stops coming.",
     ],

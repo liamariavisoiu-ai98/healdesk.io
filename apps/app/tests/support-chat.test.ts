@@ -365,7 +365,7 @@ describe("the request", () => {
     expect(HELP_TEXT).not.toContain("all in Knowledge");
     expect(HELP_TEXT).toContain("Until all three are there AYA isn't built");
     expect(HELP_TEXT).toContain(
-      "the most-asked question is answered only on Setup's most-asked question screen, as Knowledge has no field for it.",
+      "the most-asked question is answered only on Setup's most-asked question screen, as Your practice has no field for it.",
     );
   });
 });

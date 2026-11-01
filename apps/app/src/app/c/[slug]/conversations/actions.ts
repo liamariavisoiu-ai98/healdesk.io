@@ -86,7 +86,7 @@ export async function flagAnswerAction(
     case "already_corrected":
       return {
         ok: false,
-        message: "This flag's correction is already in Quick answers. Change it in Knowledge.",
+        message: "This flag's correction is already in Quick answers. Change it in Your practice.",
       };
     case "refused":
       return {

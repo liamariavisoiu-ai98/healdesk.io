@@ -62,7 +62,7 @@ const OUTCOME_LABELS: Record<ConversationOutcome, string> = {
 export const renderFlagAlert: EmailTemplate<FlagAlertPayload> = (payload, ctx) => {
   const alert = payload.flagsCount >= FLAG_ALERT_THRESHOLD;
   const correction = payload.hasCorrection
-    ? "Staff typed a correction, screened as Knowledge screens a quick answer, which is already in the clinic's quick answers, and the practice questions run again on it. Read it in the clinic's knowledge in the console."
+    ? "Staff typed a correction, screened as Your practice screens a quick answer, which is already in the clinic's quick answers, and the practice questions run again on it. Read it in the clinic's knowledge in the console."
     : "Staff added no correction, so nothing in the clinic's knowledge has changed.";
   const blocks: Block[] = [
     {

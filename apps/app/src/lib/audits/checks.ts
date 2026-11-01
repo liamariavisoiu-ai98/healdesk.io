@@ -182,7 +182,7 @@ const hoursValid: AuditCheck = {
       if (!clinic.hours) {
         return finding(
           "fail",
-          "No weekly hours are saved, or they cannot be read: no times are offered on any channel. Ask the clinic to set them in Knowledge, Hours.",
+          "No weekly hours are saved, or they cannot be read: no times are offered on any channel. Ask the clinic to set them in Your practice, Hours.",
         );
       }
       const openDays = openDayCount(clinic.hours);
@@ -228,7 +228,7 @@ const closuresStored: AuditCheck = {
       ) {
         return finding(
           "warn",
-          "The closed days saved differ from what the clinic's last save sent: something else changed them since. Open Knowledge with the clinic.",
+          "The closed days saved differ from what the clinic's last save sent: something else changed them since. Open Your practice with the clinic.",
           { upcoming, lastSaved: sent },
         );
       }
@@ -250,7 +250,7 @@ const BOOKING_MODE_HINTS: Readonly<Record<string, string>> = {
   calendar_not_connected: "Manual booking because no Google Calendar is connected: send the clinic a calendar link.",
   calendar_degraded: "Manual booking because Google has not answered the last probes; the calendar watch keeps trying.",
   timezone_unconfirmed: "Manual booking because the time zone is unconfirmed: ask the clinic to confirm it in Settings.",
-  opening_hours_unknown: "Manual booking because the weekly hours are not set: ask the clinic to set them in Knowledge.",
+  opening_hours_unknown: "Manual booking because the weekly hours are not set: ask the clinic to set them in Your practice.",
 };
 
 const bookingMode: AuditCheck = {

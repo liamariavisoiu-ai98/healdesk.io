@@ -196,7 +196,7 @@ export default async function ConversationPage({
                         href={`${sectionPath(clinicSlug, "knowledge")}#quick-answers`}
                         className="font-semibold underline"
                       >
-                        See it in Knowledge
+                        See it in Your practice
                       </a>
                     </>
                   ) : null}

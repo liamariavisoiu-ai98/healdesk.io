@@ -59,7 +59,7 @@ function Section(props: { id: string; title: string; intro?: ReactNode; children
     <section
       id={props.id}
       aria-labelledby={`${props.id}-heading`}
-      className="border-line scroll-mt-6 rounded-md border bg-white px-4 py-4 sm:px-5"
+      className="border-line scroll-mt-6 rounded-lg border bg-white px-4 py-4 shadow-sm sm:px-5"
     >
       <h2 id={`${props.id}-heading`} className="text-lg font-semibold">
         {props.title}

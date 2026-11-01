@@ -94,8 +94,10 @@ import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./te
  *                   agent's last turn) go to the shared brain
  *                   (lib/assistant/turn.ts: card numbers cut, urgent content
  *                   answered with a fixed line before the model, the guard
- *                   after it), and the reply is sent whole, never streamed,
- *                   because the guard reads all of it first. A newer request
+ *                   after it), and the reply is spoken sentence by sentence,
+ *                   each once the guard has read it (turn.ts `speak`), and
+ *                   read whole only from the first time offered to the
+ *                   booking, when the tool layer's lines take over. A newer request
  *                   supersedes an older one still being answered. Urgent
  *                   content queues the clinic's L12 alert, sent in-process
  *                   once it has committed, and a caller asking for a person

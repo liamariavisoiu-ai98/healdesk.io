@@ -8,9 +8,18 @@ short examples in place of the manner rules, realistic pauses after "let me
 look at the calendar", and "she should NEVER repeat the same thing twice ...
 always worded differently and always the shortest version possible".
 
-Task: DEMO-SIMPLE-1. Status: section 2 is built and committed on
-`claude/compassionate-dirac-rc9bbm`, not pushed, not deployed. Sections 3 to 7
-are proposals waiting for the owner's word; nothing in them is built.
+Tasks: DEMO-SIMPLE-1 to 5, DEMO-FILL-1. Status (1 November 2026, 17:10 UTC):
+built on `claude/compassionate-dirac-rc9bbm` with the owner's approvals given
+in chat: section 2; section 3 (row 8 also with the text offer where a clinic
+has it); section 4 and its pauses; section 5 (the fill is a build step,
+stored and checked; seven benchmark entries are unsourced and listed in
+`apps/web/src/lib/demo/benchmarks.ts`); section 6 with a fourth example; in
+section 7, points 1, 3, 4, 5 (except native tool use), 6 and 7, with a number
+read back whenever given. Not built: native tool use (it changes the contract
+of every turn and could not be tried against the real model from here), the
+treatment library (point 8; only the owner's pattern for a general treatment
+is in the prompt), the tool layer owning the name and number (point 2), and
+the two retired replays (point 9).
 
 ## 1. Measuring a call's pauses (owner, step by step)
 

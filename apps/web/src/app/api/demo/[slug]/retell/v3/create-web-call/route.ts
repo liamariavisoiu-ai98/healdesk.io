@@ -4,7 +4,7 @@ import { requireOperator } from "@/lib/admin/operator";
 import { clinicVoiceVariables } from "@/lib/demo/clinic-prompts";
 import { demoEngineCall } from "@/lib/demo/engine";
 import { demoBuyButton, demoOfferFor } from "@/lib/demo/offer";
-import { withDemoSamples } from "@/lib/demo/samples";
+import { liveDemo, sampledForCall } from "@/lib/demo/samples";
 import { getDemoSession, isDemoActive, isDemoSlug, profileOf } from "@/lib/demo/sessions";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 import { createWebCall, readClinicDemoAgentConfig } from "@/lib/retell-web-call";
@@ -75,8 +75,10 @@ export async function POST(request: Request, ctx: { params: Promise<{ slug: stri
   if (!session) return fail("Demo not found.", 404);
   const stored = profileOf(session);
   if (!isDemoActive(session) || !stored) return fail("This demo has expired.", 410);
-  // What the website did not show is made up for the live demo, as the page says (lib/demo/samples.ts).
-  const profile = withDemoSamples(stored).profile;
+  // What the website did not show is made up for the live demo, as the page
+  // says: the values the build stored (lib/demo/samples.ts).
+  const live = liveDemo(stored, session.demoFill);
+  const profile = live.profile;
 
   const config = readClinicDemoAgentConfig();
   if (!config.ok) {
@@ -92,7 +94,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ slug: stri
   const firstName = await firstNameOf(request);
   // An operator signed in to /admin is testing: the transcript goes to hello@.
   const test = (await requireOperator()) !== null;
-  const engine = await demoEngineCall({ slug, profile, mode: "browser", firstName, offer: demoOfferFor(session), test, buyButton: demoBuyButton(session) });
+  const engine = await demoEngineCall({ slug, profile, mode: "browser", firstName, offer: demoOfferFor(session), test, buyButton: demoBuyButton(session), sampled: sampledForCall(live.fill) });
   const result = await createWebCall(engine ? { ...config.config, agentId: engine.agentId } : config.config, {
     variables: engine ? engine.variables : clinicVoiceVariables(profile, "browser"),
     metadata: { demo_slug: slug, source: "healdesk.io personalised demo", ...(engine ? { engine: "aya" } : {}) },

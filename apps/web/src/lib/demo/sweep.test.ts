@@ -316,8 +316,8 @@ describe("a row that cannot be handled", () => {
 
 describe("the retry_count column", () => {
   it("is added to an existing register, whose older rows read as never retried", async () => {
-    // A register provisioned before the column: the header one short, and a row to match.
-    const older = DEMO_SESSIONS.columns.slice(0, -1);
+    // A register provisioned before the column: the header stopping short of it, and a row to match.
+    const older = DEMO_SESSIONS.columns.slice(0, DEMO_SESSIONS.columns.findIndex((c) => c.header === "retry_count"));
     expect(older[older.length - 1]!.header).toBe("audit_hash");
     const tab = DEMO_SESSIONS.title;
     sheets.tabs.set(tab, [older.map((c) => c.header)]);
@@ -346,7 +346,7 @@ describe("the retry_count column", () => {
     await updateDemoSession(row!.slug, { retryCount: 2 });
     const stored = sheets.tabs.get(tab)![1]!;
     expect(stored.length).toBe(DEMO_SESSIONS.columns.length);
-    expect(stored[stored.length - 1]).toBe(2);
+    expect(stored[DEMO_SESSIONS.columns.findIndex((c) => c.header === "retry_count")]).toBe(2);
     __resetDemoCacheForTests();
     expect((await getDemoSession(row!.slug, { fresh: true }))?.retryCount).toBe(2);
   });

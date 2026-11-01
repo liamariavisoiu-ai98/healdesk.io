@@ -31,7 +31,7 @@ import { DESTRUCTION_RULES, destructionRuleFor } from "@/lib/offboarding/offboar
  * version-to-rule map in apps/app gives 1.1.0 1.0.0's rules. Since 1 November
  * 2026 dpa/1.2.0 is current ahead of it (baa-release-1-7-0.test.ts), so this
  * file reads 1.1.0's release as it happened, with 1.2.0's switch off, and
- * leaves out of 0140's comparisons what 0142 added after it.
+ * leaves out of 0140's comparisons what 0143 added after it.
  */
 
 const DRIZZLE = fileURLToPath(new URL("../drizzle/", import.meta.url));
@@ -60,12 +60,12 @@ function releasedUnder(released: boolean): string[] {
     .sort();
 }
 
-/** What drizzle/0142 (baa_release_1_7_0_dpa_1_2_0) added to the export rule after 0140. */
-const ADDED_BY_0142 = ["1.7.0", "dpa/1.2.0"];
+/** What drizzle/0143 (baa_release_1_7_0_dpa_1_2_0) added to the export rule after 0140. */
+const ADDED_BY_0143 = ["1.7.0", "dpa/1.2.0"];
 
 /** The versions DESTRUCTION_RULES gave the export rule when 0140 ran, namespaced as stored. */
 function exportRuleVersionsAt0140(): string[] {
-  return exportRuleVersionsToday().filter((v) => !ADDED_BY_0142.includes(v));
+  return exportRuleVersionsToday().filter((v) => !ADDED_BY_0143.includes(v));
 }
 
 /** The versions DESTRUCTION_RULES gives the export rule today, namespaced as stored. */

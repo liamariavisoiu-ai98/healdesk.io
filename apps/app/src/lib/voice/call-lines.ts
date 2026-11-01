@@ -21,20 +21,8 @@ const BUSINESS =
 export function businessLine(words: string, officeNumber: string | null): string | null {
   if (!BUSINESS.test(words)) return null;
   return officeNumber
-    ? `For business inquiries, please call our office on ${spokenPhone(officeNumber)}. Anything else I can help with?`
-    : "For business inquiries, please contact our office directly. Anything else I can help with?";
-}
-
-/** "Are you always busy?", "Is it full of clients all the time?": a question about how busy the practice is. */
-const BUSY = /\b(?:busy|packed|booked (?:up|solid)|full of (?:clients|patients|people)|(?:always|usually|really|very|so|all the time) full|full all the time)\b|\b(?:is|are) (?:it|you|the (?:clinic|practice|office|place)|[\w&' ]{2,40}?) (?:always |usually |really |very |so )?full\b/i;
-
-/**
- * Her answer to it: never an empty schedule ("Not at all, we have openings
- * this week") and never a claim the calendar does not show ("we never
- * double-book"); a time found for them instead.
- */
-export function busyLine(words: string): string | null {
-  return BUSY.test(words) ? "I can usually find you a time that works. Want me to take a look?" : null;
+    ? `That's one for our office, on ${spokenPhone(officeNumber)}. Anything else?`
+    : "That's one for our office directly. Anything else?";
 }
 
 /** Words that end a thought unfinished: "Before", "Besides Botox,", "is it". */
@@ -63,5 +51,6 @@ const GREETING = /^\W*(?:hi|hello|hey|hiya|good (?:morning|afternoon|evening)|yo
 /** A reply to a bare greeting always asks how she can help ("Hi there!" alone left a silence, then "Still with me?"). */
 export function withGreetingQuestion(words: string, reply: string): string {
   if (!GREETING.test(words) || /\?/.test(reply)) return reply;
-  return `${reply.trim()} How can I help you today?`.trim();
+  // Not the opening's own "How can I help you today?" again (owner: never the same thing twice).
+  return `${reply.trim()} What can I do for you?`.trim();
 }

@@ -25,6 +25,10 @@ import {
 } from "./booking-tools";
 import type { AssistantChannel, AssistantFacts } from "./facts";
 import { cardNumberIn, guardAssistantReply, guardedLine, movingOnLine, routedAgainLine, routingProvider, type GuardRefusal } from "./guard";
+import { holdLine, lookupLine, pause, writeLine } from "@/lib/voice/pauses";
+
+import { pairingFor } from "./pairings";
+
 import { assistantTurnContext, buildAssistantPrompt, SPOKEN_END } from "./prompt";
 import { isModelRefusal, type AssistantMessage, type AssistantResponder } from "./responder";
 
@@ -738,7 +742,7 @@ const LEADING_APOLOGY = /^(?:(?:oh|ah|aw+),?\s+)?(?:i'?m\s+)?(?:so\s+|really\s+)
  */
 /** A day or a time said to be open: "Thursday afternoon works", "I have Monday at 11 AM", "we have openings this week". */
 const FREE_TIME_SAID =
-  /\b(?:openings?|slots?|availability|calendar|schedule)\b[^.?!]{0,60}?\b(?:\d{1,2}(?::\d{2})?\s*(?:a\.?m|p\.?m)|(?:mon|tues|wednes|thurs|fri|satur|sun)day)\b|\b(?:we|i)(?:'ve| have) (?:got )?(?:some |a few |an? )?(?:openings?|slots?|availability|times? (?:open|free|available))\b|\b(?:works|is (?:open|free|available)|are (?:open|free|available)|i (?:can (?:do|offer|fit you in)|have)|i'?ve got)\b[^.?!]{0,40}?\b(?:\d{1,2}(?::\d{2})?\s*(?:a\.?m|p\.?m)|noon|morning|afternoon|evening|(?:mon|tues|wednes|thurs|fri|satur|sun)day|tomorrow|this week|next week)\b|\b(?:\d{1,2}(?::\d{2})?\s*(?:a\.?m|p\.?m)|morning|afternoon|evening|(?:mon|tues|wednes|thurs|fri|satur|sun)day)\b[^.?!]{0,30}?\b(?:works|is (?:open|free|available)|are (?:open|free|available))\b/i;
+  /\b(?:openings?|slots?|availability|calendar|schedule)\b[^.?!]{0,60}?\b(?:\d{1,2}(?::\d{2})?\s*(?:a\.?m|p\.?m)|(?:mon|tues|wednes|thurs|fri|satur|sun)day)\b|\b(?:we|i)(?:'ve| have) (?:got )?(?:some |a few |an? )?(?:openings?|slots?|availability|times? (?:open|free|available))\b|\b(?:works|is (?:open|free|available)|are (?:open|free|available)|(?:i|we) (?:can (?:do|offer|fit you in)|have)|(?:i|we)'?ve got)\b[^.?!]{0,40}?\b(?:\d{1,2}(?::\d{2})?\s*(?:a\.?m|p\.?m)|noon|morning|afternoon|evening|(?:mon|tues|wednes|thurs|fri|satur|sun)day|tomorrow|this week|next week)\b|\b(?:\d{1,2}(?::\d{2})?\s*(?:a\.?m|p\.?m)|morning|afternoon|evening|(?:mon|tues|wednes|thurs|fri|satur|sun)day)\b[^.?!]{0,30}?\b(?:works|is (?:open|free|available)|are (?:open|free|available))\b/i;
 
 /** A part of the day a person asked for, as the booking action's window: "evening" from 16:00, "not mornings" from noon. */
 export function windowNamedIn(words: string): { after: string | null; before: string | null } {
@@ -758,6 +762,133 @@ export function windowNamedIn(words: string): { after: string | null; before: st
 }
 
 /** Whether a reply says a time is free. */
+/**
+ * A tool line on a call, with the moment a person takes before it (owner, 1
+ * November 2026; pauses.ts): a lookup before times, a hold before "I'm holding
+ * 3", writing before "you're booked". After words she has already said this
+ * turn, they lead into the pause; with nothing said, a short lookup line does,
+ * never the same twice in a call. Other tool lines (a detail asked again, one
+ * booking per call) are said as they are.
+ */
+export function withToolMoment(input: {
+  line: string;
+  kind: "lookup" | "lookupAgain" | "hold" | "write" | null;
+  spoken: string;
+  day: string | null;
+  timeZone: string;
+  history: readonly { speaker: string; text: string }[];
+  /** The call's language: a Spanish call's lead line is Spanish, as its tool line is. */
+  language?: "en" | "es";
+}): string {
+  if (!input.kind) return input.spoken ? `${input.spoken} ${input.line}` : input.line;
+  if (input.spoken) return `${input.spoken} ${pause(input.kind)} ${input.line}`;
+  const said = input.history.filter((t) => t.speaker === "assistant").map((t) => t.text);
+  const weekday = input.day ? new Intl.DateTimeFormat("en-US", { timeZone: input.timeZone, weekday: "long" }).format(new Date(`${input.day}T12:00:00Z`)) : null;
+  const es = input.language === "es";
+  const lead =
+    input.kind === "write" ? writeLine(said, es) : input.kind === "hold" ? holdLine(said, es) : lookupLine(weekday, said, input.kind === "lookupAgain", es);
+  return `${lead} ${pause(input.kind)} ${input.line}`;
+}
+
+/** Which moment a tool line follows (withToolMoment). */
+function toolMoment(tool: { bookingWritten: boolean; state: { chosen: unknown; held: boolean } }, action: { type: string } | null, offeredBefore: boolean): "lookup" | "lookupAgain" | "hold" | "write" | null {
+  if (tool.bookingWritten) return "write";
+  if (action?.type === "find_times") return offeredBefore ? "lookupAgain" : "lookup";
+  // A hold only when one was placed: a time that was never offered is offered again, with no "let me hold that".
+  if (action?.type === "choose_time") return tool.state.chosen && tool.state.held ? "hold" : null;
+  return null;
+}
+
+/**
+ * A reply with the sentences that name a free time taken out (claimsFreeTime),
+ * for a turn that asked for no times ("Is it always full there?" answered
+ * "Not at all, we have openings"): what is left, or a plain line when
+ * nothing of substance is.
+ */
+export function withoutFreeTimeClaims(reply: string): string {
+  const kept = reply.split(/(?<=[.!?])\s+/).filter((sentence) => !claimsFreeTime(sentence) || RESTATES_BOOKING.test(sentence)).join(" ").trim();
+  return kept.split(/\s+/).filter(Boolean).length > 2 ? kept : "It varies day to day.";
+}
+
+/** A sentence that says back their own booking or a time already offered ("I have you down for Thursday at 2"), never a new free time. */
+const RESTATES_BOOKING = /\b(?:you down|you in for|you(?:'re| are) (?:booked|all set|in)|your (?:appointment|booking|visit|time)|booked (?:you|for)|(?:the )?(?:first|second|third|last) (?:one|time|option)|(?:i|we) (?:offered|said|mentioned))\b/i;
+
+/** Whether the turn is about a time: they asked for times, named a day, or want to book. */
+function aboutATime(personText: string, wants: boolean | undefined, now: Date, timeZone: string, offered = false): boolean {
+  return (
+    offered ||
+    asksForTimes(personText) ||
+    /\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|noon)\b(?:\s*(?:a\.?m|p\.?m|o'?clock|thirty|fifteen|forty-five))?/i.test(personText) && /\b(?:a\.?m|p\.?m|o'?clock|noon|thirty|works?|then)\b/i.test(personText) || Boolean(wants) || dayNamedIn(personText, now, timeZone) !== null || /\b(?:morning|afternoon|evening|tonight|tomorrow|today|next week|this week|weekend|\d{1,2}(?::\d{2})?\s*(?:a\.?m|p\.?m))\b/i.test(personText)
+  );
+}
+
+const HOUR_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, noon: 12 };
+
+/**
+ * The one offered time the person named by its hour ("Four PM would work",
+ * "the 2 o'clock", "three then"), when exactly one offered time matches it
+ * (and its day, when they named one); null otherwise. An hour with no AM or PM
+ * is read as a front desk hears it: one to seven in the afternoon.
+ */
+export function offeredTimeNamed(words: string, offered: readonly { at: string }[], timeZone: string, now: Date): string | null {
+  if (offered.length === 0) return null;
+  // A time turned down is never taken as picked ("No, 4 doesn't work").
+  if (/\b(?:no|not|nope|don'?t|doesn'?t|can'?t|cannot|won'?t|isn'?t|never|other than|instead of|anything but)\b/i.test(words)) return null;
+  const m = /\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|noon)(?::(\d{2}))?\s*(a\.?m|p\.?m|o'?clock)?\b/i.exec(words);
+  if (!m) return null;
+  // Said as a time: with AM, PM or o'clock, after "at" or "the", before "works", "then" or "please", or the whole
+  // answer a few words long; never a count ("my 2 kids", "3 units").
+  const before = words.slice(0, m.index).trim();
+  const after = words.slice(m.index + m[0].length).trim();
+  const asTime =
+    Boolean(m[2] || m[3]) ||
+    m[1]!.toLowerCase() === "noon" ||
+    /\b(?:at|the|for|around|about)$/i.test(before) ||
+    /^(?:works?|is (?:good|fine|great|perfect)|then|please|sounds good|one|slot|option|would (?:work|be (?:good|great|perfect)))\b/i.test(after) ||
+    words.trim().split(/\s+/).length <= 4;
+  if (!asTime) return null;
+  let hour = HOUR_WORDS[m[1]!.toLowerCase()] ?? Number(m[1]);
+  if (!Number.isFinite(hour) || hour < 1 || hour > 12) return null;
+  const minute = m[2] ? Number(m[2]) : 0;
+  // An hour with no AM or PM, as a front desk hears it: one to seven, and twelve, in the afternoon.
+  const pm = m[3] && /^p/i.test(m[3]) ? true : m[3] && /^a/i.test(m[3]) ? false : (hour >= 1 && hour <= 7) || hour === 12;
+  if (pm && hour < 12) hour += 12;
+  if (!pm && hour === 12) hour = 0;
+  if (m[1]!.toLowerCase() === "noon") hour = 12;
+  const day = dayNamedIn(words, now, timeZone);
+  const local = (iso: string) => {
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(iso));
+    const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+    return { day: `${get("year")}-${get("month")}-${get("day")}`, hour: Number(get("hour")) % 24, minute: Number(get("minute")) };
+  };
+  const matches = offered.filter((slot) => {
+    const at = local(slot.at);
+    return at.hour === hour && at.minute === minute && (!day || at.day === day);
+  });
+  return matches.length === 1 ? matches[0]!.at : null;
+}
+
+/** An occasion the caller mentioned (a wedding, a trip), the word as said; null when none. */
+const OCCASION = /\b(wedding|birthday|anniversary|honeymoon|vacation|holiday|trip|graduation|reunion|party|prom|photoshoot|interview|event)\b/i;
+export function occasionIn(texts: readonly string[]): string | null {
+  for (const text of [...texts].reverse()) {
+    const m = OCCASION.exec(text);
+    if (m) return m[1]!.toLowerCase();
+  }
+  return null;
+}
+/** The caller winding the call down: a goodbye, a thank-you, nothing more to ask. */
+const WRAPPING_UP = /\b(?:bye|goodbye|that'?s (?:all|it|everything)|nothing else|no,? that'?s (?:all|it)|thanks?,? (?:so much|a lot)?\W*$)/i;
+const GOODBYE_SAID = /\b(?:bye|have a (?:great|good|lovely|nice|wonderful)|take care|enjoy)\b/i;
+
+/** The person asks which times are free ("what do you have Thursday?", "anything after five?"), not for a treatment. */
+const ASKS_TIMES =
+  /\b(?:what|which|any)\s+(?:other\s+)?(?:times?|slots?|openings?|availability|appointments?)\b|\bwhat (?:do|have) you (?:got|have)\b|\bwhat(?:'s| is) (?:open|free|available)\b|\b(?:are|is) (?:you|there) (?:free|open|available|anything)\b|\banything (?:open|available|free)\b|\bavailabilit(?:y|ies)\b/i;
+
+export function asksForTimes(words: string): boolean {
+  return ASKS_TIMES.test(words);
+}
+
 export function claimsFreeTime(reply: string): boolean {
   return FREE_TIME_SAID.test(reply);
 }
@@ -962,7 +1093,7 @@ export function voiceHabits(history: readonly TranscriptTurn[], firstName: strin
   const again = askedBefore(history, personText);
   if (again) {
     out.push(
-      `They asked nearly the same thing a moment ago ("${again.slice(0, 120).replace(/"/g, "'")}"), so your answer did not land: answer it differently, fuller and plainer, all of it in one go, and never in the words you used before.`,
+      `They asked nearly the same thing a moment ago ("${again.slice(0, 120).replace(/"/g, "'")}"), so say it again shorter and plainer, in new words, never a sentence you used before (the shortest version that answers it).`,
     );
   }
   // "Sorry, say that again?" asks them to repeat; it is not an apology (6e).
@@ -1131,12 +1262,14 @@ export async function answerTurn(input: {
   interruptedAt?: string | null;
   /**
    * On a call, say a sentence now (owner, 24 October 2026). When given, and
-   * the booking tools are not live this turn, the answer is spoken as it is
-   * written: each sentence, once the guard has passed it alone, goes here;
+   * the booking tools are not live this turn or no time has been offered yet
+   * (streamWithTools), the answer is spoken as it is written: each sentence, once the guard has passed it alone, goes here;
    * the first one the guard refuses is replaced by its fixed line and
    * nothing after it is said. The result's `spoken` is what went out.
    */
   speak?: ((sentence: string) => void) | null;
+  /** A call: how fast the caller speaks, from Retell's word timings (retell.ts paceOf); null or absent when unknown. */
+  pace?: "quick" | "slow" | null;
   /**
    * What the adapter knows about the whole conversation that the facts do
    * not say, for the turn context after the cached prefix: a personalised
@@ -1264,6 +1397,38 @@ export async function answerTurn(input: {
   // Asked fresh each turn: a switch pulled or a connection that broke since
   // the last turn takes the tools away from this one.
   const toolsLive = Boolean(input.tools) && !toolState.manual && !toolState.done && (await input.tools!.available());
+  // "What do you have Thursday?" with the treatment already known: the tool
+  // layer answers it on a call with no model turn first (owner, 1 November
+  // 2026: "latency the lowest possible"); the model would only ask for the
+  // same times and have its words replaced. A different treatment named, or
+  // no day or part of the day, and the model answers as before.
+  if (toolsLive && channel === "voice" && !toolState.chosen) {
+    const service = toolState.service ?? capture.service ?? null;
+    const day = dayNamedIn(personText, now, facts.timeZone);
+    const window = windowNamedIn(personText);
+    const plain = (name: string) => name.toLowerCase().replace(/[®™]/g, "").trim();
+    const heard = personText.toLowerCase();
+    const otherService = facts.services.some((svc) => {
+      const first = plain(svc.name).split(/\s+/)[0] ?? "";
+      return first.length > 2 && !plain(service ?? "").startsWith(first) && new RegExp(`\\b${first.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(heard);
+    });
+    if (service && asksForTimes(personText) && (day || window.after || window.before) && !otherService) {
+      const tool = await input.tools!.run({
+        action: { type: "find_times", service, day, ...window },
+        capture,
+        state: toolState,
+        callerPhone: input.callerPhone ?? null,
+        words: personText,
+        now,
+        ...(input.language ? { language: input.language } : {}),
+      });
+      if (tool) {
+        const kind = toolMoment(tool, { type: "find_times" }, toolState.offered.length > 0);
+        const reply = withToolMoment({ line: forVoice(tool.reply), kind, spoken: "", day, timeZone: facts.timeZone, history: input.history, language: input.language === "es" ? "es" : "en" });
+        return { ...base, toolsLive, toolState: tool.state, tool, reply, source: "tool" };
+      }
+    }
+  }
   // The payment-link text after a call's booking, while it is in play (a call only).
   const textTools = channel === "voice" ? (input.paymentText ?? null) : null;
   const textLive = Boolean(textTools?.live(toolState));
@@ -1283,8 +1448,33 @@ export async function answerTurn(input: {
     );
   }
   if (channel === "voice") notes.push(...voiceHabits(input.history, capture.firstName ?? input.callerFirstName ?? null, personText));
+  if (channel === "voice") {
+    // How fast they speak, from Retell's word timings (retell.ts paceOf): the brisk or the unhurried example.
+    if (input.pace === "quick") notes.push("They speak quickly: keep it brisk and short, no small talk, as in the brisk caller's call.");
+    if (input.pace === "slow") notes.push("They speak slowly and calmly: unhurried and warm, never rushed.");
+    // Their moment (a wedding, a trip), once, in the goodbye (owner, 1 November 2026: remember the caller's moment).
+    const occasion = occasionIn([...input.history.filter((t) => t.speaker !== "assistant").map((t) => t.text), personText]);
+    const wished = occasion && input.history.some((t) => t.speaker === "assistant" && t.text.toLowerCase().includes(occasion) && GOODBYE_SAID.test(t.text));
+    if (occasion && !wished && (toolState.done || WRAPPING_UP.test(personText))) {
+      notes.push(`They mentioned their ${occasion}: in your goodbye, wish them well for it in a few words ("Have the best time at the ${occasion}!"), once.`);
+    }
+    // One add-on from the practice's own menu, on a demonstration, before times are looked for (pairings.ts).
+    const service = toolState.service ?? capture.service ?? null;
+    const pairing = facts.demoCall && facts.suggestAddOns && toolsLive && service && toolState.offered.length === 0 && !toolState.chosen && input.pace !== "quick" ? pairingFor(service, facts.services) : null;
+    if (pairing && !input.history.some((t) => t.speaker === "assistant" && t.text.toLowerCase().includes(pairing.name.toLowerCase().replace(/[®™]/g, "").split(/\s+/)[0]!))) {
+      notes.push(
+        `You may suggest one add-on, once, before looking for times: ${pairing.name} (${pairing.price}), ${pairing.why}. Say it as their convenience in one short sentence ("Since you're coming in for ${service}, ..."), with its price, then ask if they'd like it too; at a no, drop it for good. Never what it will do for them. If they say yes, the service is "${service} and ${pairing.name}".`,
+      );
+    }
+    // The calendar read ahead for a day or part of the day they named, so the times are ready when asked for.
+    if (toolsLive && service && !toolState.chosen && input.tools?.prefetch && (asksForTimes(personText) || /\b(?:book|appointment|come in|available|free|open|works?)\b/i.test(personText))) {
+      const day = dayNamedIn(personText, now, facts.timeZone);
+      const window = windowNamedIn(personText);
+      if (day || window.after || window.before) input.tools.prefetch({ type: "find_times", service, day, ...window }, now);
+    }
+  }
   if (input.acknowledge) {
-    notes.push(`If your answer is slow to start, "${input.acknowledge.line}" is said out loud for you first: begin with the answer itself, never with an acknowledgement or filler.`);
+    notes.push(`"${input.acknowledge.line}" is being said out loud for you first: carry straight on from it, with no other opener, filler or feeling sound, as one sentence that starts with it would.`);
   }
   const system = {
     stable: input.stablePrompt ?? buildAssistantPrompt(facts, channel, { bookingTools: toolsLive }),
@@ -1301,7 +1491,16 @@ export async function answerTurn(input: {
   // Every screen has passed and the model is next: the acknowledgement goes now.
   input.acknowledge?.say();
   // Spoken as written, sentence by sentence, each through the guard alone.
-  // Not while the tools are live: their fixed line may replace the words.
+  // While the tools are live, only until times are offered (owner, 1 November
+  // 2026: "latency the lowest possible"): before then the tool layer replaces
+  // nothing she says but a free time she names (held back below, unsaid) and
+  // a find_times she asks for, whose line then follows what she has said
+  // ("Let me pull up our calendar..." and the times). From the first offer to
+  // the booking, the reply is read whole: a picked time, a hold and the
+  // booking are the tool layer's lines, and her words for them are replaced.
+  const streamWithTools = toolsLive && !toolState.chosen && toolState.offered.length === 0;
+  // A free time she named while streaming: it and everything after wait for the tool layer.
+  let heldForTool = false;
   const spoken: string[] = [];
   let refusedMidway: GuardRefusal | null = null;
   // Words the language check could not place yet ("Mm-hmm. Got it."): they
@@ -1337,9 +1536,18 @@ export async function answerTurn(input: {
         })
       : text;
   const stream =
-    input.speak && !toolsLive && !textLive
+    input.speak && (!toolsLive || streamWithTools) && !textLive
       ? new SpokenStream((sentence) => {
           if (refusedMidway) return;
+          if (heldForTool) {
+            unplaced = [unplaced, sentence].filter(Boolean).join(" ");
+            return;
+          }
+          if (toolsLive && claimsFreeTime(sentence)) {
+            heldForTool = true;
+            unplaced = [unplaced, sentence].filter(Boolean).join(" ");
+            return;
+          }
           let piece = fresh([unplaced, sentence].filter(Boolean).join(" "));
           if (!piece) {
             unplaced = "";
@@ -1420,7 +1628,33 @@ export async function answerTurn(input: {
     // The words went out as they came: what is left is the end of the reply,
     // guarded on its own, or the fixed line for the sentence the guard refused.
     const merged = mergeCapture(capture, answer.booking);
-    const rest = refusedMidway ? null : shaped(fresh([unplaced, stream.remainder()].filter(Boolean).join(" ")), spoken.length === 0) || null;
+    if (toolsLive && !refusedMidway && !answer.handoff) {
+      // The tool layer's turn, as on a reply read whole: its line follows what she has already said.
+      const action =
+        answer.action ??
+        (claimsFreeTime(answer.reply) && aboutATime(personText, answer.booking?.wants, now, facts.timeZone, toolState.offered.length > 0)
+          ? ({ type: "find_times", service: toolState.service ?? merged.service ?? null, day: dayNamedIn(personText, now, facts.timeZone), ...windowNamedIn(personText) } as const)
+          : null);
+      const tool = await input.tools!.run({
+        action,
+        capture: merged,
+        state: toolState,
+        callerPhone: input.callerPhone ?? null,
+        words: personText,
+        now,
+        ...(input.language ? { language: input.language } : {}),
+      });
+      if (tool) {
+        const line = channel === "voice" ? forVoice(tool.reply) : tool.reply;
+        const kind = channel === "voice" ? toolMoment(tool, action, toolState.offered.length > 0) : null;
+        const reply = withToolMoment({ line, kind, spoken: saidSoFar(), day: action && action.type === "find_times" ? (action.day ?? null) : null, timeZone: facts.timeZone, history: input.history, language: input.language === "es" ? "es" : "en" });
+        return { ...base, toolsLive, capture: merged, toolState: tool.state, tool, reply, spoken: saidSoFar(), source: "tool" };
+      }
+    }
+    // A free time she named that no tool line took over (a question that asked for none, a handoff) is never said.
+    const left = [unplaced, stream.remainder()].filter(Boolean).join(" ");
+    const unclaimed = toolsLive && left && claimsFreeTime(left) ? left.split(/(?<=[.!?])\s+/).filter((sentence) => !claimsFreeTime(sentence) || RESTATES_BOOKING.test(sentence)).join(" ") : left;
+    const rest = refusedMidway ? null : shaped(fresh(unclaimed), spoken.length === 0) || null;
     const restVerdict = rest ? guardAssistantReply([saidSoFar(), rest].filter(Boolean).join(" "), facts, written) : null;
     const reason: GuardRefusal | null = refusedMidway ?? (restVerdict && !restVerdict.ok ? restVerdict.reason : null);
     if (reason && (reason === "price" || input.softRefusal) && spoken.length === 0 && channel === "voice" && !input.retried) return answerAgain(input, reason);
@@ -1469,12 +1703,20 @@ export async function answerTurn(input: {
     }
     live = { ...live, toolState: text.state };
   }
+  if (toolsLive && !answer.handoff && !answer.action && !toolState.chosen && claimsFreeTime(answer.reply) && !aboutATime(personText, answer.booking?.wants, now, facts.timeZone, toolState.offered.length > 0)) {
+    // A free time named to a question that asks for none: the sentence goes, the rest of the reply stands.
+    answer.reply = withoutFreeTimeClaims(answer.reply);
+  }
   if (toolsLive && !answer.handoff) {
     // Free times come from the booking system, never the model: a reply that says a time or a day is open, with no
     // action and no time chosen yet, is the system's question to answer, for the day the person named (demo call
     // be078f77 and the calls before it: "Thursday afternoon works", "we have openings this week" with nothing checked).
+    // The caller picked an offered time by its hour and the model did not pass it on: code does (a test call of
+    // 1 November 2026: "Four PM would work." was offered the times again).
+    const picked = !answer.action && !toolState.chosen ? offeredTimeNamed(personText, toolState.offered, facts.timeZone, now) : null;
     const action =
       answer.action ??
+      (picked ? ({ type: "choose_time", at: picked } as const) : null) ??
       (!toolState.chosen && claimsFreeTime(answer.reply)
         ? ({ type: "find_times", service: toolState.service ?? merged.service ?? null, day: dayNamedIn(personText, now, facts.timeZone), ...windowNamedIn(personText) } as const)
         : null);
@@ -1484,22 +1726,37 @@ export async function answerTurn(input: {
       capture: merged,
       state: toolState,
       callerPhone: input.callerPhone ?? null,
+        words: personText,
       now,
       ...(input.language ? { language: input.language } : {}),
     });
     if (tool) {
       // A booking written on a call: the text's offer joins the booked line, when it may be made.
       const offered = textTools && tool.bookingWritten ? await textTools.offerAfterBooking(tool, now, input.language === "es" ? "es" : "en") : tool;
-      // A fixed line said on a call is shaped for a voice too: no "BOTOX®" read out (demo call be078f77).
-      return { ...live, capture: merged, toolState: offered.state, tool: offered, reply: channel === "voice" ? forVoice(offered.reply) : offered.reply, source: "tool" };
+      // A fixed line said on a call is shaped for a voice too: no "BOTOX®" read out (demo call be078f77),
+      // and follows the moment a person takes to look, hold or write it in (pauses.ts).
+      if (channel !== "voice") return { ...live, capture: merged, toolState: offered.state, tool: offered, reply: offered.reply, source: "tool" };
+      const kind = toolMoment(offered, action, toolState.offered.length > 0);
+      const day = action && action.type === "find_times" ? (action.day ?? null) : null;
+      const reply = withToolMoment({ line: forVoice(offered.reply), kind, spoken: "", day, timeZone: facts.timeZone, history: input.history, language: input.language === "es" ? "es" : "en" });
+      return { ...live, capture: merged, toolState: offered.state, tool: offered, reply, source: "tool" };
     }
   }
-  if (input.tools && toolState.done && !answer.handoff && claimsFreeTime(answer.reply)) {
+  if (input.tools && toolState.done && !answer.handoff && claimsFreeTime(answer.reply) && !aboutATime(personText, answer.booking?.wants, now, facts.timeZone)) {
+    // A free time named to a question that asks for none ("Is it always full there?" answered "we have openings"):
+    // only the sentence that names it goes, never the whole reply (be078f77 replay, 1 November 2026).
+    answer.reply = withoutFreeTimeClaims(answer.reply);
+  } else if (input.tools && toolState.done && !answer.handoff && claimsFreeTime(answer.reply)) {
     // The conversation's one booking is made, so the tools are off; a free time the model names still is not its to
     // name: the tool layer says the booking stands (be078f77: "we have openings Monday at 11 AM" after booking).
-    const tool = await input.tools.run({ action: { type: "find_times", service: toolState.service, day: null }, capture: merged, state: toolState, callerPhone: input.callerPhone ?? null, now, ...(input.language ? { language: input.language } : {}) });
+    const tool = await input.tools.run({ action: { type: "find_times", service: toolState.service, day: null }, capture: merged, state: toolState, callerPhone: input.callerPhone ?? null, words: personText, now, ...(input.language ? { language: input.language } : {}) });
     if (tool) return { ...live, capture: merged, toolState: tool.state, tool, reply: channel === "voice" ? forVoice(tool.reply) : tool.reply, source: "tool" };
   }
+  // With booking tools on, free times are never the model's to name: one the tool layer did not take over
+  // (a time already held, a question that asked for none) is taken out (be078f77 and sound-alike replays).
+  // Only while the tools are live: without them she takes a request, and saying back the time they asked for
+  // ("Of course, Thursday afternoon works") is right (voice-ended-early's redial replay).
+  if (toolsLive && claimsFreeTime(answer.reply)) answer.reply = withoutFreeTimeClaims(answer.reply);
   // A reply that only repeats the turn before is said as written: silence would be worse.
   const unrepeated = (before && fresh(answer.reply)) || answer.reply;
   const unfilled = channel === "voice" ? withoutLeadingFiller(unrepeated) || unrepeated : unrepeated;

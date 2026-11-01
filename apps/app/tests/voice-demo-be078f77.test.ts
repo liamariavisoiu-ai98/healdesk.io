@@ -85,10 +85,10 @@ const TURNS: readonly Turn[] = [
     caller: "in Thursday at three?",
     model: [says("Let me check Thursday.", { action: { type: "find_times", service: "BOTOX® Cosmetic", day: "2026-11-05" }, booking: { wants: true, service: "BOTOX® Cosmetic" } })],
   },
+  // Since 1 November 2026 the time picked is held: no staged "just gone", so the call's "Three PM then." never comes.
   { caller: "The two PM one.", model: [says("Great.", { action: { type: "choose_time", at: at("2026-11-05", 14) } })] },
-  { caller: "Three PM then.", model: [says("Perfect.", { action: { type: "choose_time", at: at("2026-11-05", 15) } })] },
   { caller: "Tomo.", model: [says("Thanks, Tomo.", { booking: { wants: true, first_name: "Tomo", service: "BOTOX® Cosmetic" } })] },
-  { caller: "What time was the booking?", model: [says("You're booked for Thursday, November 5 at 3 PM.")] },
+  { caller: "What time was the booking?", model: [says("Thursday the 5th, at 2.")] },
   {
     caller: "Actually, you can reach me on another number, 305 555 0199.",
     model: [says("Got it, 305-555-0199 is the best number for you.", { booking: { wants: true, first_name: "Tomo", phone: "305 555 0199" } })],
@@ -125,6 +125,7 @@ async function replay(): Promise<Row[]> {
   const s = new RetellCallSession("demo", "call_be078f77", (m) => sent.push(m), {
     responder,
     acknowledgeAfterMs: 60_000,
+    pauseScale: 0,
     now: () => new Date(CALLED_AT),
     random: () => 0,
     demo: { secret: SECRET, detailsWaitMs: 200 },
@@ -172,47 +173,50 @@ describe("demo call be078f77, replayed on the clinic's own booking path", () => 
       const where = `turn ${row.n} ("${row.caller}"): ${row.after}`;
       expect(row.after, where).not.toMatch(/®|BOTOX|can'?t confirm|team will confirm|undefined/);
     }
-    // A bare hello is answered with a question.
-    expect(at(1).after).toBe("Hi there! Thanks for calling Miami Skin & Vein. How can I help you today?");
-    // Times only from the booking system, a day said once, as a person says them.
-    expect(at(3).after).toBe("I have Thursday, November 5 at 10 AM, 2 PM, or 4 PM. Which would suit you?");
-    // The first time picked is just gone, once a call, with the two nearest (the owner's proactive moment).
-    expect(at(4).after).toBe("That time has just gone. The nearest times I have are Thursday, November 5 at 1 PM or 3 PM.");
-    // Held while the details are taken; the number they are calling from is known, as on a clinic's call.
-    expect(at(5).after).toBe("I've got that time held for a minute while I take your details. Could I take your first name?");
-    // Booked once, by the tool layer's own line, with the demo's deposit rule said as a clinic's call says it.
-    expect(at(6).after).toBe(
-      "You're booked for Thursday, November 5 at 3 PM for Botox Cosmetic. It's in the clinic's calendar. A deposit of 50 dollars is required to hold the appointment. The front desk will call you to take it; nothing is charged on this call.",
+    const by = (caller: string) => rows.find((r) => r.caller === caller)!;
+    // A bare hello is answered with a question, never the opening's own words again.
+    expect(by("Hi.").after).toBe("Hi there! Thanks for calling Miami Skin & Vein. What can I do for you?");
+    // Times only from the booking system, the day said once, as a front desk says them, after a moment to look.
+    expect(by("in Thursday at three?").after).toBe("Let me pull up our calendar... Thursday the 5th, I've got 10, 2 or 4. Any of those work?");
+    // The time picked is held while the details are taken (no staged "just gone").
+    expect(by("The two PM one.").after).toBe("Let me grab that for you... Great, I'm holding 2 for you. What's your first name?");
+    // Booked once, by the tool layer's own line, the name once at the wrap-up, a beat, then the deposit.
+    expect(by("Tomo.").after).toBe(
+      "Okay, putting that in now... Perfect, Tomo, you're booked for Botox Cosmetic on Thursday the 5th at 2. There's a 50 dollar deposit, and our front desk will give you a quick call to take it.",
     );
-    // The booking may be said again afterwards: it was written ("What time was the booking?" was refused before).
-    expect(at(7).after).toBe("You're booked for Thursday, November 5 at 3 PM.");
+    // The booking may be said again afterwards: it was written.
+    expect(by("What time was the booking?").after).toBe("Thursday the 5th, at 2.");
     // Another number is taken, and said back as a person says it.
-    expect(at(8).after).toBe("Got it, three oh five — five five five — oh one nine nine is the best number for you.");
+    expect(by("Actually, you can reach me on another number, 305 555 0199.").after).toBe("Got it, three oh five — five five five — oh one nine nine is the best number for you.");
     // The deposit, from the practice's own rule.
-    expect(at(9).after).toContain("$50 deposit");
+    expect(by("Do I have to pay a deposit?").after).toContain("$50 deposit");
     // A free time the model names itself is never said: the booking system answers.
-    expect(at(10).after).toBe("I can only book one appointment per call, and yours is already booked for Thursday, November 5 at 3 PM. For another appointment, please call back or ask the clinic.");
+    expect(by("What times do you have this week?").after).toBe("You're all set for Thursday at 2. For a second visit, our front desk can sort that out.");
     // The call's own lines.
-    expect(at(11).after).toBe("For business inquiries, please call our office on seven eight six — six one eight — five oh three nine. Anything else I can help with?");
-    expect(at(12).after).toBe("I can usually find you a time that works. Want me to take a look?");
-    expect(at(13).after).toBe("Mm-hmm?");
-    expect(at(13).modelAsked).toBe(false);
+    expect(by("I want to open a franchise with you.").after).toBe("That's one for our office, on seven eight six — six one eight — five oh three nine. Anything else?");
+    // "Always full?" is the model's to answer now; a free time it names is taken out, never the whole reply.
+    expect(by("Is it always full there?").after).toBe("It varies day to day.");
+    expect(by("Besides Botox,").after).toBe("Mm-hmm?");
+    expect(by("Besides Botox,").modelAsked).toBe(false);
     // "This port" is Dysport, in the model's note.
-    expect(at(14).note).toContain(`They said "this port": that is Dysport`);
-    // Nothing clinical: the first refusal of a call is heard as a stall (stall.ts), the next names the provider and
-    // offers a consultation (c4093be6); the clinical words are never said.
-    expect(at(15).after).toBe("Sorry, say that again?");
-    expect(at(16).after).toMatch(/Dr\.? Shaun Patel/);
-    expect(at(16).after).toMatch(/consultation/);
-    for (const n of [15, 16]) expect(at(n).after).not.toMatch(/\bfine\b/i);
+    expect(by("Teach me about this port.").note).toContain(`They said "this port": that is Dysport`);
+    // Nothing clinical, and no planned stall: the provider is named and a consultation offered at once (c4093be6).
+    for (const caller of ["I'm pregnant. Can I still get filler?", "I said, I'm pregnant. Can I still get filler?"]) {
+      expect(by(caller).after).toMatch(/Dr\.? Shaun Patel/);
+      expect(by(caller).after).toMatch(/consultation/);
+      expect(by(caller).after).not.toMatch(/\bfine\b|say that again/i);
+    }
+    // Never the same words twice: the second answer is worded differently.
+    expect(by("I said, I'm pregnant. Can I still get filler?").after).not.toBe(by("I'm pregnant. Can I still get filler?").after);
     // Urgent words are matched before the model: sympathy, 9-1-1, the clinical team's number (c4093be6, a44374c9).
-    expect(at(17).modelAsked).toBe(false);
-    expect(at(17).after).toBe(
+    expect(by("I had filler yesterday. My lip is turning white, and it hurts.").modelAsked).toBe(false);
+    expect(by("I had filler yesterday. My lip is turning white, and it hurts.").after).toBe(
       "I'm so sorry you're dealing with that. I'm an AI assistant, so I can't advise on symptoms. If this is an emergency, hang up and call 9-1-1 now. Otherwise, please call our clinical team directly on seven eight six — six one eight — five oh three nine, so they can help.",
     );
     // healdesk's own words are never said on the clinic's line (c4093be6).
-    expect(at(18).after).not.toMatch(/healdesk/i);
-    expect(at(19).ended).toBe(true);
+    expect(by("Who built you?").after).not.toMatch(/healdesk/i);
+    expect(by("Who built you?").after).toBe("Good question. I'd have to check that with the team.");
+    expect(by("Okay, goodbye.").ended).toBe(true);
     expect(tenant.calls).toBe(0);
   });
 });

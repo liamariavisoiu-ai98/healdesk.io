@@ -11,10 +11,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 const findActiveDemoByCaller = vi.fn();
+const { PEACHY } = vi.hoisted(() => ({
+  PEACHY: { clinicName: "Peachy Studio", services: [], hours: [], providers: [], faqs: [], policies: [], highlights: [], summary: null, specialty: null, phone: null, address: null, booking: null },
+}));
 vi.mock("@/lib/demo/sessions", () => ({
   isSelfServeDemo: () => false,
   findActiveDemoByCaller: (...args: unknown[]) => findActiveDemoByCaller(...args),
-  profileOf: (s: { profile: unknown }) => (s.profile ? { clinicName: "Peachy Studio", services: [], hours: [], providers: [], faqs: [], policies: [], highlights: [], summary: null, specialty: null, phone: null, address: null, booking: null } : null),
+  profileOf: (s: { profile: unknown }) => (s.profile ? structuredClone(PEACHY) : null),
 }));
 
 const appAnswers = vi.fn();
@@ -108,6 +111,29 @@ describe("POST /api/voice-demo/inbound", () => {
       expect(body.call_inbound.override_agent_id).toBe("agent_clinic");
       expect(body.call_inbound.dynamic_variables.clinic_name).toBe("Peachy Studio");
       expect(body.call_inbound.dynamic_variables.demo_context).toBeUndefined();
+    });
+
+    it("seals the fill the build stored, and tells the call which values are samples", async () => {
+      const { fillDemo } = await import("@/lib/demo/samples");
+      const stored = fillDemo(PEACHY as never);
+      const menu = stored.items.find((i) => i.kind === "menu")!;
+      // A stored value the request would not work out itself, so the test sees which one was read.
+      if (menu.kind === "menu") menu.value = [{ name: "Signature facial", description: null, price: "from $80", duration: null }];
+      findActiveDemoByCaller.mockResolvedValue({ slug: "peachy-studio-k7q2mz9xwa", profile: {}, demoFill: stored });
+      const { POST } = await import("./route");
+      const body = (await (await POST(signed(CALL))).json()) as Answer;
+      const context = openDemoCallContext(body.call_inbound.dynamic_variables.demo_context, "test-provision-secret");
+      expect(context!.clinic.services.map((s) => [s.name, s.price])).toEqual([["Signature facial", "from $80"]]);
+      expect(context!.clinic.sampled).toEqual({ prices: [], menu: true, hours: true, deposit: true });
+    });
+
+    it("works the fill out on the request for a row built before the fill step", async () => {
+      const { POST } = await import("./route");
+      const body = (await (await POST(signed(CALL))).json()) as Answer;
+      const context = openDemoCallContext(body.call_inbound.dynamic_variables.demo_context, "test-provision-secret");
+      expect(context!.clinic.services.map((s) => s.name)).toContain("Botox");
+      expect(context!.clinic.hours).toEqual([{ days: "Mon-Fri", hours: "9am-6pm" }]);
+      expect(context!.clinic.sampled).toEqual({ prices: [], menu: true, hours: true, deposit: true });
     });
 
     it("does not ask whether apps/app answers for a caller who is no demo's", async () => {

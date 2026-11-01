@@ -5,7 +5,7 @@ lawyer will be engaged (docs/counsel/README.md; docs/counsel/agreement-
 changes.md §22). BAA_1_7_0_RELEASED is true in packages/catalog/src/baa.ts:
 checkout offers it, it is the go-live floor with no overlap, and
 app_baa_version_acceptable accepts it alone once apps/app/drizzle/
-0142_baa_release_1_7_0_dpa_1_2_0.sql runs (the DPA released with it landed as
+0143_baa_release_1_7_0_dpa_1_2_0.sql runs (the DPA released with it landed as
 dpa/1.2.0, docs/dpa-v1.2.0.txt). 1.6.0 (docs/baa-v1.6.0.txt) stays registered
 and frozen below it. The release moved no byte of the text: this file and its
 hashes are the record.

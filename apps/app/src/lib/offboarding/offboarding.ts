@@ -275,7 +275,7 @@ export type DestructionRule = "thirty_days" | "export_or_ninety";
  */
 export const DESTRUCTION_RULES: Readonly<Record<AgreementKind, Readonly<Record<string, DestructionRule>>>> = {
   baa: {
-    // Released by the owner on 30 October 2026, reconciled 1 November 2026 (drizzle/0142). Its Term
+    // Released by the owner on 30 October 2026, reconciled 1 November 2026 (drizzle/0143). Its Term
     // clause is 1.6.0's own object, so it states the same rule.
     "1.7.0": "export_or_ninety",
     // Released by the owner on 29 October 2026 (drizzle/0136; a draft from
@@ -297,7 +297,7 @@ export const DESTRUCTION_RULES: Readonly<Record<AgreementKind, Readonly<Record<s
     // DPA 1.2.0, reconciled 1 November 2026: its Term clause is 1.0.0's own
     // object (through 1.1.0), and states the same rule. Listed only while its
     // release stands (DPA_1_2_0_RELEASED in dpa.ts). Its release migration
-    // (drizzle/0142) added it to app_destruction_rule() in the same commit
+    // (drizzle/0143) added it to app_destruction_rule() in the same commit
     // (tests/baa-release-1-7-0.test.ts).
     ...(DPA_1_2_0_RELEASED ? { "1.2.0": "export_or_ninety" as const } : {}),
     // DPA 1.1.0, released by the owner on 30 October 2026: its Term clause is

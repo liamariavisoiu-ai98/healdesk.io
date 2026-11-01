@@ -1,3 +1,4 @@
+import { VOICE_DEPOSIT_DESK_TAIL } from "@/lib/booking/lines";
 import { createHash } from "node:crypto";
 
 import { toE164 } from "@healdesk/connectors";
@@ -103,7 +104,8 @@ export type PaymentTextLines = {
 };
 
 export const PAYMENT_TEXT_LINES_EN: PaymentTextLines = {
-  offer: "If you'd rather pay it now, I can text you a secure link to pay the deposit. Would you like that?",
+  // The owner's words (1 November 2026): "...deposit, do you wanna pay it right now? I can text over the payment link."
+  offer: "Want to pay it now? I can text you the link.",
   askNumber: "Sure. What's the mobile number I should text it to?",
   readBack: (spoken) => `That's ${spoken}. Is that right?`,
   askAgain: "No problem. What's the right mobile number?",
@@ -275,7 +277,9 @@ export function paymentTextTools(context: { clinicId: string; callId: string; ac
     if (!(await mayOffer(turn.appointmentId))) return turn;
     await deskAlertDueAt(turn.appointmentId, new Date(now.getTime() + DESK_ALERT_HOLD_MS));
     const text: PaymentTextState = { stage: "offered", appointmentId: turn.appointmentId, number: null, optedInAt: null, unanswered: 0 };
-    return { ...turn, reply: `${turn.reply} ${paymentTextLines(language).offer}`, state: { ...turn.state, text } };
+    // The front desk's part of the deposit line gives way to the offer ("There's a 50 dollar deposit. Want to pay it now?").
+    const reply = turn.reply.includes(VOICE_DEPOSIT_DESK_TAIL) ? turn.reply.replace(VOICE_DEPOSIT_DESK_TAIL, ".") : turn.reply;
+    return { ...turn, reply: `${reply} ${paymentTextLines(language).offer}`, state: { ...turn.state, text } };
   }
 
   function live(state: BookingToolState): boolean {

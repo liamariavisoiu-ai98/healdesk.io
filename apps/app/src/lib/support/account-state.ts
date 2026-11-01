@@ -157,7 +157,8 @@ export function accountStateFrom(input: {
     publishedPhoneE164: state.clinic.publishedPhoneE164,
     directLineE164: state.settings.directLineE164,
     isUrgentHelpSet: state.settings.urgentHelpE164 !== null,
-    isTransferOn: state.settings.transferLiveCalls && state.settings.transferE164 !== null,
+    // On while the switch is: with no transfer number, calls go to the direct line (voice/retell.ts, liveTransferLine).
+    isTransferOn: state.settings.transferLiveCalls && (state.settings.transferE164 ?? state.settings.directLineE164) !== null,
     isDailySummaryOn: state.settings.dailySummary,
     isDepositsOn: input.depositsOn,
     connectionRows: [

@@ -45,7 +45,7 @@ the code, the repo or the mailbox named.
   1.6.0 the day before. §2's "BAA 1.6.0, drafted" and clause references to
   1.5.1 should read 1.7.0. Both report a breach or security incident in no
   case later than 10 calendar days after discovery, where 1.2.2 to 1.6.0 said
-  60. Production holds the release once migration 0142 is deployed. (The DPA was
+  60. Production holds the release once migration 0143 is deployed. (The DPA was
   numbered 1.1.0 on the branch that built it; main had already released a
   dpa/1.1.0 for the payment-link text, so it landed as 1.2.0.)
 - **T4's notice period is 15 days** under BAA 1.7.0 and DPA 1.2.0. It was 24

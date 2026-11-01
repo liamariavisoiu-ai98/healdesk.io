@@ -563,14 +563,14 @@ The user is a clinic owner or a front-desk manager between patients. They are no
 
 ## Portal map
 
-Six screens: Home, Settings, Knowledge, Conversations, Bookings and Billing. Nothing nested more than one level deep, and Help on every screen.
+Six screens: Home, Settings, Knowledge, Conversations, Bookings and Billing. Nothing nested more than one level deep, and Help on every screen. The menu is a sidebar on a laptop and a row of buttons on a phone; Settings opens with every connection in one card and shortcuts to its cards (owner, 1 November 2026).
 
 ### 1. Home
 
 What happened, and is everything working.
 
 - Per-channel status: live, paused, or waiting on something, with the outstanding action named. Before go-live, the build tracker, then Talk to your AYA: a preview of the clinic's own assistant, where nothing reaches patients and nothing is booked.
-- This week in three numbers: conversations handled, appointments booked, deposits collected.
+- This week in three numbers: booked value (bookings times the clinic's own listed prices, never revenue or a return), appointments booked (booking requests while the team confirms them), deposits collected; conversations handled in the line under them. Then this week on the calendar, Monday to Sunday, as a count per day: names, treatments and times stay on Bookings, behind the passkey (owner, 1 November 2026).
 - Anything needing attention: a broken calendar connection, an expired login, an unpaid invoice, a channel that has gone quiet.
 - The **AYA is answering** switch in every screen's header. Off pauses for an hour, until tomorrow morning, or until it is switched back, and a banner shows when and from which device it was paused.
 

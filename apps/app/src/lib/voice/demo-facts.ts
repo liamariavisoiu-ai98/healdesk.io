@@ -1265,7 +1265,7 @@ function usNumber(raw: string | null): string | null {
 export const ROLEPLAY_NEVER_SAY = ["healdesk", "heal desk", "setup fee", "onboarding", "demo page", "Aya Voice", "Aya Web Chat", "Aya Meta Chat", "getting that running", "hundred minutes", "on our side"] as const;
 
 /** A role-play reply refused outright for healdesk's words: the practice's answer to what it does not know (criterion 7 of c4093be6). */
-export const ROLEPLAY_UNKNOWN_LINE = "I don't know that one, but the team can confirm it for you. Anything else I can help with?";
+export const ROLEPLAY_UNKNOWN_LINE = "Good question. ⟪think⟫ I'd have to check that with the team.";
 
 /** The facts for the role-play: the clinic's own, with healdesk's words on its never-say list (ROLEPLAY_NEVER_SAY), and the close's "get <clinic> set up". */
 export function demoRoleplayFacts(facts: AssistantFacts): AssistantFacts {
@@ -1326,8 +1326,11 @@ export function demoAssistantFacts(context: Pick<DemoCallContext, "slug" | "clin
     greeting: { phone: defaultPhoneGreeting(clinic.clinicName), chat: defaultChatGreeting() },
     tone: "warm",
     languages: ["en", "es"],
-    suggestAddOns: false,
+    // On for a demo (owner, 1 November 2026, review point 7): one pairing from the clinic's own menu, chosen by
+    // code (pairings.ts), offered once, to show the dream. A clinic's own calls keep the spec's default, off.
+    suggestAddOns: true,
     providerNames: clinic.providers.map((p) => p.name),
+    samples: clinic.sampled ?? null,
     // No alert is ever raised on a demo call: the urgent reply never says the team was told.
     urgentAlertsReady: false,
     // Her own workings and claims healdesk does not make are refused (guard.ts, offScript; a17b5aff).

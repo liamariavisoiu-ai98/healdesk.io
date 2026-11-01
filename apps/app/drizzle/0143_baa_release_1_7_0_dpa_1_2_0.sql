@@ -15,13 +15,14 @@
 -- before launch (docs/counsel/agreement-changes.md §22).
 -- apps/app/tests/baa-release-1-7-0.test.ts holds these lists to the catalog.
 --
--- Why it is 0142 and the DPA is 1.2.0: this release was built on a branch
+-- Why it is 0143 and the DPA is 1.2.0: this release was built on a branch
 -- (LEGAL-4) as migration 0140_baa_release_1_7_0 and a "dpa/1.1.0" carrying
 -- three changes. Main released and deployed its own dpa/1.1.0 the same day,
 -- the payment-link text in the same words, with its own migration 0140
 -- (dpa_release_1_1_0), which production has run. A released version is never
 -- edited, so the branch's two other changes are dpa/1.2.0, on top of it, and
--- this migration follows 0141.
+-- this migration follows 0141 and main's 0142 (practice_gate_cases_2026_11_01,
+-- which landed the same day and touches no agreement function).
 --
 -- What changed, at the owner's instruction of 30 October ("adjust whatever's
 -- needed"): both documents report a breach, a security incident or an

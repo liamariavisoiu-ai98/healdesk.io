@@ -92,7 +92,7 @@
 > commit that lands it, checkout offers 1.7.0, the go-live floor with no
 > overlap, and dpa/1.2.0 to new DPA practices; 1.6.0, dpa/1.1.0 and dpa/1.0.0
 > stay registered and frozen, and a practice keeps the version it signed.
-> Production holds it once `deploy-app.yml` runs migration 0142. The notes
+> Production holds it once `deploy-app.yml` runs migration 0143. The notes
 > above say what checkout offered at each earlier release.
 
 ## Contents
@@ -3668,7 +3668,7 @@ dpa/1.1.0.
   that there are no clients yet. dpa/1.2.0 is `DPA_TEMPLATES[0]`. 1.6.0,
   dpa/1.1.0 and dpa/1.0.0 stay registered and frozen; the DPA has no go-live
   floor, so a practice that signed an earlier DPA still goes live under it.
-- `apps/app/drizzle/0142_baa_release_1_7_0_dpa_1_2_0.sql` sets
+- `apps/app/drizzle/0143_baa_release_1_7_0_dpa_1_2_0.sql` sets
   `app_baa_version_acceptable()` to 1.7.0 alone, adds dpa/1.2.0 to
   `app_dpa_version_released()`, and adds 1.7.0 and dpa/1.2.0 to
   `app_destruction_rule()`: their Term clauses are the earlier versions' own.

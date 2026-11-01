@@ -8,7 +8,7 @@ content landed as dpa/1.2.0, on top of it, on the owner's word of 1 November
 packages/catalog/src/dpa.ts, so DPA_TEMPLATES holds dpa/1.2.0 first, then
 dpa/1.1.0 and dpa/1.0.0, checkout offers dpa/1.2.0, and
 app_dpa_version_released lists it (apps/app
-drizzle/0142_baa_release_1_7_0_dpa_1_2_0). It applies to practices that sign
+drizzle/0143_baa_release_1_7_0_dpa_1_2_0). It applies to practices that sign
 from the release on; a practice that signed an earlier DPA stays on it.
 Drafted by an AI assistant on the owner's instruction and AI-reviewed; counsel
 has not reviewed it (docs/counsel/agreement-changes.md §22). It is frozen now:

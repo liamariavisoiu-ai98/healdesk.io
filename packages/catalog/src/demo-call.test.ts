@@ -55,6 +55,18 @@ describe("the demo call context (owner, 24 October 2026)", () => {
     expect(demoFirstName("")).toBeNull();
   });
 
+  test("carries which values the demo made up, cleaned, and leaves it out of a context sealed without it", () => {
+    const sampled = { prices: ["HydraFacial"], menu: false, hours: true, deposit: false };
+    const withSampled: DemoCallContext = { ...CONTEXT, clinic: { ...CONTEXT.clinic, sampled } };
+    const opened = openDemoCallContext(sealDemoCallContext(withSampled, SECRET), SECRET, CONTEXT.issuedAt);
+    expect(opened).toEqual(withSampled);
+    expect(opened!.clinic.sampled).toEqual(sampled);
+    expect(openDemoCallContext(sealDemoCallContext(CONTEXT, SECRET), SECRET, CONTEXT.issuedAt)!.clinic).not.toHaveProperty("sampled");
+    // A malformed part reads as nothing made up, never as a crash or a stray value.
+    const odd = { ...CONTEXT, clinic: { ...CONTEXT.clinic, sampled: { prices: ["Botox", 7, null], menu: "yes", hours: true } } } as unknown as DemoCallContext;
+    expect(openDemoCallContext(sealDemoCallContext(odd, SECRET), SECRET, CONTEXT.issuedAt)!.clinic.sampled).toEqual({ prices: ["Botox"], menu: false, hours: true, deposit: false });
+  });
+
   test("cannot be sealed without a secret", () => {
     expect(() => sealDemoCallContext(CONTEXT, "")).toThrow();
   });

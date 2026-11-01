@@ -176,6 +176,7 @@ async function replay(): Promise<Row[]> {
   const s = new RetellCallSession("demo", "call_sound_alike", (m) => sent.push(m), {
     responder,
     acknowledgeAfterMs: 60_000,
+    pauseScale: 0,
     now: () => new Date(CALLED_AT),
     random: () => 0,
     demo: { secret: SECRET, detailsWaitMs: 200 },
@@ -242,19 +243,23 @@ describe("sounds alike: what the line heard is taken as what they meant", () => 
       expect((row.after.match(/\$\d/g) ?? []).length, where).toBeLessThanOrEqual(2);
     }
     // A bare hello is answered with a question, so no silence and no "Still with me?".
-    expect(at("Hi.").after).toBe("Hi there! How can I help you today?");
+    expect(at("Hi.").after).toBe("Hi there! What can I do for you?");
     // No popularity claim, and "BOTOX" said as a word.
     expect(at("Tell me about your treatments. Please.").after).toBe("Our main groups are injectables like Botox, Dysport, Daxxify and fillers such as Restylane and Sculptra. Which area are you most interested in?");
     // "This week?", "evening", "not mornings": times from the booking system, never the model's own (the restructure,
     // 1 November 2026): evening only after four, no mornings when they said so, and an ask again leads with new times.
-    expect(at("this week?").after).toBe("I have Monday, November 2 at 10 AM, 2 PM, or 4 PM. Which would suit you?");
-    expect(at("want evening time.").after).toBe("I have Monday, November 2 at 5 PM, Tuesday, November 3 at 4 PM, or Tuesday, November 3 at 5 PM. Which would suit you?");
+    // Said as a front desk says them, each day once, after the moment it takes to look (pauses.ts), in a line not said yet.
+    expect(at("this week?").after).toBe("Let me pull up our calendar... Monday the 2nd, I've got 10, 2 or 4. Any of those work?");
+    expect(at("want evening time.").after).toBe("Let me check... I've got Monday the 2nd at 5, or Tuesday the 3rd at 4 or 5. Any of those work?");
     const noMornings = at("that. Why are you repeating? I don't want early morning.").after;
-    expect(noMornings).toMatch(/^I have /);
-    expect(noMornings).not.toMatch(/\b(?:9|10|11) AM\b/);
+    expect(noMornings).toMatch(/I've got /);
+    expect(noMornings).not.toMatch(/\bat (?:9|10|11)\b|\b(?:9|10|11)(?:,| or)/);
+    // The hour they named is the offered time they meant: held, even though the model did not pass it on.
+    expect(at("Four PM would work.").after).toBe("Let me grab that for you... Great, I'm holding 4 for you. What's your first name?");
     // The deposit, from the clinic's own rule, said; asked again, said again shorter, never the same line twice.
     expect(at("You do I have to pay deposit?").after).toBe("Yes, a $50 deposit holds each appointment, and it comes off the treatment price.");
-    expect(at("Do you do I have to pay deposit or something?").after).toBe("Like I mentioned, yes, a $50 deposit holds each appointment, and it comes off the treatment price.");
+    // Asked again: its key fact alone, in the fewest words, never the same sentence twice (owner, 1 November 2026).
+    expect(at("Do you do I have to pay deposit or something?").after).toBe("Yes, $50.");
     // "The bottle", with Botox on the booking: the model is told it is Botox.
     expect(at("have to pay a deposit for the bottle?").note).toContain(`They said "bottle": that is BOTOX Cosmetic`);
     // The address and the number as a person says them.
@@ -274,7 +279,8 @@ describe("sounds alike: what the line heard is taken as what they meant", () => 
     // "Alright." is never a name, so nothing is booked on it.
     expect(at("Alright.").booking.name).toBeUndefined();
     // "Full of clients?": never an empty schedule, never booked on the side.
-    expect(at("Is it is it a full is Miami Skin and Veil full of clients?").after).toBe("I can usually find you a time that works. Want me to take a look?");
+    // The model answers now; the free time it named is taken out, never said.
+    expect(at("Is it is it a full is Miami Skin and Veil full of clients?").after).toBe("It varies day to day.");
     expect(at("Is it is it a full is Miami Skin and Veil full of clients?").booking.status).toBeUndefined();
     // "Besides Botox": what she has told them is left out.
     expect(at("told me about Botox before, so you shouldn't repeat yourself. Just say besides Botox, this, this, this.").note).toContain("They have already heard about:");
@@ -288,7 +294,7 @@ describe("sounds alike: what the line heard is taken as what they meant", () => 
     expect(at("is it").modelAsked).toBe(false);
     // A business ask: the office's number, nothing promised.
     expect(at("I want to offer champagne an opportunity to open a franchise with Miami Skin and Vein.").after).toBe(
-      "For business inquiries, please call our office on seven eight six — six one eight — five oh three nine. Anything else I can help with?",
+      "That's one for our office, on seven eight six — six one eight — five oh three nine. Anything else?",
     );
     expect(tenant.calls).toBe(0);
   });

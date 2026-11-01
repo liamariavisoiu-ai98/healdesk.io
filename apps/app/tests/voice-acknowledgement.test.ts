@@ -127,7 +127,7 @@ describe("the acknowledgement while the model thinks", () => {
     expect(parts[1]).toMatchObject({ content: " Lovely, which day suits you?", content_complete: true });
     expect(heard()[1]!.content).toBe(`${TEST_ACKS[0]} Lovely, which day suits you?`);
     // The model was told, so it does not open with another.
-    expect(seen[0]!.turn).toContain(`"${TEST_ACKS[0]}" is said out loud for you first`);
+    expect(seen[0]!.turn).toContain(`"${TEST_ACKS[0]}" is being said out loud for you first`);
     await s.finish();
     // The clinic's transcript keeps what the caller heard.
     expect(recorded.turns?.find((t) => t.text.startsWith(TEST_ACKS[0]!))?.text).toBe(`${TEST_ACKS[0]} Lovely, which day suits you?`);

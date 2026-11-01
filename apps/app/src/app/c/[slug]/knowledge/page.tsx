@@ -29,6 +29,8 @@ import {
   Section,
 } from "./KnowledgeForms";
 import { WebsiteChangesList } from "./WebsiteChanges";
+import { knowledgeSections, knowledgeTiles } from "@/lib/portal/knowledge-glance";
+import { SectionLinks } from "../settings/ConnectionsOverview";
 
 export const metadata: Metadata = { title: "Knowledge · healdesk", referrer: "no-referrer" };
 
@@ -89,6 +91,29 @@ export default async function KnowledgePage({ params }: { params: Promise<{ slug
         What AYA may say about your practice. Each part saves on its own, and AYA uses it at once.
         Leave out anything medical: AYA passes those questions to your team.
       </p>
+      <SectionLinks sections={knowledgeSections(website.changes.length > 0)} />
+      <ul aria-label="At a glance" className="mt-6 grid gap-3 sm:grid-cols-3">
+        {knowledgeTiles({
+          services: knowledge.services.map((service) => ({ price: serviceInputOf(service).price })),
+          quickAnswers: knowledge.quickAnswers.length,
+          hours: (clinic.openingHours as unknown as HoursInitial | null) ?? null,
+        }).map((tile) => (
+          <li key={tile.key} data-tile={tile.key}>
+            <a
+              href={`#${tile.key}`}
+              className={`block h-full rounded-lg border px-5 py-5 shadow-sm ${
+                tile.needsYou ? "border-orange bg-tint-peach" : "border-line bg-white"
+              }`}
+            >
+              <span className="text-muted block text-xs font-semibold tracking-wider uppercase">
+                {tile.label}
+              </span>
+              <span className="mt-1 block text-2xl font-bold tracking-tight">{tile.value}</span>
+              <span className="text-muted mt-1 block text-sm">{tile.hint}</span>
+            </a>
+          </li>
+        ))}
+      </ul>
       <FeedbackProvider>
         <div className="mt-6 grid gap-6">
           {website.changes.length > 0 ? (

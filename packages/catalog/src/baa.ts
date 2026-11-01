@@ -4932,7 +4932,7 @@ function validate160(v: BaaVariables): void {
  *                    gave, inside the usual fifteen to thirty.
  *
  * Since its release it is BAA_TEMPLATES[0] and the go-live floor, with no
- * overlap (app_baa_version_acceptable accepts 1.7.0 alone, drizzle/0142);
+ * overlap (app_baa_version_acceptable accepts 1.7.0 alone, drizzle/0143);
  * its text and golden hashes are frozen.
  */
 
@@ -5047,7 +5047,7 @@ export const BAA_1_6_0_RELEASED: boolean = true;
  * after it with approvedByCounsel false. True: 1.7.0 is BAA_TEMPLATES[0]
  * with approvedByCounsel true, the floor is 1.7.0 with no overlap, and 1.6.0
  * stays registered and frozen below it. The release migration is
- * apps/app/drizzle/0142_baa_release_1_7_0_dpa_1_2_0.sql, and
+ * apps/app/drizzle/0143_baa_release_1_7_0_dpa_1_2_0.sql, and
  * apps/app/tests/baa-release-1-7-0.test.ts fails on a flip without it. It
  * needs BAA_1_6_0_RELEASED, which has been true since 29 October 2026.
  */

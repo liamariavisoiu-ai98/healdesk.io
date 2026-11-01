@@ -1557,7 +1557,7 @@ export const DPA_TEMPLATE_1_1_0_DRAFT: DpaTemplate = {
  * (signableDpaTemplate takes only the current version). The DPA has no
  * go-live floor, so a practice bound to an earlier DPA still goes live under
  * it. The release migration is apps/app
- * drizzle/0142_baa_release_1_7_0_dpa_1_2_0.sql, which adds dpa/1.2.0 to
+ * drizzle/0143_baa_release_1_7_0_dpa_1_2_0.sql, which adds dpa/1.2.0 to
  * app_dpa_version_released() and app_destruction_rule(); apps/app
  * tests/baa-release-1-7-0.test.ts holds the two together. It needs
  * DPA_1_1_0_RELEASED, which has been true since 30 October 2026.
@@ -1617,7 +1617,7 @@ export function dpaTemplatesFor(
 // app_dpa_version_released() and to app_destruction_rule(). dpa/1.2.0 (ten
 // days to report, fifteen days' notice of a subcontractor) is at [0] since it
 // landed (reconciled 1 November 2026; DPA_1_2_0_RELEASED), and 1.1.0 and 1.0.0 follow
-// it; its migration, baa_release_1_7_0_dpa_1_2_0 (apps/app drizzle/0142),
+// it; its migration, baa_release_1_7_0_dpa_1_2_0 (apps/app drizzle/0143),
 // added it to both functions.
 export const DPA_TEMPLATES: readonly DpaTemplate[] = dpaTemplatesFor(
   DPA_1_1_0_RELEASED,

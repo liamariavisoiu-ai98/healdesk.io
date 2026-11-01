@@ -38,30 +38,19 @@ in `src/motion.tsx`) without retiming a cue.
 
 | Time | Scene | Picture | Type | Sound |
 | --- | --- | --- | --- | --- |
-| 0:00–0:04 | `Missed` | A realistic iPhone, ringing on frame 0 with iOS's full-screen incoming call; it goes unanswered; a "Front desk closed" Focus on the lock screen; the missed calls group into one stack whose count climbs | Is your clinic missing calls? | The song, muffled; the phone's buzz |
-| 0:04–0:09 | `Missed` | "calls?" rolls to "DMs?"; Instagram, WhatsApp, Messenger and website-chat icons pop up around the phone with red badges counting; DMs pour onto the lock screen faster and faster; the camera flies into the screen | Is your clinic missing DMs? | The filter opens, a riser and a clap build, a half-beat of silence |
-| 0:09–0:10.5 | `Interrupt` | A white flash; the line lands hard and is gone in a second and a half | Not on my watch. | The drop: the full song, a hit, a crisp click and a chime |
-| 0:10.4–0:19.8 | `Hello` | Aya herself, in her real footage: she smiles and points to her name; cut on the beat to the website box alone, typing bellaskinstudio.com, and what she learned | Hi, I'm Aya. · Your clinic's 24/7 assistant. · Built for medspas · We sign a BAA · Just add your website. | Soft mechanical keys, a chime |
-| 0:19.8–0:29.1 | `Dashboard` | "Calls, DMs, chats. All at once." over the five channel icons; cut on the beat to the booked value alone, each channel flying into it with its price, $0 → $1,648 | Booked value · 5 appointments booked by Aya, at your own prices | A whoosh and a rising tink per booking |
-| 0:29.1–0:34.8 | `Deposit` | One card: $100.00 appointment deposit, one button, paid through Stripe; healdesk's notification; cut on the beat to the line | You do the treatments. Aya handles the rush. | A two-note confirmation chime |
-| 0:34.8–0:39.5 | `Close` | healdesk's lockup: Aya, still moving, points to the wordmark, its line in Fraunces, "Try Aya free" and the address | An AI front desk you can rely on. · Try Aya free · healdesk.io | One warm chord that lingers |
+| 0:00–0:04 | `Missed` | A realistic iPhone on black, its wallpaper healdesk's embers, ringing on frame 0; the call goes unanswered; a "Front desk closed" Focus; the missed calls stack and count | Is your clinic missing calls? | The riff and a soft beat from the first second; the phone's buzz |
+| 0:04–0:09 | `Missed` | "calls?" rolls to "DMs?"; the four apps' icons rise around the phone, badges counting; DMs pour in faster; the camera flies into the screen | Is your clinic missing DMs? | A sweep rising into a half-beat of silence |
+| 0:09–0:10.5 | `Interrupt` | A white flash; the line rises out of a mask, only "watch." in the accent | Not on my watch. | The drop: the full groove and a hit |
+| 0:10.5–0:19.8 | `Hello` | Aya, cut cleanly out of her own footage, standing on the frame's edge, smiling and pointing; cut on the beat to the website box alone, typing, and what she learned | Hi, I'm Aya. · Your clinic's 24/7 assistant. · by healdesk · Built for medspas · We sign a BAA · Just add your website. | Soft mechanical keys, a chime |
+| 0:19.8–0:29.1 | `Dashboard` | "Calls, DMs, chats. All at once." over the five icons; cut on the beat to the booked value alone, already rolling, each channel flying in on a beat with its price beside the number, to $1,648 | Booked value · 5 bookings at your own prices | A whoosh and a rising tink per booking |
+| 0:29.1–0:35 | `Deposit` | One large card, $100.00, one button, paid; healdesk's notification; cut on the beat to the line, large | You do the treatments. Aya handles the rush. | A two-note confirmation chime |
+| 0:35–0:40 | `Close` | The healdesk wordmark alone, its line in Fraunces, "Try Aya free"; still for the last 15 frames | An AI front desk you can rely on. · Try Aya free | One warm chord |
 
-Every cut after the drop falls on a beat of the song: each scene in
-`timeline.json` starts a whole number of beats after the drop, and each
-scene's inner cut is a whole number of beats into it.
-
-## The brand system
-
-- **One accent:** healdesk's orange-to-red, as the logo runs (`accent` in
-  `src/tokens.ts`), on pure white and near-black with Apple-like greys. The
-  old plum, coral, sage and ivory now resolve to it.
-- **healdesk's faces:** Instrument Sans everywhere, Fraunces only for the end
-  card's line, as on the website.
-- **Aya is the real person** from healdesk's site, in her own footage
-  (`src/aya.tsx`); her name is written Aya in the ad.
-- **Calm motion:** springs settle without overshoot; lines rise into place;
-  shots change on hard cuts on the beat.
-- **The healdesk wordmark closes the ad**, with the site's line.
+Every cut after the drop falls on a beat: `beats(n)` in `src/copy.ts` turns
+beats of the song into frames, and each scene in `timeline.json` starts a
+whole number of beats after the drop. White shots never sit still: `Drift`
+pushes the camera in slowly, and every line enters through the same masked
+rise (`Reveal`).
 
 ## Where things are
 
@@ -72,18 +61,21 @@ scene's inner cut is a whole number of beats into it.
 - `src/motion.tsx`: the stage (1080 × 1500 for 9:16 and 4:5, 1920 × 1080 for
   16:9), scene time, the camera (`Shell`) and the motion helpers.
 - `src/scenes/`: one file per scene, each counting its own frames from 0.
-- `src/aya.tsx`: Aya's footage set into the white, and her round avatar.
+- `src/aya.tsx`: Aya, cut out of her footage (`public/aya-cut.webm`, an alpha
+  channel made with a portrait-matting model, every other frame matted and
+  the frames between taking their neighbours' union), standing on the frame's
+  bottom edge; and her round avatar.
 - `src/parts.tsx`: the glass kit: `Glass`, the colour fields behind it
   (`Backdrop`), stars, the notification banner, the orb (no longer in the cut),
   blur-in kinetic type, the minted coin and the coin burst, the subtitles.
 - `scripts/soundtrack.mjs`: the song and every effect, synthesised (no
   licensed audio), cued to the same timeline, then loudness-normalised to
-  -14 LUFS, -1 dBTP. Deterministic. The song is punchy pop-house in D major at 128 BPM
-  (I–V–vi–IV), the kind Apple's product films ride on: four-on-the-floor
-  kick, stomp-claps, offbeat house piano, an offbeat bass, a vowel-chop hook
-  and a pad, side-chained to the kick, with a hit on every cut. It plays
-  muffled behind a filter for the first nine seconds, stops for half a beat,
-  and drops in full on "Not on my watch."; `bpm` in `timeline.json` sets it.
+  -14 LUFS, -1 dBTP. Deterministic. The track is original, in the style the owner chose: warm, modern
+  electronic in the manner of Bicep, at 122 BPM in A minor (Am–F–C–G). A clean
+  plucked riff through a ping-pong delay starts on the first beat over a
+  subtle beat; on "Not on my watch." it lifts into a full house groove with a
+  broken-beat snare, a warm pad and a sub bass, side-chained to the kick.
+  Nothing in it is taken from any record, and nothing was bought.
 - `src/iphone.tsx`: the iPhone (titanium band, side buttons, Dynamic Island,
   status bar, lit wallpaper, glare).
 - `public/`: Aya's footage and portrait (`aya-clip.mp4`, `aya-clip-end.webp`,

@@ -146,3 +146,31 @@ export function tilt(frame: number, at: number, from = 18, phase = 0): React.CSS
   const ry = (1 - p) * -from * 0.6 + Math.cos((frame + phase) / 50) * 2.8;
   return { transform: `perspective(1800px) rotateX(${rx}deg) rotateY(${ry}deg) translateY(${(1 - p) * 60}px)`, opacity: Math.min(1, p * 1.4) };
 }
+
+/** The frame's bottom edge in stage coordinates, so a figure can stand on it. */
+export function useFrameBottom(): number {
+  const { height } = useVideoConfig();
+  const { top, scale } = useLayout();
+  return (height - top) / scale;
+}
+
+/**
+ * The reveal used everywhere: a line rises out of a mask, the way Apple sets
+ * a title, on the enter curve, no bounce.
+ */
+export const Reveal: React.FC<{ at: number; dur?: number; children: React.ReactNode; style?: React.CSSProperties }> = ({ at, dur = 16, children, style }) => {
+  const frame = useFrame();
+  const p = interpolate(frame, [at, at + dur], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: easeEnter });
+  return (
+    <div style={{ overflow: "hidden", paddingBottom: "0.08em", marginBottom: "-0.08em", ...style }}>
+      <div style={{ transform: `translateY(${(1 - p) * 105}%)` }}>{children}</div>
+    </div>
+  );
+};
+
+/** A slow, continuous push-in, so no white frame is ever still. */
+export const Drift: React.FC<{ length: number; amount?: number; children: React.ReactNode; origin?: string }> = ({ length, amount = 0.045, children, origin = "50% 45%" }) => {
+  const frame = useFrame();
+  const scale = 1 + amount * Math.min(1, frame / length);
+  return <div style={{ position: "absolute", inset: 0, transform: `scale(${scale})`, transformOrigin: origin }}>{children}</div>;
+};

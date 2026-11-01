@@ -16,6 +16,10 @@ import timeline from "./timeline.json";
 export const SCENES = timeline.scenes;
 export const DURATION = timeline.scenes.close.to;
 
+/** One beat of the song, in frames. Every cut after the drop is a whole number of beats. */
+export const BEAT = (timeline.fps * 60) / timeline.bpm;
+export const beats = (n: number) => Math.round(n * BEAT);
+
 /**
  * The on-screen lines, in order. Aya, not AYA, in the ad (owner, 1 November
  * 2026). The cuts after the drop fall on the song's beats: every scene
@@ -27,10 +31,12 @@ export const LINES = {
   interrupt: "Not on my watch.",
   hello: "Hi, I'm Aya.",
   helloSub: "Your clinic's 24/7 assistant.",
+  signature: "by",
   badges: ["Built for medspas", "We sign a BAA"],
+  learned: "Aya learned",
   website: "Just add your website.",
   channels: ["Calls, DMs, chats.", "All at once."],
-  bookedBy: "booked by Aya, at your own prices",
+  bookedBy: "at your own prices",
   deposit: ["You do the treatments.", "Aya handles the rush."],
   close: "Try Aya free",
   tagline: "An AI front desk you can rely on.",

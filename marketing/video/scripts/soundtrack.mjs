@@ -144,25 +144,28 @@ function brush(at, gain = 0.07, dur = 0.18, pan = 0) {
 
 // ---------------------------------------------------------------- the song
 
-// A punchy pop-house track at 128 BPM in D major, the kind Apple's product
-// films ride on: four-on-the-floor kick, stomp-claps, offbeat house piano, an
-// offbeat bass, a vowel-chop hook, and a hit on every cut. Bars are laid so
-// the drop lands on the cut to "Not on my watch."
+// An original track in the style the owner chose (1 November 2026): warm,
+// modern electronic in the manner of Bicep, a clean synth riff from the first
+// beat over a subtle house beat at 122 BPM, lifting on the drop into a full
+// groove with a broken-beat snare and a warm pad. Nothing here is taken from
+// any existing record. Bars are laid so the drop lands on the cut to "Not on
+// my watch."
 const BPM = TIMELINE.bpm;
 const BEAT = 60 / BPM;
 const BAR = BEAT * 4;
+const S16 = BEAT / 4;
 const DROP = at("interrupt", 0);
 const GRID = DROP - Math.floor(DROP / BAR) * BAR; // the first downbeat after 0
 const END_GROOVE = at("close", 0);
 const SONG_END = f2s(S.close.to);
 const CUTS = [at("aya", 0), at("dashboard", 0), at("deposit", 0)];
 
-// I – V – vi – IV.
+// vi – IV – I – V in C: Am, F, C, G. Melancholy that lifts.
 const PROG = [
-  { root: 38, tones: [62, 66, 69, 74] }, // D
-  { root: 45, tones: [61, 64, 69, 73] }, // A
-  { root: 47, tones: [62, 66, 71, 74] }, // Bm
-  { root: 43, tones: [62, 67, 71, 74] }, // G
+  { root: 45, tones: [57, 60, 64, 69] }, // Am
+  { root: 41, tones: [57, 60, 65, 69] }, // F
+  { root: 48, tones: [55, 60, 64, 67] }, // C
+  { root: 43, tones: [55, 59, 62, 67] }, // G
 ];
 const chordAt = (t) => PROG[Math.floor((t - GRID) / BAR + 400) % PROG.length];
 
@@ -275,89 +278,124 @@ function hit(t0, gain = 0.3) {
   }, { gain, send: 0.5 });
 }
 
-// The hook: sixteenth positions across two bars, each a chord tone and a vowel.
-const HOOK = [
-  [0, 3, "oh"], [3, 2, "ah"], [6, 3, "oh"], [8, 1, "ah"], [10, 2, "oh"], [14, 3, "ee"],
-  [16, 3, "oh"], [19, 2, "ah"], [22, 3, "oh"], [24, 2, "ah"], [27, 1, "oh"], [30, 0, "ah"],
+
+/** The riff's voice: a clean pluck, two saws a hair apart, a quick filter. */
+function riffNote(t0, m, gain = 0.12, pan = 0) {
+  const f = midi(m);
+  let p1 = 0, p2 = 0.3, y = 0;
+  add(t0, 0.5, (t) => {
+    p1 += f / SR;
+    p2 += (f * 1.004) / SR;
+    const cut = 700 + 5200 * Math.exp(-16 * t);
+    const a = Math.exp((-2 * Math.PI * cut) / SR);
+    y = (1 - a) * (saw(p1) + saw(p2)) * 0.5 + a * y;
+    return y * Math.min(1, t * 600) * Math.exp(-6 * t) * 1.6;
+  }, { gain, pan, send: 0.45 });
+}
+/** The riff, with a ping-pong delay a dotted eighth behind. */
+const RIFF = [
+  [0, 3], [3, 2], [6, 3], [8, 1], [10, 2], [12, 3], [14, 0],
 ];
-function hook(t0, t1, gain = 0.15) {
-  const s16 = BEAT / 4;
-  for (let bar2 = 0; t0 + bar2 * BAR * 2 < t1; bar2++) {
-    for (const [pos, tone, vowel] of HOOK) {
-      const t = t0 + bar2 * BAR * 2 + pos * s16;
+function riff(t0, t1, gain = 0.12) {
+  for (let b = 0; t0 + b * BAR < t1; b++) {
+    const barStart = t0 + b * BAR;
+    const ch = chordAt(barStart + 0.01);
+    for (const [pos, k] of RIFF) {
+      const t = barStart + pos * S16;
       if (t >= t1) continue;
-      chop(t, chordAt(t + 0.01).tones[tone] + 12, vowel, s16 * 1.6, gain, pos % 2 ? 0.25 : -0.25);
+      const m = ch.tones[k] + 12;
+      riffNote(t, m, gain, 0);
+      riffNote(t + 3 * S16, m, gain * 0.42, -0.6);
+      riffNote(t + 6 * S16, m, gain * 0.18, 0.6);
     }
   }
+}
+/** A soft shaker, sixteenths with a lilt. */
+function shaker(t0, gain = 0.035) {
+  const lp = lowpass(9000);
+  const lp2 = lowpass(3500);
+  add(t0, 0.06, (t) => {
+    const n = lp(rand());
+    return (n - lp2(n)) * Math.exp(-55 * t);
+  }, { gain, pan: 0.3 });
+}
+/** A broken-beat snare: crack and body, with ghosts. */
+function snare(t0, gain = 0.3) {
+  const lp = lowpass(7000);
+  const lp2 = lowpass(1400);
+  add(t0, 0.25, (t) => {
+    const n = lp(rand());
+    return (n - lp2(n)) * Math.exp(-20 * t) + Math.sin(2 * Math.PI * 190 * t) * Math.exp(-30 * t) * 0.5;
+  }, { gain, send: 0.35 });
 }
 
 target = song;
 const beats = (from, to, fn) => {
   for (let i = Math.ceil((from - GRID) / BEAT - 1e-6); GRID + i * BEAT < to - 1e-6; i++) fn(GRID + i * BEAT, i);
 };
-// A half-beat of silence before the drop and before the close makes each land
-// harder; the cuts in between get a hit instead, so the groove never stutters.
+// A half-beat of nothing before the drop and before the close.
 const stopped = (t) => (t >= DROP - BEAT / 2 && t < DROP) || (t >= END_GROOVE - BEAT / 2 && t < END_GROOVE);
 
-// The opening: the same groove, muffled behind a filter that opens toward the
-// drop, then a riser and a snare build, and a half-beat of nothing.
+// From the first beat: the riff, the pad, a sub on the roots, a soft kick on
+// one and three, a shaker. Enough to grab the ear in the first three seconds,
+// leaving room for the lift.
+riff(GRID - BAR, DROP - BEAT / 2, 0.11);
+songPad(GRID - BAR, DROP - BEAT / 2, 0.045);
 beats(0, DROP, (t, i) => {
   if (stopped(t)) return;
-  songKick(t, 0.8);
-  if (i % 2 === 1) stompClap(t, 0.3);
-  hat(t + BEAT / 2, false, 0.05);
-  bassNote(t + BEAT / 2, chordAt(t + 0.01).root, BEAT * 0.42, 0.26);
-  if (t > DROP - BAR * 2) housePiano(t + BEAT / 2, chordAt(t + 0.01).tones, 0.07);
+  if (i % 2 === 0) songKick(t, 0.6);
+  if (i % 4 === 2) snare(t, 0.12);
+  shaker(t + S16 * 2);
+  shaker(t + S16 * 3, 0.02);
+  if (i % 4 === 0) bassNote(t, chordAt(t + 0.01).root, BAR * 0.9, 0.2);
 });
-songPad(GRID - BAR, DROP - BEAT / 2, 0.05);
 {
+  // A rising sweep into the drop.
   const lpA = lowpass(10000);
   let lpB = 0;
-  const t0 = DROP - 2.4;
-  add(t0, 2.4 - BEAT / 2, (t) => {
-    const cut = 300 + 8000 * (t / 2.4) ** 2;
+  const t0 = DROP - 2.2;
+  add(t0, 2.2 - BEAT / 2, (t) => {
+    const cut = 300 + 7000 * (t / 2.2) ** 2;
     const a = Math.exp((-2 * Math.PI * cut) / SR);
     const n = lpA(rand());
     lpB = (1 - a) * n + a * lpB;
-    return (n - lpB) * (t / 2.4) ** 1.5;
-  }, { gain: 0.26, send: 0.4 });
-  for (let k = 0; k < 12; k++) stompClap(DROP - BEAT * 2 + (k * BEAT * 1.5) / 12, 0.08 + k * 0.016);
+    return (n - lpB) * (t / 2.2) ** 1.6;
+  }, { gain: 0.2, send: 0.5 });
 }
 
-// The drop, and the groove through to the close.
-hit(DROP, 0.36);
-for (const cut of CUTS) hit(cut, 0.26);
+// The lift: a full, warm house groove with a broken-beat snare layer.
+hit(DROP, 0.3);
+for (const cut of CUTS) hit(cut, 0.18);
 beats(DROP, END_GROOVE, (t, i) => {
   if (stopped(t)) return;
   const ch = chordAt(t + 0.01);
-  songKick(t);
-  if (i % 2 === 1) stompClap(t);
-  hat(t + BEAT / 2, true, 0.07, 0.25);
-  if (t >= at("dashboard", 0)) {
-    hat(t + BEAT / 4, false, 0.045, -0.3);
-    hat(t + (3 * BEAT) / 4, false, 0.045, -0.3);
-  }
-  bassNote(t + BEAT / 2, ch.root, BEAT * 0.4);
-  if (i % 4 === 3) bassNote(t + (3 * BEAT) / 4, ch.root + 12, BEAT * 0.22, 0.22);
-  housePiano(t + BEAT / 2, ch.tones, 0.085);
+  songKick(t, 0.95);
+  if (i % 2 === 1) stompClap(t, 0.26);
+  if (i % 4 === 3) snare(t + 2 * S16, 0.1);
+  if (i % 8 === 6) snare(t + 3 * S16, 0.08);
+  hat(t + BEAT / 2, true, 0.06, 0.25);
+  shaker(t + S16);
+  shaker(t + S16 * 3, 0.025);
+  bassNote(t + BEAT / 2, ch.root, BEAT * 0.42, 0.28);
+  if (i % 4 === 3) bassNote(t + 3 * S16, ch.root + 12, S16 * 0.9, 0.18);
 });
-songPad(DROP, END_GROOVE - BEAT / 2, 0.04);
-hook(DROP + BAR, END_GROOVE - BEAT / 2, 0.14);
+songPad(DROP, END_GROOVE - BEAT / 2, 0.055);
+riff(DROP, END_GROOVE - BEAT / 2, 0.12);
 
-// The close: one last hit and a big D chord that rings out.
+// The close: the groove stops, one warm chord rings out with the riff's last note.
 {
   const t0 = END_GROOVE;
-  songKick(t0, 0.9);
-  hit(t0, 0.3);
-  [50, 57, 62, 66, 69, 74, 78].forEach((m, i) => piano(t0 + i * 0.02, m, 0.08, SONG_END - t0, (i - 3) * 0.15));
-  bassNote(t0, 38, 2.6, 0.26);
-  chop(t0, 74, "oh", 1.2, 0.12);
+  songKick(t0, 0.8);
+  hit(t0, 0.24);
+  [45, 57, 60, 64, 69, 72, 76].forEach((m, i) => piano(t0 + i * 0.025, m, 0.075, SONG_END - t0, (i - 3) * 0.15));
+  bassNote(t0, 33, 2.6, 0.24);
+  riffNote(t0 + BEAT, 81, 0.1);
+  riffNote(t0 + BEAT * 1.75, 81, 0.04, -0.6);
   songPad(t0, SONG_END, 0.05);
 }
 target = dry;
 
-// The song's filter (closed in the opening, open from the drop) and the
-// side-chain that makes it pump against the kick.
+// The side-chain that makes the music breathe against the kick.
 {
   const tails = [reverb(songWet[0]), reverb(songWet[1])];
   for (let n = 0; n < N; n++) {
@@ -366,20 +404,12 @@ target = dry;
   }
   kicks.sort((a, b) => a - b);
   let k = 0;
-  const y1 = [0, 0];
-  const y2 = [0, 0];
   for (let n = 0; n < N; n++) {
     const t = n / SR;
     while (k + 1 < kicks.length && kicks[k + 1] <= t) k++;
     const since = kicks[k] !== undefined && t >= kicks[k] ? t - kicks[k] : 9;
-    const duck = 1 - 0.5 * Math.exp(-since / 0.085);
-    const cut = t < DROP ? 300 + 2600 * (t / DROP) ** 2.2 : 18000;
-    const a = Math.exp((-2 * Math.PI * cut) / SR);
-    for (const ch of [0, 1]) {
-      y1[ch] = (1 - a) * song[ch][n] + a * y1[ch];
-      y2[ch] = (1 - a) * y1[ch] + a * y2[ch];
-      dry[ch][n] += y2[ch] * (t < DROP ? 1.15 : since < 0.012 ? 1 : duck) * 0.9;
-    }
+    const duck = 1 - 0.38 * Math.exp(-since / 0.1);
+    for (const ch of [0, 1]) dry[ch][n] += song[ch][n] * (since < 0.012 ? 1 : duck) * 0.9;
   }
 }
 
@@ -436,32 +466,39 @@ tink(at("interrupt", 2), 0, 0.3);
 tink(at("interrupt", 2) + 0.012, 7, 0.18);
 tink(at("interrupt", 2) + 0.024, 12, 0.12);
 
-// 0:10–0:20 Aya: two badges; then the website types in on soft mechanical
-// keys, a chime when it is read, the treatments settle.
-pop(at("aya", 54), 0.14, 2);
-pop(at("aya", 62), 0.14, 5);
-for (let k = 0; k < 19; k++) mechKey(at("aya", 150 + k * 2.6), 0.14, -0.2 + (k % 3) * 0.2);
-tink(at("aya", 200), 7, 0.22);
-for (let i = 0; i < 3; i++) pop(at("aya", 212 + i * 7), 0.11, 4 + i * 2, -0.4 + i * 0.4);
+// The scenes after the drop are cut on the beat; these frames match the
+// scene files (beats of 14.75 frames at 122 BPM).
+const SB = (FPS * 60) / BPM;
+const b = (n) => Math.round(n * SB);
 
-// 0:20–0:29 the five channels; then each booking flies into the counter, a
+// Aya: two badges; then the website types in on soft mechanical keys, a
+// chime when it is read, the treatments settle.
+pop(at("aya", 54), 0.12, 2);
+const TYPE_FROM = b(9) + 22;
+for (let k = 0; k < 19; k++) mechKey(at("aya", TYPE_FROM + k * 2.4), 0.13, -0.2 + (k % 3) * 0.2);
+const READ = TYPE_FROM + 19 * 2.4;
+tink(at("aya", READ), 7, 0.2);
+for (let i = 0; i < 3; i++) pop(at("aya", READ + 14 + i * 6), 0.1, 4 + i * 2, -0.4 + i * 0.4);
+
+// The five channels; then each booking flies into the counter on the beat, a
 // whoosh and a tink a step higher, the digits rolling.
-for (let i = 0; i < 5; i++) pop(at("dashboard", 30 + i * 5), 0.12, -2 + i, -0.5 + i * 0.25);
+for (let i = 0; i < 5; i++) pop(at("dashboard", 26 + i * 4), 0.11, -2 + i, -0.5 + i * 0.25);
 for (let i = 0; i < 5; i++) {
-  swoosh(at("dashboard", 82 + i * 30), 0.6, 0.09, i % 2 ? 0.5 : -0.5);
-  tink(at("dashboard", 104 + i * 30), i * 2, 0.2);
-  for (let k = 0; k < 7; k++) add(at("dashboard", 104 + i * 30 + k * 2), 0.02, (t) => Math.sin(2 * Math.PI * 5200 * t) * Math.exp(-300 * t), { gain: 0.04 });
+  const land = b(6) + i * b(2);
+  if (i > 0) swoosh(at("dashboard", land - 18), 0.55, 0.08, i % 2 ? 0.5 : -0.5);
+  tink(at("dashboard", land), i * 2, 0.19);
+  for (let k = 0; k < 6; k++) add(at("dashboard", land + k * 2), 0.02, (t) => Math.sin(2 * Math.PI * 5200 * t) * Math.exp(-300 * t), { gain: 0.035 });
 }
 
-// 0:29–0:35 the card rises, the button is pressed, the confirmation chime,
-// healdesk's notification.
-swoosh(at("deposit", 0), 0.5, 0.12);
-add(at("deposit", 34), 0.06, (t) => Math.sin(2 * Math.PI * 200 * t) * Math.exp(-60 * t), { gain: 0.28 });
-confirm(at("deposit", 48), 0.34);
-pop(at("deposit", 60), 0.18, 7);
+// The card rises, the button is pressed, the confirmation chime, healdesk's
+// notification.
+swoosh(at("deposit", 0), 0.5, 0.11);
+add(at("deposit", b(2)), 0.06, (t) => Math.sin(2 * Math.PI * 200 * t) * Math.exp(-60 * t), { gain: 0.26 });
+confirm(at("deposit", b(3)), 0.32);
+pop(at("deposit", b(4)), 0.16, 7);
 
-// 0:35–0:39.5 the lockup lands.
-tink(at("close", 32), 7, 0.16);
+// The end card lands.
+tink(at("close", 28), 7, 0.15);
 
 // ---------------------------------------------------------------- reverb and write
 

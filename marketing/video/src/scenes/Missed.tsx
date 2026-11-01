@@ -3,7 +3,7 @@ import { interpolate, spring, useVideoConfig } from "remotion";
 
 import { IPhone, wallpaper } from "../iphone";
 import { lerp, Stage, useFrame, useLayout } from "../motion";
-import { Backdrop, Icon, Stars } from "../parts";
+import { Backdrop, Icon } from "../parts";
 import { accent, font, SNAP } from "../tokens";
 
 // The call rings until CALL_END, then the missed calls group into one stack.
@@ -57,7 +57,6 @@ export const Missed: React.FC = () => {
   return (
     <>
       <Backdrop mood="space" />
-      <Stars count={40} opacity={0.45} />
       <Stage>
         {/* Warm light behind the phone, healdesk's colour. */}
         <div
@@ -114,7 +113,7 @@ const Title: React.FC<{ frame: number; wide: boolean; exit: number }> = ({ frame
     ? { position: "absolute", left: 160, top: 360, width: 860, textAlign: "left" }
     : { position: "absolute", left: 0, right: 0, top: 36, textAlign: "center" };
   return (
-    <div style={{ ...box, fontFamily: font, fontWeight: 700, fontSize: size, letterSpacing: "-0.02em", lineHeight: `${lh}px`, color: "#F5F5F7", opacity: 1 - exit, zIndex: 30, textShadow: "0 10px 50px rgba(120,120,255,0.25)" }}>
+    <div style={{ ...box, fontFamily: font, fontWeight: 700, fontSize: size, letterSpacing: "-0.02em", lineHeight: `${lh}px`, color: "#F5F5F7", opacity: 1 - exit, zIndex: 30, textShadow: "0 10px 50px rgba(255,118,30,0.18)" }}>
       <div style={{ overflow: "hidden", height: lh }}>
         <div style={{ transform: `translateY(${(1 - rise) * lh}px)` }}>Is your clinic</div>
       </div>

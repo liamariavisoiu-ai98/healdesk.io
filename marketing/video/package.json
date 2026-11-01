@@ -4,7 +4,7 @@
   "description": "The AYA motion-design ad (SCRIPT.md), built in Remotion.",
   "scripts": {
     "studio": "remotion studio src/index.ts",
-    "soundtrack": "node scripts/soundtrack.mjs public/soundtrack.raw.wav && ffmpeg -v error -y -i public/soundtrack.raw.wav -af loudnorm=I=-14:TP=-1:LRA=20 -ar 44100 public/soundtrack.wav && rm public/soundtrack.raw.wav",
+    "soundtrack": "node scripts/soundtrack.mjs public/soundtrack.raw.wav && ffmpeg -v error -y -i public/soundtrack.raw.wav -af loudnorm=I=-14:TP=-1:LRA=20,alimiter=limit=0.8:level=disabled -ar 44100 public/soundtrack.wav && rm public/soundtrack.raw.wav",
     "render": "npm run soundtrack && npm run render:hero && npm run render:feed && npm run render:wide",
     "render:hero": "remotion render src/index.ts AyaHero out/aya-hero-9x16.mp4 --codec h264 --crf 18",
     "render:feed": "remotion render src/index.ts AyaFeed out/aya-feed-4x5.mp4 --codec h264 --crf 18",

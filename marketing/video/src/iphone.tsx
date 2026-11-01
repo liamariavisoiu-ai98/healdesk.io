@@ -114,13 +114,13 @@ const StatusBar: React.FC<{ width: number }> = ({ width }) => {
   );
 };
 
-/** A lock-screen wallpaper: deep blue-violet with healdesk's warm light rising from below. */
+/** A lock-screen wallpaper: near-black, with healdesk's orange and red rising from below like embers. */
 export function wallpaper(frame: number): string {
   const a = 50 + Math.sin(frame / 80) * 8;
-  const b = 30 + Math.cos(frame / 70) * 10;
+  const b = 40 + Math.cos(frame / 70) * 10;
   return [
-    `radial-gradient(120% 60% at ${a}% 108%, rgba(255,118,30,0.85) 0%, rgba(230,38,39,0.55) 28%, rgba(230,38,39,0) 58%)`,
-    `radial-gradient(90% 60% at ${b}% 18%, rgba(110,90,255,0.55) 0%, rgba(110,90,255,0) 60%)`,
-    "linear-gradient(180deg, #0B0D2A 0%, #160F33 45%, #2A0F2A 100%)",
+    `radial-gradient(120% 62% at ${a}% 108%, rgba(255,118,30,0.95) 0%, rgba(230,38,39,0.65) 30%, rgba(230,38,39,0) 60%)`,
+    `radial-gradient(80% 50% at ${b}% 12%, rgba(255,118,30,0.14) 0%, rgba(255,118,30,0) 60%)`,
+    "linear-gradient(180deg, #0B0807 0%, #120A09 50%, #2A0B08 100%)",
   ].join(", ");
 }

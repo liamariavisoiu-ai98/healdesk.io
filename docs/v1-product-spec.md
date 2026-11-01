@@ -589,6 +589,7 @@ Quick edits, no re-scrape needed.
 - **Quick answers**: two columns, question and answer, for temporary things like parking during building work.
 - **Never say**: a list of phrases the agent must never use. Pre-seeded with the clinical defaults and editable.
 - **Hours**: including holiday closures, which drive both the agent's answers and the voice forwarding schedule.
+- **Add from a file** (owner, 1 November 2026): a price list, a menu or an info sheet, as a PDF or a photo, up to 4 MB and 20 pages, ten a day. AYA reads it and lists only what the page does not already say (treatments and prices, hours, policies, quick answers; never the address, the phone, providers or the never-say list), and nothing is added until the clinic chooses it, through the same checks as typing it in. The file is read once under the BAA and kept nowhere; a permanent line asks staff to leave out anything about a patient.
 
 ### 4. Conversations
 

@@ -77,6 +77,7 @@ describe("knowledgeTiles", () => {
 describe("knowledgeSections", () => {
   test("the page's sections in order; website changes first, only when there are some", () => {
     expect(knowledgeSections(false).map((s) => s.id)).toEqual([
+      "file",
       "practice",
       "policies",
       "prices",

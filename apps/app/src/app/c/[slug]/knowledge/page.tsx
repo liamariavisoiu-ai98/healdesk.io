@@ -28,6 +28,7 @@ import {
   QuickAnswersForm,
   Section,
 } from "./KnowledgeForms";
+import { FileCard } from "./FileCard";
 import { WebsiteChangesList } from "./WebsiteChanges";
 import { knowledgeSections, knowledgeTiles } from "@/lib/portal/knowledge-glance";
 import { SectionLinks } from "../settings/ConnectionsOverview";
@@ -140,6 +141,14 @@ export default async function KnowledgePage({ params }: { params: Promise<{ slug
             </Section>
           ) : null}
 
+          <Section
+            id="file"
+            title="Add from a file"
+            intro="A price list, a menu or an info sheet. AYA shows what it found that this page doesn't say yet, and you choose what to add."
+          >
+            <FileCard slug={portal.clinicSlug} />
+          </Section>
+
           <Section id="practice" title="Contact details">
             <PracticeForm
               slug={portal.clinicSlug}
@@ -160,7 +169,7 @@ export default async function KnowledgePage({ params }: { params: Promise<{ slug
             title="Policies"
             intro="Cancellations, late arrivals, payment: one per line, in your own words."
           >
-            <PoliciesForm slug={portal.clinicSlug} initial={knowledge.policies} />
+            <PoliciesForm key={JSON.stringify(knowledge.policies)} slug={portal.clinicSlug} initial={knowledge.policies} />
           </Section>
 
           <Section
@@ -169,6 +178,7 @@ export default async function KnowledgePage({ params }: { params: Promise<{ slug
             intro="AYA quotes only these prices; anything else becomes an offer to book a consultation. A deposit here is asked for when Take deposits is on in Settings."
           >
             <PricesForm
+              key={JSON.stringify(knowledge.services)}
               slug={portal.clinicSlug}
               initial={knowledge.services.map((service) => {
                 const input = serviceInputOf(service);
@@ -219,6 +229,7 @@ export default async function KnowledgePage({ params }: { params: Promise<{ slug
             intro="Questions and your answers, for temporary things like parking during building work. A correction added with Flag this answer in Conversations lands here, marked as one."
           >
             <QuickAnswersForm
+              key={JSON.stringify(knowledge.quickAnswers)}
               slug={portal.clinicSlug}
               initial={knowledge.quickAnswers.map((a) => ({
                 question: a.question,
@@ -248,6 +259,7 @@ export default async function KnowledgePage({ params }: { params: Promise<{ slug
             }
           >
             <HoursForm
+              key={JSON.stringify(clinic.openingHours ?? null)}
               slug={portal.clinicSlug}
               initial={(clinic.openingHours as unknown as HoursInitial | null) ?? null}
               closures={closures.map((c) => ({ closedOn: c.closedOn, label: c.label ?? "" }))}

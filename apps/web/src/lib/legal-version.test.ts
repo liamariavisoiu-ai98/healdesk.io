@@ -122,10 +122,14 @@ const PINNED_WITH_1_6_0 = {
  * published for other text, so it carries 2026-11-01.1.
  */
 const PINNED_WITH_1_7_0 = {
-  version: "2026-11-01.1",
+  version: "2026-11-01.2",
   lastUpdated: "1 November 2026",
-  /** 2026-10-30.2 is the live text this one replaces. */
-  replaces: "2026-10-30.2",
+  /**
+   * 2026-11-01.1, the 1.7.0 release text, is the live text this one replaces
+   * (its own privacy hash was 4540676f…3abd); 2026-11-01.2 adds Privacy § 6's
+   * line for a file a clinic adds in its portal, and nothing else.
+   */
+  replaces: "2026-11-01.1",
   sha256: {
     ...PINNED_WITH_1_6_0.sha256,
     // 2026-10-30.2's text with the security annex's 60 calendar days said
@@ -134,7 +138,8 @@ const PINNED_WITH_1_7_0 = {
     "/terms": "be63612cbc961b21af9554f094b0b20ba9d05b08e97a25d1bde6002dcea37ff1",
     // Privacy § 9 with 10 for 60, and nothing else; the same text the
     // branch pinned for its 2026-10-30.1.
-    "/privacy": "4540676f387dc1a097c28f1019a696ac2f28f4723fb6c9bf3b558301a0193abd",
+    // Since 2026-11-01.2, with § 6's file line.
+    "/privacy": "639ffbb31f3f316818d8537e5fbff25adcc86963e80a5bcfbdc4636fe6d86863",
   },
 } as const;
 

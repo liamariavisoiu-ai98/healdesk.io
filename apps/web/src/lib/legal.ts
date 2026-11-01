@@ -74,8 +74,16 @@ import {
 // replaces the live 2026-10-30.2. The number follows BAA_1_7_0_RELEASED, as
 // the pages' number of days does: off, the pages render 2026-10-30.2's text,
 // the live one, under its own number.
-export const LEGAL_VERSION = BAA_1_7_0_RELEASED ? "2026-11-01.1" : "2026-10-30.2";
+// 2026-11-01.2 adds to Privacy § 6 a file a clinic adds in its portal ("Add
+// from a file" on Your practice, owner, 1 November 2026): read once by the AI
+// model provider under the BAA and not stored by us. It replaces the live
+// 2026-11-01.1; the terms and the data-deletion page are unchanged. The line
+// is not behind the flag, so with BAA_1_7_0_RELEASED off the pages would no
+// longer be 2026-10-30.2's text; 1.7.0 is released, and that side is not
+// published again.
+export const LEGAL_VERSION = BAA_1_7_0_RELEASED ? "2026-11-01.2" : "2026-10-30.2";
 export const LEGAL_LAST_UPDATED = BAA_1_7_0_RELEASED ? "1 November 2026" : "30 October 2026";
+
 
 export const ENTITY = {
   /** Full legal name, e.g. "Healdesk, Inc." Empty until the founder supplies it. */

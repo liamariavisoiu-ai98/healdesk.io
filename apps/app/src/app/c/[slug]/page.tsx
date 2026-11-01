@@ -20,7 +20,7 @@ import {
   readHomeFacts,
   readHomePatientRequests,
 } from "@/lib/portal/home";
-import { needItems, weekHeadline } from "@/lib/portal/home-summary";
+import { homeTiles, needItems, weekHeadline } from "@/lib/portal/home-summary";
 import { isBuiltSection, sectionPath } from "@/lib/portal/nav";
 import { loadPortalPage, shellProps } from "@/lib/portal/page";
 import { claimLines } from "@/lib/reporting/claim-words";
@@ -35,7 +35,7 @@ import { withTenant } from "@/lib/tenant";
 
 import { AnswerAttentionCard } from "./AnswerAttentionCard";
 import { ChannelPill } from "./ChannelStatus";
-import { HomeUnavailable, NeedsYou, WhatAyaDid } from "./HomeSections";
+import { HomeUnavailable, NeedsYou, WeekAtAGlance, WhatAyaDid } from "./HomeSections";
 import { PatientRequestsCard } from "./PatientRequestsCard";
 import { PortalShell } from "./PortalShell";
 
@@ -108,6 +108,7 @@ export default async function ClinicHome({
       actor: page.actorContext,
       channels: state.channels,
       now,
+      timeZone: state.clinic.timezone,
     });
   } catch {
     return (
@@ -269,7 +270,12 @@ export default async function ClinicHome({
         <WhatAyaDid
           headline={weekHeadline(claimsPayload(facts.week))}
           lines={week}
+          tiles={homeTiles(claimsPayload(facts.week))}
         />
+      ) : null}
+
+      {live && facts.schedule ? (
+        <WeekAtAGlance days={facts.schedule} bookingsHref={bookingsHref} />
       ) : null}
 
       <section aria-labelledby="channels-heading" className="mt-10">
@@ -357,8 +363,35 @@ export default async function ClinicHome({
               the account closes.
             </p>
           ) : null}
+          {summary && summary.usage.length > 0 ? (
+            <ul className="mt-4 grid gap-3 sm:grid-cols-2">
+              {summary.usage.map((m) => {
+                const share = m.included > 0 ? Math.min(100, Math.round((m.used / m.included) * 100)) : 0;
+                return (
+                  <li key={m.meter}>
+                    <p className="text-muted text-sm">
+                      {usageLabel(m.meter)}: {m.used.toLocaleString("en-US")} of{" "}
+                      {m.included.toLocaleString("en-US")}
+                    </p>
+                    <progress
+                      value={share}
+                      max={100}
+                      aria-label={`${usageLabel(m.meter)} used`}
+                      className="usage-bar mt-1 block"
+                    />
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
           {isBuiltSection("billing") ? (
-            <p className="mt-3 text-sm">
+            <p className="mt-4 flex flex-wrap items-center gap-3 text-sm">
+              <a
+                href={`${sectionPath(portal.clinicSlug, "billing")}#change`}
+                className="bg-ink inline-flex min-h-11 items-center rounded-full px-5 font-bold text-white"
+              >
+                Change plan
+              </a>
               <a
                 href={sectionPath(portal.clinicSlug, "billing")}
                 className="font-semibold underline"
@@ -371,4 +404,9 @@ export default async function ClinicHome({
       ) : null}
     </PortalShell>
   );
+}
+
+/** A usage meter's name on Home's plan card. */
+function usageLabel(meter: string): string {
+  return meter === "voice_minutes" ? "Voice minutes" : meter === "chat_conversations" ? "Chat conversations" : "Usage";
 }

@@ -70,6 +70,31 @@
   background-image: linear-gradient(105deg, var(--color-red-deep) 6%, #b93a12 94%);
 }
 
+/* healdesk's mark in the portal's menu (portal redesign, 1 November 2026):
+   the logo's orange dot. A class, not a style attribute: the portal's CSP
+   (src/proxy.ts, style-src with a nonce) drops inline styles. */
+@utility healdesk-dot {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 35% 30%, #ffb27a, var(--color-orange) 45%, var(--color-red-deep));
+}
+
+/* A usage meter as a native <progress>, drawn in the portal's colours, for
+   the same reason: its width cannot be set by a style attribute. */
+@utility usage-bar {
+  appearance: none;
+  width: 100%;
+  height: 0.625rem;
+  border: 0;
+  border-radius: 9999px;
+  overflow: hidden;
+  background: var(--color-paper-2);
+  &::-webkit-progress-bar { background: var(--color-paper-2); border-radius: 9999px; }
+  &::-webkit-progress-value { background: var(--color-orange); border-radius: 9999px; }
+  &::-moz-progress-bar { background: var(--color-orange); border-radius: 9999px; }
+}
+
 @layer base {
   html {
     /* The palette is light-only: without this a dark-mode phone draws the

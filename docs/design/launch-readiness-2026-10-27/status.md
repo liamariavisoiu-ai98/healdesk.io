@@ -177,7 +177,7 @@ Legal pages carry an AI review, not a lawyer's.
 | Host | Active since 14 Oct (`host.yml`); last deploy 27 Oct 07:41 UTC, success; `/api/health` ok | DONE-VERIFIED |
 | `enable_voice` | `true` in `production.tfvars`, applied | DONE-VERIFIED |
 | `voice_real_calls` | `false`; only the demo clinic is answered | Correctly off; yours to switch |
-| `voice_provision_enabled` | `true` in `production.tfvars` (owner, 31 October 2026); not yet applied or deployed | Yours to apply (`infra.yml`) and roll (full `deploy-app.yml`); needs `HEALDESK_RETELL_API_KEY` in Parameter Store |
+| `voice_provision_enabled` | `true` in `production.tfvars` (owner, 31 October 2026), cap 100; applied (infra run 41319945681) and deployed (run 41321401407) on 1 November 2026; not live-verified until a paying voice clinic's agent reaches ready | Yours to apply (`infra.yml`) and roll (full `deploy-app.yml`); needs `HEALDESK_RETELL_API_KEY` in Parameter Store |
 | `HEALDESK_DIRECT_BOOKING_ENABLED` | Refused by Terraform on every task | No route exists to set it |
 | Voice redundancy | `voice_desired = 1`; the comment above it says 2 survives a lost task. One task down drops every call on it | Your choice; recommend 2 before real calls |
 | Database | `db.t4g.micro`, single-AZ, 35-day backups, deletion protection, encrypted | DONE |

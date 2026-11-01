@@ -34,6 +34,7 @@ export * from "./central-assistant-acknowledgement";
 export * from "./checkout-intent";
 export * from "./clinic-name";
 export * from "./clinic-profile";
+export * from "./profile-extraction";
 export * from "./clinical-content";
 export * from "./connection-steps";
 export * from "./direct-booking-addendum";

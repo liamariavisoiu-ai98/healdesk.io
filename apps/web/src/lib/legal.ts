@@ -62,8 +62,12 @@ import {
 // (owner, 30 October 2026: nothing client-facing talks about our costs);
 // prices, the block rule and section 4's price-change notice are unchanged.
 // It replaces the live 2026-10-30.1.
-export const LEGAL_VERSION = "2026-10-30.2";
-export const LEGAL_LAST_UPDATED = "30 October 2026";
+// 2026-11-01.1 adds to privacy section 6 a file a clinic adds in its portal
+// ("Add from a file" on Your practice, owner, 1 November 2026): read once by
+// the AI model provider under the BAA and not stored by us. It replaces the
+// live 2026-10-30.2; the terms and the data-deletion page are unchanged.
+export const LEGAL_VERSION = "2026-11-01.1";
+export const LEGAL_LAST_UPDATED = "1 November 2026";
 
 export const ENTITY = {
   /** Full legal name, e.g. "Healdesk, Inc." Empty until the founder supplies it. */

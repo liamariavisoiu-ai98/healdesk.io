@@ -52,8 +52,8 @@ import { LEGAL_LAST_UPDATED, LEGAL_VERSION } from "@/lib/legal";
  * never went out.
  */
 const PINNED_BEFORE_1_6_0 = {
-  version: "2026-10-30.2",
-  lastUpdated: "30 October 2026",
+  version: "2026-11-01.1",
+  lastUpdated: "1 November 2026",
   /**
    * The version these pages replace: the last one that went out, which was
    * main's live text when this one was numbered. A note may cite it, an earlier
@@ -62,13 +62,13 @@ const PINNED_BEFORE_1_6_0 = {
    * when you renumber a version that never did, because that number was never
    * published.
    */
-  replaces: "2026-10-30.1",
+  replaces: "2026-10-30.2",
   sha256: {
     // 2026-10-30.2: section 8's "Payment-link texts" softened and section 3's
     // "provisional" sentence dropped, without 1.6.0's section 9 sentence.
     "/terms": "2917808c14d1199bae75982aaecb0432e4837c8a7e81b1f701ab2cfad123309d",
     // Privacy does not read the flag: the same text as on the 1.6.0 side.
-    "/privacy": "82ff31ac73c289db7b2565be604f7162c0ad24b414ddc272ee5cce5decd6aff2",
+    "/privacy": "b72c359280592f9a560fd413887b0637fe0e5fee5080f2cd1b9e0d3bb1654787",
     "/data-deletion": "d77557279849e427006387afa3c427ee976e10be5afd29cbba04a7356afd1042",
   },
 } as const;
@@ -90,25 +90,26 @@ const PINNED_BEFORE_1_6_0 = {
  * `replaces` records the live text this one replaces: 2026-10-30.1.
  */
 const PINNED_WITH_1_6_0 = {
-  version: "2026-10-30.2",
+  version: "2026-11-01.1",
   /**
    * Written out, not copied from the pin above: LEGAL_LAST_UPDATED in
    * src/lib/legal.ts and this value move together (the page prints it,
    * outside the hash). "30 October 2026" is what legal.ts says today.
    */
-  lastUpdated: "30 October 2026",
+  lastUpdated: "1 November 2026",
   /**
    * 2026-10-30.1 is the live text this one replaces (healdesk.io/terms printed
    * it on 30 October 2026, checked when 2026-10-30.2 was numbered).
    */
-  replaces: "2026-10-30.1",
+  replaces: "2026-10-30.2",
   sha256: {
     ...PINNED_BEFORE_1_6_0.sha256,
     // 2026-10-30.2: section 8's "Payment-link texts" softened (2026-10-30.1),
     // and section 3 no longer calls the block prices provisional.
     "/terms": "ca53cfbe4da6da82471f80b353297953757755c4f3cdb228e6cfe132d325d893",
-    // Since 2026-10-29.5: Privacy § 6 lists the 30-day missed-contact record.
-    "/privacy": "82ff31ac73c289db7b2565be604f7162c0ad24b414ddc272ee5cce5decd6aff2",
+    // Since 2026-10-29.5: Privacy § 6 lists the 30-day missed-contact record;
+    // since 2026-11-01.1, a file a clinic adds in its portal, not stored.
+    "/privacy": "b72c359280592f9a560fd413887b0637fe0e5fee5080f2cd1b9e0d3bb1654787",
   },
 } as const;
 

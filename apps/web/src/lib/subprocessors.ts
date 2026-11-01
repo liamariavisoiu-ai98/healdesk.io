@@ -178,7 +178,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
     name: "Anthropic (the product)",
     category: "ai-model",
     purpose: "The language model behind every channel of the product, in a HIPAA-ready Anthropic organisation used only for the product",
-    data: "Conversation text and the clinic's public service information. Under the BAA, once signed, Anthropic keeps conversation content for no more than the 30 days of its standard retention, except content its trust-and-safety systems flag, which it may hold for up to two years, and content the law requires it to keep, for as long as the law requires. No training on it without our permission, which we do not give",
+    data: "Conversation text, the clinic's public service information, and a file a clinic adds in its portal to fill in its prices and information, read once and not stored by us. Under the BAA, once signed, Anthropic keeps conversation content for no more than the 30 days of its standard retention, except content its trust-and-safety systems flag, which it may hold for up to two years, and content the law requires it to keep, for as long as the law requires. No training on it without our permission, which we do not give",
     region: "United States",
     handlesPhi: true,
     baa: { state: "pending" },

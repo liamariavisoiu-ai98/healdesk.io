@@ -8470,7 +8470,7 @@ export const CHECKLIST_STEPS = [
   "resolve",
 ] as const;
 export type ChecklistStep = (typeof CHECKLIST_STEPS)[number];
-const REPORTING_RULE_NAMES = ["sixty_calendar_days", "five_days"] as const;
+const REPORTING_RULE_NAMES = ["ten_calendar_days", "sixty_calendar_days", "five_days"] as const;
 const INCIDENT_OPERATIONS = ["openIncident", "sendIncidentReport"] as const;
 
 /** An L29 report's choices, every one a code from the catalog's lists (packages/catalog operator-notices.ts). */

@@ -730,8 +730,10 @@ describeDb("retention purge", () => {
       "1.5.0",
       "1.5.1",
       "1.6.0",
+      "1.7.0",
       "dpa/1.0.0",
       "dpa/1.1.0",
+      "dpa/1.2.0",
     ]);
     // A version the catalog does not hold has no text, and promises nothing:
     // the old rule purged any unknown version with the switch off.

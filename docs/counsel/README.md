@@ -56,7 +56,15 @@ A3's misquote (`agreement-changes.md` § 17, `docs/baa-v1.6.0.txt`); its
 `approvedByCounsel` was false until the owner released it on 29 October
 2026, without external counsel (`agreement-changes.md` § 17): since then
 1.6.0 is the only version offered and the go-live floor, and 1.5.1 is
-frozen below it. On 20 October
+frozen below it. On 30 October 2026 the owner released DPA 1.1.0, which
+carries the one optional payment-link text (`agreement-changes.md` § 21),
+and, the same day, BAA 1.7.0 and the DPA's next version, built as "DPA
+1.1.0" on a branch and renumbered dpa/1.2.0 when it was reconciled on 1
+November 2026, all without external counsel: 1.7.0 and dpa/1.2.0 report a
+breach or incident in no case later than 10 calendar days after discovery
+and give 15 days' notice of a new subcontractor (`agreement-changes.md`
+§ 22). Once that lands, 1.7.0 is the only BAA offered and the go-live floor,
+with 1.6.0 frozen below it, and dpa/1.2.0 is the DPA offered. On 20 October
 2026 the owner released the Data Protection Agreement (`dpa/1.0.0`), which
 a veterinary practice and a practice that answers "No" to billing health
 insurance electronically sign in place of the BAA, with its own calendar
@@ -73,16 +81,25 @@ close and that no clinic yet raises; and each of those points has a named
 trigger in `brief.md` at which a lawyer is engaged, state by state or
 counterparty by counterparty, instead of up front.
 
+**The decision is permanent (owner, 30 October 2026: "I won't hire a
+lawyer").** The triggers in `brief.md` no longer promise that a lawyer will
+be engaged. Each one marks the point where the owner looks at that risk
+again. The same day, the owner declined liability insurance for now and a
+separate US agent for service of process, and confirmed that the trade
+licence, Meta's healthcare rule and call-transcription consent are covered
+(`brief.md`, "Decisions taken (30 October 2026)").
+
 What that decision costs, stated plainly: the documents were drafted and
 reviewed by an AI assistant, not a licensed attorney. A defect in the BAA
 makes both healdesk and the clinic non-compliant. Several statutes in the
 state table could not be read on the state's own site this session and are
 marked as unverified with the one action that would verify each. The
 `approvedByCounsel` flag in `packages/catalog/src/baa.ts` is set true for
-1.5.1 (and the superseded 1.5.0, 1.4.0, 1.3.0, 1.2.2, 1.2.1 and 1.2.0) on the owner's own
+1.7.0 and 1.6.0 (and the superseded 1.5.1, 1.5.0, 1.4.0, 1.3.0, 1.2.2, 1.2.1 and 1.2.0) on the owner's own
 review, and its doc comment says so; the same flag in
 `packages/catalog/src/dpa.ts` is true for `dpa/1.0.0` since 20 October 2026,
-on the owner's own instruction, and says so too.
+`dpa/1.1.0` since 30 October 2026 and `dpa/1.2.0` since it landed, on the
+owner's own instruction, and says so too.
 
 ## Rules for this folder
 

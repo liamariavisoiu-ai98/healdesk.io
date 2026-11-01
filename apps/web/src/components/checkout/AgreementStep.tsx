@@ -570,8 +570,9 @@ export function AgreementStep({
 
         {/* Interface copy beside the agreement, not part of it: v1 only
             answers. The one optional payment-link text is designed, not
-            built. The agreements offered here (BAA 1.6.0, released 29
-            October 2026, and DPA 1.1.0, released 30 October 2026) carry it,
+            built. The agreements offered here (BAA 1.7.0 and DPA 1.2.0,
+            the owner's release of 30 October 2026; before them BAA 1.6.0
+            and DPA 1.1.0) carry it,
             but a clinic that signed an older one (BAA 1.5.1 or earlier, DPA
             1.0.0) does not, so the box still says the text waits for an
             agreement that covers it. */}

@@ -171,8 +171,8 @@ export const OPS_EVENTS = [
   // switched off (commitRefund in lib/billing/stripe-actions.ts).
   "refund_cancel_job_off",
   // An open incident past healdesk's internal 24-hour notice target with no
-  // notice recorded (BAA 1.3.0 release gate 5; the agreements promise 60
-  // calendar days), once per incident, by the hourly incident-deadlines job
+  // notice recorded (BAA 1.3.0 release gate 5; the agreements promise 10 or
+  // 60 calendar days, by version), once per incident, by the hourly incident-deadlines job
   // (lib/scheduler/incident-deadlines.ts).
   "incident_notice_overdue",
   // The nightly retention purge (lib/scheduler/retention-purge.ts): a clinic

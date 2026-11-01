@@ -1,6 +1,7 @@
 import {
   agreementKindOfVersion,
   DPA_1_1_0_RELEASED,
+  DPA_1_2_0_RELEASED,
   DPA_VERSION_PREFIX,
   type AgreementKind,
 } from "@healdesk/catalog";
@@ -16,7 +17,10 @@ import {
  *
  * ## Reporting (the "Reporting breaches and security incidents" clause)
  *
- *   - `sixty_calendar_days`: BAA 1.2.2 on and the DPA, "without unreasonable
+ *   - `ten_calendar_days`: BAA 1.7.0 and dpa/1.2.0, "without unreasonable
+ *     delay and in no case later than 10 calendar days" after discovery, the
+ *     one deadline for all three (owner, 30 October 2026);
+ *   - `sixty_calendar_days`: BAA 1.2.2 to 1.6.0, dpa/1.0.0 and dpa/1.1.0, "without unreasonable
  *     delay and in no case later than 60 calendar days" after discovery, one
  *     deadline for a breach, a security incident and an improper use or
  *     disclosure alike (owner, 9 October 2026; the spec's wording);
@@ -30,13 +34,15 @@ import {
  *
  * ## Notice of a new subcontractor (the "Subcontractors" clause)
  *
- *   - `twenty_four_hours`: BAA 1.3.0 on and the DPA (subprocessor-notice.ts);
- *   - `fifteen_days`: 1.2.1 and 1.2.2, "at least fifteen days' notice by
- *     email"; 1.0.0 to 1.2.0 promised notice "before adding one" with no
+ *   - `twenty_four_hours`: BAA 1.3.0 to 1.6.0, dpa/1.0.0 and dpa/1.1.0
+ *     (subprocessor-notice.ts);
+ *   - `fifteen_days`: BAA 1.7.0 and dpa/1.2.0, "at least 15 days' notice by
+ *     email" (owner, 30 October 2026); 1.2.1 and 1.2.2, "at least fifteen
+ *     days' notice by email"; 1.0.0 to 1.2.0 promised notice "before adding one" with no
  *     period, and get the fifteen days, the strictest any version states.
  */
 
-export type ReportingRule = "sixty_calendar_days" | "five_days";
+export type ReportingRule = "ten_calendar_days" | "sixty_calendar_days" | "five_days";
 export type SubcontractorNoticeRule = "twenty_four_hours" | "fifteen_days";
 
 /** Where a rule came from: the agreement's version, no agreement at all, or a version the map does not know. */
@@ -46,6 +52,8 @@ export const REPORTING_RULES: Readonly<
   Record<AgreementKind, Readonly<Record<string, ReportingRule>>>
 > = {
   baa: {
+    // 1.7.0 (owner, 30 October 2026): ten calendar days at most.
+    "1.7.0": "ten_calendar_days",
     // 1.6.0, released 29 October 2026 (drizzle/0136): its Reporting clause is 1.5.1's own.
     "1.6.0": "sixty_calendar_days",
     "1.5.1": "sixty_calendar_days",
@@ -60,6 +68,11 @@ export const REPORTING_RULES: Readonly<
     "0.1.0-draft": "five_days",
   },
   dpa: {
+    // DPA 1.2.0, the owner's release of 30 October 2026, reconciled 1 November
+    // 2026: its Incidents clause reports in no case later than 10 calendar
+    // days after discovery, as BAA 1.7.0's (dpa.ts, INCIDENTS_1_2). Listed
+    // only while its release stands (DPA_1_2_0_RELEASED), as 1.1.0 is.
+    ...(DPA_1_2_0_RELEASED ? { "1.2.0": "ten_calendar_days" as const } : {}),
     // DPA 1.1.0, released by the owner on 30 October 2026: its Incidents
     // clause is 1.0.0's own object. Listed only while the release stands
     // (DPA_1_1_0_RELEASED in dpa.ts), since the map names nothing the catalog
@@ -73,6 +86,8 @@ export const SUBCONTRACTOR_NOTICE_RULES: Readonly<
   Record<AgreementKind, Readonly<Record<string, SubcontractorNoticeRule>>>
 > = {
   baa: {
+    // 1.7.0 (owner, 30 October 2026): at least 15 days' notice.
+    "1.7.0": "fifteen_days",
     // 1.6.0, released 29 October 2026: its Subcontractors notice paragraph is 1.5.1's.
     "1.6.0": "twenty_four_hours",
     "1.5.1": "twenty_four_hours",
@@ -87,6 +102,10 @@ export const SUBCONTRACTOR_NOTICE_RULES: Readonly<
     "0.1.0-draft": "fifteen_days",
   },
   dpa: {
+    // DPA 1.2.0, reconciled 1 November 2026: at least 15 days' notice by email
+    // (subprocessorNoticeClauseBody15Days), as BAA 1.7.0; listed only while
+    // released, as above.
+    ...(DPA_1_2_0_RELEASED ? { "1.2.0": "fifteen_days" as const } : {}),
     // DPA 1.1.0, released 30 October 2026: its Subcontractors clause is
     // 1.0.0's own object; listed only while released, as above.
     ...(DPA_1_1_0_RELEASED ? { "1.1.0": "twenty_four_hours" as const } : {}),
@@ -154,7 +173,8 @@ export function isReportableClass(cls: string): cls is ReportableClass {
 
 /**
  * The deadline the agreement promises for telling the practice, from
- * discovery: 60 calendar days under BAA 1.2.2 on and the DPA; under the
+ * discovery: 10 calendar days under BAA 1.7.0 and dpa/1.2.0; 60 under BAA
+ * 1.2.2 to 1.6.0, dpa/1.0.0 and dpa/1.1.0; under the
  * five-day rule, five calendar days for a breach and five business days for
  * a security incident or an improper use or disclosure. Null for a service
  * complaint, which no agreement clocks.
@@ -166,6 +186,9 @@ export function agreementReportDeadline(
 ): { notifyBy: Date | null; rule: ReportingRule; basis: RuleBasis } {
   const { rule, basis } = reportingRuleFor(version);
   if (!isReportableClass(cls)) return { notifyBy: null, rule, basis };
+  if (rule === "ten_calendar_days") {
+    return { notifyBy: new Date(discoveredAt.getTime() + 10 * DAY_MS), rule, basis };
+  }
   if (rule === "sixty_calendar_days") {
     return { notifyBy: new Date(discoveredAt.getTime() + 60 * DAY_MS), rule, basis };
   }

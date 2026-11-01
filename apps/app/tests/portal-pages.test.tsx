@@ -390,9 +390,17 @@ describeDb("the portal's screens, before and after go-live", () => {
       expect(words).toContain("Waiting for you: 1 person to call back (oldest 2 h) Open Bookings");
       expect(html).toContain(`href="/c/${portal.clinicSlug}/bookings"`);
       // This week, from the claims function.
+      // The three numbers lead (portal redesign, 1 November 2026): booked
+      // value at the clinic's own prices, the requests the team confirms, and
+      // deposits; then the sentence and the full list.
       expect(words).toContain(
-        "What AYA did this week AYA handled 1 conversation and took 1 booking request. 1 call would otherwise have rung out. The last 7 days. Conversations handled 1 Phone 1 call · 1 would otherwise have rung out Website chat 0 chats Booking requests taken 1 · 0 confirmed by your team",
+        "What AYA did this week Booked value $0 Bookings at your listed prices Booking requests 1 0 confirmed by your team Deposits collected $0 None collected yet AYA handled 1 conversation and took 1 booking request.",
       );
+      expect(words).toContain(
+        "AYA handled 1 conversation and took 1 booking request. 1 call would otherwise have rung out. The last 7 days. Conversations handled 1 Phone 1 call · 1 would otherwise have rung out Website chat 0 chats Booking requests taken 1 · 0 confirmed by your team",
+      );
+      // And the week on the calendar, as counts only.
+      expect(words).toContain("This week on your calendar Open Bookings");
       expect(words).not.toMatch(/Maria|Lopez|4155550134|Consultation|Thursday afternoon|revenue/);
       expect(words).not.toContain("AYA isn’t answering patients yet");
       expect(words).not.toContain("Building your AYA");

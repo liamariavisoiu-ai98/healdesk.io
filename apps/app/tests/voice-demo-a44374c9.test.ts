@@ -309,7 +309,7 @@ describe("demo call a44374c9, replayed line by line", () => {
     );
     // 5. Only her first question, and no "®".
     expect(at(2).after).toBe(
-      "Miami Skin & Vein is a physician-led med spa in Coral Gables, run by Dr. Shaun Patel. We do injectables like BOTOX Cosmetic and fillers, laser treatments, and skin treatments such as Hydrafacials and chemical peels. Do you have something in mind, like smoothing lines, skin texture, or unwanted hair or veins?",
+      "Miami Skin & Vein is a physician-led med spa in Coral Gables, run by Dr. Shaun Patel. We do injectables like Botox Cosmetic and fillers, laser treatments, and skin treatments such as Hydrafacials and chemical peels. Do you have something in mind, like smoothing lines, skin texture, or unwanted hair or veins?",
     );
     expect(at(5).after).toBe("Thanks. What's the best number to reach you at?");
     // 3. "After four PM next week": the first such time taken, two after four offered, none before it.

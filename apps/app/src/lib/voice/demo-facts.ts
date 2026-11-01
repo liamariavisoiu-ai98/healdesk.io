@@ -9,6 +9,7 @@ import {
 
 import type { AssistantFacts, AssistantService } from "@/lib/assistant/facts";
 import { routingProvider } from "@/lib/assistant/guard";
+import { soundKey } from "@/lib/voice/sound-alike";
 import { defaultChatGreeting, defaultPhoneGreeting } from "@/lib/setup/greetings";
 
 /**
@@ -267,6 +268,10 @@ export type DemoProgress = {
   unknownDoctor?: string | null;
   /** Their latest words asked what they are booked for ("what time was that?"): the booking may be said again. */
   askedBooking?: boolean;
+  /** The caller's latest words, as said, for the notes that read them. */
+  lastCallerWords?: string;
+  /** The menu items she has named in the call, for "besides Botox" and "the other ones". */
+  told?: readonly string[];
   /** Their latest words show frustration, or sarcasm after it ("convenient."): this turn only. */
   frustratedNow?: boolean;
   /** She has apologised in this call: an apology on its own is never said again (a44374c9: three in a row). */
@@ -305,16 +310,20 @@ export function withDemoAnswer(progress: DemoProgress, _stage: DemoStage, words:
     frustrated: progress.frustrated === true || FRUSTRATED.test(words),
     frustratedNow: FRUSTRATED.test(words) || (progress.frustrated === true && SARCASM.test(words)),
     unknownDoctor: null,
+    lastCallerWords: words.slice(0, 400),
     askedBooking: ASKED_BOOKING.test(words),
     ...roleplayHeard(progress, words),
   };
 }
 
+/** "Besides Botox", "the other ones", "what else", "don't repeat": what they have heard is left out. */
+const OTHERS_ASK = /\b(?:besides|other than|apart from|except|other ones|the others|what else|anything else you (?:do|offer|have)|don'?t repeat|already told me|told me (?:about|before))\b/i;
+
 /** "I'm running into a meeting", "fast as possible", "I'm in a hurry": a caller short of time (a44374c9). */
 const HURRIED = /\b(?:in a (?:hurry|rush)|(?:running|heading|going) (?:in)?to (?:a |my )?(?:meeting|call|work)|(?:fast|quick|soon) as (?:possible|you can)|asap|quick(?:ly)? please|i(?:'m| am) (?:short on|pressed for) time|make it quick|don'?t have (?:much|a lot of) time)\b/i;
 
 /** "You're repeating yourself", "frustrating", "that's really bad": a caller who is fed up (a44374c9). */
-const FRUSTRATED = /\b(?:repeating yourself|you(?:'re| are) repeating|frustrat\w*|annoying|bothering|(?:that'?s|this is|it'?s) (?:really |so |quite )?(?:bad|terrible|awful|useless|ridiculous)|not convenient|a real (?:person|receptionist)|real receptionist|waste of (?:my )?time)\b/i;
+const FRUSTRATED = /\b(?:repeating yourself|you(?:'re| are) repeating|why are you repeating|stop repeating|frustrat\w*|annoying|bothering|(?:that'?s|this is|it'?s) (?:really |so |quite )?(?:bad|terrible|awful|useless|ridiculous)|not convenient|a real (?:person|receptionist)|real receptionist|waste of (?:my )?time)\b/i;
 
 /** A one-word "convenient." or "great." after a complaint: sarcasm, never agreement (a44374c9). */
 const SARCASM = /^\W*(?:convenient|great|perfect|wonderful|awesome|fantastic|lovely|nice|sure)\W*$/i;
@@ -371,6 +380,9 @@ export function demoStageNote(
           `They're frustrated. Apologise at most once in the whole call (never if you already have), then fix what bothered them in one short sentence, or offer one concrete choice. Never repeat anything you have said, and never sum up the booking. A one-word "convenient", "great" or "perfect" after a complaint is sarcasm: never answer it with "Glad that works!".`,
         ]
       : []),
+    ...((progress.told ?? []).length > 0 && OTHERS_ASK.test(progress.lastCallerWords ?? "")
+      ? [`They have already heard about: ${(progress.told ?? []).join(", ")}. Leave those out and give only what is new, in one or two short sentences, names first and no more than two prices.`]
+      : []),
     ...(progress.pickedSlot
       ? [`They just picked ${nextDateOn(ctx, progress.pickedSlot.day)} at ${clock(progress.pickedSlot.minutes)}, from the times the call offered: that is the time, never another.`]
       : []),
@@ -381,8 +393,8 @@ export function demoStageNote(
     `Give a real answer to what they ask; if they are unsure what to book, name one or two treatments from the list that suit what they want (no price that is not on the list, and never a figure they said) and offer a consultation. Never read out more than two prices at once: give the lowest "from" price and offer to say more.`,
     `If they ask what a price per unit means, or what an area costs, say close to these words: "The price is per unit, and the total depends on the area, which ${provider ?? "the provider"} works out with you at a consultation. Want me to request one?" Never say what a unit is or how many anyone needs: the clinic's screen refuses it.`,
     `Never rank the providers or say who is best: say who does a treatment only where what you know says so, and leave the choice to them and the team.`,
-    `A question about ${clinic}'s own policies (insurance, financing, parking, payment) is about the practice: answer it from what you know above, in its words; if it is not there, say you don't know and the team will confirm.`,
-    `If they name a treatment that is not on the list, or a word you don't recognise (it may be misheard: "Deeps" for lips, "a painting" for an appointment), ask them to say it again or check what they meant before you answer it.`,
+    `A question about ${clinic}'s own policies (insurance, financing, parking, deposits, payment) is about the practice: answer it only from what is written above, in its words; if it is not written there, say "I'd have to check that with the team" and never guess. Never say how the practice runs (parking, free parking, double-booking, how busy it is, waiting times) unless it is written above.`,
+    `Words are often misheard on a call ("Deeps" for lips, "a painting" for an appointment, "this port" for Dysport). A word that sounds like something on the list, or like something you just said, is that thing: answer about it and carry on, never asking them to say it again. Only if nothing on the list is close, ask once, naming the two likeliest ("Dysport or Daxxify?").`,
     ...rpBookingLines(progress, context),
     ...calendarLines(ctx, clinic),
     ...timeLines(ctx, progress, clinic),
@@ -472,8 +484,10 @@ function roleplayHeard(progress: DemoProgress, words: string): Pick<DemoProgress
   // kept in code so a state she forgot never holds the request back.
   const asked = progress.lastQuestion ?? "";
   const said = words.trim().replace(/^(?:it'?s|my name is|my name'?s|this is|i'?m)\s+/i, "").replace(/[.!?]+$/, "");
-  const name = !booking.name && /\bname\b/i.test(asked) && said && said.split(/\s+/).length <= 3 && !SAID_NO.test(words.trim()) ? said.slice(0, 60) : booking.name;
-  const phone = !booking.phone && /\bnumber\b/i.test(asked) && said && !SAID_NO.test(words.trim()) ? said.slice(0, 60) : booking.phone;
+  // A name only when it looks like one, and a number only when it is one (a test call of 1 November 2026: "Alright." taken for a
+  // name and "Is Miami Skin and Veil full of clients?" for a number, then booked).
+  const name = !booking.name && /\bname\b/i.test(asked) && looksLikeName(said) ? said.slice(0, 60) : booking.name;
+  const phone = !booking.phone && /\bnumber\b/i.test(asked) && looksLikeNumber(words) ? said.slice(0, 60) : booking.phone;
   // "Monday works", "the second one", "5 PM", "yes": a time the call just offered, picked in code.
   const slot = slotPicked(words, progress.offered ?? []);
   const next: RoleplayBooking = {
@@ -491,6 +505,24 @@ function roleplayHeard(progress: DemoProgress, words: string): Pick<DemoProgress
     rpTime: slot ? null : requestedTime(words),
     pickedSlot: slot,
   };
+}
+
+/** Words that are never a first name, whatever was asked. */
+const NOT_A_NAME = new Set(
+  "alright all right okay ok yes yeah yep yup no nope sure fine good great perfect thanks thank you hi hello hey sorry what why how when where who parking deposit price botox monday tuesday wednesday thursday friday saturday sunday morning afternoon evening tomorrow today hmm um uh well so".split(" "),
+);
+
+/** One or two words that could be a first name: letters only, none a word that never is. */
+export function looksLikeName(said: string): boolean {
+  const words = said.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0 || words.length > 2) return false;
+  return words.every((w) => /^[A-Za-z][A-Za-z'-]{1,30}$/.test(w) && !NOT_A_NAME.has(w.toLowerCase()));
+}
+
+/** A phone number: seven digits or more, or the number they are calling from. */
+export function looksLikeNumber(words: string): boolean {
+  if ((words.match(/\d/g) ?? []).length >= 7) return true;
+  return /\b(?:the (?:one|number) (?:i'?m|i am) (?:calling|ringing) (?:you )?(?:from|on|with)|(?:this|same|my) (?:one|number)|the one i'?m on|calling from)\b/i.test(words);
 }
 
 /** The last question in a reply, word for word: what "what was your question?" asks for again. */
@@ -611,7 +643,7 @@ function calendarLines(context: Pick<DemoCallContext, "clinic" | "issuedAt">, cl
     return [`You can't see ${clinic}'s calendar: never say a time is available, free or open. Take the time they ask for as their preferred time, for the team to confirm (a17b5aff: "Eleven AM is available").`];
   }
   return [
-    `The calendar has these free times: ${slots.join("; ")}. When they want to book, offer one or two of them, never all three, and never a list you already read them; any other time they ask for within the hours is free too. When they ask about times, the call often answers itself first: never read out times it did not just say. Never say a time is booked, set, held or confirmed, and never that you can't confirm: once it has the treatment, the day and time, their first name and their number, the call books it and says so in its own words.`,
+    `You can't see the calendar yourself: never name a free time, a list of times or "openings". When they ask about times, a day, a part of the day or "this week", the call answers with times that fit; if they ask in a way it did not answer, ask which day and which part of the day suits them, in one short question. Any time they ask for within the hours is free. Never say a time is booked, set, held or confirmed, and never that you can't confirm: once it has the treatment, the day and time, their first name and their number, the call books it and says so in its own words.`,
   ];
 }
 
@@ -789,7 +821,9 @@ function timeAnswer(context: Pick<DemoCallContext, "clinic" | "issuedAt">, progr
     );
   }
   // "After four PM next week", "before noon on Friday" (a44374c9: three times offered, two of them before four).
-  const window = windowIn(words);
+  // A part of the day with no day named ("want evening time", "I don't want early morning"): a window too (a test call of
+  // 1 November 2026: the same three morning-heavy times read three times).
+  const window = windowIn(words) ?? (weekdayIn(words) === null ? partOfDayWindow(words) : null);
   if (window) return windowAnswer(context, progress, window, weekdayIn(words));
   if (day !== null && !spans.has(day) && (ask || AVAILABILITY_ASK.test(words) || ANY_TIME.test(words) || BOOK_INTENT.test(words))) {
     const d = nextOpen(day);
@@ -822,8 +856,13 @@ function timeAnswer(context: Pick<DemoCallContext, "clinic" | "issuedAt">, progr
   // "Thursday afternoon, please" asks for a time as surely as "do you have anything Thursday?" (a44374c9).
   // Never a day they speak of in the past ("I had Botox last Friday").
   const bookingADay = day !== null && BOOK_INTENT.test(words) && !PAST_DAY.test(words) && progress.rpConfirmed !== true;
-  if (!AVAILABILITY_ASK.test(words) && !ANY_TIME.test(words) && !bookingADay) return null;
+  if (!AVAILABILITY_ASK.test(words) && !ANY_TIME.test(words) && !WEEK_ASK.test(words) && !bookingADay) return null;
   if (day === null) {
+    // "This week?": two times, never the list read before.
+    if (WEEK_ASK.test(words)) {
+      const two = freeSlots(context, progress, { from: null, to: null }, null).slice(0, 2);
+      if (two.length > 0) return said(`I have ${twoSaid(context, two, null)}. Would ${two.length === 2 ? "either of those" : "that"} work?`, two);
+    }
     // The earliest time not yet offered: "whatever you have" never hears the same list again (a44374c9).
     const first = freeSlots(context, progress, { from: null, to: null }, null)[0];
     return first ? said(`The earliest I have is ${slotSaid(context, first)}. Would that work?`, [first]) : null;
@@ -844,6 +883,23 @@ const ANY_TIME =
 
 /** A day spoken of in the past: "last Friday", "I had it done Monday". */
 const PAST_DAY = /\blast\s+(?:sun|mon|tue|wed|thu|fri|sat)|\b(?:had|got|did|was|were|went)\b/i;
+
+/** "This week?", "anything next week": a week asked about, with no day named. */
+const WEEK_ASK = /\b(?:this|next|the) week\b/i;
+
+/**
+ * A part of the day asked for with no day named, as a window: "evening" from
+ * four, "afternoon" noon to five, "morning" before noon, and "not mornings"
+ * from noon. Never a greeting ("good morning") or a day in the past.
+ */
+export function partOfDayWindow(words: string): DemoWindow | null {
+  if (/\bgood (?:morning|afternoon|evening)\b/i.test(words) || PAST_DAY.test(words)) return null;
+  if (/\b(?:not?|don'?t (?:want|like)|can'?t do|no)\b[^.?!]{0,20}\bmornings?\b/i.test(words)) return { from: 12 * 60, to: null, said: "after noon" };
+  if (/\b(?:evenings?|after work|end of the day|late in the day|later in the day)\b/i.test(words)) return { from: 16 * 60, to: null, said: "in the evening" };
+  if (/\bafternoons?\b/i.test(words)) return { from: 12 * 60, to: 17 * 60, said: "in the afternoon" };
+  if (/\b(?:early )?mornings?\b/i.test(words)) return { from: null, to: 12 * 60, said: "in the morning" };
+  return null;
+}
 
 /** Words that ask to book something, with a day named ("I need a consult Thursday afternoon"). */
 const BOOK_INTENT = /\b(?:book|appointment|consult(?:ation)?|come in|get in|schedule|see (?:dr|the doctor|someone)|need|want|looking for|available|free|open)\b/i;
@@ -972,7 +1028,10 @@ export function unknownDoctorIn(clinic: Pick<DemoCallClinic, "providers">, words
   if (!m) return null;
   const surname = m[1]!;
   if (WEEKDAY_NAMES.some((d) => d === surname) || /^(?:Who|Office|Appointment|Visit)$/.test(surname)) return null;
-  return clinic.providers.some((p) => new RegExp(`\\b${surname}\\b`, "i").test(p.name)) ? null : `Dr. ${surname}`;
+  // "Doctor Sean" for Dr. Shaun Patel: a name that sounds like one of theirs is theirs (sound-alike.ts).
+  const sounds = soundKey(surname);
+  const theirs = clinic.providers.some((p) => new RegExp(`\\b${surname}\\b`, "i").test(p.name) || p.name.split(/\s+/).some((w) => soundKey(w) === sounds));
+  return theirs ? null : `Dr. ${surname}`;
 }
 
 /** What she says of a doctor not on the list: who is, so nobody is booked with someone who isn't there. */
@@ -1292,6 +1351,13 @@ export function demoRoleplayFacts(facts: AssistantFacts): AssistantFacts {
   return { ...facts, neverSay: [...facts.neverSay, ...ROLEPLAY_NEVER_SAY, ...setUp] };
 }
 
+/** Dollar amounts written in the practice's own rules and answers ("A $50 deposit holds..."). */
+export function amountsInRules(texts: readonly string[]): number[] {
+  const out = new Set<number>();
+  for (const text of texts) for (const m of text.matchAll(/\$\s?(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?/g)) out.add(Number(m[1]!.replace(/,/g, "")) + Number(m[2] ?? 0) / 100);
+  return [...out];
+}
+
 /** The facts a demo call answers from: the clinic's published profile, read as AssistantFacts. No database. */
 export function demoAssistantFacts(context: Pick<DemoCallContext, "slug" | "clinic">): AssistantFacts {
   const { clinic } = context;
@@ -1325,6 +1391,9 @@ export function demoAssistantFacts(context: Pick<DemoCallContext, "slug" | "clin
     services,
     menu: services.length > 0 ? "said" : "none",
     policies: [...clinic.policies],
+    // An amount in the practice's own rules (a deposit, a fee) is said as written (a test call of 1 November 2026:
+    // "do I have to pay a deposit?" refused five times as an off-menu price).
+    quotedAmountsUsd: amountsInRules([...clinic.policies, ...clinic.faqs.map((f) => f.answer)]),
     quickAnswers: clinic.faqs.map((f) => ({ question: f.question, answer: f.answer })),
     promotions: offers.length > 0 ? offers.join("; ") : null,
     notes: notesFor(clinic, plain),

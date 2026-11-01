@@ -15,7 +15,7 @@ describe("a call's register, enforced", () => {
   test("the caller's name as a form of address goes after two uses; the sign-off keeps it", () => {
     expect(shape("Sure, Thomas, I can help.", { nameUses: 1 })).toBe("Sure, Thomas, I can help.");
     expect(shape("Sure, Thomas, I can help.", { nameUses: 2 })).toBe("Sure, I can help.");
-    expect(shape("Thomas, the address is 200 Congress Ave.", { nameUses: 3 })).toBe("The address is 200 Congress Ave.");
+    expect(shape("Thomas, the address is 200 Congress Ave.", { nameUses: 3 })).toBe("The address is 200 Congress Avenue");
     expect(shape("Got it, Thomas. Anything else?", { nameUses: 2 })).toBe("Got it. Anything else?");
     expect(shape("Thanks for your time. Talk soon, Thomas!", { nameUses: 5 })).toBe("Thanks for your time. Talk soon, Thomas!");
     // A name that is the subject of the sentence is not a form of address.
@@ -23,11 +23,12 @@ describe("a call's register, enforced", () => {
   });
 
   test("once the call has had an apology, a reply's opening sorry goes; the first one stays", () => {
-    expect(shape("I'm sorry, the address is 200 Congress Ave.")).toBe("I'm sorry, the address is 200 Congress Ave.");
-    expect(shape("I'm sorry, the address is 200 Congress Ave.", { apologised: true })).toBe("The address is 200 Congress Ave.");
+    // An address's short forms are said in full on a call (forVoice).
+    expect(shape("I'm sorry, the address is 200 Congress Ave.")).toBe("I'm sorry, the address is 200 Congress Avenue");
+    expect(shape("I'm sorry, the address is 200 Congress Ave.", { apologised: true })).toBe("The address is 200 Congress Avenue");
     expect(shape("Sorry, Thomas, you're right, you already told me.", { apologised: true })).toBe("You're right, you already told me.");
     // Only at the start of the reply, and never a reply that is nothing else.
-    expect(shape("I'm sorry, the address is 200 Congress Ave.", { apologised: true, first: false })).toBe("I'm sorry, the address is 200 Congress Ave.");
+    expect(shape("I'm sorry, the address is 200 Congress Ave.", { apologised: true, first: false })).toBe("I'm sorry, the address is 200 Congress Avenue");
     expect(shape("Sorry!", { apologised: true })).toBe("Sorry!");
   });
 

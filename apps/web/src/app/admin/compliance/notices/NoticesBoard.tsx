@@ -312,8 +312,9 @@ function SubprocessorForm({ send }: { send: Actions["sendSubprocessorNotice"] })
     >
       <p className="text-muted">
         To every practice with an agreement in effect, before the subcontractor starts handling the
-        information the agreement protects: at least 24 hours ahead under BAA 1.3.0 on and the DPA,
-        fifteen days under the earlier versions. The start is checked against each practice&rsquo;s
+        information the agreement protects: at least 15 days ahead under BAA 1.7.0 and DPA 1.2.0,
+        at least 24 hours under BAA 1.3.0 to 1.6.0, DPA 1.0.0 and DPA 1.1.0, and fifteen days under
+        the earlier versions. The start is checked against each practice&rsquo;s
         own agreement. The email names the subcontractor, what it will receive and why, keeps the
         right to object, and offers our list on written request. It links to no vendor list. Add a
         subcontractor to the catalog first; this offers only those there.

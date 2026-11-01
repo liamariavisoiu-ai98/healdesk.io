@@ -2093,8 +2093,9 @@ export const incidents = pgTable(
     /**
      * The deadline the clinic's agreement itself promises, set when the
      * incident is opened from the agreement in effect then
-     * (lib/incidents/reporting-rules.ts): 60 calendar days after discovery
-     * under BAA 1.2.2 on and the DPA; five calendar days for a breach and
+     * (lib/incidents/reporting-rules.ts): 10 calendar days after discovery
+     * under BAA 1.7.0 and DPA 1.2.0, 60 under BAA 1.2.2 to 1.6.0 and DPA
+     * 1.0.0 and 1.1.0; five calendar days for a breach and
      * five business days for the rest under 1.2.1 and before, and for a
      * clinic with no agreement or one the map does not know. Null for a
      * service complaint, which no agreement clocks. `notify_by` is healdesk's

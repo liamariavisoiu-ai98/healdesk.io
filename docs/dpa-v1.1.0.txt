@@ -1,16 +1,17 @@
 healdesk Data Protection Agreement — version dpa/1.1.0, RELEASED, drafted and
 released 30 October 2026. Released by the owner, on the owner's own
 instruction ("release DPA 1.1.0 as well") and without external counsel:
-DPA_1_1_0_RELEASED is true in packages/catalog/src/dpa.ts, so DPA_TEMPLATES
-holds dpa/1.1.0 first and dpa/1.0.0 after it, checkout offers dpa/1.1.0, and
+DPA_1_1_0_RELEASED is true in packages/catalog/src/dpa.ts, and
 app_dpa_version_released lists it (apps/app drizzle/0140_dpa_release_1_1_0).
-It applies to practices that sign from the release on. A practice that signed
-dpa/1.0.0 stays on dpa/1.0.0: the product has no way for it to re-sign a newer
-DPA, and no payment-link text may go to a caller of a practice whose accepted
-agreement is older than this version. Drafted by an AI assistant on the
-owner's instruction and AI-reviewed; counsel has not reviewed it
-(docs/counsel/agreement-changes.md §21). It is frozen now: a change is a new
-version, never an edit.
+Checkout offered it from its release until dpa/1.2.0 took its place at
+DPA_TEMPLATES[0] (drizzle/0143_baa_release_1_7_0_dpa_1_2_0,
+docs/dpa-v1.2.0.txt); it stays released and frozen for every practice that
+signed it. A practice that signed dpa/1.0.0 stays on dpa/1.0.0: the product
+has no way for it to re-sign a newer DPA, and no payment-link text may go to a
+caller of a practice whose accepted agreement is older than this version.
+Drafted by an AI assistant on the owner's instruction and AI-reviewed; counsel
+has not reviewed it (docs/counsel/agreement-changes.md §21). It is frozen now:
+a change is a new version, never an edit.
 
 What changed against dpa/1.0.0, and nothing else: the version line of the
 preamble, and the last two sentences of clause 9 (Safeguards), the telephone

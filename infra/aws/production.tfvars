@@ -28,6 +28,11 @@ app_environment = {
   # paid its first invoice before a number is bought; the cap only limits the
   # damage of a bug or a run of payments that do not hold.
   HEALDESK_VOICE_PROVISION_DAILY_CAP = "100"
+  # healdesk.io's public origin (a bare origin; www redirects to it), which
+  # the engine calls to read a clinic's website again, the signed re-read
+  # behind the site-reads job's switch; unset, nothing is read. Owner,
+  # 1 November 2026 (C5 on docs/launch-board.html, Launch plan step 1.20).
+  HEALDESK_WEB_URL = "https://healdesk.io"
   # HEALDESK_SUPPORT_PHONE    = "<E.164 number>"
   # HEALDESK_CALL_BOOKING_URL = "<https scheduling page>"
 }

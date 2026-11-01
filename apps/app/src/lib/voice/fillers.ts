@@ -81,3 +81,6 @@ export function afterFiller(filler: string | null, text: string): string {
   if (COMMON_START.test(rest)) rest = rest.charAt(0).toLowerCase() + rest.slice(1);
   return `${lead}${rest}`;
 }
+
+/** Every filler a call can say, in either language (tests read past them to the words that follow). */
+export const ALL_FILLERS: readonly string[] = [...new Set(Object.values(LINES).flatMap((moods) => Object.values(moods).flat()))];

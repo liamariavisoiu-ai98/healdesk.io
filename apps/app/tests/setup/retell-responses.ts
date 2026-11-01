@@ -1,3 +1,4 @@
+import { ALL_FILLERS } from "@/lib/voice/fillers";
 import { ACKNOWLEDGEMENTS } from "@/lib/voice/retell";
 
 /**
@@ -34,14 +35,17 @@ export function spokenResponses<M extends Message>(messages: readonly M[]): M[] 
  * is where the acknowledgement itself is tested.
  */
 export function spokenAfterAcknowledgement<M extends Message>(messages: readonly M[]): M[] {
-  const acks = new Set([...ACKNOWLEDGEMENTS.en, ...ACKNOWLEDGEMENTS.es]);
+  // The fillers too (fillers.ts, since 1 November 2026): the words after one are joined to it lowered, so they
+  // are given back their capital here, as the line would open without it.
+  const acks = new Set([...ACKNOWLEDGEMENTS.en, ...ACKNOWLEDGEMENTS.es, ...ALL_FILLERS]);
   const out: M[] = [];
   let open: M | null = null;
   let ack = false;
   for (const m of messages) {
     if (m.response_type !== "response") continue;
     if (open && open.response_id === m.response_id) {
-      const rest = (m.content ?? "").replace(/^ /, "");
+      const after = (m.content ?? "").replace(/^ /, "");
+      const rest = ack ? after.charAt(0).toUpperCase() + after.slice(1) : after;
       const joined: M = { ...m, content: ack ? rest : `${open.content ?? ""}${m.content ?? ""}` };
       out[out.length - 1] = joined;
       open = m.content_complete === false ? joined : null;
@@ -57,6 +61,11 @@ export function spokenAfterAcknowledgement<M extends Message>(messages: readonly
 
 /** A transcript turn with the acknowledgement it opened with read past, as spokenAfterAcknowledgement reads a response. */
 export function withoutAcknowledgement(text: string): string {
-  for (const ack of [...ACKNOWLEDGEMENTS.en, ...ACKNOWLEDGEMENTS.es]) if (text.startsWith(`${ack} `)) return text.slice(ack.length + 1);
+  for (const ack of [...ACKNOWLEDGEMENTS.en, ...ACKNOWLEDGEMENTS.es, ...ALL_FILLERS]) {
+    if (text.startsWith(`${ack} `)) {
+      const rest = text.slice(ack.length + 1);
+      return rest.charAt(0).toUpperCase() + rest.slice(1);
+    }
+  }
   return text;
 }

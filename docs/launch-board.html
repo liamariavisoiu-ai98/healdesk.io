@@ -158,6 +158,8 @@ h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(2rem, 
 .tag.after { background: var(--wait-tint); color: var(--wait); }
 .tag.opt { background: var(--rec-tint); color: var(--rec); }
 .tag.day { background: transparent; border: 1px solid var(--line); color: var(--ink); font-weight: 500; }
+.tag.done { background: var(--ok-tint); color: var(--ok); }
+.dec .answered { font-size: 0.86rem; color: var(--ok); font-weight: 600; }
 .eff { font-size: 0.78rem; color: var(--muted); }
 .task[hidden], .group-label[hidden] { display: none; }
 
@@ -278,6 +280,7 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
         <li><span class="sw s-flip"></span><span class="c">4</span><span>Yours to switch, record or decide, minutes each (O4, O5, D8)<small>alert sender, daily summary, agreements recorded, direct-booking addendum</small></span></li>
         <li><span class="sw s-test"></span><span class="c">7</span><span>Need a real test (O8 to O13)<small>calendar booking, deposit in chat, deposit on Meta, failure to direct line, no audio kept, carrier codes, phone live</small></span></li>
       </ul>
+      <p class="lead" style="font-size:0.86rem;margin-top:12px">Counted on <code>main</code>. Once this batch lands, BAA 1.6.0 retention is On (C1), and BAA 1.7.0's ten-day and fifteen-day notices join the list until the app deploy runs its migration (C13): 3 of 15 On.</p>
     </div>
   </div>
 </section>
@@ -329,11 +332,13 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
       <div class="top"><span class="id">D5</span><h3>The invented reviews on the homepage</h3></div>
       <p>15 sample reviews and an invented 4.9 rating from 286 reviews have shown as real since the "examples" label came off on 12 October; no real review is published. The FTC's 2024 rule on fake reviews makes this a legal risk.</p>
       <div class="rec"><b>Recommended:</b> Claude removes the section Monday (C2); it returns with real reviews.</div>
+      <div class="answered">Answered 1 Nov: "Go C2". Done on the branch.</div>
     </article>
     <article class="dec">
       <div class="top"><span class="id">D6</span><h3>Your 30 Oct agreement release never reached main</h3></div>
       <p>BAA 1.7.0 and a DPA with 10-day breach and 15-day vendor notice were built on 30 Oct on a branch with no pull request. Checkout still offers BAA 1.6.0 and DPA 1.1.0 (60-day breach notice), and main's live DPA 1.1.0 is a different release, so the branch's numbers now collide.</p>
       <div class="rec"><b>Recommended:</b> land it before launch so the first clinics sign the terms you chose. Claude reconciles it Monday (C13), you approve Tuesday.</div>
+      <div class="answered">Answered 1 Nov: "Go C13". Prepared on the branch.</div>
     </article>
     <article class="dec">
       <div class="top"><span class="id">D7</span><h3>A second voice task before real calls?</h3></div>
@@ -351,7 +356,7 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
 <section aria-labelledby="h-who">
   <div class="section-head">
     <h2 id="h-who">Who does what</h2>
-    <p class="lead">Reply with the IDs you want started, for example "Go C1, C2, C5". Claude starts on your word; nothing lands, deploys or applies without your yes. Times are rough.</p>
+    <p class="lead">Reply with the IDs you want started, for example "Go C1, C2, C5". Claude starts on your word; nothing lands, deploys or applies without your yes. "Done on branch" means built and tested on <code>claude/quirky-keller-57tbah</code>, waiting for your yes to land. Times are rough.</p>
   </div>
   <div class="filters" role="group" aria-label="Show tasks">
     <button type="button" data-filter="all" aria-pressed="true">Everything</button>
@@ -370,13 +375,13 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
 
       <div class="task" data-when="pre" data-block="1">
         <div class="t"><span class="id">C1</span><h4>Record what production already does</h4></div>
-        <p>Mark BAA 1.6.0 retention On with its 29 Oct deploy as evidence, and the addendum if D8 says so. Fix the direct-booking and no-audio lines, which still wait on an apply and a deploy that ran.</p>
-        <div class="tags"><span class="tag block">Blocks go-live</span><span class="tag day">Mon</span><span class="eff">≈ 30 min · your OK</span></div>
+        <p>Done: BAA 1.6.0 retention is On with its 29 Oct deploy as evidence; the direct-booking, no-audio and texting lines and three map entries now say what ran. The addendum waits on D8.</p>
+        <div class="tags"><span class="tag done">Done on branch</span><span class="tag block">Blocks go-live</span></div>
       </div>
       <div class="task" data-when="pre">
         <div class="t"><span class="id">C2</span><h4>Take down the invented reviews</h4></div>
-        <p>Remove the homepage review wall until real reviews exist (D5).</p>
-        <div class="tags"><span class="tag pre">Before Thursday</span><span class="tag day">Mon</span><span class="eff">≈ 15 min + site deploy</span></div>
+        <p>Done: the wall shows only once a real review is published, and the invented set is on no page. Goes live with the site deploy after you approve the landing.</p>
+        <div class="tags"><span class="tag done">Done on branch</span><span class="tag pre">Before Thursday</span></div>
       </div>
       <div class="task" data-when="pre">
         <div class="t"><span class="id">C3</span><h4>Take the Meta packages off sale</h4></div>
@@ -390,13 +395,13 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
       </div>
       <div class="task" data-when="pre" data-block="1">
         <div class="t"><span class="id">C5</span><h4>One infrastructure change for your next apply</h4></div>
-        <p>Automatic voice provisioning and the texting permission went live today. Still to add, on your word: the Stripe Connect client id, the website-read address, your test phone numbers and a second voice task (D7).</p>
-        <div class="tags"><span class="tag block">Blocks go-live</span><span class="tag day">Mon</span><span class="eff">≈ 1 h · needs your ids</span></div>
+        <p>Partly done: the website-read address, and a fix found today: the background worker never got the Anthropic key, so every practice-questions run would fail and no clinic could go live. Both checked with Terraform's tests. Still needed from you: the Stripe Connect client id (after O2), your test phone numbers, and a yes to D7.</p>
+        <div class="tags"><span class="tag done">Part done on branch</span><span class="tag block">Blocks go-live</span><span class="eff">needs your ids</span></div>
       </div>
       <div class="task" data-when="pre" data-block="1">
         <div class="t"><span class="id">C6</span><h4>Your switch list for System › Jobs</h4></div>
-        <p>Every background job, on or off for launch, one line why. The email sender, daily summary, weekly recap and practice questions are among the ons.</p>
-        <div class="tags"><span class="tag block">Blocks go-live</span><span class="tag day">Mon</span><span class="eff">≈ 1 h</span></div>
+        <p>Done: <code>docs/design/launch-readiness-2026-10-27/jobs-switch-list.md</code>, every job on or off for the pilot with one line why: 33 on before go-live, 4 once a condition is met, 2 left off, 2 that cannot run in v1. Switch practice questions on only after the worker fix (C5) is applied and deployed.</p>
+        <div class="tags"><span class="tag done">Done on branch</span><span class="tag block">Blocks go-live</span></div>
       </div>
       <div class="task" data-when="pre">
         <div class="t"><span class="id">C7</span><h4>One checklist per day, in click order</h4></div>
@@ -430,8 +435,8 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
       </div>
       <div class="task" data-when="pre">
         <div class="t"><span class="id">C13</span><h4>Land your 30 Oct agreement release</h4></div>
-        <p>Bring branch <code>claude/friendly-edison-bwvr76</code> onto main: BAA 1.7.0, its DPA renumbered 1.2.0 (main's 1.1.0 is live), a new migration number, a full verify and a second review, since it sets legal clocks (D6).</p>
-        <div class="tags"><span class="tag opt">If you choose D6</span><span class="tag day">Mon</span><span class="eff">≈ half a day + deploy</span></div>
+        <p>Prepared: BAA 1.7.0 as you released it, the DPA as dpa/1.2.0 on top of the live 1.1.0, migration 0142, legal pages 2026-11-01.1. Its words are your 30 Oct release, checked by hash. Lands with your yes; the app deploy must follow at once.</p>
+        <div class="tags"><span class="tag done">Done on branch</span><span class="tag pre">Before Thursday</span></div>
       </div>
       <div class="task" data-when="pre" data-block="1">
         <div class="t"><span class="id">C14</span><h4>Audit the call-forwarding guide</h4></div>
@@ -470,7 +475,7 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
       </div>
       <div class="task" data-when="pre" data-block="1">
         <div class="t"><span class="id">O4</span><h4>Switch on the email sender and the jobs</h4></div>
-        <p>In System › Jobs, from Claude's list (C6), and confirm the email key is set on the host. Closes 2 promises.</p>
+        <p>In System › Jobs, from the switch list (C6, done), and confirm the email key is set on the host. Closes 2 promises. Practice questions waits for the worker fix (C5) to be deployed.</p>
         <div class="tags"><span class="tag block">Blocks go-live</span><span class="eff">≈ 10 min</span></div>
       </div>
       <div class="task" data-when="pre" data-block="1">
@@ -487,7 +492,7 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
       <div class="group-label">Tuesday · apply, deploy, first tests</div>
       <div class="task" data-when="pre" data-block="1">
         <div class="t"><span class="id">O7</span><h4>Approve the next apply and deploy</h4></div>
-        <p>Infra plan, then apply, then Deploy apps/app, for C5 and Monday's code, as you did today. Confirm no call is running.</p>
+        <p>Land this batch, then Infra plan, apply, and Deploy apps/app, as you did today. The deploy must follow the landing at once: it runs the agreement migration (C13), and the worker gets its Anthropic key (C5). Confirm no call is running.</p>
         <div class="tags"><span class="tag block">Blocks go-live</span><span class="eff">≈ 45 min, mostly waiting</span></div>
       </div>
       <div class="task" data-when="pre" data-block="1">
@@ -672,11 +677,11 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
     <table>
       <thead><tr><th>Where</th><th>It says</th><th>What is true</th></tr></thead>
       <tbody>
-        <tr><td>Launch plan tab, steps 1.14 and 3.3</td><td>Checkout offers BAA 1.7.0 and a DPA with 10-day breach and 15-day vendor notice, released 30 Oct</td><td>Built on branch <code>claude/friendly-edison-bwvr76</code>, never opened as a pull request. Checkout offers BAA 1.6.0 and DPA 1.1.0 (60 days). Main's live DPA 1.1.0 and migration 0140 are a different release, so the branch needs new numbers (D6, C13)</td></tr>
+        <tr><td>Launch plan tab, steps 1.14 and 3.3</td><td>Checkout offers BAA 1.7.0 and a DPA with 10-day breach and 15-day vendor notice, released 30 Oct</td><td>Built on branch <code>claude/friendly-edison-bwvr76</code>, never opened as a pull request. Checkout offers BAA 1.6.0 and DPA 1.1.0 (60 days). Main's live DPA 1.1.0 and migration 0140 are a different release, so it lands as DPA 1.2.0 with migration 0142 (C13, prepared); the tab should then say BAA 1.7.0 and DPA 1.2.0</td></tr>
         <tr><td><code>docs/google-verification/STATUS.md</code> on main</td><td>Audience not confirmed; test account and YouTube channel not started</td><td>Done today, recorded on branch <code>claude/eager-keller-d0zdiv</code>, not yet merged</td></tr>
-        <tr><td>Go-live list, direct booking</td><td>Left: the infrastructure apply, then the deploy</td><td>Applied 28 Oct (run 40670359689) and rolled the same day (run 40703315369). Only the test booking is left</td></tr>
-        <tr><td>Go-live list, BAA 1.6.0 retention</td><td>Waits on its deploy</td><td>Migration 0136 ran in the 29 Oct deploy (run 40870436687)</td></tr>
-        <tr><td>Go-live list, no audio</td><td>Live once the apply and a full deploy roll automatic provisioning</td><td>Applied 15:12 UTC (run 41319945681) and deployed 15:35 UTC today (run 41321401407); left: the test call that proves the deletion</td></tr>
+        <tr><td>Go-live list, direct booking</td><td>Left: the infrastructure apply, then the deploy</td><td>Applied 28 Oct (run 40670359689) and rolled the same day (run 40703315369). Only the test booking is left. Fixed on the branch (C1)</td></tr>
+        <tr><td>Go-live list, BAA 1.6.0 retention</td><td>Waits on its deploy</td><td>Migration 0136 ran in the 29 Oct deploy (run 40870436687). Fixed on the branch (C1)</td></tr>
+        <tr><td>Go-live list, no audio</td><td>Live once the apply and a full deploy roll automatic provisioning</td><td>Applied 15:12 UTC (run 41319945681) and deployed 15:35 UTC today (run 41321401407); left: the test call that proves the deletion. Fixed on the branch (C1)</td></tr>
         <tr><td>Launch plan tab, step 3.6 and the dates</td><td>The support chat is not built (due 16 October); first clinics live 21 October</td><td>The support chat is built and deployed; both dates have passed</td></tr>
         <tr><td><code>docs/hipaa-compliance.md</code>, pre-launch list</td><td>All 10 boxes unticked</td><td>At least the AWS host is true; the Security Official, the security review and the attorney review are yours to decide</td></tr>
       </tbody>

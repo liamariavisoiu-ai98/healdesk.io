@@ -4,7 +4,7 @@ import { bookingTools, EMPTY_TOOL_STATE, type BookingEngine, type BookingToolSta
 import { EMPTY_CAPTURE, offeredTimeNamed, withoutFreeTimeClaims } from "@/lib/assistant/turn";
 import { BOOKING_LINES_VOICE_EN } from "@/lib/booking/lines";
 import { holdLine, lookupLine, pause, PAUSE_MS, speakingMs, splitPauses, withoutPauses } from "@/lib/voice/pauses";
-import { fillerFor, FILLER_MAX_PER_CALL } from "@/lib/voice/fillers";
+import { afterFiller, fillerFor, FILLER_MAX_PER_CALL } from "@/lib/voice/fillers";
 import { keyFactOf, mutualGoodbye, paceOf } from "@/lib/voice/retell";
 import { pairingFor } from "@/lib/assistant/pairings";
 import { occasionIn } from "@/lib/assistant/turn";
@@ -234,5 +234,17 @@ describe("the review's fixes (1 November 2026)", () => {
     const spa = voiceExamples({ services: [svc], providerNames: ["Dr. Kim"], specialty: "med-spa" });
     expect(spa).toMatch(/breastfeeding/);
     expect(spa).toContain("choose_time, with the exact value the system gave");
+  });
+});
+
+describe("what follows a filler", () => {
+  test("joins it as one sentence: a doubled opener dropped, a common first word lowered, a name and 'I' kept", () => {
+    expect(afterFiller("Good question,", "That one's really for the clinic.")).toBe("that one's really for the clinic.");
+    expect(afterFiller("So,", "Hm, say that one more time for me?")).toBe("say that one more time for me?");
+    expect(afterFiller("A ver,", "Claro, con gusto le ayudo.")).toBe("con gusto le ayudo.");
+    expect(afterFiller("Okay,", "Dr. Patel goes through it with you.")).toBe("Dr. Patel goes through it with you.");
+    expect(afterFiller("Okay,", "I can look that up.")).toBe("I can look that up.");
+    expect(afterFiller("Oh, nice!", "That sounds fun.")).toBe("That sounds fun.");
+    expect(afterFiller(null, "That one.")).toBe("That one.");
   });
 });

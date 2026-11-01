@@ -100,7 +100,7 @@ import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
 import { redialPromptBlock, takeRedialContext, welcomeBackLine, type RedialContext } from "./redial";
 import { businessLine, fragmentLine, isFragment, withGreetingQuestion } from "./call-lines";
 import { DEMO_CALLER_PHONE, demoBookingTools } from "./demo-booking";
-import { fillerFor } from "./fillers";
+import { afterFiller, fillerFor } from "./fillers";
 import { retellAgentExpressive } from "./retell-api";
 import { HURRIED_SHARE, speakingMs, splitPauses, withoutPauses, withoutPausesKeepingLead } from "./pauses";
 import { soundAlikeNote, soundAlikes } from "./sound-alike";
@@ -1839,7 +1839,9 @@ export class RetellCallSession {
             }
             const lead = acknowledgement || streamed ? " " : "";
             if (!streamed) this.pendingTag = tagFor();
-            this.send({ response_type: "response", response_id: responseId, content: `${lead}${sentence}`, content_complete: false, end_call: false });
+            // The first words after a filler join it as one sentence (fillers.ts afterFiller).
+            const joined = !streamed && acknowledgement ? afterFiller(acknowledgement, sentence) : sentence;
+            this.send({ response_type: "response", response_id: responseId, content: `${lead}${joined}`, content_complete: false, end_call: false });
             streamed = streamed ? `${streamed} ${sentence}` : sentence;
             heard();
           }
@@ -2097,7 +2099,9 @@ export class RetellCallSession {
     const already = streamed && reply.startsWith(streamed) ? streamed : "";
     // A reply said whole that is the model's own words: its mood, as a tag, before them.
     if (!streamed && turn.source === "model" && !roleplayLine && !stallLine && !turn.urgent) this.pendingTag = tagFor();
-    this.say(responseId, already ? reply.slice(already.length).trim() : reply, {
+    // A reply said whole after a filler joins it as one sentence (fillers.ts afterFiller).
+    const remaining = already ? reply.slice(already.length).trim() : reply;
+    this.say(responseId, !already && acknowledgement ? afterFiller(acknowledgement, remaining) : remaining, {
       endCall: ends && !transferTo,
       transferTo,
       spokenBefore: [acknowledgement, already].filter(Boolean).join(" ") || null,

@@ -62,3 +62,22 @@ export function fillerFor(words: string, language: SpokenLanguage, said: readonl
   if (choices.length === 0) return null;
   return choices[Math.floor(random() * choices.length)] ?? choices[0]!;
 }
+
+/** Words that open a line on their own and would double a filler ("So, Hm, say that again?"). */
+const OPENER = /^(?:hm+|hmm+|so|okay|ok|sure|right|got it|claro|bueno|vale|a ver|perfecto|muy bien),\s+/i;
+/** Common first words, lowered after a filler's comma; anything else (a name, "I") keeps its capital. */
+const COMMON_START = /^(?:That|That's|This|It|It's|There|There's|We|We're|We'll|Our|You|You're|Your|Yes|Yeah|No|Not|Let|Let's|The|A|An|Sure|Of|Just|Sorry|Please|What|How|Which|Do|Does|Can|Thanks|Thank|Great|Perfect|Lovely|Absolutely|Totally|Everything|Le|La|El|Lo|Con|Su|Sí|No|Por|Para|Me|Te|Se)\b/;
+
+/**
+ * What follows a filler, joined as one sentence: an opener it would double is
+ * dropped, and a common first word lowered after its comma ("Good question,
+ * that one's really for the clinic"). Never touches a name, "I", or a line
+ * after a filler that ends a sentence of its own ("Oh, nice!").
+ */
+export function afterFiller(filler: string | null, text: string): string {
+  if (!filler || !/,$/.test(filler.trim())) return text;
+  const lead = /^\s*/.exec(text)?.[0] ?? "";
+  let rest = text.slice(lead.length).replace(OPENER, "");
+  if (COMMON_START.test(rest)) rest = rest.charAt(0).toLowerCase() + rest.slice(1);
+  return `${lead}${rest}`;
+}

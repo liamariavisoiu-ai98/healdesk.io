@@ -6,7 +6,7 @@ import { COVERAGE_VENDORS } from "@/lib/compliance/vendor-coverage";
 import { readPracticeBookingFacts, practiceToolsLive } from "@/lib/engine/practice/booking";
 import { runOnePracticeRun } from "@/lib/engine/practice/job";
 import { runPracticeChannel } from "@/lib/engine/practice/runner";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { PRACTICE_CASES_VERSION } from "@/lib/engine/practice/cases";
@@ -254,7 +254,10 @@ describeDb("the practice questions' booking cases, against the database", { time
   });
 
   test("the database gate names the current case set, so a bump of the version needs a migration", () => {
-    const sql = readFileSync(join(__dirname, "../drizzle/0137_practice_gate_askable_cases.sql"), "utf8");
+    // The latest migration that defines the gate (0137, then 0142 for 2026-11-01.1): a bump needs one.
+    const dir = join(__dirname, "../drizzle");
+    const latest = readdirSync(dir).filter((f) => f.endsWith(".sql") && readFileSync(join(dir, f), "utf8").includes("FUNCTION app_practice_gate_open")).sort().at(-1)!;
+    const sql = readFileSync(join(dir, latest), "utf8");
     expect(sql).toContain(`r.cases_version IS NOT DISTINCT FROM '${PRACTICE_CASES_VERSION}'`);
   });
 });

@@ -6,9 +6,12 @@ import { DURATION } from "./copy";
 
 const FPS = 30;
 
-// Wait for Inter at every weight the ad uses before any frame is taken.
-const fontsReady = delayRender("Inter");
-Promise.all(["400", "500", "600", "700", "800"].map((w) => document.fonts.load(`${w} 40px "Inter Variable"`)))
+// Wait for healdesk's two faces before any frame is taken.
+const fontsReady = delayRender("Instrument Sans and Fraunces");
+Promise.all([
+  ...["400", "500", "600", "700"].map((w) => document.fonts.load(`${w} 40px "Instrument Sans Variable"`)),
+  ...["400", "500", "600"].map((w) => document.fonts.load(`${w} 40px "Fraunces Variable"`)),
+])
   .then(() => continueRender(fontsReady))
   .catch(() => continueRender(fontsReady));
 

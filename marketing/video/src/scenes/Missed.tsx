@@ -4,7 +4,7 @@ import { interpolate, spring, useVideoConfig } from "remotion";
 import { IPhone, wallpaper } from "../iphone";
 import { lerp, Stage, useFrame, useLayout } from "../motion";
 import { Backdrop, Icon, Stars } from "../parts";
-import { font, SNAP } from "../tokens";
+import { accent, font, SNAP } from "../tokens";
 
 // The call rings until CALL_END, then the missed calls group into one stack.
 const CALL_END = 40;
@@ -122,8 +122,8 @@ const Title: React.FC<{ frame: number; wide: boolean; exit: number }> = ({ frame
         <div style={{ transform: `translateY(${(1 - rise) * lh}px)` }}>missing</div>
         <div style={{ height: lh, overflow: "hidden" }}>
           <div style={{ transform: `translateY(${(1 - rise) * lh - roll * lh}px)`, color: "#FFFFFF" }}>
-            <div style={{ height: lh, backgroundImage: "linear-gradient(90deg, #FFB37A, #FF5A4E)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>calls?</div>
-            <div style={{ height: lh, backgroundImage: "linear-gradient(90deg, #FFB37A, #FF5A4E)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>DMs?</div>
+            <div style={{ height: lh, backgroundImage: accent, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>calls?</div>
+            <div style={{ height: lh, backgroundImage: accent, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>DMs?</div>
           </div>
         </div>
       </div>
@@ -274,7 +274,7 @@ const AppIcons: React.FC<{ frame: number; wide: boolean; phoneX: number; phoneY:
     <>
       {spots.map((sp, i) => {
         if (frame < sp.at) return null;
-        const p = spring({ frame: frame - sp.at, fps, config: { damping: 10, stiffness: 170, mass: 0.8 } });
+        const p = spring({ frame: frame - sp.at, fps, config: SNAP });
         // Each DM from this app adds to its badge; the count runs ahead, as a flood does.
         const count = DMS.filter((d) => d.key === sp.key && frame >= d.at).length * 3 + 1;
         const last = [...DMS].reverse().find((d) => d.key === sp.key && frame >= d.at);
@@ -286,7 +286,7 @@ const AppIcons: React.FC<{ frame: number; wide: boolean; phoneX: number; phoneY:
               position: "absolute",
               left: sp.x,
               top: sp.y + Math.sin((frame + i * 25) / 22) * 8,
-              transform: `perspective(1200px) scale(${p * (1 + exit * 0.6)}) rotate(${(1 - Math.min(1, p)) * (i % 2 ? 25 : -25)}deg) rotateY(${Math.sin((frame + i * 40) / 40) * 8}deg)`,
+              transform: `perspective(1200px) translateY(${(1 - p) * 40}px) scale(${(0.9 + 0.1 * p) * (1 + exit * 0.6)}) rotateY(${Math.sin((frame + i * 40) / 60) * 5}deg)`,
               opacity: Math.min(1, p * 1.5) * (1 - exit),
               zIndex: 25,
               filter: "drop-shadow(0 24px 40px rgba(0,0,0,0.5))",
@@ -311,7 +311,7 @@ const AppIcons: React.FC<{ frame: number; wide: boolean; phoneX: number; phoneY:
                 alignItems: "center",
                 justifyContent: "center",
                 boxShadow: "0 4px 12px rgba(255,59,48,0.5)",
-                transform: `scale(${1 + 0.25 * Math.sin(Math.min(1, tick) * Math.PI)})`,
+                transform: `scale(${1 + 0.12 * Math.sin(Math.min(1, tick) * Math.PI)})`,
               }}
             >
               {count}

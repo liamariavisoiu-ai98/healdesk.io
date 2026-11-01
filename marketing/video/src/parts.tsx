@@ -63,8 +63,8 @@ export const Backdrop: React.FC<{ mood: Mood; mix?: number; to?: Mood }> = ({
           />
         );
       })}
-      {/* Film grain is too heavy for a render; a faint vignette does the depth instead. */}
-      <AbsoluteFill style={{ background: "radial-gradient(ellipse at 50% 45%, rgba(0,0,0,0) 55%, rgba(0,0,0,0.12) 100%)" }} />
+      {/* A faint vignette for depth on the dark grounds only: on white it reads as dirt. */}
+      {mood === "white" ? null : <AbsoluteFill style={{ background: "radial-gradient(ellipse at 50% 45%, rgba(0,0,0,0) 55%, rgba(0,0,0,0.12) 100%)" }} />}
     </AbsoluteFill>
   );
 };
@@ -73,7 +73,8 @@ export type Mood = keyof typeof MOODS;
 
 const MOODS = {
   space: { ground: "#04050B", blobs: ["rgba(38,52,120,0.55)", "rgba(86,40,120,0.42)", "rgba(18,58,110,0.38)"] },
-  white: { ground: "#FBFBFD", blobs: ["rgba(255,118,30,0.13)", "rgba(230,38,39,0.07)", "rgba(150,165,205,0.2)"] },
+  // Pure white, as Apple sets it: no tinted blobs, nothing to read as grey.
+  white: { ground: "#FFFFFF", blobs: ["rgba(255,255,255,0)", "rgba(255,255,255,0)", "rgba(255,255,255,0)"] },
   night: { ground: "#14101A", blobs: ["rgba(75,46,85,0.75)", "rgba(42,22,48,0.9)", "rgba(60,50,90,0.55)"] },
   ivory: { ground: "#FAF6F0", blobs: ["rgba(255,122,89,0.30)", "rgba(201,164,92,0.28)", "rgba(160,120,190,0.22)"] },
   sage: { ground: "#F3EBDD", blobs: ["rgba(127,156,134,0.45)", "rgba(201,164,92,0.25)", "rgba(127,156,134,0.30)"] },

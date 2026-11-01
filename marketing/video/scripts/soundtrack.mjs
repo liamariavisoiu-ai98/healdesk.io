@@ -436,32 +436,32 @@ tink(at("interrupt", 2), 0, 0.3);
 tink(at("interrupt", 2) + 0.012, 7, 0.18);
 tink(at("interrupt", 2) + 0.024, 12, 0.12);
 
-// 0:13–0:23 the orb blooms; badges; soft mechanical typing; the site is read.
-pop(at("aya", 84), 0.16, 2);
-pop(at("aya", 94), 0.16, 5);
-for (let k = 0; k < 19; k++) mechKey(at("aya", 128 + k * 2.4), 0.14, -0.2 + (k % 3) * 0.2);
-tink(at("aya", 174), 7, 0.22);
-for (let i = 0; i < 4; i++) pop(at("aya", 186 + i * 7), 0.11, 4 + i * 2, -0.4 + i * 0.25);
+// 0:10–0:20 Aya: two badges; then the website types in on soft mechanical
+// keys, a chime when it is read, the treatments settle.
+pop(at("aya", 54), 0.14, 2);
+pop(at("aya", 62), 0.14, 5);
+for (let k = 0; k < 19; k++) mechKey(at("aya", 150 + k * 2.6), 0.14, -0.2 + (k % 3) * 0.2);
+tink(at("aya", 200), 7, 0.22);
+for (let i = 0; i < 3; i++) pop(at("aya", 212 + i * 7), 0.11, 4 + i * 2, -0.4 + i * 0.4);
 
-// 0:23–0:33 every conversation arriving, every booking a tink a step higher,
-// the counter rolling.
-for (let i = 0; i < 5; i++) pop(at("dashboard", 22 + i * 10), 0.13, -2 + i, -0.5 + i * 0.25);
+// 0:20–0:29 the five channels; then each booking flies into the counter, a
+// whoosh and a tink a step higher, the digits rolling.
+for (let i = 0; i < 5; i++) pop(at("dashboard", 30 + i * 5), 0.12, -2 + i, -0.5 + i * 0.25);
 for (let i = 0; i < 5; i++) {
-  tink(at("dashboard", 92 + i * 30), i * 2, 0.2);
-  for (let k = 0; k < 8; k++) add(at("dashboard", 92 + i * 30 + k * 2), 0.02, (t) => Math.sin(2 * Math.PI * 5200 * t) * Math.exp(-300 * t), { gain: 0.04 });
+  swoosh(at("dashboard", 82 + i * 30), 0.6, 0.09, i % 2 ? 0.5 : -0.5);
+  tink(at("dashboard", 104 + i * 30), i * 2, 0.2);
+  for (let k = 0; k < 7; k++) add(at("dashboard", 104 + i * 30 + k * 2), 0.02, (t) => Math.sin(2 * Math.PI * 5200 * t) * Math.exp(-300 * t), { gain: 0.04 });
 }
 
-// 0:33–0:38 Stripe's sheet, the card, pay, the confirmation chime, coins,
+// 0:29–0:35 the card rises, the button is pressed, the confirmation chime,
 // healdesk's notification.
-swoosh(at("deposit", 0), 0.5, 0.15);
-for (let k = 0; k < 12; k++) mechKey(at("deposit", 22 + k * 0.72), 0.07);
-add(at("deposit", 46), 0.06, (t) => Math.sin(2 * Math.PI * 200 * t) * Math.exp(-60 * t), { gain: 0.28 });
-confirm(at("deposit", 58), 0.34);
-for (let k = 0; k < 8; k++) tink(at("deposit", 60 + k * 2), 12 + (k % 4) * 2, 0.035);
-pop(at("deposit", 74), 0.18, 7);
+swoosh(at("deposit", 0), 0.5, 0.12);
+add(at("deposit", 34), 0.06, (t) => Math.sin(2 * Math.PI * 200 * t) * Math.exp(-60 * t), { gain: 0.28 });
+confirm(at("deposit", 48), 0.34);
+pop(at("deposit", 60), 0.18, 7);
 
-// 0:38–0:42 the address.
-tink(at("close", 52), 7, 0.14);
+// 0:35–0:39.5 the lockup lands.
+tink(at("close", 32), 7, 0.16);
 
 // ---------------------------------------------------------------- reverb and write
 

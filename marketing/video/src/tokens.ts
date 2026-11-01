@@ -1,48 +1,70 @@
-import "@fontsource-variable/inter";
+import "@fontsource-variable/instrument-sans";
+import "@fontsource-variable/fraunces";
 
 import { Easing } from "remotion";
 
 /**
- * The ad's palette (SCRIPT.md, "Global specification") and its type. Night
- * until Aya arrives, and coral only where she solves something.
+ * One brand system (owner, 1 November 2026): healdesk's red-to-orange is the
+ * only accent, on pure white and near-black, with Apple-like greys. Everything
+ * else that once coloured the ad (plum, coral, sage, ivory) is gone. A few
+ * names stay as aliases so older parts keep compiling; they all resolve here.
  */
+const ink = "#1D1D1F";
+const grey = "#6E6E73";
 export const c = {
-  ivory: "#FAF6F0",
-  night: "#14101A",
-  nightDesk: "#211A2A",
-  plum: "#2A1630",
-  plumSoft: "#4B2E55",
-  mist: "#9A9AA2",
-  coral: "#FF7A59",
-  gold: "#C9A45C",
-  goldLight: "#E8CF92",
-  glass: "rgba(255,255,255,0.55)",
+  ink,
+  grey,
+  line: "rgba(0,0,0,0.08)",
+  paper: "#FFFFFF",
+  paper2: "#F5F5F7",
+  night: "#000000",
   white: "#FFFFFF",
-  // The fictional clinic built from its URL in scene 3.
-  sage: "#7F9C86",
-  sageDeep: "#4E6B57",
-  cream: "#F3EBDD",
-  dusk: "#1E2742",
-  // healdesk's own pair, off the logo (apps/web/src/app/globals.css).
   healdeskRed: "#E62627",
   healdeskOrange: "#FF761E",
+  gold: "#C9A45C",
+  goldLight: "#E8CF92",
+  // Aliases, so every older part draws in the one system.
+  plum: ink,
+  plumSoft: grey,
+  mist: "#A1A1A6",
+  coral: "#FF5A1F",
+  ivory: "#FFFFFF",
+  glass: "rgba(255,255,255,0.72)",
+  sage: "#1D1D1F",
+  sageDeep: "#1D1D1F",
+  cream: "#F5F5F7",
+  dusk: "#000000",
+  nightDesk: "#111111",
 } as const;
 
+/** healdesk's gradient, the one accent: orange into red, as the logo runs. */
+export const accent = `linear-gradient(90deg, ${c.healdeskOrange} 0%, ${c.healdeskRed} 100%)`;
+
+/** Paint text with the accent gradient. */
+export const accentText: Record<string, string> = {
+  backgroundImage: accent,
+  WebkitBackgroundClip: "text",
+  backgroundClip: "text",
+  color: "transparent",
+};
+
 /**
- * Inter, the open face closest to Apple's SF Pro, which may not be used
- * outside Apple's platforms. Variable, so any weight renders exactly.
+ * healdesk's own faces (apps/web/src/app/layout.tsx): Instrument Sans for
+ * everything, Fraunces only where the wordmark's serif voice belongs, the
+ * end card's line.
  */
-export const font = "'Inter Variable', system-ui, sans-serif";
+export const font = "'Instrument Sans Variable', system-ui, sans-serif";
+export const serif = "'Fraunces Variable', Georgia, serif";
 
-/** Apple-style tracking for the big centred lines: a touch open, never tight. */
-export const tracked = "0.01em";
+/** Tracking for the big centred lines. */
+export const tracked = "-0.01em";
 
-export const shadow = "0 24px 48px rgba(42,22,48,0.12)";
+export const shadow = "0 30px 60px rgba(0,0,0,0.08), 0 2px 6px rgba(0,0,0,0.04)";
 export const radius = 28;
 
 /** Enter: cubic-bezier(0.22, 1, 0.36, 1). Exit: cubic-bezier(0.64, 0, 0.78, 0). */
 export const easeEnter = Easing.bezier(0.22, 1, 0.36, 1);
 export const easeExit = Easing.bezier(0.64, 0, 0.78, 0);
 
-/** Snap: damping 12, stiffness 180, mass 0.8, which overshoots about 6% and settles. */
-export const SNAP = { damping: 12, stiffness: 180, mass: 0.8 } as const;
+/** Snap: settles without overshoot, as Apple's motion does. */
+export const SNAP = { damping: 26, stiffness: 170, mass: 0.9 } as const;

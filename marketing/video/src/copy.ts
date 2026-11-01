@@ -16,16 +16,24 @@ import timeline from "./timeline.json";
 export const SCENES = timeline.scenes;
 export const DURATION = timeline.scenes.close.to;
 
-/** The storyboard's on-screen lines, in order. */
+/**
+ * The on-screen lines, in order. Aya, not AYA, in the ad (owner, 1 November
+ * 2026). The cuts after the drop fall on the song's beats: every scene
+ * boundary in timeline.json is a whole number of beats after the drop.
+ */
 export const LINES = {
   calls: "Is your clinic missing calls?",
   dms: "Is your clinic missing DMs?",
   interrupt: "Not on my watch.",
-  hello: "Hi, I'm Aya, your 24/7 assistant.",
+  hello: "Hi, I'm Aya.",
+  helloSub: "Your clinic's 24/7 assistant.",
   badges: ["Built for medspas", "We sign a BAA"],
-  channels: "Calls, DMs, chats, all at once.",
-  deposit: "You do the treatments. Aya handles the rush.",
-  close: "Try Aya free.",
+  website: "Just add your website.",
+  channels: ["Calls, DMs, chats.", "All at once."],
+  bookedBy: "booked by Aya, at your own prices",
+  deposit: ["You do the treatments.", "Aya handles the rush."],
+  close: "Try Aya free",
+  tagline: "An AI front desk you can rely on.",
   domain: "healdesk.io",
 } as const;
 
@@ -43,10 +51,11 @@ export const VO: readonly VoLine[] = [
   { from: at("missed", 10), to: at("missed", 120), text: LINES.calls, burn: false },
   { from: at("missed", 140), to: at("missed", 250), text: LINES.dms, burn: false },
   { from: at("interrupt", 2), to: at("interrupt", 40), text: LINES.interrupt, burn: false },
-  { from: at("aya", 20), to: at("aya", 110), text: LINES.hello, burn: false },
-  { from: at("dashboard", 10), to: at("dashboard", 90), text: LINES.channels, burn: false },
-  { from: at("deposit", 90), to: at("deposit", 140), text: LINES.deposit, burn: false },
-  { from: at("close", 10), to: at("close", 60), text: LINES.close, burn: false },
+  { from: at("aya", 20), to: at("aya", 110), text: `${LINES.hello} ${LINES.helloSub}`, burn: false },
+  { from: at("aya", 140), to: at("aya", 260), text: LINES.website, burn: false },
+  { from: at("dashboard", 10), to: at("dashboard", 90), text: LINES.channels.join(" "), burn: false },
+  { from: at("deposit", 100), to: at("deposit", 160), text: LINES.deposit.join(" "), burn: false },
+  { from: at("close", 10), to: at("close", 90), text: `${LINES.close}. ${LINES.domain}`, burn: false },
 ];
 
 /** The fictional clinic of the demo. Prices are made up. */

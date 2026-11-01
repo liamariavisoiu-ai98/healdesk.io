@@ -14,12 +14,14 @@ import {
   decide,
   demoFingerprint,
   repairFeedback,
+  type AuditIssue,
   type AuditReport,
 } from "./audit";
 import { AUDIT_BY_MS, EXTRACT_BY_MS, READ_BY_MS, REPAIR_NEEDS_MS } from "./budget";
 import { fetchGoogleListing, type GoogleListing } from "./google-listing";
 import { groundProfile } from "./ground";
 import { isUsableProfile, normalizeProfile, type ClinicProfile } from "./profile";
+import { checkDemoFill, fillDemo } from "./samples";
 import { parseWebsiteUrl, scrapeClinicSite, ScrapeError, type ScrapedPage } from "./scrape";
 import {
   createDemoSession,
@@ -46,7 +48,10 @@ import { structureProfile } from "./structure";
  *      Opus 5.5. A pass turns it `ready`; a near miss gets one repair round
  *      when the clock allows; anything broken or misleading is `held` for an
  *      operator, with an alert. Only `ready` is served, so the gate holds the
- *      link and not just the email.
+ *      link and not just the email. Beside the verdict the build stores the
+ *      demo's fill (lib/demo/samples.ts): what it makes up where the website
+ *      showed nothing, worked out once for the profile kept, checked, and
+ *      read by every surface; a fill that fails its check holds the demo.
  *
  * All of it inside one minute (lib/demo/budget.ts, owner, 29 October 2026):
  * each step has a point on the clock it must be done by, and the waiting
@@ -354,8 +359,24 @@ export async function auditWithRepair(
  */
 async function recordVerdict(slug: string, gated: Gated, readyBefore: Date | null = null): Promise<DemoSession | null> {
   const now = new Date();
+  // The fill step (lib/demo/samples.ts): what the demo makes up where the
+  // website showed nothing, worked out once for the profile that is kept and
+  // stored beside it, never in it, so every surface reads the same values
+  // and the audit's profile stays the website's. Its check holds the demo
+  // like any audit blocker.
+  const fill = fillDemo(gated.profile, now);
+  const fillBlockers: AuditIssue[] = checkDemoFill(gated.profile, fill).map((problem) => ({
+    severity: "blocker",
+    code: "invented_fact",
+    dimension: null,
+    evidence: "",
+    where: "demo: made-up values",
+    problem,
+    source: "check",
+  }));
   const base = {
     profile: gated.profile as unknown as Record<string, unknown>,
+    demoFill: fill as unknown as Record<string, unknown>,
     auditedAt: now,
     auditHash: demoFingerprint(gated.profile),
     // The run finished, however it was judged: the stall count starts over.
@@ -375,7 +396,8 @@ async function recordVerdict(slug: string, gated: Gated, readyBefore: Date | nul
     return held;
   }
 
-  const { report } = gated;
+  const report: AuditReport =
+    fillBlockers.length > 0 ? { ...gated.report, blockers: [...fillBlockers, ...gated.report.blockers].slice(0, 15), decision: "held" } : gated.report;
   const ships = report.decision === "pass" || report.decision === "flagged";
   const updated = await updateDemoSession(slug, {
     ...base,

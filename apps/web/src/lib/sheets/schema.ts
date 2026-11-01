@@ -313,6 +313,14 @@ export type DemoSession = {
    * costs a later run its retry. Rows from before the column read as 0.
    */
   retryCount: number;
+  /**
+   * What the demo made up where the website showed nothing (lib/demo/samples.ts
+   * `DemoFill`), as JSON: worked out once by the build, kept beside the
+   * profile and never merged into it, so the audit still reads the website's
+   * facts alone. Rows from before the column read as null and work it out
+   * on the request.
+   */
+  demoFill: Record<string, unknown> | null;
 };
 
 export const DEMO_SESSIONS: Tab = {
@@ -351,6 +359,7 @@ export const DEMO_SESSIONS: Tab = {
     col("audited_at", "auditedAt", "timestamp"),
     col("audit_hash", "auditHash", "text"),
     col("retry_count", "retryCount", "int"),
+    col("demo_fill", "demoFill", "json"),
   ],
 };
 

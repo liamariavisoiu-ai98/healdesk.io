@@ -196,6 +196,7 @@ export default async function DemoPage({ params }: Props) {
     // A demo already bought has spent its offer; the page shows it as ended.
     offerEndsAt: session.claimed ? null : offerEnds,
     ayaImage: "/brand/aya-hero.webp",
+    demoFill: session.demoFill,
   });
 
   return (

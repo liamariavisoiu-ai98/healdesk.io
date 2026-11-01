@@ -68,6 +68,7 @@ function demo(overrides: Partial<DemoSession> = {}): DemoSession {
     auditedAt: at,
     auditHash: null,
     retryCount: 0,
+    demoFill: null,
     ...overrides,
   };
 }

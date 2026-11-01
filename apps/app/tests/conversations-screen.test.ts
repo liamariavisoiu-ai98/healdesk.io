@@ -1197,7 +1197,9 @@ describeDb("Conversations", () => {
       new RegExp(`/c/${desk.clinic.slug}/settings#sign-in$`),
     );
     expect(() => assertPayloadAllowed(notices[0]!.payload, "setting_changed")).not.toThrow();
-    expect(JSON.stringify(notices[0]!.payload)).not.toMatch(/Maria|0134/);
+    // The clinic's own slug is a random test value ("conv-export-901349" holds "0134"): read past it, so the check
+    // is about the patient's name and number only, and cannot fail by chance (CLAUDE.md, tests must be deterministic).
+    expect(JSON.stringify(notices[0]!.payload).split(desk.clinic.slug).join("")).not.toMatch(/Maria|0134/);
 
     // An open account: the export is not a delivery.
     const { rows: clinic } = await getMigratorPool().query(
@@ -1282,7 +1284,8 @@ describeDb("Conversations", () => {
     expect(
       (JSON.parse(named.body) as { contacts: { id: string }[] }).contacts.map((v) => v.id),
     ).toEqual([nameOnly.contactId]);
-    expect(JSON.stringify(notices)).not.toMatch(/Maria|0134/);
+    // As above: read past the clinic's random test slug, so the check is about the patient's details only.
+    expect(JSON.stringify(notices).split(desk.clinic.slug).join("")).not.toMatch(/Maria|0134/);
   });
 
   test("after cancellation only a complete download of the whole export is recorded as delivered; producing it, or one person's, is not", async () => {

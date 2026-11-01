@@ -1,7 +1,7 @@
 import { clinicVoiceVariables } from "@/lib/demo/clinic-prompts";
 import { demoEngineCall } from "@/lib/demo/engine";
 import { demoBuyButton, demoOfferFor } from "@/lib/demo/offer";
-import { withDemoSamples } from "@/lib/demo/samples";
+import { liveDemo, sampledForCall } from "@/lib/demo/samples";
 import { findActiveDemoByCaller, profileOf } from "@/lib/demo/sessions";
 import { normalizePhone } from "@/lib/phone";
 import { verifyRetellSignature } from "@/lib/retell-signature";
@@ -69,14 +69,16 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json(FALL_THROUGH);
   }
   const stored = demo ? profileOf(demo) : null;
-  // What the website did not show is made up for the live demo, as the page says (lib/demo/samples.ts).
-  const profile = stored ? withDemoSamples(stored).profile : null;
-  if (!demo || !profile) return Response.json(FALL_THROUGH);
+  // What the website did not show is made up for the live demo, as the page
+  // says: the values the build stored (lib/demo/samples.ts).
+  const live = demo && stored ? liveDemo(stored, demo.demoFill) : null;
+  if (!demo || !live) return Response.json(FALL_THROUGH);
+  const profile = live.profile;
 
   // AYA's own engine answers when it is set and apps/app answers
   // (lib/demo/engine.ts). The Sheet keeps no name for the number, so the
   // context has none and AYA greets the caller without one.
-  const engine = await demoEngineCall({ slug: demo.slug, profile, mode: "inbound", firstName: null, offer: demoOfferFor(demo), buyButton: demoBuyButton(demo) });
+  const engine = await demoEngineCall({ slug: demo.slug, profile, mode: "inbound", firstName: null, offer: demoOfferFor(demo), buyButton: demoBuyButton(demo), sampled: sampledForCall(live.fill) });
 
   console.info("[healdesk] demo line answered as a personalised demo", { slug: demo.slug, engine: engine ? "aya" : "clinic-agent" });
   return Response.json({

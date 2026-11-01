@@ -203,13 +203,15 @@ export type BookingLines = {
   toolFailure: string;
   refused: string;
   missing: Readonly<Record<keyof typeof MISSING_DETAIL_LINES, string>>;
-  booked: (when: string, service: string | null) => string;
+  booked: (when: string, service: string | null, firstName?: string | null) => string;
   oneBookingPerCall: (when: string | null) => string;
-  slotGone: (alternatives: readonly string[]) => string;
+  /** `gone`: the time that went, spoken, when known (the call says it: "Ah, 2 just went"). */
+  slotGone: (alternatives: readonly string[], gone?: string | null) => string;
   offer: (times: readonly string[]) => string;
   detailsBeforeHold: (when: string) => string;
   ask: (missing: "first_name" | "phone") => string;
-  heldAsk: (missing: "first_name" | "phone") => string;
+  /** `when`: the time held, spoken, when known. */
+  heldAsk: (missing: "first_name" | "phone", when?: string | null) => string;
   requestAsk: (missing: "first_name" | "phone", deposit: boolean) => string;
   deposit: typeof depositLine;
 };
@@ -303,6 +305,102 @@ export const BOOKING_LINES_ES: BookingLines = {
 };
 
 /** The fixed booking lines in a call's language. */
+/** A call's lines, in the caller's language (the website chat uses BOOKING_LINES_EN). */
 export function bookingLinesFor(language: "en" | "es" = "en"): BookingLines {
-  return language === "es" ? BOOKING_LINES_ES : BOOKING_LINES_EN;
+  return language === "es" ? BOOKING_LINES_ES : BOOKING_LINES_VOICE_EN;
+}
+
+// -----------------------------------------------------------------------------
+// English on a call (owner, 1 November 2026, docs/design/demo-aya-simpler-2026-11-01.md
+// section 3a): the lines as a front desk says them, short, one question each.
+// The website chat keeps BOOKING_LINES_EN above, word for word.
+// -----------------------------------------------------------------------------
+
+/** The front desk's part of the call's deposit line: replaced by the text's offer when the text is offered (payment-text.ts). */
+export const VOICE_DEPOSIT_DESK_TAIL = ", and our front desk will give you a quick call to take it.";
+
+/** The day of a spoken time ("Thursday the 5th at 3": "Thursday the 5th"), and its time ("3"). */
+function dayOf(label: string): string {
+  return label.split(" at ")[0] ?? label;
+}
+function timeOf(label: string): string {
+  return label.includes(" at ") ? label.split(" at ").slice(1).join(" at ") : label;
+}
+
+/** Times said together, as a person lists them: "10, 2 or 4". */
+function joinOrSpoken(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} or ${items[items.length - 1]}`;
+}
+
+/** Times on offer, the day said once: "Thursday the 5th, I've got 10, 2 or 4". */
+function spokenTimes(times: readonly string[]): string {
+  const [first, ...rest] = times;
+  if (!first) return "";
+  if (first.includes(" at ") && rest.every((t) => !t.includes(" at "))) return `${dayOf(first)}, I've got ${joinOrSpoken([timeOf(first), ...rest])}`;
+  // Times over more than one day, each day said once: "Monday the 2nd at 2 or 4, or Tuesday the 3rd at 2".
+  const groups: { day: string; times: string[] }[] = [];
+  let day = "";
+  for (const label of times) {
+    if (label.includes(" at ")) day = dayOf(label);
+    const time = label.includes(" at ") ? timeOf(label) : label;
+    const last = groups[groups.length - 1];
+    if (last && last.day === day) last.times.push(time);
+    else groups.push({ day, times: [time] });
+  }
+  const said = groups.map((g) => (g.day ? `${g.day} at ${joinOrSpoken(g.times)}` : joinOrSpoken(g.times)));
+  return `I've got ${said.length === 2 ? `${said[0]}, or ${said[1]}` : said.length > 2 ? `${said.slice(0, -1).join(", ")}, or ${said[said.length - 1]}` : said[0]}`;
+}
+
+const VOICE_ASK = {
+  first_name: "What's your first name?",
+  phone: "What's the best number for you?",
+} as const;
+
+function voiceDepositLine(input: Parameters<typeof depositLine>[0]): string {
+  if (!input) return "";
+  const amount = input.amountUsd !== null && Number.isFinite(input.amountUsd) && input.amountUsd > 0 ? input.amountUsd : null;
+  if (input.action === "book_and_flag") {
+    if (input.scope === "some_services") return "Some appointments need a deposit; if yours does, our front desk will give you a quick call to take it.";
+    return `There's ${amount !== null ? `a ${amount} dollar deposit` : "a deposit"}${VOICE_DEPOSIT_DESK_TAIL}`;
+  }
+  return depositLine(input);
+}
+
+export const BOOKING_LINES_VOICE_EN: BookingLines = {
+  ...BOOKING_LINES_EN,
+  manual: "I'll note that time, and our team will confirm it with you.",
+  hold: "I'm holding that time for you.",
+  noFreeTime: "That one's full. Another day work?",
+  toolFailure: "Sorry, that didn't go through. Want me to put you through to the clinic, or take your details so the team can confirm?",
+  missing: {
+    first_name: "Sorry, your first name?",
+    at: "Which day and time would suit you?",
+    phone: "Sorry, what was that number?",
+    preferred_window: "Which day or time works best?",
+  },
+  booked: (when, service, firstName) => `Perfect${firstName ? `, ${firstName}` : ""}, you're booked${service ? ` for ${service}` : ""} on ${when}.`,
+  oneBookingPerCall: (when) =>
+    when ? `You're all set for ${when.replace(/ the \d+(?:st|nd|rd|th)\b/, "")}. For a second visit, our front desk can sort that out.` : "You're all set. For a second visit, our front desk can sort that out.",
+  slotGone: (alternatives, gone) => {
+    const lead = `Ah, ${gone ? timeOf(gone) : "that one"} just went.`;
+    if (alternatives.length === 0) return `${lead} Another day work?`;
+    const sameDay = gone && alternatives[0]!.includes(" at ") && dayOf(alternatives[0]!) === dayOf(gone);
+    const times = sameDay ? [timeOf(alternatives[0]!), ...alternatives.slice(1)] : alternatives;
+    return `${lead} I've got ${joinOrSpoken(times)}?`;
+  },
+  offer: (times) => {
+    if (times.length === 0) return "That one's full. Another day work?";
+    return `${spokenTimes(times)}. ${times.length === 1 ? "Does that work?" : "Any of those work?"}`;
+  },
+  detailsBeforeHold: () => `Lovely. ${VOICE_ASK.first_name}`,
+  ask: (missing) => (missing === "phone" ? "And the best number for you?" : VOICE_ASK.first_name),
+  heldAsk: (missing, when) => `Great, I'm holding ${when ? timeOf(when) : "that"} for you. ${VOICE_ASK[missing]}`,
+  requestAsk: (missing, deposit) => `${deposit ? DEPOSIT_REQUEST_LINE : "I'll note that time, and our team will confirm it with you."} ${VOICE_ASK[missing]}`,
+  deposit: voiceDepositLine,
+};
+
+/** Read back a number the caller gave, as a person checks it: "three oh five ..., right?" (forVoice speaks the digits). */
+export function readBackLine(number: string): string {
+  return `${number}, right?`;
 }

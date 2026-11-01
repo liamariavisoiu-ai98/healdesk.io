@@ -245,9 +245,16 @@ locals {
   # the Slack webhook ops alerts are posted through (lib/ops/slack.ts), and
   # the Slack app's bot token and channel the support-slack sweep posts and
   # updates a drafted support reply's message with (lib/support/slack-reply.ts).
+  # And the model provider's key, which the worker's own jobs call the model
+  # with: the practice questions every channel must pass before it goes live
+  # (lib/engine/practice/job.ts, through lib/assistant/responder.ts and
+  # practice/judge.ts) and the support drafter (support-draft). It was missing
+  # until 1 November 2026, so every practice run in production would have
+  # ended "model unreachable" and no channel could pass its audit.
   # Not the signing secret or the operator ids: only the web tier's route
   # checks a button press (lib/support/slack-actions.ts).
   worker_secret_names = [
+    "ANTHROPIC_API_KEY",
     "BETTER_AUTH_SECRET",
     "DATABASE_URL",
     "GOOGLE_OAUTH_CLIENT_ID",

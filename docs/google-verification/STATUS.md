@@ -6,7 +6,7 @@ sees Google's "unverified app" warning. Update this page whenever a step moves,
 with the date and who confirmed it. How to do each step:
 [SUBMISSION.md](./SUBMISSION.md).
 
-**Overall: NOT SUBMITTED.** Last updated 31 October 2026.
+**Overall: NOT SUBMITTED.** Last updated 1 November 2026. Everything before the video is done. Next: the practice run and the video (SUBMISSION.md, Parts 1 and 2), then the submission (Part 4).
 
 | # | Step | State | Confirmed by, date |
 | --- | --- | --- | --- |
@@ -15,10 +15,11 @@ with the date and who confirmed it. How to do each step:
 | 3 | healdesk.io verified in Google Search Console | Done | Owner, 31 Oct 2026 |
 | 4 | Project is **healdesk-prod**; one OAuth client, "healdesk production - calendar", redirect `https://app.healdesk.io/api/calendar/google/callback` | Done | Owner, 31 Oct 2026 |
 | 5 | Data Access lists exactly the five permissions; Google marks only `calendar.events.owned` sensitive | Done | Owner, 31 Oct 2026 |
-| 6 | Branding page (name, logo, home, privacy, terms, authorised domain) and Audience "In production" | Not confirmed | |
+| 6 | Audience: External, "In production" | Done | Owner, 1 Nov 2026 |
+| 6a | Branding page (name, logo, home, privacy, terms, authorised domain) | Done | Owner, 1 Nov 2026 |
 | 7 | Client ID and secret set on the AWS host (Parameter Store), the ID matching healdesk-prod's client | Done (the secret's correctness shows at the first connect) | Owner, CloudShell, 31 Oct 2026 |
-| 7a | Test Google account for the recording (a free Gmail account, recovery address hello@healdesk.io) | Not started | |
-| 7b | YouTube channel to upload the video to | Not started | |
+| 7a | Test Google account for the recording: `healdesk.testclinic@gmail.com` (free Gmail, recovery address hello@healdesk.io) | Done | Owner, 1 Nov 2026 |
+| 7b | YouTube channel to upload the video to: `@healdeskio` | Done | Owner, 1 Nov 2026 |
 | 8 | Demo video recorded and uploaded to YouTube as Unlisted | Not started | |
 | 9 | Submitted in the Verification Center (date) | Not started | |
 | 10 | Google's branding review passed | Waiting on 9 | |
@@ -33,6 +34,11 @@ Only the demo clinic and healdesk's test Google account.
 
 ## Log
 
+- 1 Nov 2026: owner created the test account healdesk.testclinic@gmail.com
+  and the YouTube channel @healdeskio, and confirmed Audience is "In
+  production".
+- 1 Nov 2026: owner confirmed the console set-up is complete: Branding,
+  Audience, Data Access, Clients, Search Console and the host's keys.
 - 31 Oct 2026: owner confirmed in CloudShell that GOOGLE_OAUTH_CLIENT_ID and
   GOOGLE_OAUTH_CLIENT_SECRET are set on the host (step 7).
 - 31 Oct 2026: status reconstructed from the repo and the owner's report of the

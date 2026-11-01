@@ -4,7 +4,9 @@ import { redirect } from "next/navigation";
 import { currentUserId, portalGrants } from "@/lib/portal/access";
 import { isSafeRedirect, SIGN_IN_LINK_TTL_MS } from "@/lib/sign-in/links";
 
+import { SignInShell } from "./shell";
 import { SignInForm } from "./SignInForm";
+import { TEXT_LINK } from "./ui";
 
 export const metadata: Metadata = { title: "Sign in to healdesk" };
 
@@ -33,20 +35,21 @@ export default async function SignInPage({
   const userId = await currentUserId();
   if (userId && (await portalGrants(userId)).length > 0) redirect(next ?? "/");
 
+  // The heading and the lede are the form's (SignInForm.tsx): once the link
+  // is on its way, the whole card becomes the "check your inbox" state.
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6 py-16">
-      <h1 className="text-2xl font-semibold">Sign in to healdesk</h1>
-      <p className="text-muted mt-3">
-        We&apos;ll email you a link that signs you in. There&apos;s no password to remember.
-      </p>
+    <SignInShell
+      below={
+        <p>
+          Link expired, or nobody checks that inbox any more?{" "}
+          <a href="/sign-in/help" className={`${TEXT_LINK} whitespace-nowrap`}>
+            Get help signing in
+          </a>
+          .
+        </p>
+      }
+    >
       <SignInForm next={next} linkMinutes={Math.round(SIGN_IN_LINK_TTL_MS.sign_in / 60_000)} />
-      <p className="text-muted mt-10 text-sm">
-        Link expired, or nobody checks that inbox any more?{" "}
-        <a href="/sign-in/help" className="underline underline-offset-2">
-          Get help signing in
-        </a>
-        .
-      </p>
-    </main>
+    </SignInShell>
   );
 }

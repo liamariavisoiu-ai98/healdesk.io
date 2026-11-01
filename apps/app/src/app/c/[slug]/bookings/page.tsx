@@ -28,6 +28,7 @@ import {
   requestStatusBadge,
   type Badge,
 } from "@/lib/portal/bookings-view";
+import { bookingsWeek, weekOffsetOf } from "@/lib/portal/bookings-week";
 import { portalMoment, portalMoney } from "@/lib/portal/format";
 import { loadPortalPage, shellProps } from "@/lib/portal/page";
 import { patientGuardProps, requirePatientPage, withPatientPage } from "@/lib/portal/patient-page";
@@ -39,6 +40,7 @@ import { PortalShell } from "../PortalShell";
 import { DecideForm } from "./DecideForm";
 import { HandoverControl } from "./HandoverControl";
 import { OutcomeControl } from "./OutcomeControl";
+import { WeekCalendar } from "./WeekCalendar";
 
 export const metadata: Metadata = {
   title: "Bookings · healdesk",
@@ -68,7 +70,7 @@ export const dynamic = "force-dynamic";
  * it. The query carries an id and status words, never anything of the
  * person.
  */
-type Query = { request?: string; followup?: string; calendar?: string; deposit?: string; handled?: string; h?: string };
+type Query = { request?: string; followup?: string; calendar?: string; deposit?: string; handled?: string; h?: string; week?: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const E164 = /^\+[1-9]\d{6,14}$/;
@@ -128,6 +130,11 @@ export default async function BookingsPage({
             <span className="font-semibold">{glance.upcoming}</span> booked by AYA, coming up
           </li>
         </ul>
+
+        <WeekCalendar
+          week={bookingsWeek(screen.booked, { now, timeZone: zone, offset: weekOffsetOf(query.week) })}
+          path={bookingsPath(slug)}
+        />
 
         <div role="status" aria-live="polite">
           {focus ? <FocusNote view={focus} query={query} decided={decided} now={now} /> : null}
@@ -197,7 +204,7 @@ export default async function BookingsPage({
               <h3 className="mt-6 font-semibold">Deposits to collect</h3>
               <ul className="mt-2 grid gap-2">
                 {screen.deposits.map((a) => (
-                  <li key={a.id} className="border-line rounded-md border bg-white p-4">
+                  <li key={a.id} className="border-line rounded-lg border bg-white p-4 shadow-sm">
                     <p className="font-semibold">
                       {depositAmount(a)} from {a.firstName ?? "this booking"}, before{" "}
                       {portalMoment(a.scheduledFor, zone, now)}
@@ -486,7 +493,7 @@ function HandoverCard(props: {
     <article
       id={`handover-${h.id}`}
       aria-labelledby={`handover-${h.id}-name`}
-      className="border-line rounded-md border bg-white p-4"
+      className="border-line rounded-lg border bg-white p-4 shadow-sm"
     >
       <h4 id={`handover-${h.id}-name`} className="font-semibold">
         {firstNameOf(h.firstName) ?? "Someone"} asked for a person {words.via}
@@ -552,7 +559,7 @@ function BookedRow(props: {
     // The request's anchor too, as on every request's card. Links from
     // elsewhere open a request by its `?request=` focus (bookingRequestPath),
     // which finds it wherever it now sits.
-    <article id={`request-${a.requestId}`} className="border-line rounded-md border bg-white p-4">
+    <article id={`request-${a.requestId}`} className="border-line rounded-lg border bg-white p-4 shadow-sm">
       <h3 className="font-semibold">
         {a.firstName ?? "Someone"}, {portalMoment(a.scheduledFor, zone, now)}
       </h3>

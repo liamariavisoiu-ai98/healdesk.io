@@ -1,6 +1,7 @@
 import type { Channel } from "@healdesk/catalog";
 import type { ReactNode } from "react";
 
+import wordmark from "@/brand/healdesk-wordmark.webp";
 import type { PortalGrant } from "@/lib/portal/access";
 import type { AnsweringControl, AnsweringStatus } from "@/lib/portal/header";
 import { notYetLine, portalNav, sectionPath, type PortalSection } from "@/lib/portal/nav";
@@ -61,7 +62,8 @@ export function PortalShell(props: ShellProps) {
     );
 
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[15rem_minmax(0,1fr)]">
+    // portal-glow: the sign-in pages' light, faint, in the top corner (globals.css).
+    <div className="portal-glow min-h-screen lg:grid lg:grid-cols-[15rem_minmax(0,1fr)]">
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-10 focus:rounded-full focus:bg-white focus:px-4 focus:py-2"
@@ -152,13 +154,22 @@ export function PortalShell(props: ShellProps) {
   );
 }
 
-/** healdesk's mark: the orange dot and the name, as on the site. */
+/**
+ * healdesk's wordmark, the logo itself as on the site and the sign-in pages
+ * (owner, 1 November 2026: the portal's shared parts in the sign-in look),
+ * in place of the orange dot and the name typed out. The same static asset
+ * as sign-in, served from this app (app/sign-in/shell.tsx says why).
+ */
 function Brand() {
   return (
-    <p className="flex items-center gap-2 text-lg font-bold tracking-tight">
-      <span aria-hidden="true" className="healdesk-dot inline-block shrink-0" />
-      healdesk
-    </p>
+    <img
+      src={wordmark.src}
+      width={wordmark.width}
+      height={wordmark.height}
+      alt="healdesk"
+      draggable={false}
+      className="block h-6 w-auto select-none lg:h-7"
+    />
   );
 }
 

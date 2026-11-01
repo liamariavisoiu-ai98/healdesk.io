@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 import { demoChatParams, demoUrgentReply } from "@/lib/demo/chat-model";
-import { withDemoSamples } from "@/lib/demo/samples";
+import { liveDemo } from "@/lib/demo/samples";
 import { getDemoSession, isDemoActive, isDemoSlug, profileOf } from "@/lib/demo/sessions";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 
@@ -67,8 +67,9 @@ export async function POST(request: Request, ctx: { params: Promise<{ slug: stri
   }
   const stored = profileOf(session);
   if (!stored) return fail("This demo isn't ready yet.", 410);
-  // What the website did not show is made up for the live demo, as the page says (lib/demo/samples.ts).
-  const profile = withDemoSamples(stored).profile;
+  // What the website did not show is made up for the live demo, as the page
+  // says: the values the build stored (lib/demo/samples.ts).
+  const profile = liveDemo(stored, session.demoFill).profile;
 
   const perDemo = await rateLimit(`demo-chat:slug:${slug}`, DEMO_LIMIT, DAY_MS);
   if (!perDemo.ok) {

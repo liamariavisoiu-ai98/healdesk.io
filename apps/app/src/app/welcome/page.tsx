@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { SignInShell } from "@/app/sign-in/shell";
 import { replyByDate } from "@/lib/reply-by";
 
 import { WelcomeProgress } from "./WelcomeProgress";
@@ -15,7 +16,9 @@ export const dynamic = "force-dynamic";
 /**
  * /welcome: where Stripe sends the browser that has just paid (plan Part C3).
  * It waits for the account, then signs this browser in with a one-time link
- * that only the paying browser can receive (lib/checkout/welcome.ts).
+ * that only the paying browser can receive (lib/checkout/welcome.ts). In the
+ * sign-in pages' frame (app/sign-in/shell.tsx): it is the first healdesk page
+ * a clinic sees after paying.
  */
 export default async function WelcomePage({
   searchParams,
@@ -24,8 +27,8 @@ export default async function WelcomePage({
 }) {
   const { h, cs } = await searchParams;
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6 py-16">
+    <SignInShell>
       <WelcomeProgress intentRef={h ?? ""} sessionId={cs ?? ""} replyBy={replyByDate()} />
-    </main>
+    </SignInShell>
   );
 }

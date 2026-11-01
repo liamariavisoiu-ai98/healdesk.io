@@ -3,6 +3,7 @@ import {
   parseDemoCallClinic,
   sealDemoCallContext,
   type DemoCallContext,
+  type DemoCallSampled,
   type DemoCallMode,
 } from "@healdesk/catalog";
 
@@ -84,13 +85,15 @@ export async function demoEngineCall(input: {
   test?: boolean;
   /** The buy button the demo page shows (lib/demo/offer.ts demoBuyButton), what Aya closes on. */
   buyButton?: string | null;
+  /** Which of the clinic's values are the demo's made-up samples (lib/demo/samples.ts sampledForCall), so Aya can tell them from the website's. */
+  sampled?: DemoCallSampled;
 }): Promise<DemoEngineCall | null> {
   const agentId = demoEngineAgentId();
   const secret = process.env.HEALDESK_PROVISION_SECRET;
   if (!agentId || !secret) return null;
   if (!(await appAnswers())) return null;
 
-  const clinic = parseDemoCallClinic(input.profile);
+  const clinic = parseDemoCallClinic(input.sampled ? { ...input.profile, sampled: input.sampled } : input.profile);
   if (!clinic) return null;
   const context: DemoCallContext = {
     v: 1,

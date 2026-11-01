@@ -6,7 +6,7 @@ import type { AnswerDecision, assistantMayAnswer } from "@/lib/billing/answering
 import { slotLabel } from "@/lib/booking/calendar";
 import { spokenSlotEn } from "@/lib/voice/spoken";
 import type { BookConversationInput, BookConversationResult } from "@/lib/booking/engine";
-import { bookedLine, BOOKING_REFUSED_LINE, forChat } from "@/lib/booking/lines";
+import { bookedLine, BOOKING_LINES_VOICE_EN, BOOKING_REFUSED_LINE, forChat } from "@/lib/booking/lines";
 
 /**
  * The booking tool layer asks B's answer gate (assistantMayAnswer) before
@@ -60,7 +60,8 @@ function gateAnswering(decision: AnswerDecision) {
   return { gate, calls };
 }
 
-const CHOSEN: BookingToolState = { ...EMPTY_TOOL_STATE, offered: [{ at: AT, providerId: null }], chosen: { at: AT, providerId: null }, held: true };
+// The number was read back and confirmed on an earlier turn (a call reads every given number back first).
+const CHOSEN: BookingToolState = { ...EMPTY_TOOL_STATE, offered: [{ at: AT, providerId: null }], chosen: { at: AT, providerId: null }, held: true, phoneConfirmed: "+14155550188" };
 const CAPTURE = { ...EMPTY_CAPTURE, firstName: "Ada", phone: "+14155550188" };
 
 function tools(channel: "voice" | "web_chat", engine: BookingEngine, gate: typeof assistantMayAnswer, answering?: { continuing?: boolean; usage?: { source: "web_chat"; sourceRef: string } }) {
@@ -104,7 +105,7 @@ describe("the booking tool layer and the answer gate", () => {
       const turn = await tools(channel, engine, gate).run({ action: null, capture: CAPTURE, state: CHOSEN, now: NOW });
       expect(writes).toEqual([new Date(AT)]);
       expect(turn?.bookingWritten).toBe(true);
-      expect(turn?.reply).toBe(bookedLine(channel === "voice" ? spokenSlotEn(new Date(AT), TZ) : slotLabel(new Date(AT), TZ), null));
+      expect(turn?.reply).toBe(channel === "voice" ? BOOKING_LINES_VOICE_EN.booked(spokenSlotEn(new Date(AT), TZ), null, "Ada") : bookedLine(slotLabel(new Date(AT), TZ), null));
     });
 
     test(`${channel}: a booking already made is answered as it was, paused now or not`, async () => {
@@ -114,7 +115,7 @@ describe("the booking tool layer and the answer gate", () => {
       // The tool layer leaves the gate to the engine, after its replay.
       expect(gateAsked.count).toBe(0);
       expect(turn?.bookingWritten).toBe(true);
-      expect(turn?.reply).toBe(bookedLine(channel === "voice" ? spokenSlotEn(new Date(AT), TZ) : slotLabel(new Date(AT), TZ), null));
+      expect(turn?.reply).toBe(channel === "voice" ? BOOKING_LINES_VOICE_EN.booked(spokenSlotEn(new Date(AT), TZ), null, "Ada") : bookedLine(slotLabel(new Date(AT), TZ), null));
     });
   }
 

@@ -245,6 +245,12 @@ locals {
   # the Slack webhook ops alerts are posted through (lib/ops/slack.ts), and
   # the Slack app's bot token and channel the support-slack sweep posts and
   # updates a drafted support reply's message with (lib/support/slack-reply.ts).
+  # And HEALDESK_RETELL_LLM_SECRET (1 November 2026): automatic voice
+  # provisioning runs here (the hourly sweep, its queue, the hourly agent sync
+  # and the 03 UTC drift check, lib/voice/provision.ts), and every Retell agent
+  # it creates or checks carries our socket's address, which holds that secret
+  # (lib/voice/retell-agent.ts, llmSecret). Without it every agent fails
+  # with a configuration error and the clinic waits on an operator's retry.
   # Not the signing secret or the operator ids: only the web tier's route
   # checks a button press (lib/support/slack-actions.ts).
   worker_secret_names = [
@@ -255,6 +261,7 @@ locals {
     "HEALDESK_IDENTIFIER_REF_KEY",
     "HEALDESK_PROVISION_SECRET",
     "HEALDESK_RETELL_API_KEY",
+    "HEALDESK_RETELL_LLM_SECRET",
     "RESEND_API_KEY",
     "SLACK_BOT_TOKEN",
     "SLACK_SUPPORT_CHANNEL",

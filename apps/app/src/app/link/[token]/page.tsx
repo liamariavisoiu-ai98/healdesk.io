@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { ContinueButton } from "@/app/sign-in/ContinueButton";
+import { SignInShell } from "@/app/sign-in/shell";
+import { CardBadge, CardLede, CardTitle, PRIMARY_BUTTON } from "@/app/sign-in/ui";
 import { auth } from "@/lib/auth";
 import { clientIp } from "@/lib/client-ip";
 import { currentUserId } from "@/lib/portal/access";
@@ -76,30 +79,31 @@ export default async function LinkPage({ params }: { params: Promise<{ token: st
     if (link.reason === "used" && (await currentUserId())) redirect("/");
     const problem = PROBLEMS[link.reason];
     return (
-      <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6 py-16">
-        <h1 className="text-2xl font-semibold">{problem.title}</h1>
-        <p className="text-muted mt-3">{problem.body}</p>
-        <a href="/sign-in" className="bg-ink mt-8 inline-flex w-fit rounded-full px-6 py-3 text-sm font-bold text-white">
+      <SignInShell>
+        <CardBadge icon="link" />
+        <div className="mt-5">
+          <CardTitle small>{problem.title}</CardTitle>
+        </div>
+        <CardLede>{problem.body}</CardLede>
+        <a href="/sign-in" className={`${PRIMARY_BUTTON} mt-8`}>
           Get a new sign-in link
         </a>
-      </main>
+      </SignInShell>
     );
   }
 
   const formId = "continue-with-link";
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6 py-16">
-      <h1 className="text-2xl font-semibold">Sign in to healdesk</h1>
-      <p className="text-muted mt-3">
-        Continue as <strong className="text-ink">{maskEmail(link.email)}</strong>.
-      </p>
+    <SignInShell>
+      <CardTitle>Sign in to healdesk</CardTitle>
+      <CardLede>
+        Continue as <strong className="text-ink font-semibold [overflow-wrap:anywhere]">{maskEmail(link.email)}</strong>.
+      </CardLede>
       <form id={formId} action={continueWithLink} className="mt-8">
         <input type="hidden" name="token" value={token} />
-        <button type="submit" className="bg-ink rounded-full px-6 py-3 text-sm font-bold text-white">
-          Continue
-        </button>
+        <ContinueButton />
       </form>
       {link.purpose === "checkout" ? <AutoSubmit formId={formId} /> : null}
-    </main>
+    </SignInShell>
   );
 }

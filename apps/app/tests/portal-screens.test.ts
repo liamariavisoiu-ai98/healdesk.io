@@ -78,7 +78,8 @@ describeDb("the portal's screens", () => {
 
     test("the menu: Conversations and Bookings are not links, and one sentence says they open after go-live", async () => {
       const html = await renderHome();
-      expect(html).toMatch(/<a href="\/c\/[^"]+" aria-current="page"[^>]*>Home<\/a>/);
+      // The menu's icon (portal redesign, 1 November 2026) sits before the label.
+      expect(html).toMatch(/<a href="\/c\/[^"]+" aria-current="page"[^>]*>(?:<svg[\s\S]*?<\/svg>)?Home<\/a>/);
       expect(html).toContain("Conversations and Bookings open after go-live.");
       expect(html).not.toContain("/conversations");
       expect(html).not.toContain("/bookings");

@@ -1,7 +1,7 @@
 import type { ClaimsPayload } from "@/lib/reporting/claim-words";
 
 import type { AttentionItem } from "./attention";
-import { portalCount } from "./format";
+import { portalCount, portalMoney } from "./format";
 import { waitingSentence, type WaitingFigures } from "./waiting-words";
 
 /**
@@ -96,4 +96,59 @@ export function needsYouEmptyLine(answering: boolean): string {
   return answering
     ? "Nothing needs you right now. AYA is answering, and anything that does will show up here."
     : "Nothing needs you right now.";
+}
+
+/** One of Home's three big numbers. */
+export type HomeTile = { key: "value" | "bookings" | "deposits"; label: string; value: string; hint: string };
+
+/**
+ * Home's three big numbers (portal redesign, owner, 1 November 2026): booked
+ * value, bookings and deposits collected, over the last 7 days. Only what v1
+ * may claim (CLAUDE.md, "Claims and copy"; spec, "What v1 can show
+ * honestly"): booked value is bookings times the clinic's own listed prices,
+ * never "revenue" and never a return on anything, and the hint says so. A
+ * per-unit price is never multiplied in, and a booking with no listed price
+ * is named, as claim-words does, so the figure is never read as covering
+ * what it does not. While bookings are requests the team confirms, the middle
+ * tile counts those requests instead, under their own name.
+ */
+export function homeTiles(p: ClaimsPayload): HomeTile[] {
+  const priced = p.pricedBookingsCount;
+  const valueHint: string[] = [];
+  if (priced > 0) valueHint.push(`${portalCount(priced, "booking", "bookings")} at your listed prices`);
+  if (p.perUnitBookingsCount > 0) {
+    valueHint.push(`${portalCount(p.perUnitBookingsCount, "booking", "bookings")} priced per unit, not added in`);
+  }
+  if (p.unpricedBookingsCount > 0) {
+    valueHint.push(`${portalCount(p.unpricedBookingsCount, "booking", "bookings")} with no listed price`);
+  }
+  if (valueHint.length === 0) valueHint.push("Bookings at your listed prices");
+
+  const bookings: HomeTile = p.isRequestMode
+    ? {
+        key: "bookings",
+        label: "Booking requests",
+        value: p.requestsTakenCount.toLocaleString("en-US"),
+        hint: `${p.requestsConfirmedCount.toLocaleString("en-US")} confirmed by your team`,
+      }
+    : {
+        key: "bookings",
+        label: "Booked by AYA",
+        value: p.bookedByAyaCount.toLocaleString("en-US"),
+        hint: `from ${portalCount(p.handledCount, "conversation", "conversations")}`,
+      };
+
+  return [
+    { key: "value", label: "Booked value", value: portalMoney(p.bookedValueCents), hint: valueHint.join(" · ") },
+    bookings,
+    {
+      key: "deposits",
+      label: "Deposits collected",
+      value: portalMoney(p.depositsCollectedCents),
+      hint:
+        p.depositsCollectedCount > 0
+          ? `${portalCount(p.depositsCollectedCount, "deposit", "deposits")} paid`
+          : "None collected yet",
+    },
+  ];
 }

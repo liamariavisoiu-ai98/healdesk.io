@@ -1,6 +1,7 @@
 import type { Channel } from "@healdesk/catalog";
 import type { ReactNode } from "react";
 
+import wordmark from "@/brand/healdesk-wordmark.webp";
 import type { PortalGrant } from "@/lib/portal/access";
 import type { AnsweringControl, AnsweringStatus } from "@/lib/portal/header";
 import { notYetLine, portalNav, sectionPath, type PortalSection } from "@/lib/portal/nav";
@@ -10,18 +11,19 @@ import { HelpPanel } from "./HelpPanel";
 import { PauseSwitch } from "./PauseSwitch";
 
 /**
- * The frame every portal screen sits in (plan Part F0): the clinic's name,
- * Help and Sign out; the header's line about AYA; the six-item menu; a
- * location switcher only when the sign-in opens several locations; the
- * screen; and Help again at the foot of the page (spec: "Help on every
- * screen").
+ * The frame every portal screen sits in (plan Part F0; redesigned with the
+ * owner, 1 November 2026): healdesk's mark and the clinic's name, the
+ * six-item menu as a sidebar from a laptop up and a row of pills on a phone,
+ * Help and Sign out; then the line or switch about AYA, the screen, and Help
+ * again at the foot of the page (spec: "Help on every screen"). A location
+ * switcher only when the sign-in opens several accounts.
  *
  * A server component with no data of its own: each page calls requirePortal
  * itself and passes what it read, because a layout does not re-run on client
  * navigation and must never be the only guard (lib/portal/access.ts).
  *
- * One column, mobile first (Part F8). Every target is at least 44px tall, and
- * nothing moves: there is no animation to reduce.
+ * Mobile first (Part F8): one column on a phone. Every target is at least
+ * 44px tall, and nothing moves: there is no animation to reduce.
  */
 
 export type ShellProps = {
@@ -52,32 +54,43 @@ export function PortalShell(props: ShellProps) {
   const notYet = notYetLine(nav);
   const others = props.locations.filter((l) => l.slug !== props.slug);
 
+  const clinic =
+    others.length > 0 ? (
+      <AccountSwitcher current={props.clinicName} others={others} section={props.section} />
+    ) : (
+      <p className="text-muted text-sm font-semibold">{props.clinicName}</p>
+    );
+
   return (
-    <div className="mx-auto min-h-screen max-w-2xl px-4 pb-10">
+    // portal-glow: the sign-in pages' light, faint, in the top corner (globals.css).
+    <div className="portal-glow min-h-screen lg:grid lg:grid-cols-[15rem_minmax(0,1fr)]">
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-10 focus:rounded-full focus:bg-white focus:px-4 focus:py-2"
       >
         Skip to the page
       </a>
-      <header className="pt-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          {others.length > 0 ? (
-            <AccountSwitcher current={props.clinicName} others={others} section={props.section} />
-          ) : (
-            <p className="text-lg font-semibold">{props.clinicName}</p>
-          )}
-          <div className="flex items-center gap-2">
+
+      {/* The menu: a sidebar from a laptop up, a row of pills on a phone
+          (portal redesign, owner, 1 November 2026). The same links either
+          way, in the spec's order. */}
+      <header className="border-line bg-white/70 px-4 pt-5 pb-3 backdrop-blur lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col lg:border-r lg:px-4 lg:pt-7 lg:pb-6">
+        <div className="flex items-center justify-between gap-3 lg:block">
+          <div className="lg:px-3">
+            <Brand />
+            <div className="mt-1 lg:mt-2">{clinic}</div>
+          </div>
+          <div className="flex items-center gap-2 lg:hidden">
             <a
               href="#help"
-              className="border-line inline-flex min-h-11 items-center rounded-full border px-4 text-sm font-semibold"
+              className="border-line inline-flex min-h-11 items-center rounded-full border bg-white px-4 text-sm font-semibold"
             >
               Help
             </a>
             <form action={signOut}>
               <button
                 type="submit"
-                className="border-line min-h-11 rounded-full border px-4 text-sm font-semibold"
+                className="border-line min-h-11 rounded-full border bg-white px-4 text-sm font-semibold"
               >
                 Sign out
               </button>
@@ -85,6 +98,41 @@ export function PortalShell(props: ShellProps) {
           </div>
         </div>
 
+        <nav aria-label="Portal" className="mt-4 lg:mt-8">
+          <ul className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 lg:mx-0 lg:grid lg:gap-1 lg:overflow-visible lg:px-0">
+            {links.map((item) => (
+              <li key={item.section} className="shrink-0">
+                <a
+                  href={item.href}
+                  aria-current={item.current ? "page" : undefined}
+                  className={`flex min-h-11 items-center gap-3 rounded-full px-4 text-sm font-semibold whitespace-nowrap lg:rounded-sm lg:px-3 ${
+                    item.current
+                      ? "bg-ink text-white"
+                      : "border-line border bg-white lg:border-transparent lg:bg-transparent lg:hover:bg-paper-2"
+                  }`}
+                >
+                  <NavIcon section={item.section} />
+                  {item.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+          {notYet ? <p className="text-muted mt-2 text-sm lg:px-3">{notYet}</p> : null}
+        </nav>
+
+        <div className="mt-auto hidden gap-2 px-3 pt-8 lg:grid">
+          <a href="#help" className="text-muted inline-flex min-h-11 items-center text-sm font-semibold">
+            Help
+          </a>
+          <form action={signOut}>
+            <button type="submit" className="text-muted min-h-11 text-sm font-semibold">
+              Sign out
+            </button>
+          </form>
+        </div>
+      </header>
+
+      <div className="mx-auto w-full max-w-4xl px-4 pb-10 lg:px-10 lg:pt-4">
         {props.answering ? (
           <PauseSwitch slug={props.slug} control={props.answering} />
         ) : (
@@ -96,35 +144,58 @@ export function PortalShell(props: ShellProps) {
           />
         )}
 
-        {/* The screens that open: a tile each. A patient screen not open yet
-            is one plain sentence under them (30 October 2026) rather than a
-            greyed tile that looks like a button and does nothing. */}
-        <nav aria-label="Portal" className="mt-4">
-          <ul className={`grid gap-2 ${links.length <= 4 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3 sm:grid-cols-6"}`}>
-            {links.map((item) => (
-              <li key={item.section}>
-                <a
-                  href={item.href}
-                  aria-current={item.current ? "page" : undefined}
-                  className={`flex min-h-11 items-center justify-center rounded-md border px-2 py-2 text-center text-sm font-semibold ${
-                    item.current ? "border-ink bg-ink text-white" : "border-line bg-white"
-                  }`}
-                >
-                  {item.label}
-                </a>
-              </li>
-            ))}
-          </ul>
-          {notYet ? <p className="text-muted mt-2 text-sm">{notYet}</p> : null}
-        </nav>
-      </header>
+        <main id="main" className="mt-8 scroll-mt-6">
+          {props.children}
+        </main>
 
-      <main id="main" className="mt-8 scroll-mt-6">
-        {props.children}
-      </main>
-
-      <HelpPanel audience={props.audience} />
+        <HelpPanel audience={props.audience} />
+      </div>
     </div>
+  );
+}
+
+/**
+ * healdesk's wordmark, the logo itself as on the site and the sign-in pages
+ * (owner, 1 November 2026: the portal's shared parts in the sign-in look),
+ * in place of the orange dot and the name typed out. The same static asset
+ * as sign-in, served from this app (app/sign-in/shell.tsx says why).
+ */
+function Brand() {
+  return (
+    <img
+      src={wordmark.src}
+      width={wordmark.width}
+      height={wordmark.height}
+      alt="healdesk"
+      draggable={false}
+      className="block h-6 w-auto select-none lg:h-7"
+    />
+  );
+}
+
+/** A line icon for each screen; decorative, the label carries the meaning. */
+function NavIcon({ section }: { section: PortalSection }) {
+  const paths: Record<PortalSection, string> = {
+    home: "M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z",
+    settings: "M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4",
+    knowledge: "M4 5a2 2 0 0 1 2-2h12v16H6a2 2 0 0 0-2 2zM4 21V5M8 7h6",
+    conversations: "M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z",
+    bookings: "M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 10h18M8 3v4M16 3v4",
+    billing: "M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2zM2 10h20",
+  };
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="hidden h-[18px] w-[18px] shrink-0 lg:block"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d={paths[section]} />
+    </svg>
   );
 }
 

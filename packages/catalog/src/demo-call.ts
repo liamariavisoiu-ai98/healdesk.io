@@ -36,6 +36,15 @@ export type DemoCallMode = "browser" | "phone" | "inbound";
 
 export type DemoCallService = { name: string; description: string | null; price: string | null; duration: string | null };
 
+/**
+ * Which of the clinic's values the demo made up because its public pages did
+ * not show them (apps/web lib/demo/samples.ts, owner, 1 November 2026): the
+ * services whose price is a typical US price, and whether the menu, the
+ * opening hours and the deposit rule are samples. The demo page lists the
+ * same items in its "Made up for this demo" note.
+ */
+export type DemoCallSampled = { prices: string[]; menu: boolean; hours: boolean; deposit: boolean };
+
 export type DemoCallClinic = {
   clinicName: string;
   summary: string | null;
@@ -49,6 +58,8 @@ export type DemoCallClinic = {
   policies: string[];
   booking: string | null;
   highlights: string[];
+  /** What the demo made up; absent on a context sealed before it existed. */
+  sampled?: DemoCallSampled;
 };
 
 /**
@@ -152,12 +163,25 @@ export function demoFirstName(value: unknown): string | null {
   return /^[\p{L}][\p{L}'’-]*$/u.test(first) ? first : null;
 }
 
+/** The made-up items, cleaned; undefined for anything that is not one. */
+export function parseDemoCallSampled(input: unknown): DemoCallSampled | undefined {
+  const o = obj(input);
+  if (!o) return undefined;
+  return {
+    prices: list(o.prices, DEMO_CALL_LIMITS.services, (p) => text(p, 120)),
+    menu: o.menu === true,
+    hours: o.hours === true,
+    deposit: o.deposit === true,
+  };
+}
+
 /** The clinic part, cleaned and capped; null without a clinic name. */
 export function parseDemoCallClinic(input: unknown): DemoCallClinic | null {
   const o = obj(input);
   if (!o) return null;
   const clinicName = text(o.clinicName, 120);
   if (!clinicName) return null;
+  const sampled = parseDemoCallSampled(o.sampled);
   return {
     clinicName,
     summary: text(o.summary),
@@ -189,6 +213,7 @@ export function parseDemoCallClinic(input: unknown): DemoCallClinic | null {
     policies: list(o.policies, DEMO_CALL_LIMITS.policies, (p) => text(p)),
     booking: text(o.booking),
     highlights: list(o.highlights, DEMO_CALL_LIMITS.highlights, (h) => text(h)),
+    ...(sampled ? { sampled } : {}),
   };
 }
 

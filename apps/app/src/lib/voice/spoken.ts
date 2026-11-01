@@ -50,11 +50,29 @@ const HOURS_ES = ["doce", "una", "dos", "tres", "cuatro", "cinco", "seis", "siet
  * written form ("Thu 5 Nov, 3:00 PM"), which a voice reads as it is written.
  */
 export function spokenSlotEn(at: Date, timeZone: string): string {
-  const date = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long", month: "long", day: "numeric" }).format(at);
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit", hour12: true }).formatToParts(at);
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long", day: "numeric", hour: "numeric", minute: "2-digit", hourCycle: "h23" }).formatToParts(at);
   const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "";
-  const minute = get("minute");
-  return `${date} at ${get("hour")}${minute && minute !== "00" ? `:${minute}` : ""} ${get("dayPeriod").toUpperCase()}`;
+  return `${get("weekday")} the ${ordinal(Number(get("day")))} at ${spokenHourEn(Number(get("hour")) % 24, Number(get("minute")))}`;
+}
+
+/**
+ * A time as a front desk says it (owner, 1 November 2026: "Thursday the 5th,
+ * I've got 10, 2 or 4"): the bare hour through the working day, where nobody
+ * hears "4" as four in the morning, and AM or PM only where it could be read
+ * either way, before eight in the morning and from eight at night.
+ */
+export function spokenHourEn(hour: number, minute: number): string {
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  const clock = minute === 0 ? `${h12}` : `${h12}:${String(minute).padStart(2, "0")}`;
+  if (hour < 8) return `${clock} AM`;
+  if (hour >= 20) return `${clock} PM`;
+  return clock;
+}
+
+function ordinal(n: number): string {
+  const tens = n % 100;
+  if (tens >= 11 && tens <= 13) return `${n}th`;
+  return `${n}${n % 10 === 1 ? "st" : n % 10 === 2 ? "nd" : n % 10 === 3 ? "rd" : "th"}`;
 }
 
 export function spokenSlotEs(at: Date, timeZone: string): string {

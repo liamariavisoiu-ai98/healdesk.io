@@ -5,7 +5,7 @@ import { requireOperator } from "@/lib/admin/operator";
 import { clinicVoiceVariables } from "@/lib/demo/clinic-prompts";
 import { demoEngineCall } from "@/lib/demo/engine";
 import { demoBuyButton, demoOfferFor } from "@/lib/demo/offer";
-import { withDemoSamples } from "@/lib/demo/samples";
+import { liveDemo, sampledForCall, type DemoFill } from "@/lib/demo/samples";
 import { getDemoSession, isDemoActive, isDemoSlug, profileOf } from "@/lib/demo/sessions";
 import { GATE_COOKIE, verifyGateToken } from "@/lib/gate";
 import { markCallPlaced, recordCallConsent } from "@/lib/leads";
@@ -136,15 +136,17 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   // 3b. A personalised demo, when named, must exist and be inside its week.
   //     Checked before any budget is charged: an expired link costs nobody a call.
-  let demo: { slug: string; profile: NonNullable<ReturnType<typeof profileOf>>; session: NonNullable<Awaited<ReturnType<typeof getDemoSession>>> } | null = null;
+  let demo: { slug: string; profile: NonNullable<ReturnType<typeof profileOf>>; fill: DemoFill; session: NonNullable<Awaited<ReturnType<typeof getDemoSession>>> } | null = null;
   if (demoSlug !== undefined) {
     if (!isDemoSlug(demoSlug)) return fail("That demo doesn't exist.", 404);
     const session = await getDemoSession(demoSlug);
     const profile = session ? profileOf(session) : null;
     if (!session || !profile) return fail("That demo doesn't exist.", 404);
     if (!isDemoActive(session)) return fail("This demo has expired.", 410);
-    // What the website did not show is made up for the live demo, as the page says (lib/demo/samples.ts).
-    demo = { slug: demoSlug, profile: withDemoSamples(profile).profile, session };
+    // What the website did not show is made up for the live demo, as the page
+    // says: the values the build stored (lib/demo/samples.ts).
+    const live = liveDemo(profile, session.demoFill);
+    demo = { slug: demoSlug, profile: live.profile, fill: live.fill, session };
   }
 
   // 4. Per-number limit. Checked here but CHARGED only after the call is
@@ -240,7 +242,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   // and apps/app answers (lib/demo/engine.ts), with the name the visitor
   // gave; otherwise the clinic demo agent, exactly as before.
   const engine = demo
-    ? await demoEngineCall({ slug: demo.slug, profile: demo.profile, mode: "phone", firstName: demoFirstName(callerName), offer: demoOfferFor(demo.session), test: (await requireOperator()) !== null, buyButton: demoBuyButton(demo.session) })
+    ? await demoEngineCall({ slug: demo.slug, profile: demo.profile, mode: "phone", firstName: demoFirstName(callerName), offer: demoOfferFor(demo.session), test: (await requireOperator()) !== null, buyButton: demoBuyButton(demo.session), sampled: sampledForCall(demo.fill) })
     : null;
 
   const result = await placeCall(engine ? { ...config.config, agentId: engine.agentId } : config.config, {

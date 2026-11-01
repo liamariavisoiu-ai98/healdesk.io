@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+
+import { CardBadge, CardLede, CardTitle, TEXT_LINK } from "@/app/sign-in/ui";
 
 type State =
   | { status: "pending"; email: string }
@@ -75,23 +77,23 @@ export function WelcomeProgress({
 
   if (state.status === "failed") {
     return (
-      <Message title="Payment received, and your payment is safe.">
+      <Message title="Payment received, and your payment is safe." badge={<CardBadge icon="check" done />}>
         Setting up your account needs one step on our side. We'll email {email} by {replyBy}.
       </Message>
     );
   }
   if (state.status === "timeout") {
     return (
-      <Message title="Your account is almost ready.">
+      <Message title="Your account is almost ready." badge={<CardBadge icon="mail" />}>
         We'll email your sign-in link to {email} the moment it is.
       </Message>
     );
   }
   if (state.status === "use_email") {
     return (
-      <Message title="Your account is ready.">
+      <Message title="Your account is ready." badge={<CardBadge icon="mail" />}>
         Sign in from the welcome email we sent to {email}, or{" "}
-        <a href="/sign-in" className="underline">
+        <a href="/sign-in" className={TEXT_LINK}>
           get a new sign-in link
         </a>
         .
@@ -100,9 +102,9 @@ export function WelcomeProgress({
   }
   if (state.status === "unknown") {
     return (
-      <Message title="This page belongs to the browser that paid.">
+      <Message title="This page belongs to the browser that paid." badge={<CardBadge icon="link" />}>
         If that was you, sign in from the email we sent to the clinic's address, or{" "}
-        <a href="/sign-in" className="underline">
+        <a href="/sign-in" className={TEXT_LINK}>
           get a new sign-in link
         </a>
         .
@@ -110,17 +112,36 @@ export function WelcomeProgress({
     );
   }
   return (
-    <Message title="Payment received. Setting up AYA…" busy>
+    <Message title="Payment received. Setting up AYA…" badge={<CardBadge icon="check" done />} busy>
       This takes a few seconds. Keep this page open.
     </Message>
   );
 }
 
-function Message({ title, children, busy }: { title: string; children: React.ReactNode; busy?: boolean }) {
+/**
+ * One state of the card: its badge, heading and line. The same element in
+ * every state, so the live region stays put and each change is read out. No
+ * spinner while it waits: the portal's motion stops on its own (globals.css,
+ * "Sign-in pages"), and the words say it is working.
+ */
+function Message({
+  title,
+  children,
+  badge,
+  busy,
+}: {
+  title: string;
+  children: ReactNode;
+  badge: ReactNode;
+  busy?: boolean;
+}) {
   return (
     <div role="status" aria-live="polite" aria-busy={busy || undefined}>
-      <h1 className="text-2xl font-semibold">{title}</h1>
-      <p className="text-muted mt-3">{children}</p>
+      {badge}
+      <div className="mt-5">
+        <CardTitle small>{title}</CardTitle>
+      </div>
+      <CardLede>{children}</CardLede>
     </div>
   );
 }

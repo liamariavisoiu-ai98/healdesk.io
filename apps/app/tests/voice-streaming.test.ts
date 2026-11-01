@@ -298,35 +298,21 @@ describe("borrowed from full-duplex speech (owner, 24 October 2026)", () => {
     expect(speak.mock.calls.map(([s]) => s).join(" ")).toContain("Let me see - Friday");
   });
 
-  test("the prompt asks for the half-remembered name from the menu, a calm 'No rush', and the pause", () => {
+  // Since 1 November 2026 her manner is four example calls and five musts (prompt.ts voiceStyle; owner, approving
+  // docs/design/demo-aya-simpler-2026-11-01.md 3c and 6), not forty rules; what protects the product stays a line.
+  test("the prompt teaches her manner by four calls built from the practice's own menu, and keeps the lines that protect", () => {
     const prompt = buildAssistantPrompt(FACTS, "voice");
-    expect(prompt).toMatch(/finish the thought for them with the closest service from the list/);
-    expect(prompt).toMatch(/Only ever name services on the list/);
-    expect(prompt).toMatch(/"No rush\."/);
-    expect(prompt).toContain('(" - ")');
-  });
-
-  test("the prompt asks for the answer word first, matched energy, short small talk, and a bad line picked back up", () => {
-    const prompt = buildAssistantPrompt(FACTS, "voice");
-    expect(prompt).toMatch(/Lead with the answer itself/);
-    expect(prompt).toMatch(/match their energy/);
-    expect(prompt).toMatch(/and their pace/);
-    expect(prompt).toMatch(/never claim a body, a life, or experiences you cannot have/);
-    expect(prompt).toMatch(/pick the thread back up/);
+    expect(prompt).toMatch(/Five musts:/);
+    expect(prompt).toMatch(/How you sound, in four calls/);
+    for (const n of ["1. A nervous first-timer", "2. A brisk caller", "3. A repeat, a medical question, a goodbye", "4. A frustrated caller on a bad line"]) expect(prompt).toContain(n);
+    expect(prompt).toMatch(/finish the thought for them with the closest service from the list \(only ever name services on the list\)/);
+    expect(prompt).toMatch(/mirror their pace and warmth/);
+    expect(prompt).toMatch(/Never claim a body or a life/);
+    expect(prompt).toMatch(/say the line is breaking up/);
+    expect(prompt).toMatch(/never laugh unless they were funny/);
+    expect(prompt).toMatch(/never say you can't help just because you missed a word or two/);
     // Website chat is not a call: none of it.
-    expect(buildAssistantPrompt(FACTS, "web_chat")).not.toMatch(/Lead with the answer itself|breaking up/);
-  });
-
-  test("the prompt asks for confidence, relating to something personal, laughter only when it's earned, and asking again instead of giving up (owner, 24 October 2026)", () => {
-    const prompt = buildAssistantPrompt(FACTS, "voice");
-    expect(prompt).toMatch(/Sound confident and glad to help, never flat, hedging or unsure of yourself/);
-    expect(prompt).toMatch(/If they mention something personal in passing/);
-    expect(prompt).toMatch(/relate to what that must be like for them, without claiming any experience of your own/);
-    expect(prompt).toMatch(/Only laugh, or say "ha" or "haha", when they have actually said something funny/);
-    expect(prompt).toMatch(/never say you can't help, or offer to pass things to the team, just because you missed a word or two/);
-    expect(prompt).not.toContain("Ha, sounds brutal");
-    expect(prompt).not.toContain("Ha, fair enough");
-    expect(prompt).not.toContain("Ha, no worries");
+    expect(buildAssistantPrompt(FACTS, "web_chat")).not.toMatch(/Five musts|breaking up/);
   });
 });
 
@@ -360,8 +346,8 @@ describe("shared emotion, never a promised result (owner, 24 October 2026)", () 
 
   test("the prompt shares the occasion, never the result, and never claims to hear the room", () => {
     const prompt = buildAssistantPrompt(FACTS, "voice");
-    expect(prompt).toMatch(/Share the excitement about the occasion, never about the result/);
-    expect(prompt).toMatch(/Never claim to hear wind, traffic or anything else/);
+    expect(prompt).toMatch(/share the excitement about the occasion, never about the result \(never how they will look or what a treatment will do for them\)/);
+    expect(prompt).toMatch(/never claim to hear wind, traffic or the room/);
   });
 });
 
@@ -394,9 +380,9 @@ describe("a declined idea, a known menu, and a peer on the line (owner, 24 Octob
     expect(prompt).toMatch(/You may say what a listed service generally is/);
     expect(prompt).toMatch(/never anything about risks, safety, downtime or results/);
     expect(prompt).toMatch(/Do not invent facts about the practice: its staff, equipment, brands/);
-    expect(prompt).toMatch(/Start every reply's words with what you have to say, never with a filler sound or a one-word filler/);
+    expect(prompt).toMatch(/never open with a filler sound \(one is said for you while you think\)/);
     expect(prompt).not.toMatch(/Think out loud/);
-    expect(prompt).toMatch(/Be the person callers love talking to/);
-    expect(prompt).toMatch(/no flirting, no compliments on how they look/);
+    expect(prompt).toMatch(/You are the best person at the front desk/);
+    expect(prompt).toMatch(/no flirting and no compliments on how they look/);
   });
 });

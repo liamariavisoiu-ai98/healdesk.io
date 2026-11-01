@@ -42,7 +42,8 @@ const DELIGHT = /\b(?:wedding|birthday|anniversary|honeymoon|vacation|holiday|tr
 const QUESTION = /\?\s*$|^\W*(?:what|how|why|which|who|where|when|do|does|did|can|could|is|are|will|would|should|qu[eé]|c[oó]mo|cu[aá]nto|cu[aá]l|d[oó]nde|cu[aá]ndo|puedo|tienen|hay)\b/i;
 const REQUEST = /\b(?:book|appointment|schedule|come in|reserve|sign me up|i(?:'d| would) like|i want|cita|reservar|quiero)\b/i;
 /** No filler: a thank-you, a goodbye, a plain yes or no, a name or a number, which want an answer straight away. */
-const NONE = /^\W*(?:thanks?|thank you|bye|goodbye|that'?s (?:all|it)|no(?:pe)?|yes|yeah|yep|ok(?:ay)?|sure|gracias|adi[oó]s|s[ií])\b[^?]{0,20}$|\d{3}/i;
+const NONE = /^\W*(?:thanks?|thank you|bye|goodbye|that'?s (?:all|it)|no(?:pe)?|yes|yeah|yep|ok(?:ay)?|sure|gracias|adi[oó]s|s[ií])\b[^?]{0,20}$|\d{3}|^\W*(?:hey|hi|hello|hiya|good (?:morning|afternoon|evening)|hola|buen[oa]s)\b[^?]{0,30}(?:how (?:are|r) (?:you|ya)|how'?s it going|how are things|you doing|c[oó]mo est[aá]s?)\b|^\W*how (?:are|r) (?:you|ya)(?: doing)?\W*$/i;
+// "Hey. How are you?" is a greeting, answered straight away: "Good question, Hey, I'm doing well" (call of 1 November 2026).
 
 export const FILLER_MIN_WORDS = 3;
 /** How many times one filler may be said in a call. */
@@ -64,9 +65,9 @@ export function fillerFor(words: string, language: SpokenLanguage, said: readonl
 }
 
 /** Words that open a line on their own and would double a filler ("So, Hm, say that again?"). */
-const OPENER = /^(?:hm+|hmm+|so|okay|ok|sure|right|got it|claro|bueno|vale|a ver|perfecto|muy bien),\s+/i;
+const OPENER = /^(?:hm+|hmm+|so|okay so|okay|ok|alright|sure thing|sure|of course|absolutely|no problem(?: at all)?|right|got it|perfect|great|good question|hey|hi|oh|claro|bueno|vale|a ver|perfecto|muy bien|por supuesto)[,!.]\s+/i;
 /** Common first words, lowered after a filler's comma; anything else (a name, "I") keeps its capital. */
-const COMMON_START = /^(?:That|That's|This|It|It's|There|There's|We|We're|We'll|Our|You|You're|Your|Yes|Yeah|No|Not|Let|Let's|The|A|An|Sure|Of|Just|Sorry|Please|What|How|Which|Do|Does|Can|Thanks|Thank|Great|Perfect|Lovely|Absolutely|Totally|Everything|Le|La|El|Lo|Con|Su|Sí|No|Por|Para|Me|Te|Se)\b/;
+const COMMON_START = /^(?:Hey|Hi|Hello|Well|Honestly|Apart|Since|For|If|In|On|At|To|With|When|Once|Good|Okay|Alright|Happy|Glad|Thursday's|That|That's|This|It|It's|There|There's|We|We're|We'll|Our|You|You're|Your|Yes|Yeah|No|Not|Let|Let's|The|A|An|Sure|Of|Just|Sorry|Please|What|How|Which|Do|Does|Can|Thanks|Thank|Great|Perfect|Lovely|Absolutely|Totally|Everything|Le|La|El|Lo|Con|Su|Sí|No|Por|Para|Me|Te|Se)\b/;
 
 /**
  * What follows a filler, joined as one sentence: an opener it would double is
@@ -77,7 +78,9 @@ const COMMON_START = /^(?:That|That's|This|It|It's|There|There's|We|We're|We'll|
 export function afterFiller(filler: string | null, text: string): string {
   if (!filler || !/,$/.test(filler.trim())) return text;
   const lead = /^\s*/.exec(text)?.[0] ?? "";
-  let rest = text.slice(lead.length).replace(OPENER, "");
+  // Her own openers, as many as she wrote ("Sure thing, Sure thing," and "Okay, so, Let me" on a call of 1 November 2026).
+  let rest = text.slice(lead.length);
+  for (let i = 0; i < 3 && OPENER.test(rest); i++) rest = rest.replace(OPENER, "");
   if (COMMON_START.test(rest)) rest = rest.charAt(0).toLowerCase() + rest.slice(1);
   return `${lead}${rest}`;
 }

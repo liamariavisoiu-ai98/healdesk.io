@@ -118,9 +118,8 @@ describe("a clinic's Retell agent", () => {
       enable_backchannel: true,
       backchannel_frequency: 0.3,
       backchannel_words: ["mm-hmm", "uh-huh", "yeah", "I see"],
-      // A quiet front desk, and her mood reaching her voice (owner, 1 November 2026).
-      ambient_sound: "call-center",
-      ambient_sound_volume: 0.3,
+      // No background sound, and her mood reaching her voice (owner, 1 November 2026).
+      ambient_sound: null,
       enable_expressive_mode: true,
       expressive_emotion_tags: ["happy", "empathetic"],
       expressive_mode_prompt: RETELL_CALL_SETTINGS.expressive_mode_prompt,

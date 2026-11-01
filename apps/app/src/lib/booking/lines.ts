@@ -208,6 +208,13 @@ export type BookingLines = {
   /** `gone`: the time that went, spoken, when known (the call says it: "Ah, 2 just went"). */
   slotGone: (alternatives: readonly string[], gone?: string | null) => string;
   offer: (times: readonly string[]) => string;
+  /**
+   * The times on offer said again, in other words than the offer (owner, 1 November 2026: never the same words
+   * twice): `narrowed`, only those of the day they named. Lines without it say the offer.
+   */
+  offerAgain?: (times: readonly string[], narrowed: boolean) => string;
+  /** Times near the ones asked for, with why: nothing that late or early, nothing then, or the day full. */
+  nearest?: (lead: "late" | "early" | "then" | "dayFull", times: readonly string[]) => string;
   detailsBeforeHold: (when: string) => string;
   ask: (missing: "first_name" | "phone") => string;
   /** `when`: the time held, spoken, when known. */
@@ -393,6 +400,11 @@ export const BOOKING_LINES_VOICE_EN: BookingLines = {
     if (times.length === 0) return "That one's full. Another day work?";
     return `${spokenTimes(times)}. ${times.length === 1 ? "Does that work?" : "Any of those work?"}`;
   },
+  nearest: (lead, times) => {
+    const why = { late: "Nothing that late, I'm afraid.", early: "Nothing that early, I'm afraid.", then: "Nothing right then, I'm afraid.", dayFull: "That day's all booked up." }[lead];
+    return `${why} ${spokenTimes(times)}. ${times.length === 1 ? "Would that work?" : "Would any of those work?"}`;
+  },
+  offerAgain: (times, narrowed) => (narrowed ? `${spokenTimes(times)}. Which one?` : `Sorry. ${spokenTimes(times)}.`),
   detailsBeforeHold: () => `Lovely. ${VOICE_ASK.first_name}`,
   ask: (missing) => (missing === "phone" ? "And the best number for you?" : VOICE_ASK.first_name),
   heldAsk: (missing, when) => `Great, I'm holding ${when ? timeOf(when) : "that"} for you. ${VOICE_ASK[missing]}`,

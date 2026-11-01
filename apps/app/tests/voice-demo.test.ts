@@ -49,7 +49,7 @@ import {
   demoStageNote,
   demoTimeZone,
 } from "@/lib/voice/demo-facts";
-import { DEMO_EXPIRED_LINE, RetellCallSession, type RetellOutbound, type RetellSessionDeps } from "@/lib/voice/retell";
+import { DEMO_EXPIRED_LINE, RetellCallSession, SPANISH_OFFER_LINE, type RetellOutbound, type RetellSessionDeps } from "@/lib/voice/retell";
 import { createVoiceServer } from "@/voice/server";
 
 import { spokenResponses } from "./setup/retell-responses";
@@ -526,12 +526,15 @@ describe("a demo call on the voice engine", () => {
     await s.finish();
   });
 
-  test("Spanish takes the call into Spanish, with the Spanish AI line once", async () => {
+  test("Spanish takes the call into Spanish on the caller's yes, with the Spanish AI line once", async () => {
     const { s, raw, heard } = demoSession(model("¡Claro! El Botox cuesta $12 por unidad.").responder);
     await s.open();
     await s.handle(details({ retell_llm_dynamic_variables: { demo_context: sealed() } }));
     await vi.waitFor(() => expect(raw()).toHaveLength(1));
     await s.handle(said(1, [{ role: "agent", content: raw()[0]!.content }, { role: "user", content: "hola, quiero saber cuánto cuesta el botox en su clínica por favor" }]));
+    // Asked first (owner, 1 November 2026), and Spanish on their yes.
+    expect(heard().at(-1)!.content).toBe(SPANISH_OFFER_LINE);
+    await s.handle(said(2, [{ role: "agent", content: SPANISH_OFFER_LINE }, { role: "user", content: "Sí, por favor." }]));
     expect(heard().at(-1)!.content.startsWith(voiceDisclosureEs({ clinicName: "Lumen Aesthetics" }))).toBe(true);
     await s.finish();
   });

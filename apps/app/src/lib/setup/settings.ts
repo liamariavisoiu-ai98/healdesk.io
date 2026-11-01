@@ -556,9 +556,9 @@ const GREETING_REFUSED: Record<GreetingRefusal, string> = {
   undoes_disclosure:
     "The greeting can't say AYA is a person or not an AI: it comes right after the line that says she's an AI assistant.",
   never_say:
-    "The greeting says something on your never-say list. Take it out, or change the list in Knowledge.",
+    "The greeting says something on your never-say list. Take it out, or change the list in Your practice.",
   price:
-    "The greeting names a price that isn't one of your listed prices or deposits. AYA quotes prices from Knowledge, exactly as listed.",
+    "The greeting names a price that isn't one of your listed prices or deposits. AYA quotes prices from Your practice, exactly as listed.",
   payment_details:
     "The greeting can't ask for card or bank details. The practice takes payment itself.",
   hipaa_claim: 'The greeting can\'t call the practice "HIPAA compliant".',

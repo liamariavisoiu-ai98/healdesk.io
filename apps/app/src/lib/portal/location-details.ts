@@ -139,7 +139,7 @@ async function editableLocation(tx: TenantTx, locationId: unknown): Promise<Loca
   if (location.isMain) {
     throw new Refusal(
       "location",
-      "Your main location's address, hours and numbers are changed in Knowledge and on this Settings page.",
+      "Your main location's address, hours and numbers are changed in Your practice and on this Settings page.",
     );
   }
   if (location.status === "retired") {

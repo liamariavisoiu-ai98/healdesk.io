@@ -20,6 +20,9 @@ const out = process.argv[2] ?? "public/soundtrack.raw.wav";
 
 const dry = [new Float32Array(N), new Float32Array(N)];
 const wet = [new Float32Array(N), new Float32Array(N)]; // the reverb send
+const song = [new Float32Array(N), new Float32Array(N)]; // the music, filtered and side-chained before the mix
+const songWet = [new Float32Array(N), new Float32Array(N)]; // the music's own reverb send, filtered with it
+let target = dry;
 
 let seed = 7;
 const rand = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296) * 2 - 1;
@@ -38,11 +41,12 @@ function add(start, dur, fn, { gain = 1, pan = 0, send = 0 } = {}) {
     const k = s0 + i;
     if (k < 0 || k >= N) continue;
     const v = fn(i / SR, i);
-    dry[0][k] += v * l;
-    dry[1][k] += v * r;
+    target[0][k] += v * l;
+    target[1][k] += v * r;
     if (send) {
-      wet[0][k] += v * l * send;
-      wet[1][k] += v * r * send;
+      const bus = target === song ? songWet : wet;
+      bus[0][k] += v * l * send;
+      bus[1][k] += v * r * send;
     }
   }
 }
@@ -138,78 +142,205 @@ function brush(at, gain = 0.07, dur = 0.18, pan = 0) {
   }, { gain, pan, send: 0.15 });
 }
 
-// ---------------------------------------------------------------- the music
+// ---------------------------------------------------------------- the song
 
-const CHORDS = [
-  { bass: 38, tones: [62, 66, 69, 73, 76] }, // Dmaj9
-  { bass: 35, tones: [59, 62, 66, 69, 73] }, // Bm9
-  { bass: 43, tones: [59, 62, 66, 67, 71] }, // Gmaj9
-  { bass: 45, tones: [61, 64, 69, 71, 76] }, // A(add9)
+// A punchy, positive track in D major at 120 BPM. Bars are laid so the drop
+// lands on the cut to "Not on my watch." (the interrupt's first frame).
+const BPM = TIMELINE.bpm;
+const BEAT = 60 / BPM;
+const BAR = BEAT * 4;
+const DROP = at("interrupt", 0);
+const GRID = DROP - Math.floor(DROP / BAR) * BAR; // the first downbeat after 0
+const END_GROOVE = at("close", 0);
+const SONG_END = f2s(S.close.to);
+
+// I – V – vi – IV.
+const PROG = [
+  { root: 38, tones: [62, 66, 69, 74] }, // D
+  { root: 45, tones: [61, 64, 69, 73] }, // A
+  { root: 47, tones: [62, 66, 71, 74] }, // Bm
+  { root: 43, tones: [62, 67, 71, 74] }, // G
 ];
+const chordAt = (t) => PROG[Math.floor((t - GRID) / BAR + 400) % PROG.length];
 
-/** The low, resonant drone of the opening; its pitch can glide up for tension. */
-function drone(t0, t1, from, to, gain = 0.32) {
-  const dur = t1 - t0;
-  let phase = [0, 0, 0];
-  add(t0, dur, (t) => {
-    const k = t / dur;
-    const f = midi(from + (to - from) * k * k);
-    const env = Math.min(1, t / 1.2) * Math.min(1, (dur - t) / 0.08);
-    const parts = [f, f * 1.5, f * 2.003];
-    let v = 0;
-    parts.forEach((pf, i) => {
-      phase[i] += (2 * Math.PI * pf) / SR;
-      v += Math.sin(phase[i] + 0.6 * Math.sin(phase[i] * 0.5)) * [1, 0.35, 0.22 + 0.25 * k][i];
-    });
-    return v * env * (0.85 + 0.15 * Math.sin(2 * Math.PI * 0.3 * t));
+// A band-limited saw, read from one table, so the synths stay cheap and clean.
+const TABLE = 4096;
+const SAW = new Float32Array(TABLE);
+for (let i = 0; i < TABLE; i++) for (let h = 1; h <= 24; h++) SAW[i] += (Math.sin((2 * Math.PI * h * i) / TABLE) / h) * 0.55;
+const saw = (phase) => SAW[Math.floor((((phase % 1) + 1) % 1) * TABLE)];
+
+const kicks = [];
+function songKick(t0, gain = 0.9) {
+  kicks.push(t0);
+  add(t0, 0.42, (t) => (Math.sin(2 * Math.PI * (48 * t + (110 / 22) * (1 - Math.exp(-22 * t)))) * Math.exp(-7 * t) + (t < 0.004 ? rand() * 0.6 : 0)), { gain });
+}
+function clap(t0, gain = 0.32) {
+  const lp = lowpass(4200);
+  const lp2 = lowpass(900);
+  add(t0, 0.3, (t) => {
+    const burst = [0, 0.011, 0.022].some((o) => t >= o && t < o + 0.008) ? 1 : 0;
+    const n = lp(rand());
+    return (n - lp2(n)) * (burst * 1.2 + Math.exp(-14 * t)) * 0.9;
   }, { gain, send: 0.35 });
 }
-
-/** A warm pad that breathes: detuned sines per chord tone, a slow swell in and out. */
-function pad(t0, t1, gain = 0.1, breathe = 0.25) {
-  const barLen = 2.4;
-  for (let b = 0; t0 + b * barLen < t1; b++) {
-    const start = t0 + b * barLen;
-    const len = Math.min(barLen + 0.9, t1 - start);
-    const ch = CHORDS[b % CHORDS.length];
-    const freqs = [ch.bass + 12, ...ch.tones.slice(0, 4)].map(midi);
-    add(start, len, (t) => {
+function hat(t0, open = false, gain = 0.09, pan = 0.2) {
+  const lp = lowpass(7000);
+  const dur = open ? 0.22 : 0.05;
+  add(t0, dur, (t) => {
+    const n = rand();
+    return (n - lp(n)) * Math.exp((open ? -14 : -70) * t);
+  }, { gain, pan });
+}
+function bassNote(t0, m, dur, gain = 0.28) {
+  const f = midi(m);
+  let ph = 0;
+  let y = 0;
+  add(t0, dur, (t) => {
+    ph += f / SR;
+    const cut = 300 + 2600 * Math.exp(-18 * t);
+    const a = Math.exp((-2 * Math.PI * cut) / SR);
+    y = (1 - a) * (saw(ph) * 0.7 + Math.sin(2 * Math.PI * ph) * 0.6) + a * y;
+    return y * Math.min(1, t * 400) * Math.min(1, (dur - t) * 60);
+  }, { gain });
+}
+function stab(t0, tones, dur = 0.22, gain = 0.16) {
+  const voices = tones.flatMap((m) => [-0.12, 0, 0.12].map((d) => ({ f: midi(m + 12) * 2 ** (d / 12), ph: (rand() + 1) / 2 })));
+  let y = 0;
+  add(t0, dur + 0.25, (t) => {
+    let v = 0;
+    for (const vc of voices) {
+      vc.ph += vc.f / SR;
+      v += saw(vc.ph);
+    }
+    const cut = 1200 + 5200 * Math.exp(-9 * t);
+    const a = Math.exp((-2 * Math.PI * cut) / SR);
+    y = (1 - a) * (v / voices.length) + a * y;
+    const env = Math.min(1, t * 300) * (t < dur ? 1 : Math.exp(-14 * (t - dur)));
+    return y * env * 2.2;
+  }, { gain, send: 0.4 });
+}
+function songPad(t0, t1, gain = 0.07) {
+  for (let t = t0; t < t1; t += BAR) {
+    const ch = chordAt(t + 0.01);
+    const len = Math.min(BAR + 0.5, t1 - t);
+    const vs = ch.tones.map((m) => ({ f: midi(m), ph: 0 }));
+    let y = 0;
+    add(t, len, (tt) => {
       let v = 0;
-      for (const f of freqs) for (const d of [-0.003, 0, 0.003]) v += Math.sin(2 * Math.PI * f * (1 + d) * t) + 0.18 * Math.sin(4 * Math.PI * f * (1 + d) * t);
-      const env = Math.min(1, t / 0.7) * Math.min(1, (len - t) / 0.9);
-      const lfo = 1 - breathe + breathe * Math.sin(2 * Math.PI * 0.25 * (start + t));
-      return (v / 14) * env * lfo;
+      for (const vc of vs) {
+        vc.ph += vc.f / SR;
+        v += saw(vc.ph) + saw(vc.ph * 1.003);
+      }
+      const a = Math.exp((-2 * Math.PI * 1500) / SR);
+      y = (1 - a) * (v / 8) + a * y;
+      return y * Math.min(1, tt / 0.3) * Math.min(1, (len - tt) / 0.4);
     }, { gain, send: 0.6 });
   }
 }
-
-/** Rhythmic micro-clicks: a soft 16th-note tick with an accent on the beat. */
-function ticks(t0, t1, bpm = 112, gain = 0.07) {
-  const step = 60 / bpm / 4;
+// A bright plucked hook over the chords, two bars long.
+const HOOK = [0, 2, 3, 2, 1, 2, 3, 3, 0, 2, 3, 2, 3, 2, 1, 0];
+function melody(t0, t1, gain = 0.12) {
+  const step = BEAT / 2;
   for (let k = 0; t0 + k * step < t1; k++) {
-    const accent = k % 4 === 0;
-    const lp = lowpass(accent ? 5000 : 8000);
-    const f = accent ? 2400 : 3600;
-    add(t0 + k * step, 0.03, (t) => (Math.sin(2 * Math.PI * f * t) * 0.6 + lp(rand()) * 0.4) * Math.exp(-160 * t), { gain: accent ? gain * 1.4 : gain, pan: k % 2 ? 0.25 : -0.25 });
-    if (k % 8 === 0) kick(t0 + k * step, 0.18);
+    const t = t0 + k * step;
+    const ch = chordAt(t + 0.01);
+    if (k % 16 === 7 || k % 16 === 15) continue;
+    pluck(t, ch.tones[HOOK[k % HOOK.length]] + 12, gain, k % 2 ? 0.3 : -0.3);
   }
 }
 
-// 0:00–0:10 the drone, rising a tone for "Missed DMs?"; cut dead at the dark.
-drone(at("missed", 0), at("missed", 150), 33, 33);
-drone(at("missed", 150), at("missed", 298), 33, 36, 0.36);
-// 0:15 on, the warm pad breathes under Aya, the dashboard and the deposit.
-pad(at("interrupt", 56), at("aya", 0), 0.06, 0.15);
-pad(at("aya", 0), at("close", 0) + 0.4, 0.1, 0.25);
-// 0:25–0:35 the rhythm of everything arriving at once.
-ticks(at("dashboard", 6), at("dashboard", 296));
-// 0:40 the music resolves: one warm chord that lingers.
+target = song;
+const beats = (from, to, fn) => {
+  for (let i = Math.ceil((from - GRID) / BEAT - 1e-6); GRID + i * BEAT < to - 1e-6; i++) fn(GRID + i * BEAT, i);
+};
+
+// The opening: the same song, muffled behind a filter that opens toward the
+// drop, with a riser and a snare roll.
+beats(0, DROP, (t, i) => {
+  songKick(t, 0.75);
+  if (i % 2 === 1) hat(t, false, 0.05);
+  bassNote(t, chordAt(t + 0.01).root, BEAT * 0.45, 0.24);
+  bassNote(t + BEAT / 2, chordAt(t + 0.01).root + 12, BEAT * 0.4, 0.18);
+});
+songPad(GRID - BAR, DROP, 0.06);
 {
-  const t0 = at("close", 0);
-  const ch = CHORDS[0];
-  bass(t0, ch.bass, 3.6, 0.2);
-  [ch.bass + 12, ...ch.tones].forEach((m, i) => piano(t0 + i * 0.03, m, 0.075, 3.9, (i - 2.5) * 0.18));
-  pad(t0, f2s(S.close.to), 0.09, 0.05);
+  const lpA = lowpass(10000);
+  let lpB = 0;
+  const t0 = DROP - 2.2;
+  add(t0, 2.2, (t) => {
+    const cut = 300 + 7000 * (t / 2.2) ** 2;
+    const a = Math.exp((-2 * Math.PI * cut) / SR);
+    const n = lpA(rand());
+    lpB = (1 - a) * n + a * lpB;
+    return (n - lpB) * (t / 2.2) ** 1.6;
+  }, { gain: 0.22, send: 0.4 });
+  for (let k = 0; k < 16; k++) clap(DROP - BEAT * 2 + (k * BEAT) / 8, 0.05 + k * 0.012);
+}
+
+// The drop and the groove, through to the close.
+{
+  const lp = lowpass(9000);
+  add(DROP, 1.6, (t) => {
+    const n = rand();
+    return (n - lp(n)) * Math.exp(-2.6 * t) * 1.2;
+  }, { gain: 0.24, send: 0.5 });
+}
+const DASH = at("dashboard", 0);
+beats(DROP, END_GROOVE, (t, i) => {
+  const ch = chordAt(t + 0.01);
+  songKick(t);
+  if (i % 2 === 1) clap(t);
+  hat(t + BEAT / 2, true, 0.08, 0.25);
+  if (t >= DASH) {
+    hat(t + BEAT / 4, false, 0.05, -0.3);
+    hat(t + (3 * BEAT) / 4, false, 0.05, -0.3);
+  }
+  bassNote(t, ch.root, BEAT * 0.42);
+  bassNote(t + BEAT / 2, ch.root + 12, BEAT * 0.38, 0.22);
+  // Stabs on the "and" of 1 and on 3, the lift.
+  if (i % 4 === 0) stab(t + BEAT / 2, ch.tones, 0.18);
+  if (i % 4 === 2) stab(t, ch.tones, 0.3);
+});
+songPad(DROP, END_GROOVE, 0.05);
+melody(at("aya", 0), END_GROOVE, 0.1);
+
+// The close: the groove stops and one warm D chord rings out.
+{
+  const t0 = END_GROOVE;
+  songKick(t0, 0.7);
+  stab(t0, [62, 66, 69, 74, 78], 1.4, 0.13);
+  bassNote(t0, 38, 2.4, 0.26);
+  [50, 57, 62, 66, 69, 74].forEach((m, i) => piano(t0 + i * 0.03, m, 0.07, SONG_END - t0, (i - 2.5) * 0.18));
+  songPad(t0, SONG_END, 0.05);
+}
+target = dry;
+
+// The song's filter (closed in the opening, open from the drop) and the
+// side-chain that makes it pump against the kick.
+{
+  const tails = [reverb(songWet[0]), reverb(songWet[1])];
+  for (let n = 0; n < N; n++) {
+    song[0][n] += tails[0][n];
+    song[1][n] += tails[1][n];
+  }
+  kicks.sort((a, b) => a - b);
+  let k = 0;
+  const y1 = [0, 0];
+  const y2 = [0, 0];
+  for (let n = 0; n < N; n++) {
+    const t = n / SR;
+    while (k + 1 < kicks.length && kicks[k + 1] <= t) k++;
+    const since = kicks[k] !== undefined && t >= kicks[k] ? t - kicks[k] : 9;
+    const duck = 1 - 0.45 * Math.exp(-since / 0.09);
+    const cut = t < DROP ? 280 + 2400 * (t / DROP) ** 2.2 : 18000;
+    const a = Math.exp((-2 * Math.PI * cut) / SR);
+    for (const ch of [0, 1]) {
+      y1[ch] = (1 - a) * song[ch][n] + a * y1[ch];
+      y2[ch] = (1 - a) * y1[ch] + a * y2[ch];
+      // Kicks were written into the song bus too; leave their low end undimmed by the duck.
+      dry[ch][n] += y2[ch] * (t < DROP ? 1.15 : duck) * 0.9;
+    }
+  }
 }
 
 // ---------------------------------------------------------------- effects
@@ -228,8 +359,9 @@ function swoosh(t0, dur = 0.3, gain = 0.14, pan = 0) {
 
 /** A phone's vibration motor: a buzzing burst with a rough edge. */
 function haptic(t0, dur = 0.26, gain = 0.22) {
+  const lp = lowpass(700);
   add(t0, dur, (t) => {
-    const motor = Math.sign(Math.sin(2 * Math.PI * 165 * t)) * 0.6 + Math.sin(2 * Math.PI * 330 * t) * 0.3;
+    const motor = lp(Math.sign(Math.sin(2 * Math.PI * 165 * t)) * 0.6 + Math.sin(2 * Math.PI * 330 * t) * 0.3) * 1.6;
     return motor * Math.min(1, t * 120) * Math.min(1, (dur - t) * 60) * (0.7 + 0.3 * Math.sin(2 * Math.PI * 22 * t));
   }, { gain });
 }
@@ -237,7 +369,7 @@ function haptic(t0, dur = 0.26, gain = 0.22) {
 /** A soft mechanical key: a low thock and a small high click. */
 function mechKey(t0, gain = 0.16, pan = 0) {
   const lp = lowpass(1800);
-  add(t0, 0.06, (t) => (Math.sin(2 * Math.PI * 140 * t) * Math.exp(-70 * t) * 0.9 + lp(rand()) * Math.exp(-90 * t) * 0.6 + Math.sin(2 * Math.PI * 4200 * t) * Math.exp(-260 * t) * 0.3), { gain, pan });
+  add(t0, 0.06, (t) => Math.sin(2 * Math.PI * 140 * t) * Math.exp(-70 * t) * 0.9 + lp(rand()) * Math.exp(-90 * t) * 0.6 + Math.sin(2 * Math.PI * 4200 * t) * Math.exp(-260 * t) * 0.3, { gain, pan });
 }
 
 /** A high-end confirmation chime: two soft bell notes, a fifth apart. */
@@ -247,63 +379,49 @@ function confirm(t0, gain = 0.32) {
   piano(t0 + 0.11, 86, 0.05, 1.6);
 }
 
-// 0:00–0:05 an incoming call buzzing, then a buzz for every missed call.
-for (const f of [14, 28]) haptic(at("missed", f), 0.34, 0.24);
-[44, 58, 72, 86, 100].forEach((f) => { haptic(at("missed", f), 0.22, 0.2); pop(at("missed", f), 0.08, -12); });
-// 0:05–0:10 messages multiply: quicker, lighter buzzes and pops, rising.
-for (let i = 0; i < 12; i++) {
-  haptic(at("missed", 166 + i * 8), 0.14, 0.13);
-  pop(at("missed", 166 + i * 8), 0.09, -7 + i, -0.5 + (i % 5) * 0.25);
-}
+// 0:00–0:09 the phone: rings, buzzes for each missed call, pops for each DM.
+for (const f of [2, 18]) haptic(at("missed", f), 0.36, 0.2);
+[40, 60, 80, 98, 114].forEach((f) => { haptic(at("missed", f), 0.2, 0.17); pop(at("missed", f), 0.08, -12); });
+swoosh(at("missed", 128), 0.35, 0.12);
+[136, 142, 148, 154].forEach((f, i) => pop(at("missed", f), 0.16, 4 + i * 2, i % 2 ? 0.4 : -0.4));
+[146, 160, 172, 183, 193, 202, 210, 217, 223, 229, 234, 239, 244, 248].forEach((f, i) => {
+  haptic(at("missed", f), 0.1, 0.1);
+  pop(at("missed", f), 0.08, -5 + i, -0.5 + (i % 5) * 0.25);
+});
+swoosh(at("missed", 252), 0.6, 0.16);
 
-// 0:10–0:15 the coin falls through the dark and lands; the flash is a crisp
-// click and a high-end chime instead of a till.
-swoosh(at("interrupt", 12), 0.9, 0.12);
-{
-  const partials = [[1, 1, 7], [2.4, 0.5, 10], [5.2, 0.25, 14], [8.9, 0.12, 18]];
-  for (const [delay, g] of [[0, 1], [0.16, 0.45], [0.27, 0.2]]) {
-    add(at("interrupt", 40) + delay, 0.8, (t) => {
-      let v = 0;
-      for (const [m, a, d] of partials) v += a * Math.sin(2 * Math.PI * 2100 * m * t) * Math.exp(-d * t);
-      return v * Math.min(1, t * 500);
-    }, { gain: 0.16 * g, send: 0.3 });
-  }
-}
-add(at("interrupt", 43), 0.02, (t) => (rand() * 0.6 + Math.sin(2 * Math.PI * 3000 * t)) * Math.exp(-300 * t), { gain: 0.35 });
-tink(at("interrupt", 43), 0, 0.36);
-tink(at("interrupt", 43) + 0.012, 7, 0.22);
-tink(at("interrupt", 43) + 0.024, 12, 0.14);
+// 0:09 the flash: a crisp click and a high chime over the drop.
+add(at("interrupt", 0), 0.02, (t) => (rand() * 0.6 + Math.sin(2 * Math.PI * 3000 * t)) * Math.exp(-300 * t), { gain: 0.3 });
+tink(at("interrupt", 2), 0, 0.3);
+tink(at("interrupt", 2) + 0.012, 7, 0.18);
+tink(at("interrupt", 2) + 0.024, 12, 0.12);
 
-// 0:15–0:25 the orb blooms; badges; soft mechanical typing; the site is read.
-{
-  const lp = lowpass(900);
-  add(at("aya", 0), 1.6, (t) => lp(rand()) * Math.sin((Math.PI * t) / 1.6) * 0.6, { gain: 0.16, send: 0.5 });
-}
+// 0:13–0:23 the orb blooms; badges; soft mechanical typing; the site is read.
 pop(at("aya", 84), 0.16, 2);
 pop(at("aya", 94), 0.16, 5);
-for (let k = 0; k < 19; k++) mechKey(at("aya", 128 + k * 2.4), 0.15, -0.2 + (k % 3) * 0.2);
-tink(at("aya", 174), 7, 0.24);
-for (let i = 0; i < 4; i++) pop(at("aya", 186 + i * 7), 0.12, 4 + i * 2, -0.4 + i * 0.25);
+for (let k = 0; k < 19; k++) mechKey(at("aya", 128 + k * 2.4), 0.14, -0.2 + (k % 3) * 0.2);
+tink(at("aya", 174), 7, 0.22);
+for (let i = 0; i < 4; i++) pop(at("aya", 186 + i * 7), 0.11, 4 + i * 2, -0.4 + i * 0.25);
 
-// 0:25–0:35 every conversation arriving, every booking landing a semitone
-// higher, the counter rolling.
-for (let i = 0; i < 5; i++) pop(at("dashboard", 22 + i * 10), 0.14, -2 + i, -0.5 + i * 0.25);
+// 0:23–0:33 every conversation arriving, every booking a tink a step higher,
+// the counter rolling.
+for (let i = 0; i < 5; i++) pop(at("dashboard", 22 + i * 10), 0.13, -2 + i, -0.5 + i * 0.25);
 for (let i = 0; i < 5; i++) {
-  tink(at("dashboard", 92 + i * 30), i * 2, 0.22);
-  for (let k = 0; k < 8; k++) add(at("dashboard", 92 + i * 30 + k * 2), 0.02, (t) => Math.sin(2 * Math.PI * 5200 * t) * Math.exp(-300 * t), { gain: 0.05 });
+  tink(at("dashboard", 92 + i * 30), i * 2, 0.2);
+  for (let k = 0; k < 8; k++) add(at("dashboard", 92 + i * 30 + k * 2), 0.02, (t) => Math.sin(2 * Math.PI * 5200 * t) * Math.exp(-300 * t), { gain: 0.04 });
 }
 
-// 0:35–0:40 Stripe's sheet slides down, the card, pay, the confirmation chime,
-// coins, healdesk's notification.
-swoosh(at("deposit", 0), 0.5, 0.16);
-for (let k = 0; k < 12; k++) mechKey(at("deposit", 22 + k * 0.72), 0.08);
-add(at("deposit", 46), 0.06, (t) => Math.sin(2 * Math.PI * 200 * t) * Math.exp(-60 * t), { gain: 0.3 });
-confirm(at("deposit", 58));
-for (let k = 0; k < 8; k++) tink(at("deposit", 60 + k * 2), 12 + (k % 4) * 2, 0.04);
-pop(at("deposit", 74), 0.2, 7);
+// 0:33–0:38 Stripe's sheet, the card, pay, the confirmation chime, coins,
+// healdesk's notification.
+swoosh(at("deposit", 0), 0.5, 0.15);
+for (let k = 0; k < 12; k++) mechKey(at("deposit", 22 + k * 0.72), 0.07);
+add(at("deposit", 46), 0.06, (t) => Math.sin(2 * Math.PI * 200 * t) * Math.exp(-60 * t), { gain: 0.28 });
+confirm(at("deposit", 58), 0.34);
+for (let k = 0; k < 8; k++) tink(at("deposit", 60 + k * 2), 12 + (k % 4) * 2, 0.035);
+pop(at("deposit", 74), 0.18, 7);
 
-// 0:40–0:44 the address.
-tink(at("close", 52), 7, 0.16);
+// 0:38–0:42 the address.
+tink(at("close", 52), 7, 0.14);
 
 // ---------------------------------------------------------------- reverb and write
 

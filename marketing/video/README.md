@@ -1,6 +1,6 @@
 # The Aya ad, built in Remotion
 
-A 44-second ad for Aya, built to the owner's Apple-style storyboard of
+A 42-second ad for Aya, built to the owner's Apple-style storyboard of
 1 November 2026 in [Remotion](https://www.remotion.dev) (React rendered to
 video), in three formats from one timeline. `SCRIPT.md` is the original
 brief; where the storyboard and the brief differ, the storyboard wins.
@@ -38,13 +38,13 @@ in `src/motion.tsx`) without retiming a cue.
 
 | Time | Scene | Picture | Type | Sound |
 | --- | --- | --- | --- | --- |
-| 0:00–0:05 | `Missed` | Deep space; one phone scales in; calls stack on its lock screen | Missed calls? | A low drone; the phone's buzz on every call |
-| 0:05–0:10 | `Missed` | Instagram, WhatsApp, Messenger and website chat multiply, on the screen and around it | Missed DMs? | The drone rises a tone; quicker buzzes and pops |
-| 0:10–0:15 | `Interrupt` | The screen goes dark; a coin falls and lands; a flash to frosted white | Not on my watch. | The coin, then a crisp click and a high chime |
-| 0:15–0:25 | `Hello` | The orb floats up and breathes; the website box fills in with bellaskinstudio.com; what Aya learned settles below | Hi, I'm Aya, your 24/7 assistant. · Built for medspas · We sign a BAA | A breathing pad; soft mechanical keys |
-| 0:25–0:35 | `Dashboard` | Split screen: conversations stream in from every channel; each booking lands on the week; booked value $0 → $1,648 | Calls, DMs, chats, all at once. | 16th-note micro-clicks; a rising tink per booking |
-| 0:35–0:40 | `Deposit` | Stripe's checkout slides down; $100.00 paid; coins; healdesk's notification | You do the treatments. Aya handles the rush. | A two-note confirmation chime |
-| 0:40–0:44 | `Close` | The orb on a clean gradient, one text box | Try Aya free. · healdesk.io | One warm chord that lingers |
+| 0:00–0:04 | `Missed` | A realistic iPhone, ringing on frame 0 with iOS's full-screen incoming call; it goes unanswered; the missed calls group into one stack whose count climbs | Missed calls? | The song, muffled; the phone's buzz |
+| 0:04–0:09 | `Missed` | "calls?" rolls to "DMs?"; Instagram, WhatsApp, Messenger and website-chat icons pop up around the phone with red badges counting; DMs pour onto the lock screen faster and faster; the camera flies into the screen | Missed DMs? | The filter opens, a riser and a snare roll build |
+| 0:09–0:13 | `Interrupt` | A white flash into frosted white | Not on my watch. | The drop: the full song, a crisp click and a chime |
+| 0:13–0:23 | `Hello` | The orb floats up and breathes; the website box fills in with bellaskinstudio.com; what Aya learned settles below | Hi, I'm Aya, your 24/7 assistant. · Built for medspas · We sign a BAA | A breathing pad; soft mechanical keys |
+| 0:23–0:33 | `Dashboard` | Split screen: conversations stream in from every channel; each booking lands on the week; booked value $0 → $1,648 | Calls, DMs, chats, all at once. | 16th-note micro-clicks; a rising tink per booking |
+| 0:33–0:38 | `Deposit` | Stripe's checkout slides down; $100.00 paid; coins; healdesk's notification | You do the treatments. Aya handles the rush. | A two-note confirmation chime |
+| 0:38–0:42 | `Close` | The orb on a clean gradient, one text box | Try Aya free. · healdesk.io | One warm chord that lingers |
 
 ## Where things are
 
@@ -58,9 +58,15 @@ in `src/motion.tsx`) without retiming a cue.
 - `src/parts.tsx`: the glass kit: `Glass`, the colour fields behind it
   (`Backdrop`), stars, the notification banner, the orb that stands for Aya,
   blur-in kinetic type, the minted coin and the coin burst, the subtitles.
-- `scripts/soundtrack.mjs`: the drone, the pad, the rhythm and every effect,
-  synthesised (no licensed audio), cued to the same timeline, then
-  loudness-normalised toward -14 LUFS, -1 dBTP. Deterministic.
+- `scripts/soundtrack.mjs`: the song and every effect, synthesised (no
+  licensed audio), cued to the same timeline, then loudness-normalised to
+  -14 LUFS, -1 dBTP. Deterministic. The song is a punchy, positive track in
+  D major at 120 BPM (I–V–vi–IV): four-on-the-floor kick, claps, offbeat hats,
+  an octave bass, chord stabs, a plucked hook and a pad, side-chained to the
+  kick. It plays muffled behind an opening filter for the first nine seconds
+  and drops in full on "Not on my watch."; `bpm` in `timeline.json` sets it.
+- `src/iphone.tsx`: the iPhone (titanium band, side buttons, Dynamic Island,
+  status bar, lit wallpaper, glare).
 - `public/`: the healdesk app icon and wordmark, and the channel and Stripe
   icons, copied from `apps/web/public` (Messenger's is drawn in
   `messenger.svg`).

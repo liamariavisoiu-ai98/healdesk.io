@@ -553,27 +553,3 @@ export const WaveMark: React.FC<{ size: number; p?: number; colour?: string }> =
     </svg>
   );
 };
-
-/** A phone: a thin glass bezel around a screen. Children draw the screen. */
-export const Phone: React.FC<{ width: number; children: React.ReactNode; style?: React.CSSProperties; screen?: string }> = ({ width, children, style, screen }) => {
-  const height = width * 2.05;
-  return (
-    <div
-      style={{
-        width,
-        height,
-        borderRadius: width * 0.16,
-        padding: width * 0.03,
-        background: "linear-gradient(145deg, rgba(255,255,255,0.35), rgba(255,255,255,0.08))",
-        boxShadow: "0 40px 80px rgba(0,0,0,0.35), inset 0 0 0 2px rgba(255,255,255,0.35)",
-        flexShrink: 0,
-        ...style,
-      }}
-    >
-      <div style={{ width: "100%", height: "100%", borderRadius: width * 0.135, overflow: "hidden", position: "relative", background: screen ?? "#1B1424" }}>
-        <div style={{ position: "absolute", left: "50%", top: width * 0.03, width: width * 0.3, height: width * 0.075, marginLeft: -width * 0.15, borderRadius: 999, background: "#000", zIndex: 5 }} />
-        {children}
-      </div>
-    </div>
-  );
-};

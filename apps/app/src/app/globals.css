@@ -62,6 +62,16 @@
   --radius-sm: 6px;
   --radius-md: 16px;
   --radius-lg: 28px;
+
+  /* The portal card's lift (owner, 1 November 2026: the portal's shared
+     parts take the sign-in look). `shadow-sm` is the redesign's card style
+     (a hairline border, white, 28px corners and this), so setting it here
+     gives every such card, on every screen built now or later, the sign-in
+     card's soft layered shadow with a faint warm glow under it, instead of
+     Tailwind's grey one. Lighter than the sign-in card's: a screen shows many. */
+  --shadow-sm:
+    0 1px 2px rgb(23 42 58 / 0.04), 0 10px 28px -14px rgb(23 42 58 / 0.14),
+    0 26px 56px -34px rgb(218 25 26 / 0.16);
 }
 
 /* The gradient, deep enough for white text on top of it (the site's
@@ -115,6 +125,30 @@
   :focus-visible {
     outline: 3px solid var(--color-orange-deep);
     outline-offset: 3px;
+  }
+
+  /* A field in focus takes the sign-in field's ring: the same deep orange,
+     drawn tight round the field with a soft halo instead of an outline
+     standing off it. The outline turns transparent rather than off, so a
+     Windows high-contrast screen, which drops shadows, still draws one. A
+     field's own class (.si-input, a utility) still wins over this. */
+  input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [type="submit"], [type="button"], [type="reset"], [type="image"]):focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+    box-shadow:
+      0 0 0 2px var(--color-orange-deep),
+      0 0 0 6px rgb(255 118 30 / 0.18);
+  }
+
+  /* The brand pill's fill and lift, shared by the sign-in pages' primary
+     button (.si-primary) and the portal's primary actions (below). */
+  :root {
+    --si-fill: linear-gradient(105deg, var(--color-red-deep) 6%, #b93a12 94%);
+    --si-lift:
+      inset 0 1px 0 rgb(255 255 255 / 0.22), 0 1px 2px rgb(185 58 18 / 0.3),
+      0 12px 24px -12px rgb(218 25 26 / 0.7);
   }
 }
 
@@ -377,7 +411,8 @@
     border-color: rgb(23 42 58 / 0.4);
   }
   .si-input:focus {
-    outline: none;
+    outline: 2px solid transparent;
+    outline-offset: 2px;
     border-color: var(--color-orange-deep);
     box-shadow:
       0 0 0 1px var(--color-orange-deep),
@@ -469,12 +504,9 @@
       background-color 150ms ease;
   }
   .si-primary {
-    background-image: linear-gradient(105deg, var(--color-red-deep) 6%, #b93a12 94%);
+    background-image: var(--si-fill);
     color: #fff;
-    box-shadow:
-      inset 0 1px 0 rgb(255 255 255 / 0.22),
-      0 1px 2px rgb(185 58 18 / 0.3),
-      0 12px 24px -12px rgb(218 25 26 / 0.7);
+    box-shadow: var(--si-lift);
   }
   .si-primary:hover:not(:disabled) {
     filter: brightness(0.95);
@@ -617,5 +649,55 @@
   to {
     opacity: 1;
     transform: translate(-50%, -62%) scale(1);
+  }
+}
+
+/* The portal's shared parts in the sign-in look (owner, 1 November 2026:
+   "align shared parts", while another session redesigns the screens
+   themselves). Written against the classes every screen already uses, so a
+   screen built later takes the look without being touched. */
+@layer components {
+  /* A primary action. Every screen writes one as an ink pill (`bg-ink
+     rounded-full min-h-11 text-white`, on a button or a link); this gives
+     each the sign-in page's red pill. Not a selected chip (`border-ink`, a
+     filter or an outcome that is chosen) and not the menu's current screen
+     (`aria-current`), which stay ink, and not the Help bubble (`min-h-12`,
+     SupportChat.tsx), which floats on every screen and should not outshout a
+     screen's own action. White on the fill is 5.08:1 where it is
+     lightest; hover darkens it, never lightens. A utility on the same element
+     (a shadow, an opacity) still wins: this sits in the components layer. */
+  :is(a, button).bg-ink.rounded-full.min-h-11:not(.border-ink, [aria-current]) {
+    background-image: var(--si-fill);
+    box-shadow: var(--si-lift);
+    transition:
+      filter 150ms ease,
+      transform 150ms ease;
+  }
+  :is(a, button).bg-ink.rounded-full.min-h-11:not(.border-ink, [aria-current]):hover:not(:disabled) {
+    filter: brightness(0.95);
+  }
+  :is(a, button).bg-ink.rounded-full.min-h-11:not(.border-ink, [aria-current]):active:not(:disabled) {
+    transform: scale(0.985);
+  }
+
+  /* The portal's glow: the sign-in pages' light, much fainter, in the top
+     corner of every screen (PortalShell's frame). Still, as the portal's
+     motion rule wants, and faint enough that the muted ink keeps 4.5:1 on
+     its darkest spot; the menu's frosted white sits over it on a laptop. */
+  .portal-glow {
+    position: relative;
+    isolation: isolate;
+  }
+  .portal-glow::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset: 0 0 auto 0;
+    height: 30rem;
+    background:
+      radial-gradient(40rem 18rem at 88% -4rem, rgb(255 118 30 / 0.12), transparent 70%),
+      radial-gradient(28rem 14rem at 62% -6rem, rgb(230 38 39 / 0.06), transparent 70%),
+      radial-gradient(30rem 16rem at 100% 6rem, rgb(250 199 72 / 0.14), transparent 72%);
+    pointer-events: none;
   }
 }

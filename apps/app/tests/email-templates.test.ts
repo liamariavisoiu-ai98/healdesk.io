@@ -1,7 +1,14 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { annualTotalUsd, CURRENT_BAA_VERSION, getPlan, SENDER_IDENTITY } from "@healdesk/catalog";
+import {
+  annualTotalUsd,
+  CURRENT_BAA_VERSION,
+  EMAIL_LOGO,
+  emailLogoHtml,
+  getPlan,
+  SENDER_IDENTITY,
+} from "@healdesk/catalog";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { DIRECT_KIND_REGISTRY, DIRECT_KINDS, LEDGER_DIRECT_KINDS } from "@/lib/email/direct-kinds";
@@ -400,12 +407,24 @@ describe("each template's output", () => {
         }
       });
 
-      test("HTML that is one column, system fonts, no images and nothing remote, under 100 KB", () => {
-        const { html } = rendered();
+      test("HTML in healdesk's branded shell: one column, system fonts, the logo the only thing fetched, under 100 KB", () => {
+        const { html, subject } = rendered();
         expect(Buffer.byteLength(html)).toBeLessThan(MAX_HTML_BYTES);
-        expect(html).not.toMatch(/<img|<link|<script|<iframe|<table|\bsrc=|url\(|@import/i);
+        // The logo (owner, 1 November 2026) is the one image, at its one
+        // fixed URL; nothing else is fetched, linked in or run.
+        expect([...html.matchAll(/<img\b/gi)]).toHaveLength(1);
+        expect([...html.matchAll(/\bsrc="([^"]*)"/g)].map((m) => m[1])).toEqual([EMAIL_LOGO.url]);
+        expect(html).toContain('alt="healdesk"');
+        expect(html).not.toMatch(/<link|<script|<iframe|url\(|@import|@font-face/i);
         expect(html).toContain("-apple-system");
-        expect(html).toContain("max-width:560px");
+        expect(html).toContain("max-width:600px");
+        // The subject is the title under the logo, but where the email opens
+        // with its own headline (an ops alert) or reads as a letter (a support reply).
+        const titled = kind !== "ops_alert" && kind !== "support_reply";
+        expect(html.includes(`>${escapeHtml(subject)}</h1>`), kind).toBe(titled);
+        expect(html.includes("<h1"), kind).toBe(titled);
+        // At most one filled button: the first action; any later one is outlined.
+        expect(html.match(/class="hd-action"/g)?.length ?? 0).toBeLessThanOrEqual(1);
       });
     });
   }
@@ -615,7 +634,8 @@ describe("website chat's line in O10 and O11", () => {
       expect(rendered.text.split("\n"), kind).toContain(LINE);
       // Escaped in the HTML: shown as text, never a tag a mail client runs.
       expect(rendered.html, kind).toContain(escapeHtml(LINE));
-      expect(rendered.html, kind).not.toMatch(/<script|<img|<link|<iframe|<[^>]*\bsrc=/i);
+      // The healdesk logo is the one image (the branded shell); past it, nothing runs or loads.
+      expect(rendered.html.replace(emailLogoHtml(), ""), kind).not.toMatch(/<script|<img|<link|<iframe|<[^>]*\bsrc=/i);
       expect(visibleText(rendered.html), kind).toContain(LINE);
       expect(linkProblems(rendered, kind), kind).toEqual([]);
       expect(subjectProblems(rendered.subject), kind).toEqual([]);

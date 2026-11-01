@@ -1,4 +1,5 @@
 import {
+  EMAIL_LOGO,
   escapeEmailHtml,
   PACKAGES,
   packageSetupFeeUsd,
@@ -52,7 +53,8 @@ export type DemoEmail = { subject: string; text: string; html: string };
 /** The package the demo page's calculator opens on (lib/demo/v2/template.ts). */
 const DEMO_PAGE_PACKAGE = PACKAGES.find((p) => p.id === "voice-webchat")!;
 
-const LOGO_URL = "https://healdesk.io/brand/healdesk-logo-email.png";
+/** The logo every healdesk email carries (@healdesk/catalog email-brand.ts), one URL for all. */
+const LOGO_URL = EMAIL_LOGO.url;
 
 function expiryDate(session: DemoSession): string {
   return session.expiresAt.toLocaleDateString("en-US", {

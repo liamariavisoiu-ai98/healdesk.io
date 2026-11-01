@@ -1,6 +1,7 @@
 import {
   allPlans,
   CHANNELS,
+  EMAIL_LOGO,
   isPlanId,
   isSafeTypedText,
   PACKAGES,
@@ -525,13 +526,26 @@ const CSS_URL_PATTERN = /url\(\s*['"]?([^'")]+)['"]?\s*\)/gi;
  */
 const TOKEN_SHAPED = /^[A-Za-z0-9_-]{32,}$/;
 
-/** Every link in a piece of text or HTML, deduplicated, in order of appearance. */
+/**
+ * Every link in a piece of text or HTML, deduplicated, in order of
+ * appearance, but for the healdesk logo the branded shell puts at the top of
+ * every email (@healdesk/catalog email-brand.ts, owner, 1 November 2026): an
+ * image, not a link, at one fixed public URL that carries nothing about the
+ * reader or the message. Only that exact URL is passed over; anything else
+ * on its host is checked like every other link.
+ */
 export function findLinks(content: string): string[] {
   const found: string[] = [];
   for (const match of content.matchAll(URL_PATTERN)) found.push(match[0]);
   for (const match of content.matchAll(ATTRIBUTE_PATTERN)) found.push(match[1] ?? match[2] ?? "");
   for (const match of content.matchAll(CSS_URL_PATTERN)) found.push(match[1] ?? "");
-  return [...new Set(found.map(unescapeEntities).filter((link) => link.trim() !== ""))];
+  return [
+    ...new Set(
+      found
+        .map(unescapeEntities)
+        .filter((link) => link.trim() !== "" && link !== EMAIL_LOGO.url),
+    ),
+  ];
 }
 
 function unescapeEntities(value: string): string {

@@ -188,7 +188,8 @@ describe("jumping in (VOICE-T16c)", () => {
   test("at the end of a sentence, now and then, the jump-in is said over the caller and kept", async () => {
     const c = await demoCall({ random: () => 0 });
     await c.toRoleplay();
-    const jump = "Oh, Friday morning works great - want the ten o'clock?";
+    // Never a free time: those are the booking system's to name (the restructure, 1 November 2026).
+    const jump = "Oh, a HydraFacial is a lovely pick - is it for something special?";
     await c.live(FRIDAY, says(jump));
     await vi.waitFor(() => expect(c.interrupts()).toHaveLength(1));
     expect(c.interrupts()[0]).toMatchObject({ response_type: "agent_interrupt", content: jump, content_complete: true, no_interruption_allowed: false });
@@ -210,13 +211,13 @@ describe("jumping in (VOICE-T16c)", () => {
     const late = await demoCall({ random: () => 0 });
     await late.toRoleplay();
     let release!: () => void;
-    const slow = () => new Promise<string>((resolve) => (release = () => resolve(says("Oh, Friday works!"))));
+    const slow = () => new Promise<string>((resolve) => (release = () => resolve(says("Oh, lovely pick!"))));
     await late.live(FRIDAY, slow);
     await vi.waitFor(() => expect(late.queue).toHaveLength(0));
     // Retell asks for the ordinary reply before the guess is ready: the guess is dropped unsaid.
-    const answered = late.turn(FRIDAY, says("Friday morning works - want ten?"));
+    const answered = late.turn(FRIDAY, says("Oh, I love that - is it for something special?"));
     release();
-    expect(await answered).toBe("Friday morning works - want ten?");
+    expect(await answered).toBe("Oh, I love that - is it for something special?");
     await new Promise((r) => setTimeout(r, 20));
     expect(late.interrupts()).toHaveLength(0);
 

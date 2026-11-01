@@ -736,6 +736,50 @@ const LEADING_APOLOGY = /^(?:(?:oh|ah|aw+),?\s+)?(?:i'?m\s+)?(?:so\s+|really\s+)
  * Words are only ever taken out, so the guard, which reads what is left,
  * screens exactly as it would have.
  */
+/** A day or a time said to be open: "Thursday afternoon works", "I have Monday at 11 AM", "we have openings this week". */
+const FREE_TIME_SAID =
+  /\b(?:openings?|slots?|availability|calendar|schedule)\b[^.?!]{0,60}?\b(?:\d{1,2}(?::\d{2})?\s*(?:a\.?m|p\.?m)|(?:mon|tues|wednes|thurs|fri|satur|sun)day)\b|\b(?:we|i)(?:'ve| have) (?:got )?(?:some |a few |an? )?(?:openings?|slots?|availability|times? (?:open|free|available))\b|\b(?:works|is (?:open|free|available)|are (?:open|free|available)|i (?:can (?:do|offer|fit you in)|have)|i'?ve got)\b[^.?!]{0,40}?\b(?:\d{1,2}(?::\d{2})?\s*(?:a\.?m|p\.?m)|noon|morning|afternoon|evening|(?:mon|tues|wednes|thurs|fri|satur|sun)day|tomorrow|this week|next week)\b|\b(?:\d{1,2}(?::\d{2})?\s*(?:a\.?m|p\.?m)|morning|afternoon|evening|(?:mon|tues|wednes|thurs|fri|satur|sun)day)\b[^.?!]{0,30}?\b(?:works|is (?:open|free|available)|are (?:open|free|available))\b/i;
+
+/** A part of the day a person asked for, as the booking action's window: "evening" from 16:00, "not mornings" from noon. */
+export function windowNamedIn(words: string): { after: string | null; before: string | null } {
+  const after = /\b(?:after|later than|past)\s+(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)(?::(\d{2}))?\s*(a\.?m|p\.?m)?/i.exec(words);
+  if (after) {
+    const n: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12 };
+    let h = n[after[1]!.toLowerCase()] ?? Number(after[1]);
+    const pm = after[3] ? /^p/i.test(after[3]) : h <= 7;
+    if (pm && h < 12) h += 12;
+    return { after: `${String(h).padStart(2, "0")}:${after[2] ?? "00"}`, before: null };
+  }
+  if (/\b(?:not?|don'?t (?:want|like)|can'?t do)\b[^.?!]{0,20}\bmornings?\b/i.test(words)) return { after: "12:00", before: null };
+  if (/\b(?:evenings?|after work|end of the day)\b/i.test(words)) return { after: "16:00", before: null };
+  if (/\bafternoons?\b/i.test(words)) return { after: "12:00", before: "17:00" };
+  if (/\bmornings?\b/i.test(words) && !/\bgood morning\b/i.test(words)) return { after: null, before: "12:00" };
+  return { after: null, before: null };
+}
+
+/** Whether a reply says a time is free. */
+export function claimsFreeTime(reply: string): boolean {
+  return FREE_TIME_SAID.test(reply);
+}
+
+const DAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
+
+/** The date a person named ("Thursday", "tomorrow"), YYYY-MM-DD in the practice's zone; null when none. */
+export function dayNamedIn(words: string, now: Date, timeZone: string): string | null {
+  const dateIn = (at: Date) => new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
+  const weekdayAt = (at: Date) => DAY_NAMES.indexOf(new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long" }).format(at).toLowerCase() as (typeof DAY_NAMES)[number]);
+  if (/\btomorrow\b/i.test(words)) return dateIn(new Date(now.getTime() + 86_400_000));
+  if (/\btoday\b/i.test(words)) return dateIn(now);
+  const m = /\b(sun|mon|tues?|wed(?:nes)?|thu(?:rs?)?|fri|sat(?:ur)?)(?:day)?s?\b/i.exec(words);
+  if (!m) return null;
+  const wanted = DAY_NAMES.findIndex((d) => d.startsWith(m[1]!.toLowerCase().slice(0, 3)));
+  for (let k = 1; k <= 7; k += 1) {
+    const at = new Date(now.getTime() + k * 86_400_000);
+    if (weekdayAt(at) === wanted) return dateIn(at);
+  }
+  return null;
+}
+
 /** "Our most popular", "best-selling", "everyone's favorite": a claim about the practice nobody wrote. */
 const POPULARITY = /\b(?:(?:our|the|its|their) most (?:popular|requested|loved|booked)|best[- ]?sell(?:ing|er)|(?:fan|everyone'?s|patients'?|our) favou?rite|everyone loves|most people (?:choose|get|love))\b/i;
 
@@ -1271,8 +1315,9 @@ export async function answerTurn(input: {
   const fresh = (text: string) => (before ? withoutRepeats(text, [...before, ...spoken], earlierLines) : text);
   // A call's register, enforced (shapeVoiceReply): the opening line is fixed and not counted.
   const callerName = capture.firstName?.trim() || input.callerFirstName?.trim() || null;
-  // A demo's booking claims are checked by its own code (bookingClaimsOwned); every other turn's by the tool layer.
-  const written = input.bookingClaimsOwned === true ? ({ bookingWritten: true } as const) : NO_BOOKING_WRITTEN;
+  // A booking this conversation's tool layer wrote may be said on any later turn ("What time was my booking?" was
+  // refused as an unconfirmed claim); a demo's claims were its own code's to check (bookingClaimsOwned).
+  const written = input.bookingClaimsOwned === true || toolState.done?.kind === "booked" ? ({ bookingWritten: true } as const) : NO_BOOKING_WRITTEN;
   const nameSaid = (lines: readonly string[]) =>
     callerName ? lines.filter((line) => new RegExp(`\\b${callerName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(line)).length : 0;
   const apologisedBefore = assistantLines.slice(1).some((line) => /\b(?:sorry|apologi[sz]e)\b/i.test(line) && !SAY_AGAIN.test(line));
@@ -1425,9 +1470,17 @@ export async function answerTurn(input: {
     live = { ...live, toolState: text.state };
   }
   if (toolsLive && !answer.handoff) {
+    // Free times come from the booking system, never the model: a reply that says a time or a day is open, with no
+    // action and no time chosen yet, is the system's question to answer, for the day the person named (demo call
+    // be078f77 and the calls before it: "Thursday afternoon works", "we have openings this week" with nothing checked).
+    const action =
+      answer.action ??
+      (!toolState.chosen && claimsFreeTime(answer.reply)
+        ? ({ type: "find_times", service: toolState.service ?? merged.service ?? null, day: dayNamedIn(personText, now, facts.timeZone), ...windowNamedIn(personText) } as const)
+        : null);
     // The tool layer, on what the model asked for and what is now known.
     const tool = await input.tools!.run({
-      action: answer.action,
+      action,
       capture: merged,
       state: toolState,
       callerPhone: input.callerPhone ?? null,
@@ -1437,8 +1490,15 @@ export async function answerTurn(input: {
     if (tool) {
       // A booking written on a call: the text's offer joins the booked line, when it may be made.
       const offered = textTools && tool.bookingWritten ? await textTools.offerAfterBooking(tool, now, input.language === "es" ? "es" : "en") : tool;
-      return { ...live, capture: merged, toolState: offered.state, tool: offered, reply: offered.reply, source: "tool" };
+      // A fixed line said on a call is shaped for a voice too: no "BOTOX®" read out (demo call be078f77).
+      return { ...live, capture: merged, toolState: offered.state, tool: offered, reply: channel === "voice" ? forVoice(offered.reply) : offered.reply, source: "tool" };
     }
+  }
+  if (input.tools && toolState.done && !answer.handoff && claimsFreeTime(answer.reply)) {
+    // The conversation's one booking is made, so the tools are off; a free time the model names still is not its to
+    // name: the tool layer says the booking stands (be078f77: "we have openings Monday at 11 AM" after booking).
+    const tool = await input.tools.run({ action: { type: "find_times", service: toolState.service, day: null }, capture: merged, state: toolState, callerPhone: input.callerPhone ?? null, now, ...(input.language ? { language: input.language } : {}) });
+    if (tool) return { ...live, capture: merged, toolState: tool.state, tool, reply: channel === "voice" ? forVoice(tool.reply) : tool.reply, source: "tool" };
   }
   // A reply that only repeats the turn before is said as written: silence would be worse.
   const unrepeated = (before && fresh(answer.reply)) || answer.reply;

@@ -48,13 +48,8 @@ import {
   listedIn,
   OWN_EXIT,
   RING_RING,
-  roleplayCheckedReply,
-  roleplayTimeOffer,
-  demoBookable,
-  demoConfirmLine,
   demoUrgentLine,
   unknownDoctorIn,
-  roleplayHolds,
   ROLEPLAY_UNKNOWN_LINE,
   withDemoAnswer,
   withoutOwnExit,
@@ -66,6 +61,7 @@ import { forwardedFromCall, type ForwardedFrom } from "./forwarded-from";
 import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
 import { redialPromptBlock, takeRedialContext, welcomeBackLine, type RedialContext } from "./redial";
 import { businessLine, busyLine, fragmentLine, isFragment, withGreetingQuestion } from "./call-lines";
+import { DEMO_CALLER_PHONE, demoBookingTools } from "./demo-booking";
 import { soundAlikeNote, soundAlikes } from "./sound-alike";
 import type { SpokenLanguage } from "./spoken";
 import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./test-calls";
@@ -994,6 +990,8 @@ export class RetellCallSession {
       return;
     }
     this.demoContext = context;
+    // A browser call has no number; a clinic's call always does. "The one I'm calling from" works as on a clinic's call.
+    this.callerPhone ??= DEMO_CALLER_PHONE;
     const facts = demoAssistantFacts(context);
     this.facts = facts;
     this.disclosurePlayedAt = this.now();
@@ -1257,7 +1255,7 @@ export class RetellCallSession {
     // demo has none, and a clinic's call with them live still gets the
     // connection kept open.
     // A demo is warmed on the prompt its next turn is on.
-    const stable = buildAssistantPrompt(this.demoContext ? demoRoleplayFacts(facts) : facts, "voice", { bookingTools: false });
+    const stable = buildAssistantPrompt(this.demoContext ? demoRoleplayFacts(facts) : facts, "voice", { bookingTools: Boolean(this.demoContext) });
     prewarm({ stable, turn: "" }, "voice").catch(() => {});
   }
 
@@ -1465,9 +1463,12 @@ export class RetellCallSession {
       knownTerms: languageTerms(facts),
       spanishAllowed: facts.languages.includes("es"),
     });
-    // A demo call books nothing and takes requests only, kept nowhere.
+    // A demo call books through the same tool layer as a clinic's call, on the demo's own calendar,
+    // kept nowhere (demo-booking.ts; owner, 1 November 2026: "go ahead with the restructure").
     this.tools ??= this.deps.demo
-      ? null
+      ? this.demoContext
+        ? demoBookingTools(this.demoContext, this.callId, ACTOR)
+        : null
       : this.deps.tools
       ? this.deps.tools(facts)
       : bookingTools({
@@ -1542,25 +1543,23 @@ export class RetellCallSession {
     // In the role-play, a time outside the hours, a closed day, or a question
     // about free times is answered by the call itself, from the hours
     // (roleplayTimeLine; c4093be6).
-    const rpOffer = this.demoContext && progress ? roleplayTimeOffer(this.demoContext, progress, words) : null;
-    const rpTimeLine = rpOffer?.line ?? null;
     // Lines every call says itself (call-lines.ts): a business ask, a question about how busy the practice is,
     // a fragment of a sentence. A business ask wins over a time; the others give way to one.
     const officeNumber = this.demoContext ? (facts.urgentPhone ?? null) : (facts.phone ?? null);
     const fragment = !jump && isFragment(words);
     const business = businessLine(words, officeNumber);
-    const callLine = business ?? (rpTimeLine ? null : (busyLine(words) ?? (fragment ? fragmentLine(this.fragmentsInRow + 1) : null)));
+    const callLine = business ?? busyLine(words) ?? (fragment ? fragmentLine(this.fragmentsInRow + 1) : null);
     // What the line most likely heard: a word that sounds like the menu, a provider or what she just said (sound-alike.ts).
     const heardNote = soundAlikeNote(
       soundAlikes(words, {
         services: facts.services.map((svc) => svc.name),
         providers: facts.providerNames ?? [],
         // What she said lately, and on a demo the treatment being booked ("the bottle" for Botox, asked about a deposit).
-        recent: [...this.turns.filter((t) => t.speaker === "assistant").slice(-4).map((t) => t.text), ...(progress?.rpBooking?.service ? [progress.rpBooking.service] : [])],
+        recent: [...this.turns.filter((t) => t.speaker === "assistant").slice(-4).map((t) => t.text), ...[this.toolState.service, this.capture.service].filter((v): v is string => Boolean(v))],
       }),
     );
     // A time line says the call's line, with no model call: its words would be replaced unsaid.
-    const fixedMove = rpTimeLine !== null || callLine !== null;
+    const fixedMove = callLine !== null;
     const base: AssistantResponder | null | undefined = fixedMove ? async () => `Okay.\n${SPOKEN_END}\n{"handoff":false,"end":false}` : this.deps.responder;
     const responder: AssistantResponder | null = base
       ? (request) =>
@@ -1622,7 +1621,7 @@ export class RetellCallSession {
             // until the turn's booking is known (roleplayCheckedReply).
             if (
               held ||
-              (this.demoContext && (RING_RING.test(sentence) || (stageNow === "roleplay" && (OWN_EXIT.test(sentence) || roleplayHolds(sentence, progress?.rpBooking, progress ?? {})))))
+              (this.demoContext && (RING_RING.test(sentence) || (stageNow === "roleplay" && OWN_EXIT.test(sentence))))
             ) {
               held = true;
               return;
@@ -1654,17 +1653,9 @@ export class RetellCallSession {
       // prompt; in it, the clinic's front-desk prompt she plays (demo-facts.ts).
       stablePrompt: null,
       softRefusal: null,
-      // A demo: her name for the caller is the call's to say, once, when it books (demoConfirmLine; a44374c9: "Thomas" three times).
-      callerFirstName: this.demoContext ? (progress?.rpBooking?.name ?? null) : null,
-      ...(this.demoContext
-        ? {
-            nameLimit: 0,
-            // One question a reply (a44374c9: the name, the number and "let me check what's open" in one breath).
-            oneQuestion: { keep: [] },
-            // Her booking words are the call's own code's to check (roleplayHolds, roleplayCheckedReply, demoConfirmLine).
-            bookingClaimsOwned: true,
-          }
-        : {}),
+      callerFirstName: null,
+      // One question a reply on a demo (a44374c9: the name, the number and "let me check what's open" in one breath).
+      ...(this.demoContext ? { oneQuestion: { keep: [] } } : {}),
       // After a caller showed frustration, the call never ends on "Talk soon!" (demo-facts.ts, impatient).
       noSignOff: false,
     }).finally(() => {
@@ -1703,11 +1694,8 @@ export class RetellCallSession {
     // the call: the pitch comes after it.
     // The line said in place of her words: the call's own time line, or her reply once the booking is checked.
     let roleplayLine: string | null = null;
-    // A time the call answered itself (roleplayTimeLine): the call's own line, never her words. An urgent reply, which
-    // is matched before any of this, still wins.
-    const codeMoved = Boolean(this.demoContext && progress && fixedMove && turn.source === "model");
     // The call's own line, on any call: a business ask, how busy the practice is, a fragment (call-lines.ts).
-    const callLineSaid = fixedMove && turn.source === "model" && callLine !== null && (business !== null || rpTimeLine === null);
+    const callLineSaid = fixedMove && turn.source === "model" && callLine !== null;
     if (callLineSaid) {
       roleplayLine = callLine;
       this.fragmentsInRow = fragment && !business ? this.fragmentsInRow + 1 : 0;
@@ -1718,25 +1706,7 @@ export class RetellCallSession {
     } else if (turn.source === "model") {
       this.fragmentsInRow = 0;
     }
-    if (codeMoved && progress && rpTimeLine && !callLineSaid) {
-      // The day they named stays on the booking; a time outside the hours never does.
-      roleplayLine = rpTimeLine;
-      const named = progress.rpDay !== null && progress.rpDay !== undefined ? (["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const)[progress.rpDay] : undefined;
-      const after = afterDemoReply(progress, "roleplay", "roleplay", null, words);
-      this.demoProgress = {
-        ...after,
-        rpBooking: { ...after.rpBooking, ...(named && !after.rpBooking?.day ? { day: named } : {}) },
-        lastQuestion: lastQuestionIn(rpTimeLine)?.slice(0, 300) ?? after.lastQuestion ?? null,
-        // The day's pleasantry once, and the "already taken" once (roleplayTimeLine).
-        lookedUp: true,
-        takenShown: after.takenShown === true || / is already taken\b/.test(rpTimeLine),
-        // What it offered, for "Monday works" next turn, and never to be offered again (a44374c9).
-        offered: rpOffer?.offered ?? [],
-        offeredAll: [...(after.offeredAll ?? []), ...(rpOffer?.seen ?? [])],
-      };
-      log.info("retell demo roleplay", { callId: this.callId, status: "time" });
-    }
-    if (this.demoContext && progress && turn.source !== "fallback" && !codeMoved && !callLineSaid) {
+    if (this.demoContext && progress && turn.source !== "fallback" && !callLineSaid) {
       const update = turn.source === "model" ? demoStateFrom(turn.state) : null;
       // Her own exit line from the old role-play is never said: there is no role-play to leave.
       const replyNow = turn.source === "model" && OWN_EXIT.test(turn.reply) ? withoutOwnExit(turn.reply) : turn.reply;
@@ -1753,43 +1723,8 @@ export class RetellCallSession {
       if (listed.length >= 2) this.demoProgress = { ...this.demoProgress, lastListed: listed };
       // What she has told them about, for "besides Botox" and "the other ones" (demoStageNote).
       if (listed.length > 0) this.demoProgress = { ...this.demoProgress, told: [...new Set([...(this.demoProgress.told ?? []), ...listed])] };
-      // The booking's last word is the code's (roleplayCheckedReply, c4093be6):
-      // a treatment on the menu that they or she named is on file even when her state forgot it,
-      // and no request is said to be in, or a cancelled one pending, before it may be.
-      if (!turn.urgent && (turn.source === "model" || turn.source === "guard")) {
-        const booking = this.demoProgress.rpBooking ?? {};
-        const named = booking.service ? null : listedIn(`${words} ${turn.reply}`, this.demoContext.clinic.services.map((svc) => svc.name))[0];
-        if (named) this.demoProgress = { ...this.demoProgress, rpBooking: { ...booking, service: named } };
-        // healdesk's words caught midway (demoRoleplayFacts): the reply ends on what was said, with no guard line after a real answer.
-        // Refused before a word was said: what a front desk says to what it does not know.
-        const neverSaid = turn.source === "guard" && turn.guard === "never_say" && !roleplayLine;
-        const heardNow = neverSaid ? (streamed || ROLEPLAY_UNKNOWN_LINE) : (roleplayLine ?? turn.reply);
-        const checked = roleplayCheckedReply(heardNow, this.demoProgress.rpBooking, {
-          guard: turn.source === "guard" ? (turn.guard ?? null) : null,
-          spokenBefore: streamed,
-          confirmed: this.demoProgress.rpConfirmed === true,
-          askedBooking: progress.askedBooking === true,
-          frustrated: progress.frustrated === true,
-          frustratedNow: progress.frustratedNow === true,
-          apologised: this.demoProgress.apologised === true,
-          said: this.turns.filter((t) => t.speaker === "assistant").map((t) => t.text),
-        });
-        // Words already out stand: what replaces the guard's line follows them.
-        if (checked !== (roleplayLine ?? turn.reply)) roleplayLine = streamed && !checked.startsWith(streamed) ? `${streamed} ${checked}` : checked;
-        else if (neverSaid) roleplayLine = heardNow;
-        // Everything the booking needs is in: the call books it and says so, once, in its own words, after
-        // whatever she already said (owner, 1 November 2026, on a44374c9). A move is said again only to a new time.
-        const bookedNow = this.demoProgress.rpBooking;
-        const slot = demoBookable(this.demoContext, bookedNow);
-        const was = this.demoProgress.confirmedAt ?? null;
-        const moved = this.demoProgress.rpConfirmed === true && bookedNow?.status === "rescheduled";
-        if (slot && (this.demoProgress.rpConfirmed !== true || (moved && (!was || was.day !== slot.day || was.minutes !== slot.minutes)))) {
-          const line = demoConfirmLine(this.demoContext, bookedNow!, slot, moved);
-          roleplayLine = streamed ? `${streamed} ${line}` : line;
-          this.demoProgress = { ...this.demoProgress, rpConfirmed: true, confirmedAt: slot, rpBooking: { ...bookedNow, status: "booked" }, lastQuestion: "Anything else I can help with?" };
-          log.info("retell demo roleplay", { callId: this.callId, status: moved ? "moved" : "booked" });
-        }
-      }
+      // healdesk's words refused before a word was said: what a front desk says to what it does not know.
+      if (turn.source === "guard" && turn.guard === "never_say" && !roleplayLine && !streamed) roleplayLine = ROLEPLAY_UNKNOWN_LINE;
     }
     // A demo never says a line it has said before, word for word (a test call of 1 November 2026: the same refusal three times).
     if (this.demoContext && !streamed && !turn.urgent) {
@@ -1801,9 +1736,9 @@ export class RetellCallSession {
         const again = provider ? [`That's one for ${provider} to go through with you. Want me to request a consultation?`] : [];
         // A real answer asked for again is said again, shorter; a refusal, in words not said yet.
         const first = now.split(/(?<=[.!?])\s+/)[0] ?? now;
-        const answer = !/\b(?:don'?t have|can'?t|cannot|not able|isn'?t something|not sure)\b/i.test(now) && first.length > 12;
+        const answer = !/\b(?:don'?t have|don'?t know|can'?t|cannot|not able|isn'?t something|not sure)\b/i.test(now) && first.length > 12;
         roleplayLine = answer
-          ? `Like I mentioned, ${first.charAt(0).toLowerCase()}${first.slice(1)}`
+          ? `Like I mentioned, ${/^(?:I\b|[A-Z][a-z]*[A-Z]|[A-Z]{2})/.test(first) ? first : first.charAt(0).toLowerCase() + first.slice(1)}`
           : ([...again, ...NOT_TWICE].find((line) => !before.some((b) => b.includes(line))) ?? "What else can I help you with?");
       }
     }

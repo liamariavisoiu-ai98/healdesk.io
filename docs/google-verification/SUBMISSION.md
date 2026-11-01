@@ -78,24 +78,40 @@ that warning on purpose, and click past it.
       button. Either is fine.
 - [ ] A YouTube account. Any account works, but healdesk's own is best.
 
-### 1.2 Make a clean Chrome profile for the recording
+### 1.2 Open a clean "recording window" (an Incognito window)
 
-So that only the test account shows up on Google's screens:
+So that only the test account shows up on Google's screens, record in a Chrome
+**Incognito** window. It starts with no Google account signed in, and forgets
+everything when you close it.
 
-1. In Chrome, click your profile picture (top right) → **Add** → **Continue
-   without an account**. Name it "healdesk recording".
-2. In that new window, go to `accounts.google.com` and sign in with the
-   **test (sandbox) account**. Do not sign in to any other Google account in
-   this window.
-3. Use this window for everything below.
+1. In Chrome, press **Cmd + Shift + N** on a Mac, or **Ctrl + Shift + N** on
+   Windows. (Or click the **⋮** menu, top right → **New Incognito window**.) A
+   dark window opens. This is your **recording window**.
+2. In it, go to `accounts.google.com` and sign in with the **test (sandbox)
+   account**. Do not sign in to any other Google account in this window.
+3. Use this window for everything below, and **do not close it** until you
+   have finished recording. Closing it signs you out of everything, and you
+   would have to start again from step 1.2.
+
+Your ordinary Chrome window stays as it is. The guide calls it your **normal
+window**. Scene 1 and Part 4 use it.
+
+If Incognito is switched off on your computer, click your profile picture
+(top right) → **Open Guest profile** (or **Guest**) and use that window
+instead. It behaves the same way.
 
 ### 1.3 Sign in to the demo clinic's portal
 
 1. In the recording window, go to `https://app.healdesk.io/sign-in`.
 2. Type your **operator email address** and ask for a sign-in link.
-3. Open the email and click the link. If the link opens in a different
-   browser, copy it and paste it into the recording window instead.
-4. If it asks for your passkey or authenticator code, give it.
+3. Open the email in your normal window. **Do not click the link**: right-click
+   it → **Copy link address**, then paste it into the recording window's
+   address bar and press Enter. (Clicking it would open it in your normal
+   window.)
+4. If it asks for your passkey, the passkey saved on your computer may not be
+   offered in an Incognito window. Choose **use a phone or another device** and
+   scan the code with your phone, or use your **authenticator app code**
+   instead.
 5. You should now see the demo clinic's portal (Home, Settings, Knowledge,
    Conversations, Bookings, Billing).
 

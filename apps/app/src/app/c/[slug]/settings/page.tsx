@@ -10,6 +10,7 @@ import { portalDay, portalMoment } from "@/lib/portal/format";
 import { loadPortalPage, shellProps } from "@/lib/portal/page";
 import { locationDetailsPath, readLaterLocations } from "@/lib/portal/location-details";
 import { readCalendarCard } from "@/lib/portal/settings-calendar";
+import { connectionRows, settingsSections } from "@/lib/portal/settings-overview";
 import { readSettingsView } from "@/lib/portal/settings-view";
 import { sessionBinding } from "@/lib/portal/step-up";
 import { loadOpenAddressChange } from "@/lib/sign-in/address-change";
@@ -22,6 +23,7 @@ import { withTenant } from "@/lib/tenant";
 
 import { PortalShell } from "../PortalShell";
 
+import { ConnectionsOverview, SectionLinks } from "./ConnectionsOverview";
 import { AddressControl } from "./AddressControl";
 import { FeedbackProvider } from "../feedback";
 import { CalendarCard } from "./CalendarCard";
@@ -127,8 +129,17 @@ export default async function SettingsPage({
     <PortalShell {...shell}>
       <h1 className="text-2xl font-semibold">Settings</h1>
       <p className="text-muted mt-2">Every switch saves the moment you change it.</p>
+      <SectionLinks sections={settingsSections(laterLocations.length > 0)} />
       <FeedbackProvider>
         <div className="mt-6 grid gap-6">
+          <ConnectionsOverview
+            rows={connectionRows({
+              settingsPath,
+              calendar: calendarCard,
+              payments: view.payments,
+              meta: view.bought.meta ? view.metaConnect : null,
+            })}
+          />
           {laterLocations.length > 0 ? (
             <LocationsCard slug={portal.clinicSlug} locations={laterLocations} />
           ) : null}
@@ -189,7 +200,7 @@ function LocationsCard(props: {
     <section
       id="locations"
       aria-labelledby="locations-heading"
-      className="border-line scroll-mt-6 rounded-md border bg-white px-5 py-4"
+      className="border-line scroll-mt-6 rounded-lg border bg-white shadow-sm px-5 py-4"
     >
       <h2 id="locations-heading" className="text-lg font-semibold">
         Locations

@@ -70,6 +70,31 @@
   background-image: linear-gradient(105deg, var(--color-red-deep) 6%, #b93a12 94%);
 }
 
+/* healdesk's mark in the portal's menu (portal redesign, 1 November 2026):
+   the logo's orange dot. A class, not a style attribute: the portal's CSP
+   (src/proxy.ts, style-src with a nonce) drops inline styles. */
+@utility healdesk-dot {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 35% 30%, #ffb27a, var(--color-orange) 45%, var(--color-red-deep));
+}
+
+/* A usage meter as a native <progress>, drawn in the portal's colours, for
+   the same reason: its width cannot be set by a style attribute. */
+@utility usage-bar {
+  appearance: none;
+  width: 100%;
+  height: 0.625rem;
+  border: 0;
+  border-radius: 9999px;
+  overflow: hidden;
+  background: var(--color-paper-2);
+  &::-webkit-progress-bar { background: var(--color-paper-2); border-radius: 9999px; }
+  &::-webkit-progress-value { background: var(--color-orange); border-radius: 9999px; }
+  &::-moz-progress-bar { background: var(--color-orange); border-radius: 9999px; }
+}
+
 @layer base {
   html {
     /* The palette is light-only: without this a dark-mode phone draws the
@@ -220,5 +245,370 @@
   }
   to {
     opacity: 1;
+  }
+}
+
+/* Sign-in pages (owner, 1 November 2026: "branded healdesk ... pretty,
+   apple-like but healdesk"): /sign-in, /sign-in/help and /link/<token>, in
+   the frame app/sign-in/shell.tsx draws. One white card on a soft glow in the
+   logo's red and orange and the site's Tuscan Sun, the "soul" the site gives
+   AYA, drawn with gradients rather than fetched as an image. These are
+   classes rather than utilities only where a utility cannot say it: a
+   pseudo-element, a sibling state, a keyframe, a layered shadow. They sit in
+   the components layer, so a utility on the same element still wins. */
+@layer components {
+  .si-page {
+    position: relative;
+    isolation: isolate;
+    display: flex;
+    min-height: 100vh;
+    min-height: 100svh;
+    flex-direction: column;
+    overflow: hidden;
+    overflow: clip;
+    background-color: var(--color-paper);
+  }
+
+  /* The glow: an orange light behind the wordmark and the top of the card,
+     red to its left, orange to its right and sun below, like the light
+     behind a sunrise. The red is the faintest because the logo red, thinned
+     out on white, turns pink. The card is opaque white, so only the line
+     under it sits on the tint (see .si-below). */
+  .si-page::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    top: 46%;
+    left: 50%;
+    width: min(64rem, 180vw);
+    height: 46rem;
+    transform: translate(-50%, -62%);
+    background:
+      radial-gradient(28% 30% at 50% 36%, rgb(255 118 30 / 0.24), transparent 70%),
+      radial-gradient(36% 40% at 33% 44%, rgb(230 38 39 / 0.13), transparent 72%),
+      radial-gradient(40% 44% at 67% 44%, rgb(255 118 30 / 0.2), transparent 72%),
+      radial-gradient(50% 42% at 50% 70%, rgb(250 199 72 / 0.3), transparent 74%);
+    filter: blur(24px);
+    pointer-events: none;
+  }
+
+  .si-column {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    max-width: 29.5rem;
+    margin-inline: auto;
+    padding: 3rem 1rem;
+  }
+
+  .si-wordmark {
+    display: block;
+    width: auto;
+    height: 1.75rem;
+    user-select: none;
+  }
+
+  .si-card {
+    width: 100%;
+    padding: 2rem 1.5rem;
+    border-radius: var(--radius-lg);
+    background-color: #fff;
+    box-shadow:
+      0 0 0 1px rgb(23 42 58 / 0.06),
+      0 1px 2px rgb(23 42 58 / 0.05),
+      0 16px 36px -16px rgb(23 42 58 / 0.18),
+      0 44px 90px -36px rgb(218 25 26 / 0.28);
+  }
+
+  /* The one line on the glow, where it and the card's shadow tint the
+     ground: the muted ink alone measured 4.2:1 at the darkest spot, under the
+     4.5:1 that 14px text needs, so it is mixed a fifth of the way to the ink
+     (5.2:1 there, 6.5:1 on white). A browser without color-mix keeps the
+     muted ink. */
+  .si-below {
+    margin-top: 1.75rem;
+    padding-inline: 0.5rem;
+    color: var(--color-muted);
+    color: color-mix(in srgb, var(--color-muted) 80%, var(--color-ink));
+    font-size: 0.875rem;
+    line-height: 1.5;
+    text-align: center;
+    text-wrap: pretty;
+  }
+
+  @media (min-width: 40rem) {
+    .si-wordmark {
+      height: 2rem;
+    }
+    .si-card {
+      padding: 2.75rem 2.5rem;
+    }
+  }
+
+  /* Fields: 17px text, which also keeps an iPhone from zooming in on focus
+     (it does under 16px). The focus ring is the portal's deep orange (see
+     :focus-visible above), drawn as a 2px border with a soft halo instead of
+     the outline; the border alone is 3.69:1 on white. */
+  .si-input {
+    display: block;
+    width: 100%;
+    height: 3.25rem;
+    padding: 0 1rem;
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-md);
+    background-color: #fff;
+    color: var(--color-ink);
+    font-size: 1.0625rem;
+    line-height: 1.5rem;
+    transition:
+      border-color 150ms ease,
+      box-shadow 150ms ease;
+  }
+  /* An example ("04/28"), in the muted ink at full strength: 5.2:1, where a
+     faded placeholder falls under the 4.5:1 that text needs. */
+  .si-input::placeholder {
+    color: var(--color-muted);
+    opacity: 1;
+  }
+  .si-input:hover {
+    border-color: rgb(23 42 58 / 0.4);
+  }
+  .si-input:focus {
+    outline: none;
+    border-color: var(--color-orange-deep);
+    box-shadow:
+      0 0 0 1px var(--color-orange-deep),
+      0 0 0 5px rgb(255 118 30 / 0.18);
+  }
+  .si-input[aria-invalid="true"] {
+    border-color: var(--color-problem);
+  }
+  .si-input[aria-invalid="true"]:focus {
+    box-shadow:
+      0 0 0 1px var(--color-problem),
+      0 0 0 5px rgb(218 25 26 / 0.14);
+  }
+  /* A browser's saved address keeps the field white rather than its own tint. */
+  .si-input:-webkit-autofill {
+    -webkit-text-fill-color: var(--color-ink);
+    box-shadow: inset 0 0 0 100px #fff;
+  }
+  .si-input:-webkit-autofill:focus {
+    box-shadow:
+      inset 0 0 0 100px #fff,
+      0 0 0 1px var(--color-orange-deep),
+      0 0 0 5px rgb(255 118 30 / 0.18);
+  }
+
+  /* The sign-in page's one field: the label sits in the field and moves up
+     out of the way once there is focus or text. It comes after the input in
+     the markup for the sibling selector; `for` still names the field. Each
+     state is its own rule, because a browser that does not know one
+     pseudo-class drops the whole rule it appears in. */
+  .si-float {
+    position: relative;
+  }
+  .si-float > .si-input {
+    height: 3.5rem;
+    padding: 1.375rem 1rem 0.375rem;
+  }
+  .si-float > label {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    left: 1rem;
+    overflow: hidden;
+    color: var(--color-muted);
+    font-size: 1.0625rem;
+    line-height: 1.5rem;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    transform-origin: left top;
+    transition: transform 150ms ease;
+    pointer-events: none;
+  }
+  .si-float > .si-input:focus + label {
+    transform: translateY(-0.5625rem) scale(0.75);
+  }
+  .si-float > .si-input:not(:placeholder-shown) + label {
+    transform: translateY(-0.5625rem) scale(0.75);
+  }
+  .si-float > .si-input:-webkit-autofill + label {
+    transform: translateY(-0.5625rem) scale(0.75);
+  }
+  .si-float > .si-input:autofill + label {
+    transform: translateY(-0.5625rem) scale(0.75);
+  }
+
+  /* Buttons: a full-width pill, 52px tall. White on the deep gradient is
+     5.08:1 where it is lightest; hover darkens rather than lightens, so it
+     never drops under that. */
+  .si-primary,
+  .si-secondary {
+    display: inline-flex;
+    width: 100%;
+    min-height: 3.25rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.625rem;
+    padding: 0.75rem 1.5rem;
+    border-radius: 9999px;
+    font-size: 1.0625rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.5rem;
+    text-align: center;
+    cursor: pointer;
+    transition:
+      transform 150ms ease,
+      box-shadow 150ms ease,
+      filter 150ms ease,
+      background-color 150ms ease;
+  }
+  .si-primary {
+    background-image: linear-gradient(105deg, var(--color-red-deep) 6%, #b93a12 94%);
+    color: #fff;
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.22),
+      0 1px 2px rgb(185 58 18 / 0.3),
+      0 12px 24px -12px rgb(218 25 26 / 0.7);
+  }
+  .si-primary:hover:not(:disabled) {
+    filter: brightness(0.95);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.22),
+      0 1px 2px rgb(185 58 18 / 0.3),
+      0 16px 30px -12px rgb(218 25 26 / 0.75);
+  }
+  .si-secondary {
+    background-color: #fff;
+    color: var(--color-ink);
+    box-shadow: inset 0 0 0 1px var(--color-line-strong);
+  }
+  .si-secondary:hover:not(:disabled) {
+    background-color: var(--color-paper-2);
+  }
+  .si-primary:active:not(:disabled),
+  .si-secondary:active:not(:disabled) {
+    transform: scale(0.985);
+  }
+  .si-primary:disabled {
+    cursor: default;
+    opacity: 0.8;
+  }
+  .si-secondary:disabled {
+    cursor: default;
+    color: var(--color-muted);
+  }
+
+  .si-link {
+    color: var(--color-ink);
+    font-weight: 600;
+    text-decoration-line: underline;
+    text-decoration-color: var(--color-line-strong);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+    transition: text-decoration-color 150ms ease;
+  }
+  .si-link:hover {
+    text-decoration-color: currentColor;
+  }
+
+  /* The help page's choice of billing detail, as a segmented control: the
+     radios stay real and reachable by keyboard, only hidden; the chosen one
+     is the raised white segment. */
+  .si-segments {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.25rem;
+    padding: 0.25rem;
+    border-radius: 9999px;
+    background-color: var(--color-paper-2);
+  }
+  .si-segments span {
+    display: flex;
+    min-height: 2.75rem;
+    align-items: center;
+    justify-content: center;
+    padding: 0.25rem 0.5rem;
+    border-radius: 9999px;
+    color: var(--color-muted);
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.25;
+    text-align: center;
+    cursor: pointer;
+    transition:
+      background-color 150ms ease,
+      color 150ms ease,
+      box-shadow 150ms ease;
+  }
+  .si-segments input:checked + span {
+    background-color: #fff;
+    color: var(--color-ink);
+    box-shadow:
+      0 0 0 0.5px rgb(23 42 58 / 0.08),
+      0 1px 3px rgb(23 42 58 / 0.12);
+  }
+  .si-segments input:focus-visible + span {
+    outline: 3px solid var(--color-orange-deep);
+    outline-offset: 2px;
+  }
+
+  /* The badge above a state's heading: a tinted disc, the glyph in deep red. */
+  .si-badge {
+    display: grid;
+    width: 4rem;
+    height: 4rem;
+    margin-inline: auto;
+    place-items: center;
+    border-radius: 9999px;
+    background: radial-gradient(circle at 30% 25%, #fff8f3, var(--color-tint-peach) 70%);
+    box-shadow: inset 0 0 0 1px rgb(230 38 39 / 0.12);
+    color: var(--color-red-deep);
+  }
+}
+
+/* The sign-in pages' motion, each of it once and then still, like everything
+   in the portal (tests/switch-explainer.test.tsx, "motion honesty"): the glow
+   comes up as the page opens, the wordmark and the card rise into place, and
+   a new state in the card fades in. A button at work says so in words
+   ("Sending…") rather than with a spinner. Only where motion is allowed; with
+   it off, everything is simply there. */
+@media (prefers-reduced-motion: no-preference) {
+  .si-rise {
+    animation: si-rise 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .si-rise-late {
+    animation-delay: 90ms;
+  }
+  .si-fade {
+    animation: si-rise 450ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .si-page::before {
+    animation: si-glow 1.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+@keyframes si-rise {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes si-glow {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -58%) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -62%) scale(1);
   }
 }

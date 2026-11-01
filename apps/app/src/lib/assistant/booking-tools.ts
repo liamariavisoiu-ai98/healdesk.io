@@ -561,7 +561,9 @@ export function bookingTools(
 
     const firstName = capture.firstName?.trim() || null;
     const given = capture.phone ? toE164(capture.phone) : null;
-    if (context.channel === "voice" && given && given !== state.phoneConfirmed) {
+    // The number they are calling from needs no read-back: the line itself confirms it.
+    const callingFrom = input.callerPhone ? toE164(input.callerPhone) : null;
+    if (context.channel === "voice" && given && given !== state.phoneConfirmed && given !== callingFrom) {
       // A number the caller gave is read back before it is used, and used only after their yes.
       if (state.readBack === given && AFFIRMED.test(input.words ?? "")) {
         state = { ...state, readBack: null, phoneConfirmed: given };
@@ -574,7 +576,7 @@ export function bookingTools(
         return turn(L === BOOKING_LINES_ES ? `${nationalNumber(given)}, ¿correcto?` : readBackLine(nationalNumber(given)), state);
       }
     }
-    const phone = (context.channel === "voice" && given ? (state.phoneConfirmed === given ? given : null) : given) ?? (input.callerPhone ? toE164(input.callerPhone) : null);
+    const phone = (context.channel === "voice" && given && given !== callingFrom ? (state.phoneConfirmed === given ? given : null) : given) ?? callingFrom;
     const missing = !firstName ? ("first_name" as const) : !phone ? ("phone" as const) : null;
 
     if (context.channel === "voice" && !state.held && !state.asRequest) {

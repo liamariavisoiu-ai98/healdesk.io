@@ -146,6 +146,13 @@ function addOnsLine(facts: Pick<AssistantFacts, "suggestAddOns">): string {
 const BOOKING = `Booking: you do not book appointments yourself. When someone wants an appointment, collect what the practice needs (listed below) one or two questions at a time (on a call, one at a time: which service first, then roughly when, then their first name), then confirm back the day and time they asked for and tell them the practice team will confirm it within a day. Never say an appointment is confirmed or booked. If they ask for a person ("representative", "human", "staff"), collect their first name and number and say the team will get back to them within a day.`;
 
 /**
+ * Said only on a call whose clinic has Transfer live calls on, while the
+ * practice is open (buildAssistantPrompt). It overrides the booking line's
+ * "collect their first name and number" for a request for a person.
+ */
+export const LIVE_TRANSFER = `Transfers: if they ask for a person ("representative", "human", "staff", "someone at the front desk"), do not take their details and do not promise a call back: say only "Of course." and set "handoff" to true. The call then puts them through to the team.`;
+
+/**
  * Booking while the tool layer is live (booking-tools.ts): the model asks
  * for times and passes on the one chosen; the tool layer holds, books and
  * says so in its own fixed words. Only on a turn the tools are offered, so a
@@ -362,6 +369,12 @@ export function buildAssistantPrompt(
     audienceLine(audience),
   );
   lines.push(rules(audience, Boolean(facts.samples)), tools ? BOOKING_TOOLS : BOOKING, format(channel, facts), languagesLine(facts), addOnsLine(facts));
+  // Transfer live calls (Settings › Alerts): on a call, while the switch is
+  // on and the practice is open, the call itself puts a caller who asks for a
+  // person through (voice/retell.ts, liveTransferLine), so she neither takes
+  // their details nor promises a call back. The call leaves transferLine
+  // null while the practice is closed, and this line out with it.
+  if (channel === "voice" && facts.transferLine) lines.push(LIVE_TRANSFER);
 
   lines.push(`\nThe practice:`);
   lines.push(`- Name: ${facts.clinicName}`);

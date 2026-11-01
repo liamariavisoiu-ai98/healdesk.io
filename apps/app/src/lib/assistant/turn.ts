@@ -1754,7 +1754,9 @@ export async function answerTurn(input: {
   }
   // With booking tools on, free times are never the model's to name: one the tool layer did not take over
   // (a time already held, a question that asked for none) is taken out (be078f77 and sound-alike replays).
-  if (input.tools && claimsFreeTime(answer.reply)) answer.reply = withoutFreeTimeClaims(answer.reply);
+  // Only while the tools are live: without them she takes a request, and saying back the time they asked for
+  // ("Of course, Thursday afternoon works") is right (voice-ended-early's redial replay).
+  if (toolsLive && claimsFreeTime(answer.reply)) answer.reply = withoutFreeTimeClaims(answer.reply);
   // A reply that only repeats the turn before is said as written: silence would be worse.
   const unrepeated = (before && fresh(answer.reply)) || answer.reply;
   const unfilled = channel === "voice" ? withoutLeadingFiller(unrepeated) || unrepeated : unrepeated;

@@ -8,6 +8,7 @@ import {
   getPlan,
   isSpecialtyId,
   planStartSentence,
+  recurringUsd,
   USAGE_ALERT_PERCENT,
 } from "@healdesk/catalog";
 import type { Metadata } from "next";
@@ -41,6 +42,8 @@ import {
   ChangePlan,
   StripePortalButton,
 } from "./BillingControls";
+import { billingSections, billingTiles } from "@/lib/portal/billing-glance";
+import { SectionLinks } from "../settings/ConnectionsOverview";
 
 export const metadata: Metadata = { title: "Billing · healdesk", referrer: "no-referrer" };
 
@@ -110,13 +113,58 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
   return (
     <PortalShell {...shell}>
       <h1 className="text-2xl font-semibold">Billing</h1>
+      <SectionLinks sections={billingSections({ ended, canChange: !ended && Boolean(bought) })} />
+      <ul aria-label="At a glance" className={`mt-6 grid gap-3 ${ended ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
+        {billingTiles({
+          packageName: bought?.packageName ?? null,
+          periodUsd: bought ? recurringUsd(bought, summary.interval) : null,
+          interval: summary.interval,
+          locations: summary.locations,
+          ended,
+          isPlanStarted: summary.isPlanStarted,
+          nextInvoice: view.nextInvoice,
+          usage: summary.usage,
+          timeZone: tz,
+          now,
+        }).map((tile) => (
+          <li
+            key={tile.key}
+            data-tile={tile.key}
+            className={`border-line rounded-lg border px-5 py-5 shadow-sm ${
+              tile.key === "plan" ? "bg-gradient-to-br from-white to-tint-peach/60" : "bg-white"
+            }`}
+          >
+            <p className="text-muted text-xs font-semibold tracking-wider uppercase">{tile.label}</p>
+            <p className="mt-1 text-2xl font-bold tracking-tight">{tile.value}</p>
+            <p className="text-muted mt-1 text-sm">{tile.hint}</p>
+          </li>
+        ))}
+      </ul>
+      {ended ? null : (
+        <p className="mt-4 flex flex-wrap gap-2">
+          {bought ? (
+            <a
+              href="#change"
+              className="bg-ink inline-flex min-h-11 items-center rounded-full px-5 text-sm font-bold text-white"
+            >
+              Change plan
+            </a>
+          ) : null}
+          <a
+            href="#payment-method"
+            className="border-line inline-flex min-h-11 items-center rounded-full border bg-white px-5 text-sm font-semibold"
+          >
+            Card and invoices
+          </a>
+        </p>
+      )}
       <FeedbackProvider>
         <div className="mt-6 grid gap-6">
           {/* The plan */}
           <section
             id="plan"
             aria-labelledby="plan-heading"
-            className="border-line scroll-mt-6 rounded-md border bg-white px-4 py-4 sm:px-5"
+            className="border-line scroll-mt-6 rounded-lg border bg-white shadow-sm px-4 py-4 sm:px-5"
           >
             <h2 id="plan-heading" className="text-lg font-semibold">
               Your plan
@@ -212,7 +260,7 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
             <section
               id="your-data"
               aria-labelledby="your-data-heading"
-              className="border-line scroll-mt-6 rounded-md border bg-white px-4 py-4 sm:px-5"
+              className="border-line scroll-mt-6 rounded-lg border bg-white shadow-sm px-4 py-4 sm:px-5"
             >
               <h2 id="your-data-heading" className="text-lg font-semibold">
                 Your export and your data
@@ -230,7 +278,7 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
           <section
             id="usage"
             aria-labelledby="usage-heading"
-            className="border-line scroll-mt-6 rounded-md border bg-white px-4 py-4 sm:px-5"
+            className="border-line scroll-mt-6 rounded-lg border bg-white shadow-sm px-4 py-4 sm:px-5"
           >
             <h2 id="usage-heading" className="text-lg font-semibold">
               Usage
@@ -311,7 +359,7 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
             <section
               id="switches"
               aria-labelledby="switches-heading"
-              className="border-line scroll-mt-6 rounded-md border bg-white px-4 py-4 sm:px-5"
+              className="border-line scroll-mt-6 rounded-lg border bg-white shadow-sm px-4 py-4 sm:px-5"
             >
               <h2 id="switches-heading" className="text-lg font-semibold">
                 Allowance, alerts and renewal
@@ -355,7 +403,7 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
             <section
               id="change"
               aria-labelledby="change-heading"
-              className="border-line scroll-mt-6 rounded-md border bg-white px-4 py-4 sm:px-5"
+              className="border-line scroll-mt-6 rounded-lg border bg-white shadow-sm px-4 py-4 sm:px-5"
             >
               <h2 id="change-heading" className="text-lg font-semibold">
                 Change your plan
@@ -405,7 +453,7 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
           <section
             id="payment-method"
             aria-labelledby="payment-heading"
-            className="border-line scroll-mt-6 rounded-md border bg-white px-4 py-4 sm:px-5"
+            className="border-line scroll-mt-6 rounded-lg border bg-white shadow-sm px-4 py-4 sm:px-5"
           >
             <h2 id="payment-heading" className="text-lg font-semibold">
               Card and invoices
@@ -428,7 +476,7 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
           <section
             id="agreement"
             aria-labelledby="agreement-heading"
-            className="border-line scroll-mt-6 rounded-md border bg-white px-4 py-4 sm:px-5"
+            className="border-line scroll-mt-6 rounded-lg border bg-white shadow-sm px-4 py-4 sm:px-5"
           >
             <h2 id="agreement-heading" className="text-lg font-semibold">
               Your agreement

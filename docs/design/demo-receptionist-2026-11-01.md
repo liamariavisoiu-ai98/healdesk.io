@@ -63,3 +63,33 @@ and the test `voice-demo-roleplay-moves.test.ts` holds it.
   the Sheet's `demo_callbacks` tab) is unused now. It is left as it is,
   because the tab is a record. Remove it at your word.
 - The demo page's own words are the owner's design and untouched.
+
+## Made-up values for what the website did not show (same day)
+
+The owner, 1 November 2026: "if the website doesnt offer calendar, stripe,
+prices the demo should 'invent them' just to show them the dream outcome.
+There should be a visible disclaimer saying this wasn't available so we
+invented this for demo purposes."
+
+| Not found | Made up for the live demo |
+|---|---|
+| A price for a treatment | A sample price by kind of treatment ("$14/unit" for Botox, "from $650" for filler, "$199" for a HydraFacial; "from $150" otherwise) |
+| Any treatment | A sample menu for the kind of practice (med spa, dental, vet, massage and chiro, GLP-1, hair) |
+| Opening hours | Monday to Friday, 9 to 6 |
+| A deposit or cancellation rule | "A $50 deposit holds each appointment and comes off the treatment price. Cancel or move it at least 24 hours ahead to keep the deposit." |
+| The calendar (never connected in a demo) | The free times Aya offers, from the hours |
+
+- **Never made up:** the address, the phone number or the team, which a
+  caller would act on.
+- **Where it applies:** in `apps/web/src/lib/demo/samples.ts`
+  (`withDemoSamples`), at the chat route, the three voice routes and the
+  demo page. It is never applied to the stored profile, so the build's
+  audit, which checks the profile against the website, never takes a sample
+  for something the reader invented.
+- **The disclaimer:** the page's note above the voice and chat cards, now
+  headed "Made up for this demo", lists each made-up item. Then, under
+  "Still not found", it lists what nothing replaced.
+- **What the voice receives:** the sample values inside the sealed clinic
+  profile, so `apps/app` needed no change.
+- **The deposit on a call:** voice still never takes a payment. The sample
+  rule names a deposit, and Aya flags it as on any call.

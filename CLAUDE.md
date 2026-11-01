@@ -200,8 +200,18 @@ enforceable rather than aspirational.
    shared voice prompt (`prompt.ts`, `RECEPTIONIST_MANNER`), so a clinic's
    own calls have it too; it never says a time is booked unless the booking
    line did, asks no email on a call, and states no popularity or outcome
-   claim as the clinic's fact. Spoken text writes "Aya", never "AYA", which a
-   voice spells out. While the host is in standby, the demo falls back to the
+   claim as the clinic's fact. What the clinic's public pages did not show
+   is made up for the live demo only (owner, 1 November 2026: invent the
+   calendar, the deposit and the prices "just to show them the dream
+   outcome", with "a visible disclaimer"): a price for each treatment listed
+   without one, a sample menu when none was found, weekday hours, a $50
+   deposit and 24-hour cancellation rule, and always the free times
+   (`apps/web/src/lib/demo/samples.ts`, `withDemoSamples`, applied by the
+   chat and voice routes and the page, never to the stored profile the
+   build's audit checks); the address, the phone number and the team are
+   never made up. The demo page's note above the voice and chat cards lists
+   every made-up item ("Made up for this demo", `demoNoteHtml`). Spoken text
+   writes "Aya", never "AYA", which a voice spells out. While the host is in standby, the demo falls back to the
    Retell-hosted clinic demo agent, so a demo never depends on AWS being on.
 
 3. **`/admin` on `apps/web` is deliberate, not a shortcut.** It is our tool,

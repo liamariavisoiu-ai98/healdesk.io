@@ -124,7 +124,14 @@ describe("the receptionist's manner (owner, 1 November 2026)", () => {
     // Never a claim the booking is made by her words, and no email asked for on a call.
     expect(manner).toContain("Never say a time is booked, locked in, confirmed or held unless the booking line has said so.");
     expect(manner).not.toMatch(/email|most popular/i);
-    const lines = [...manner.matchAll(/"([^"]{8,})"/g)].map((m) => m[1]!.replace(/\[provider\]/g, "Dr. Maya Chen"));
+    // His hospitality lines (owner, 1 November 2026): the name once, at the wrap-up; the consultation's reassurance; a closer that sends nothing.
+    expect(manner).toContain('"Excellent. Well, [first name], I\'ve put that in for you."');
+    expect(manner).toContain("the consultation is really relaxed and conversational");
+    expect(manner).toContain("We're always here to help!");
+    expect(manner).toContain("Never say you are sending them a confirmation or any message.");
+    expect(prompt).toContain("use it once in the call, in the wrap-up");
+    expect(prompt).not.toContain("at most twice");
+    const lines = [...manner.matchAll(/"([^"]{8,})"/g)].map((m) => m[1]!.replace(/\[provider\]/g, "Dr. Maya Chen").replace(/\[first name\]/g, "Josh").replace(/\[their day\]/g, "Thursday"));
     expect(lines.length).toBeGreaterThan(10);
     for (const line of lines) expect([line, guardAssistantReply(line, facts, { bookingWritten: false }).ok]).toEqual([line, true]);
     // The chat prompt is untouched: the manner is for calls.

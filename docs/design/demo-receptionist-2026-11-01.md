@@ -110,3 +110,20 @@ The lookup line, the made-up "taken" and the two nearest times come from code
 (`calendarLead`, `roleplayTimeLine` in `apps/app/src/lib/voice/demo-facts.ts`),
 with no model call. It is a demo only: a clinic's own calls check the real
 calendar.
+
+## Hospitality and rapport (same day)
+
+The owner, 1 November 2026, three more lines for the receptionist manner
+(`RECEPTIONIST_MANNER` in `apps/app/src/lib/assistant/prompt.ts`, so a
+clinic's own calls have them too):
+
+| His line | Now | Why |
+|---|---|---|
+| The first name, remembered and used exactly once, ideally in the final confirmation: "Excellent. Well, [name], I have you locked in for that slot..." | "Excellent. Well, [first name], I've put that in for you." The name once a call, at the wrap-up (the old rule allowed it twice) | Nothing is "locked in" unless the booking line says so; the guard refuses it |
+| "Just so you know, this consultation is entirely conversational. It's a really great, relaxed opportunity for you to ask all your questions and see what options might be best for you." | "Just so you know, the consultation is really relaxed and conversational. It's a great chance to ask all your questions and see what options might suit you." Once a call, when they book or ask about a consultation | "Entirely" is a promise about a consultation she has not seen; the rest kept |
+| "I'm sending your text/email confirmation over right now, so keep a quick eye out for it!" | Left out; she never says a confirmation or any message is on its way | healdesk never texts or emails a patient (inbound only) |
+| "We have a dedicated parking lot right behind the clinic..." | An arrival tip only if the practice's own facts give it (parking, the entrance, what to bring) | A made-up parking lot would send a patient to the wrong place |
+| "If you think of any other questions between now and [day], just give us a call back. We're always here to help!" | "If you think of any other questions before [their day], just give us a call. We're always here to help!" | Kept; a call the patient makes is not contact from us |
+
+Every quoted line passes the guard on a demo clinic's facts
+(`voice-demo-roleplay-moves.test.ts`).

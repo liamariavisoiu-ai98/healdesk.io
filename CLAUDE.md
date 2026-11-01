@@ -200,10 +200,13 @@ enforceable rather than aspirational.
    clinic's published number after 9-1-1. `tests/voice-demo-c4093be6.test.ts`
    replays that call's patient lines. The receptionist's manner (the day's
    pleasantry before the calendar, human words for a pause, a nod before
-   each question, one sentence of validation once they choose) is in the
+   each question, one sentence of validation once they choose, the caller's
+   first name once at the wrap-up, a word that the consultation is relaxed, and
+   a closer that looks out for them) is in the
    shared voice prompt (`prompt.ts`, `RECEPTIONIST_MANNER`), so a clinic's
    own calls have it too; it never says a time is booked unless the booking
-   line did, asks no email on a call, and states no popularity or outcome
+   line did, never says a confirmation or message is on its way, gives an
+   arrival tip only from the practice's facts, asks no email on a call, and states no popularity or outcome
    claim as the clinic's fact. What the clinic's public pages did not show
    is made up for the live demo only (owner, 1 November 2026: invent the
    calendar, the deposit and the prices "just to show them the dream

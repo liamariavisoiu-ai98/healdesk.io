@@ -76,27 +76,17 @@ export function voiceDisclosure(context: DisclosureContext): string {
 }
 
 /**
- * The opener of a personalised demo call (owner, 24 October 2026: the demo
- * AYA and the client AYA are the same, "only difference should be the
- * start"). The demo is asked for by someone on the clinic's own team, who
- * typed their first name on the demo page, so Aya checks she has them, as a
- * person calling would (owner, 25 October 2026: "Hi, am I speaking with
- * [Name]?"), rather than asking what they want to book; the question comes
- * last, after the notice, so it hands the turn over. Their role at the
- * clinic is asked next, in the first reply (demo-facts.ts, demoIntroNote).
- * "Aya", never "AYA": a voice spells capitals out letter by letter.
- *
- * It carries the same two facts as voiceDisclosure, in the same breath and
- * first, before anything else is said: "AI assistant" and "transcribed"
- * (tests/voice-demo.test.ts pins both). It is said whole, uninterruptible,
- * as the clinic's opener is (lib/voice/retell.ts). A demo call taken into
- * Spanish hears voiceDisclosureEs once, as any call does. Not configurable:
- * the name is the requester's first name as @healdesk/catalog demoFirstName
- * cleaned it (letters, apostrophes and hyphens), or "there" without one.
+ * A demo call's opening line (owner, 1 November 2026: "Remove the sales pitch
+ * completely. Aya is now only a receptionist"): the clinic's front desk from
+ * the first word, as its patients would hear it, carrying the same two facts
+ * as voiceDisclosure, first and in one breath: "AI assistant" and
+ * "transcribed" (tests/voice-demo.test.ts pins both). Said whole and
+ * uninterruptible, as the clinic's opener is (lib/voice/retell.ts). A demo
+ * call taken into Spanish hears voiceDisclosureEs once, as any call does. Not
+ * configurable. "Aya", never "AYA": a voice spells capitals out.
  */
-export function demoVoiceOpening(context: { clinicName: string; firstName: string | null }): string {
-  const ask = context.firstName ? `Am I speaking with ${context.firstName}?` : "Who am I speaking with?";
-  return `Hi! This is Aya, the AI assistant for ${context.clinicName}, and this call's transcribed. ${ask}`;
+export function demoVoiceOpening(context: { clinicName: string }): string {
+  return `Thanks for calling ${context.clinicName}, this is Aya, the AI assistant, and this call's transcribed. How can I help you today?`;
 }
 
 /**

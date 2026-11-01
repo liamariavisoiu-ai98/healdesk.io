@@ -15,11 +15,10 @@ import { sealDemoCallContext, type DemoCallContext } from "@healdesk/catalog";
 
 import { SPOKEN_END } from "@/lib/assistant/prompt";
 import { MOODS, parseModelAnswer, SpokenStream, withoutMood, type AssistantResponder } from "@/lib/assistant/turn";
-import { DEMO_CASE_CLINIC } from "@/lib/voice/demo-cases";
-import { demoRoleplayOpener } from "@/lib/voice/demo-facts";
 import { RetellCallSession, type RetellOutbound } from "@/lib/voice/retell";
 import { isStallReply, pickUnsaid, STALL_LINES, STALL_SORRY } from "@/lib/voice/stall";
 
+import { DEMO_CASE_CLINIC } from "./setup/demo-clinic";
 import { spokenResponses } from "./setup/retell-responses";
 
 /**
@@ -89,11 +88,11 @@ async function demoCall(options: { anticipate?: boolean; random?: () => number }
     queue.push(...model);
     await s.handle(JSON.stringify({ interaction_type: "update_only", turntaking: "user_turn", transcript: [...transcript, { role: "user", content: words }] }));
   };
-  /** Through the intro into the role-play: three caller turns. */
+  /** Three caller turns at the front desk, past the first turns where no jump-in comes. */
   const toRoleplay = async () => {
-    await turn("Yeah, that's me.", says(`Great to meet you! What's your role at ${CLINIC}?`, { asked: "role" }));
-    await turn("I'm the owner.", says("Nice. Want to hear what I can do, or jump into a quick role-play as a patient?", { asked: "choice" }));
-    await turn("Whatever is best.", says(`Let's do it, you be the patient. ${demoRoleplayOpener(CLINIC)}`));
+    await turn("Hi, I have a quick question.", says("Of course! What can I help with?"));
+    await turn("Do you do HydraFacials?", says("We do! The HydraFacial is $199."));
+    await turn("How long does it take?", says("About an hour."));
   };
   return { s, turn, live, toRoleplay, queue, seen, heard, interrupts, nextId: () => id + 1 };
 }

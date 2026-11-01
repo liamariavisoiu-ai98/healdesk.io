@@ -64,7 +64,7 @@ Work the Owner placed after launch. None of it blocks Wave 5 or the go/no-go rep
 
 | ID | What | Claude Code | Owner-only |
 | --- | --- | --- | --- |
-| `DEMO-EVAL-LIVE` | Score the demo call on a real model on every voice change (`apps/app/scripts/voice-eval/demo`, `.github/workflows/demo-eval.yml`; built in DEMO-HAIKU-1, 31 Oct 2026) | After the Owner's two settings: confirm the first run, keep its report as the baseline, then make each demo change beat it. Until then the workflow skips and demo changes are checked by the scripted cases only. | Post-launch (Owner, 31 Oct 2026): add `VOICE_EVAL_ANTHROPIC_API_KEY` as a GitHub Actions secret (the eval's own Anthropic key, never the HIPAA organisation's) and, optionally, `VOICE_EVAL_DEMO_BUDGET_USD` as a repository variable (5 when unset). Later, if wanted, make the check required in branch protection. |
+| `DEMO-EVAL-LIVE` | Withdrawn 1 November 2026: the demo eval scored the sales Aya and was removed with the pitch (DEMO-RECEPTIONIST-1, owner: "Remove the sales pitch completely. Aya is now only a receptionist") | Nothing to do. The two settings it waited for (`VOICE_EVAL_ANTHROPIC_API_KEY` as an Actions secret, `VOICE_EVAL_DEMO_BUDGET_USD`) are no longer needed in GitHub. | None. |
 
 ## Required technical verification
 

@@ -4,6 +4,7 @@ import { requireOperator } from "@/lib/admin/operator";
 import { clinicVoiceVariables } from "@/lib/demo/clinic-prompts";
 import { demoEngineCall } from "@/lib/demo/engine";
 import { demoBuyButton, demoOfferFor } from "@/lib/demo/offer";
+import { withDemoSamples } from "@/lib/demo/samples";
 import { getDemoSession, isDemoActive, isDemoSlug, profileOf } from "@/lib/demo/sessions";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 import { createWebCall, readClinicDemoAgentConfig } from "@/lib/retell-web-call";
@@ -72,8 +73,10 @@ export async function POST(request: Request, ctx: { params: Promise<{ slug: stri
 
   const session = await getDemoSession(slug);
   if (!session) return fail("Demo not found.", 404);
-  const profile = profileOf(session);
-  if (!isDemoActive(session) || !profile) return fail("This demo has expired.", 410);
+  const stored = profileOf(session);
+  if (!isDemoActive(session) || !stored) return fail("This demo has expired.", 410);
+  // What the website did not show is made up for the live demo, as the page says (lib/demo/samples.ts).
+  const profile = withDemoSamples(stored).profile;
 
   const config = readClinicDemoAgentConfig();
   if (!config.ok) {

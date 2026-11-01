@@ -164,130 +164,64 @@ enforceable rather than aspirational.
    clinic's published profile and the requester's first name as one Retell
    dynamic variable sealed with `HEALDESK_PROVISION_SECRET`
    (`packages/catalog/src/demo-call.ts`; business data, never a patient's).
-   apps/app answers it with the same turn pipeline and guard as a clinic's
-   patients, from that context instead of the database (owner, 31 October
-   2026: one Aya, healdesk's, who plays the clinic's front desk in a
-   role-play: outside the role-play the model gets healdesk's own short
-   prompt, `demoSalesPrompt`, and never the front-desk one; in the
-   role-play, the clinic's own front-desk prompt, built from the scraped
-   profile, is what she plays; each turn's note carries only the next step,
-   `demoStageNote`), and keeps
-   nothing: no gate, no ingest, no transcript, no alert, no booking. One
-   exception (owner, 25 October 2026): a demo call started by an operator
-   signed in to `/admin` is sealed as a test, and its transcript is emailed
-   to hello@ through SES as it ends, as a clinic's goes to the clinic, with
-   nothing queued or kept; a prospect's demo call still keeps no transcript,
-   as the Privacy page says. Only the
-   start differs: Aya gives the AI and transcription notice, checks she has
-   the requester by name, asks their role, offers to explain or to role-play
-   a patient call (opened with "Ring ring!" and the clinic's own notice,
-   offering free times from a calendar made of the clinic's published hours,
-   `demoSlots`, and ending only when the owner ends it: the patient signs
-   off, they say to stop, or they speak as themselves, with forty of the
-   caller's turns only a guard against a stuck call; owner, 31 October 2026,
-   demo call c4093be6), then asks what they are
-   after, their call volume and what happens to missed calls, never more
-   than two questions before a value point (`asksSinceValue`), never asking
-   twice what was answered (`DemoProgress`, kept from her structured `state`
-   update in each answer's details and from the listener, a second small
-   call beside each turn that fills what the owner said under a strict
-   schema, `lib/voice/demo-listener.ts`, never read from her prose; the close and the live discount are in no note until the
-   call is selling, `selling`: the coverage question answered, a buying
-   signal heard, in code or in her state, or an impatient caller; owner, 31
-   October 2026: "let her pitch whenever she hears a buying signal"); the
-   pitch is the owner's nine beats, each said once (`DemoBeat`), a menu she
-   picks the best-fitting unsaid one from, in the owner's order by default,
-   and a buyer reaches the close after three:
-   their pain, the reveal, keeping their number, what is not finished yet
-   with the live discount (the demo's own share and the hours left, never a
-   fixed figure), a cost anchor, value in the clinic's own prices, one
-   package, no strings, and the terms' refund (the first period within
-   `FIRST_PERIOD_REFUND_DAYS` of the plan start; the setup fee never); then
-   a tie-down and the close on the demo page's own buy button (owner,
-   25 October 2026; `lib/voice/demo-facts.ts`, `DemoStage`). A hesitant owner,
-   or one who asks for a person, is offered a call from the team in the
-   catalog's own words (`DEMO_CALLBACK_OFFER`); the number they give, read
-   back, and one line on what to discuss leave the call in her structured
-   state (`callback`) for apps/web, signed (`lib/voice/demo-callback.ts`,
-   apps/web `/api/voice-demo/callback-request`), and she says the team will
-   call only once apps/web answered 2xx, else hello@ (owner, 26 October 2026;
-   `docs/design/demo-lead-capture-2026-10-25.md`). That is the one thing a
-   prospect's demo call sends anywhere: business contact data, kept in the
-   marketing Sheet's `demo_callbacks` tab for Queues › Demo call backs until
-   marked called or `POLICY.demoCallbackRetentionDays`, as the Privacy page
-   says. After the role-play only, a guard refusal is asked
-   again once, then heard as a recovery line, never as the guard's patient
-   line (`turn.ts` `softRefusal`), and a bare count of the owner's calls
-   passes the unit-less dose pattern (`AssistantFacts.businessCounts`); a
-   patient's call never sets either. `lib/voice/demo-cases.ts` holds the
-   regression cases every change to the demo must pass. Every demo reply is
-   one short reaction at most, then one short sentence of content, with no
-   reflection opener except for a negative feeling; a question she has no
-   answer for gets one true line of where healdesk sits (`POSITIONING`:
-   confident that she does more than a phone-only bot or an answering
-   service, never a competitor named and never "the only") and a new question, never the last one again;
-   pushback gets a move from a rotating set; a caller who is not interested
-   is asked once for a number to call (the offer's own words), a firm no
-   only a goodbye; "wait, continue" resumes the last role-play; and after
-   the opening line the clinic is called by its short name
-   (`shortClinicName`; owner, 26 October 2026, Phase 6). Her two signature
-   touches, each once a call and never in a role-play: "Oh, love that." at
-   good news, and "Talk soon, <name>!" closing a warm ending, never after a
-   firm no or a failed call back (`DEMO_QUIRKS`; owner, 26 October 2026, 6h).
-   A clinic's own calls use the short name it sets in Settings ("What
-   patients call you"), read by the guards as its own words only when it is a
-   part of its full name (`ownShortName`). The stage moves only on her state's
-   signal (`"roleplay"`: start, cancel, end) or the whole scripted line,
-   never on a phrase in passing, and the call itself says the role-play
-   opener and exit line word for word (`withRoleplayOpener`,
-   `withRoleplayExit`); a bare yes to "the role-play, or more?" gets "which
-   one?"; a rich answer counts for every discovery question it answers
-   (`"answered"`), an impatient caller is asked nothing more (`"impatient"`),
-   "I don't understand" gets "which part?" before any re-explaining, "the
-   second one" is read in code from the items she just listed, and the
-   role-play keeps its booking so nothing is asked twice (test call
-   72dc66b7; owner, 26 October 2026). She says deposit links come in website
-   chat, Instagram, Messenger and WhatsApp as design, never during a call,
-   where she books and flags the deposit; a clinic can turn on one optional text
-   with its payment link after a booking call, designed to go only if the
-   caller agrees (`DEPOSIT_CLAIM`; LAUNCH_PROMISES `deposit-link-meta`). On every call
-   the code says no filler while the model thinks (`ACKNOWLEDGEMENTS` is
-   empty), and takes the caller's name out as a form of address after two
-   uses and a reflex "sorry" after the call's first apology
-   (`shapeVoiceReply`, words only ever removed, before the guard reads them).
-   Nothing of her JSON details is ever spoken: a brace ends the spoken words
-   as the delimiter does, and everything sent to Retell or kept as said is
-   cut at a brace, a `"state":` or the delimiter (`spokenOnly`; transcript
-   0a45870b). Her scripted handover ("you be the patient") starts a role-play
-   even without the signal, a role-play past its ceiling ends in code,
-   a refusal in the intro is heard as a recovery line like the pitch's, a
-   bare "no" is never taken as a yes, the role-play is offered at most twice
-   unless asked, and healdesk is "we", never "they" (084f10d4, 0a45870b).
-   The role-play is moved in code, never by her judgement (c4093be6,
-   `roleplayMove`): the owner's "role play" starts it, a stop phrase ends it
-   with the exit line, "the role play again" inside one restarts it with one
-   greeting, her end or her own exit line stands only once the owner ended it
-   (`roleplayEndAllowed`), a cancel never adds the exit line, her own "Ring
-   ring" is never streamed, and patient talk after a role-play goes back into
-   it with no greeting. In it she is only the clinic's front desk: healdesk's
-   words are on its never-say list (`demoRoleplayFacts`), so the guard refuses
-   any pitch, price, discount or hello@; a refused reply gets the guard's line
-   with the provider's name (`routingProvider`, on demo calls only until the
-   owner decides a clinic's own lines name theirs); a time outside the hours, a
+   apps/app answers it with the same turn pipeline, guard and front-desk
+   prompt as a clinic's patients, from that context instead of the database,
+   and keeps nothing: no gate, no ingest, no transcript, no alert, no booking.
+   **Since 1 November 2026 the demo call is only the clinic's receptionist**
+   (owner: "Remove the sales pitch completely. Aya is now only a
+   receptionist"): it opens as the clinic's front desk with the AI and
+   transcription notice ("Thanks for calling <clinic>, this is Aya, the AI
+   assistant, and this call's transcribed. How can I help you today?",
+   `demoVoiceOpening`) and stays there to the goodbye. There is no intro, no
+   question to the owner, no pitch, no healdesk price or discount, no
+   call-back offer and no listener; the sales prompt, the demo's scripted
+   cases and its owner-persona eval were removed with them. One exception
+   stays (owner, 25 October 2026): a demo call started by an operator signed
+   in to `/admin` is sealed as a test, and its transcript is emailed to
+   hello@ through SES as it ends, with nothing queued or kept; a prospect's
+   demo call keeps no transcript, as the Privacy page says. What the demo adds
+   to the clinic's prompt is one note per turn (`demoStageNote`): the
+   booking so far, a calendar made of the clinic's published hours
+   (`demoSlots`), and the repairs the turn needs. The booking is held in
+   code (demo call c4093be6, 31 October 2026): a time outside the hours, a
    closed day and a question about free times are answered by the call from
-   the hours (`roleplayTimeLine`); no request is said to be in before a
-   treatment, a day and time, a first name and a number (for a cancellation,
-   the name and the number), and a cancelled one is never pending
-   (`roleplayCheckedReply`); the urgent line reads out the clinic's published
-   number. The setup discount and its deadline are said once a call
-   (`offerSaid`, `DISCOUNT_SAID`), nothing is sold on a hostile or emotional
-   turn (`HOSTILE`), and a refusal after the role-play is an honest skip and
-   a real question, never filler. `tests/voice-demo-c4093be6.test.ts` replays
-   that call line by line. Only the pitch may quote healdesk's prices, each from the
-   catalog and let through the guard exactly (`demoPriceList`,
-   `AssistantFacts.quotedAmountsUsd`); a clinic's call quotes its own menu
-   alone. Spoken text writes "Aya", never
-   "AYA", which a voice spells out. While the host is in standby, the demo falls back to the
+   the hours (`roleplayTimeLine`), each opened with her looking ("Let me pull
+   up our calendar...", with the day's pleasantry the first time,
+   `calendarLead`), and the first time a caller asks for, once a call, is
+   "already taken" with the two nearest free times offered, to show her
+   proactive (owner, 1 November 2026); no request is said to be in before a
+   treatment, a day and time, a first name and a number (for a
+   cancellation, the name and the number), a cancelled one is never pending,
+   and a goodbye goes from a reply still asking for details
+   (`roleplayCheckedReply`); healdesk's words are on its never-say list
+   (`demoRoleplayFacts`); a refused reply gets the guard's line with the
+   provider's name (`routingProvider`, on demo calls only until the owner
+   decides a clinic's own lines name theirs); the urgent line reads out the
+   clinic's published number after 9-1-1. `tests/voice-demo-c4093be6.test.ts`
+   replays that call's patient lines. The receptionist's manner (the day's
+   pleasantry before the calendar, human words for a pause, a nod before
+   each question, one sentence of validation once they choose, the caller's
+   first name once at the wrap-up, a word that the consultation is relaxed, and
+   a closer that looks out for them, "we" and "our team" for the practice,
+   an opening offered as a good find, and her energy mirroring the caller's,
+   a brief caller getting no pleasantry) is in the
+   shared voice prompt (`prompt.ts`, `RECEPTIONIST_MANNER`), so a clinic's
+   own calls have it too; it never says a time is booked unless the booking
+   line did, never says a confirmation or message is on its way, gives an
+   arrival tip only from the practice's facts, claims no scarcity the
+   calendar does not show, asks no email on a call, and states no popularity or outcome
+   claim as the clinic's fact. What the clinic's public pages did not show
+   is made up for the live demo only (owner, 1 November 2026: invent the
+   calendar, the deposit and the prices "just to show them the dream
+   outcome", with "a visible disclaimer"): a price for each treatment listed
+   without one, a sample menu when none was found, weekday hours, a $50
+   deposit and 24-hour cancellation rule, and always the free times
+   (`apps/web/src/lib/demo/samples.ts`, `withDemoSamples`, applied by the
+   chat and voice routes and the page, never to the stored profile the
+   build's audit checks); the address, the phone number and the team are
+   never made up. The demo page's note above the voice and chat cards lists
+   every made-up item ("Made up for this demo", `demoNoteHtml`). Spoken text
+   writes "Aya", never "AYA", which a voice spells out. While the host is in standby, the demo falls back to the
    Retell-hosted clinic demo agent, so a demo never depends on AWS being on.
 
 3. **`/admin` on `apps/web` is deliberate, not a shortcut.** It is our tool,

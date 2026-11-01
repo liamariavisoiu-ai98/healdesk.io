@@ -1,6 +1,7 @@
 import { PRODUCTS, shortClinicName } from "@healdesk/catalog";
 
 import { demoGaps, gapLabel } from "../gaps";
+import { sampleLabel, withDemoSamples } from "../samples";
 import { weekSchedule } from "../opening-hours";
 import type { ClinicProfile } from "../profile";
 import { CHAT_SLOT_ID, VOICE_SLOT_ID } from "./slots";
@@ -122,24 +123,32 @@ function setupFees(percentOff: number) {
 }
 
 /**
- * The note above the voice and chat cards: what a demo built from public
- * pages cannot know, so the owner trying it reads the gaps as normal rather
- * than as faults (owner, 30 October 2026: "write a list of things public
- * website scrapping couldnt gather and add it as disclaimer on top of the demo
- * voice and chat section"). The live calendar and the deposit rules are never
- * on a public site; the rest is what this scan missed (lib/demo/gaps.ts).
+ * The note above the voice and chat cards: what this demo made up because the
+ * clinic's public pages did not show it, and what it still could not find
+ * (owner, 30 October 2026: "write a list of things public website scrapping
+ * couldnt gather and add it as disclaimer on top of the demo voice and chat
+ * section"; 1 November 2026: invent the calendar, the deposit and the prices
+ * "just to show them the dream outcome", with "a visible disclaimer saying
+ * this wasn't available so we invented this for demo purposes"). The made-up
+ * list is lib/demo/samples.ts's, the same values Aya uses on the call and in
+ * the chat; the rest is what this scan missed and nothing replaced
+ * (lib/demo/gaps.ts).
  */
 export function demoNoteHtml(profile: ClinicProfile): string {
+  const { invented } = withDemoSamples(profile);
+  const made = invented.map((sample) => sampleLabel(sample, profile));
+  const covered = new Set(["treatments", "prices", "some-prices", "hours", "policy"]);
   const missed = demoGaps(profile)
-    .filter((gap) => gap !== "policy")
+    .filter((gap) => !covered.has(gap))
     .map((gap) => gapLabel(gap, "patients"));
-  const items = ["your live booking calendar, so she can't see real free times yet", "your deposit and cancellation rules", ...missed];
-  const list = items.map((item) => `<li>${escapeHtml(item.charAt(0).toUpperCase() + item.slice(1))}</li>`).join("");
-  return `<aside class="hd-note" role="note"><span class="hd-note-i" aria-hidden="true">i</span><div><p class="hd-note-h">What this demo can't know yet</p><p class="hd-note-p">It was built only from your public website and Google listing, so some things are missing. That's normal: you add them at setup, and Aya uses them from then on.</p><ul class="hd-note-l">${list}</ul></div></aside>`;
+  const li = (items: string[]) => items.map((item) => `<li>${escapeHtml(item.charAt(0).toUpperCase() + item.slice(1))}</li>`).join("");
+  const stillMissing = missed.length > 0 ? `<p class="hd-note-p">Still not found, so Aya won't say them: </p><ul class="hd-note-l">${li(missed)}</ul>` : "";
+  return `<aside class="hd-note" role="note"><span class="hd-note-i" aria-hidden="true">i</span><div><p class="hd-note-h">Made up for this demo</p><p class="hd-note-p">Your public website and Google listing didn't show everything, so to show you the full experience we invented these for this demo only. At setup, Aya uses your real ones.</p><ul class="hd-note-l">${li(made)}</ul>${stillMissing}</div></aside>`;
 }
 
 export function renderDemoV2(input: DemoV2Input): DemoV2 {
-  const ctx = demoV2Context(input);
+  // The page shows what the call and the chat use: the made-up values in place (demoNoteHtml says which).
+  const ctx = demoV2Context({ ...input, profile: withDemoSamples(input.profile).profile });
   const name = escapeHtml(input.name);
   const short = escapeHtml(ctx.short);
   const pct = `${Math.round(input.percentOff)}%`;

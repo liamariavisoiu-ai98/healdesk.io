@@ -96,15 +96,18 @@ describe("the owner's demo page, filled for one clinic", () => {
     expect(script).toContain("fetch(HD.callback");
   });
 
-  it("says above the two cards what a demo from public pages cannot know", () => {
+  it("says above the two cards what the demo made up, and what it still could not find", () => {
+    // Owner, 1 November 2026: invent what the website did not show, "with a visible disclaimer".
     const { body } = render();
     const note = body.indexOf('class="hd-note"');
     expect(note).toBeGreaterThan(-1);
     expect(note).toBeLessThan(body.indexOf('class="demo-grid"'));
-    expect(body).toContain("What this demo can't know yet");
-    expect(body).toContain("<li>Your live booking calendar, so she can&#39;t see real free times yet</li>");
-    expect(body).toContain("<li>Your deposit and cancellation rules</li>");
-    // This profile lists no team, so the scan's own gap is listed too.
+    expect(body).toContain("Made up for this demo");
+    expect(body).toContain("we invented these for this demo only");
+    expect(body).toContain("<li>The free times Aya offers: a demo isn&#39;t connected to your calendar</li>");
+    expect(body).toContain("<li>A $50 deposit and its payment link, and a 24-hour cancellation rule</li>");
+    // This profile lists no team: never made up, so it is listed as still not found.
+    expect(body).toContain("Still not found, so Aya won't say them");
     expect(body).toContain("<li>Your team</li>");
   });
 

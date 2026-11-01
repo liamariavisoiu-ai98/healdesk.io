@@ -16,12 +16,15 @@ vi.mock("@/lib/email/outbox", () => ({ deliverCriticalAfterCommit: async () => {
 import { sealDemoCallContext, type DemoCallClinic, type DemoCallContext } from "@healdesk/catalog";
 
 import type { AssistantResponder } from "@/lib/assistant/turn";
-import { modelSays } from "@/lib/voice/demo-cases";
 import { guardAssistantReply } from "@/lib/assistant/guard";
-import { demoAssistantFacts, demoRoleplayFacts, DISCOUNT_SAID, type DemoStage } from "@/lib/voice/demo-facts";
+import { demoAssistantFacts, demoRoleplayFacts, type DemoStage } from "@/lib/voice/demo-facts";
 import { RetellCallSession, type RetellOutbound } from "@/lib/voice/retell";
 
+import { modelSays } from "./setup/demo-clinic";
 import { spokenResponses } from "./setup/retell-responses";
+
+/** The setup discount or its deadline in a sentence: never said on a receptionist call. */
+const DISCOUNT_SAID = /\b\d{1,3}\s?(?:%|percent) off\b|\bsetup fee\b|\b(?:next|another) \d+ hours?\b/i;
 
 /**
  * Demo call c4093be6 (31 October 2026, an owner calling about Miami Skin &
@@ -80,17 +83,6 @@ const say = modelSays;
 
 /** The call, turn by turn. The caller's words are the transcript's, misheard words included. */
 const TURNS: readonly ReplayTurn[] = [
-  { caller: "Josh.", before: "Great to meet you, Josh! What's your role at Miami Skin & Vein?", model: [say("Great to meet you, Josh! What's your role at Miami Skin & Vein?", { asked: "role" })] },
-  {
-    caller: "I'm the owner.",
-    before: "Nice to meet you, Josh, and great to have the owner on the line. Would you like to hear what I can do for Miami Skin & Vein, or jump into a quick role-play where you call in as a patient?",
-    model: [say("Nice to meet you, Josh, and great to have the owner on the line. Would you like to hear what I can do for Miami Skin & Vein, or jump into a quick role-play where you call in as a patient?", { asked: "choice" })],
-  },
-  {
-    caller: "Let's go with the role play.",
-    before: "Sure thing, Josh. Let's do it, you be the patient. Ring ring! Hi, thanks for calling Miami Skin & Vein, this is Aya, the AI assistant, and this call's transcribed. How can I help you today?",
-    model: [say("Sure thing, Josh. Let's do it, you be the patient. Ring ring! Hi, thanks for calling Miami Skin & Vein! How can I help you today?", { roleplay: "start" })],
-  },
   {
     caller: "Hi. I'd like to book an a Botox appointment.",
     before: "Botox, great choice! Which day and time would suit you best?",
@@ -119,20 +111,8 @@ const TURNS: readonly ReplayTurn[] = [
   {
     caller: "Okay. Oh, uh, actually, can we move that to Friday morning?",
     before: "Friday morning, got it. The team will confirm that within a day. Thanks for calling, and have a great day! And that's the role-play! So, how was that?",
-    model: [say("Friday morning, got it. The team will confirm that within a day. Thanks for calling, and have a great day!", { roleplay: "end", booking: { day: "Friday", time: "morning" } })],
+    model: [say("Friday morning, got it. The team will confirm that within a day. Thanks for calling, and have a great day!", { booking: { day: "Friday", time: "morning" } })],
     tags: ["booking"],
-  },
-  {
-    caller: "I want to do the role play.",
-    before: "Sure, let's go again! This time you're the patient, and I'll play the front desk. Ring ring! How can I help you today? Hi, thanks for calling Miami Skin & Vein, this is Aya, the AI assistant, and this call's transcribed. How can I help you today?",
-    model: [say("Sure, let's go again! This time you're the patient, and I'll play the front desk. Ring ring! How can I help you today?", { roleplay: "start" })],
-    tags: ["restart"],
-  },
-  {
-    caller: "I want to do the role play again.",
-    before: "Okay, let's go again! I'll be the front desk, and you're the patient. Ring ring. Thanks for calling Miami Skin & Vein, this is Aya, the AI assistant. How can I help? And that's the role-play! So, how was that?",
-    model: [say("Okay, let's go again! I'll be the front desk, and you're the patient. Ring ring. Thanks for calling Miami Skin & Vein, this is Aya, the AI assistant. How can I help?", { roleplay: "cancel" })],
-    tags: ["restart"],
   },
   {
     caller: "need I need to cancel my appointment.",
@@ -167,7 +147,7 @@ const TURNS: readonly ReplayTurn[] = [
   {
     caller: "you. Got you. Got you.",
     before: "Fair enough. You're right, I haven't been much help on that. Based on what you've shared, Aya Voice is the package that fits, and at 100 minutes a month it's a good place to start. Want to get Miami Skin & Vein set up?",
-    model: [say("Fair enough. You're right, I haven't been much help on that. Based on what you've shared, Aya Voice is the package that fits, and at 100 minutes a month it's a good place to start. Want to get Miami Skin & Vein set up?", { impatient: true })],
+    model: [say("Fair enough. You're right, I haven't been much help on that. Based on what you've shared, Aya Voice is the package that fits, and at 100 minutes a month it's a good place to start. Want to get Miami Skin & Vein set up?")],
     tags: ["cancelled"],
   },
   {
@@ -382,7 +362,6 @@ async function replay(): Promise<ReplayRow[]> {
     // The stall line and the recovery openers are picked by chance on a real call: pinned, so the table is the same every run.
     random: () => 0,
     demo: { secret: SECRET, detailsWaitMs: 200 },
-    demoCallback: async () => true,
   });
   const raw = () => sent.filter((m): m is Response => m.response_type === "response");
   const heard = () => spokenResponses(raw());
@@ -449,9 +428,8 @@ function judge(row: ReplayRow, rows: readonly ReplayRow[]): Verdict {
     v.note.push("C3: nothing is flagged from a demo (no alert is ever sent); a patient's call raises the urgent alert and says \"I've told the team.\"");
   }
   if (inRoleplay) mark(4, !PITCH.test(heard), "healdesk pitch, offer or contact in the role-play");
-  // 5: the role-play stays on until the owner ends it, and a restart says one greeting.
-  if (row.n > 3) mark(5, row.stageAfter === "roleplay", "the role-play ended without the owner ending it");
-  if (row.tags.includes("restart")) mark(5, (heard.match(/ring ring/gi) ?? []).length === 1 && (heard.match(/thanks for calling/gi) ?? []).length === 1, "more than one greeting");
+  // 5: the call stays the clinic's front desk from start to end (since 1 November 2026 there is nothing else to switch to).
+  mark(5, row.stageAfter === "roleplay" && !/ring ring|that's the role-?play/i.test(heard), "the call left the front desk");
   if (row.tags.includes("booking") || row.tags.includes("cancelled")) {
     const b = row.booking as { name?: string; phone?: string; service?: string; day?: string; time?: string; status?: string };
     const complete = b.status === "cancelled" ? Boolean(b.name && b.phone) : Boolean(b.service && b.day && b.time && b.name && b.phone);
@@ -518,25 +496,23 @@ describe("demo call c4093be6, replayed line by line", () => {
     }
   });
 
-  test("the role-play never ends on her word, and restarts with one greeting", async () => {
+  test("the call is the clinic's front desk from its first word to its last", async () => {
     const rows = await replay();
-    expect(rows.slice(3).every((r) => r.stageAfter === "roleplay")).toBe(true);
-    for (const r of rows.filter((x) => x.tags.includes("restart"))) {
-      expect(r.modelAsked).toBe(false);
-      expect(r.after).toBe("Sure, from the top! Ring ring! Hi, thanks for calling Miami Skin & Vein, this is Aya, the AI assistant, and this call's transcribed. How can I help you today?");
-    }
+    expect(rows.every((r) => r.stageAfter === "roleplay")).toBe(true);
+    for (const r of rows) expect(r.after, r.caller).not.toMatch(/ring ring|that's the role-?play|healdesk|% off/i);
   });
 
   test("times are decided in code from the hours, and the booking's state is kept in code", async () => {
     const rows = await replay();
     const at = (caller: string) => rows.find((r) => r.caller === caller)!;
-    expect(at("Do you have anything Thursday afternoon?").after).toBe("On Thursday, November 5, I have 2 PM or 4 PM. Would either of those work?");
-    expect(at("Let's say nine PM.").after).toBe("We're open 9 AM to 5 PM on Thursdays, so 9 PM is outside our hours. Would Thursday, November 5 at 3 PM or 4 PM work instead?");
+    // The call began on a Saturday: the first look at the calendar says so plainly (calendarLead).
+    expect(at("Do you have anything Thursday afternoon?").after).toBe("Let me pull up our calendar... On Thursday, November 5, I have 2 PM or 4 PM. Would either of those work?");
+    expect(at("Let's say nine PM.").after).toBe("Let me take a look... We're open 9 AM to 5 PM on Thursdays, so 9 PM is outside our hours. Would Thursday, November 5 at 3 PM or 4 PM work instead?");
     // The guard's booking line no longer says the request was passed on before a name and a number.
     expect(at("Yeah. That works.").after).toBe("I can't confirm it myself, but I can put the request in. What time on Thursday suits you best?");
     // Her own end before the patient signed off does not stand, and its goodbye goes with it; the request waits for a name.
     expect(at("Okay. Oh, uh, actually, can we move that to Friday morning?").after).toBe("Friday morning, got it. Can I get your first name?");
-    expect(at("No. It's okay. What's your earliest of opening?").after).toBe("The earliest I have is Monday, November 2 at 11 AM. Would that work?");
+    expect(at("No. It's okay. What's your earliest of opening?").after).toBe("Let me take a look... The earliest I have is Monday, November 2 at 11 AM. Would that work?");
     expect(at("need I need to cancel my appointment.").booking).toMatchObject({ status: "cancelled" });
     expect(at("The one I'm calling you with, but you didn't take my name in order to cancel that.").booking).toMatchObject({ phone: expect.stringMatching(/^The one I'm calling you with/) });
     // A cancelled request is never "your Friday morning request" again.

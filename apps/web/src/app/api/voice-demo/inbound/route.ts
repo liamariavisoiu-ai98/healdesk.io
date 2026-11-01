@@ -1,6 +1,7 @@
 import { clinicVoiceVariables } from "@/lib/demo/clinic-prompts";
 import { demoEngineCall } from "@/lib/demo/engine";
 import { demoBuyButton, demoOfferFor } from "@/lib/demo/offer";
+import { withDemoSamples } from "@/lib/demo/samples";
 import { findActiveDemoByCaller, profileOf } from "@/lib/demo/sessions";
 import { normalizePhone } from "@/lib/phone";
 import { verifyRetellSignature } from "@/lib/retell-signature";
@@ -67,7 +68,9 @@ export async function POST(request: Request): Promise<Response> {
     });
     return Response.json(FALL_THROUGH);
   }
-  const profile = demo ? profileOf(demo) : null;
+  const stored = demo ? profileOf(demo) : null;
+  // What the website did not show is made up for the live demo, as the page says (lib/demo/samples.ts).
+  const profile = stored ? withDemoSamples(stored).profile : null;
   if (!demo || !profile) return Response.json(FALL_THROUGH);
 
   // AYA's own engine answers when it is set and apps/app answers

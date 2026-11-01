@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>healdesk launch board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&amp;family=Instrument+Sans:wght@400;500;600&amp;display=swap">
+<style>
+/* healdesk's own system (apps/web/src/app/globals.css): deep-space ink on paper, the orange accent,
+   Fraunces for display and Instrument Sans for text.
+   Layout: a dashboard read top-down. The answer, the go-live meter and the shortest path; the decisions;
+   three lanes by who acts; the week; then the evidence. */
+:root {
+  --ink: #172a3a;
+  --paper: #fdfdfd;
+  --panel: #f4f4f2;
+  --muted: #5c6e7e;
+  --line: rgb(23 42 58 / 0.13);
+  --accent: #d45200;
+  --font-display: "Fraunces", Georgia, "Times New Roman", serif;
+  --font-body: "Instrument Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  /* semantic states, separate from the accent */
+  --ok: #3d7a0b;      --ok-tint: #e5f6dc;
+  --rec: #1d5b94;     --rec-tint: #dcefff;
+  --flip: #7d5600;    --flip-tint: #fff3bf;
+  --test: #ad3a00;    --test-tint: #ffe6d6;
+  --wait: #4f6070;    --wait-tint: #e9edf1;
+  /* lanes: who acts */
+  --claude: #1d5b94;
+  --you: #e05800;
+  --others: #6b7c8b;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ink: #e7edf3; --paper: #0e1a24; --panel: #15242f; --muted: #9fb1c1;
+    --line: rgb(231 237 243 / 0.14); --accent: #ff9a5c;
+    --ok: #a4de80; --ok-tint: rgb(135 214 141 / 0.16);
+    --rec: #93c8ff; --rec-tint: rgb(147 200 255 / 0.15);
+    --flip: #f7d36e; --flip-tint: rgb(250 199 72 / 0.16);
+    --test: #ffab7d; --test-tint: rgb(255 118 30 / 0.18);
+    --wait: #b3c0cb; --wait-tint: rgb(179 192 203 / 0.13);
+    --claude: #6fb2f5; --you: #ff8a45; --others: #9aabb9;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ink: #e7edf3; --paper: #0e1a24; --panel: #15242f; --muted: #9fb1c1;
+  --line: rgb(231 237 243 / 0.14); --accent: #ff9a5c;
+  --ok: #a4de80; --ok-tint: rgb(135 214 141 / 0.16);
+  --rec: #93c8ff; --rec-tint: rgb(147 200 255 / 0.15);
+  --flip: #f7d36e; --flip-tint: rgb(250 199 72 / 0.16);
+  --test: #ffab7d; --test-tint: rgb(255 118 30 / 0.18);
+  --wait: #b3c0cb; --wait-tint: rgb(179 192 203 / 0.13);
+  --claude: #6fb2f5; --you: #ff8a45; --others: #9aabb9;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font-family: var(--font-body); font-size: 16px; line-height: 1.5;
+}
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+code, .mono { font-family: var(--font-mono); font-size: 0.86em; }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+p { margin: 0; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 20px; }
+section { padding: 36px 0 8px; }
+.section-head { display: grid; gap: 6px; margin-bottom: 18px; max-width: 72ch; }
+h2 { font-family: var(--font-display); font-weight: 600; font-size: 1.75rem; line-height: 1.15; letter-spacing: -0.01em; }
+h3 { font-size: 1.02rem; font-weight: 600; line-height: 1.3; }
+.lead { color: var(--muted); font-size: 1rem; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* header */
+header { padding: 36px 0 8px; border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: baseline; gap: 10px; font-size: 0.95rem; color: var(--muted); }
+.brand b { font-family: var(--font-display); font-weight: 600; font-size: 1.2rem; color: var(--ink); letter-spacing: -0.01em; }
+.brand i { width: 8px; height: 8px; border-radius: 50%; background: var(--you); display: inline-block; transform: translateY(-1px); }
+h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(2rem, 4.4vw, 2.85rem); line-height: 1.08; letter-spacing: -0.015em; margin: 14px 0 12px; max-width: 24ch; }
+.intro { font-size: 1.12rem; max-width: 66ch; }
+.asof { color: var(--muted); font-size: 0.88rem; margin-top: 12px; max-width: 90ch; }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 22px 0 24px; }
+.stat { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; background: var(--paper); }
+.stat .n { font-family: var(--font-display); font-weight: 600; font-size: 2.1rem; line-height: 1; font-variant-numeric: tabular-nums; }
+.stat .l { color: var(--muted); font-size: 0.9rem; margin-top: 6px; }
+.stat.hot .n { color: var(--you); }
+
+/* bottom line + meter */
+.split { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+.points { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; counter-reset: pt; }
+.points li { display: grid; grid-template-columns: 28px 1fr; gap: 10px; align-items: start; }
+.points li::before { counter-increment: pt; content: counter(pt); font-family: var(--font-display); font-weight: 600; color: var(--you); font-size: 1.15rem; line-height: 1.35; font-variant-numeric: tabular-nums; }
+.card { border: 1px solid var(--line); border-radius: 12px; padding: 18px; background: var(--panel); }
+.meter { display: flex; gap: 4px; margin: 12px 0 14px; }
+.meter span { flex: 1; height: 30px; border-radius: 5px; }
+.s-on { background: var(--ok); }
+.s-rec { background: var(--rec); }
+.s-flip { background: #e3ad16; }
+.s-test { background: var(--you); }
+:root[data-theme="dark"] .s-flip { background: #f7c948; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .s-flip { background: #f7c948; } }
+.legend { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.legend li { display: grid; grid-template-columns: 14px 2.2em 1fr; gap: 8px; align-items: baseline; font-size: 0.93rem; }
+.legend .sw { width: 12px; height: 12px; border-radius: 3px; transform: translateY(1px); }
+.legend .c { font-weight: 600; font-variant-numeric: tabular-nums; }
+.legend small { display: block; color: var(--muted); font-size: 0.85rem; }
+
+/* shortest path */
+.path { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; counter-reset: st; }
+.path li { position: relative; border: 1px solid var(--line); border-top: 4px solid var(--you); border-radius: 10px; padding: 10px 10px 12px; background: var(--paper); font-size: 0.86rem; line-height: 1.35; }
+.path li.c { border-top-color: var(--claude); }
+.path li.g { border-top-color: var(--ok); }
+.path li .who { display: block; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.path li .when { display: block; color: var(--muted); font-size: 0.78rem; margin-top: 6px; }
+.path li::before { counter-increment: st; content: counter(st); position: absolute; top: 8px; right: 10px; color: var(--muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+
+/* decisions */
+.grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.dec { border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 8px; align-content: start; background: var(--paper); }
+.dec .top { display: flex; gap: 10px; align-items: baseline; }
+.id { font-family: var(--font-body); font-size: 0.8rem; font-weight: 600; letter-spacing: 0.02em; padding: 1px 7px; border-radius: 5px; background: var(--panel); border: 1px solid var(--line); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dec p { font-size: 0.93rem; color: var(--muted); }
+.rec { font-size: 0.93rem; border-top: 1px dashed var(--line); padding-top: 8px; }
+.rec b { color: var(--you); font-weight: 600; }
+
+/* lanes */
+.filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+.filters button {
+  font: inherit; font-size: 0.9rem; cursor: pointer; padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--paper); color: var(--ink);
+}
+.filters button[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.lanes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.lane { display: grid; gap: 10px; }
+.lane-head { border-radius: 12px; padding: 12px 14px; background: var(--panel); border: 1px solid var(--line); border-top: 5px solid var(--lane); }
+.lane-head h3 { font-family: var(--font-display); font-weight: 600; font-size: 1.25rem; display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.lane-head h3 .cnt { font-family: var(--font-body); font-size: 0.85rem; color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+.lane-head p { color: var(--muted); font-size: 0.88rem; margin-top: 4px; }
+.lane.claude { --lane: var(--claude); }
+.lane.you { --lane: var(--you); }
+.lane.others { --lane: var(--others); }
+.group-label { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); margin: 6px 2px 0; }
+.task { border: 1px solid var(--line); border-left: 4px solid var(--lane); border-radius: 10px; padding: 11px 13px 12px; background: var(--paper); display: grid; gap: 6px; }
+.task .t { display: flex; gap: 8px; align-items: baseline; }
+.task h4 { margin: 0; font-size: 0.98rem; font-weight: 600; line-height: 1.3; }
+.task p { font-size: 0.9rem; color: var(--muted); }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.tag { font-size: 0.74rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.tag.block { background: var(--test-tint); color: var(--test); }
+.tag.pre { background: var(--flip-tint); color: var(--flip); }
+.tag.after { background: var(--wait-tint); color: var(--wait); }
+.tag.opt { background: var(--rec-tint); color: var(--rec); }
+.tag.day { background: transparent; border: 1px solid var(--line); color: var(--ink); font-weight: 500; }
+.eff { font-size: 0.78rem; color: var(--muted); }
+.task[hidden], .group-label[hidden] { display: none; }
+
+/* the week */
+.week { display: grid; grid-template-columns: 88px repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.week > div { padding: 12px 14px; border-top: 1px solid var(--line); border-left: 1px solid var(--line); font-size: 0.9rem; }
+.week > .hd { border-top: 0; background: var(--panel); font-weight: 600; }
+.week > .hd small { display: block; color: var(--muted); font-weight: 500; font-size: 0.8rem; }
+.week > .rowlab { border-left: 0; font-weight: 600; background: var(--panel); }
+.week > .corner { border-left: 0; border-top: 0; background: var(--panel); }
+.week > .launch { background: var(--test-tint); }
+.week > .hd.launch { color: var(--test); }
+.week ul { margin: 0; padding-left: 1.05em; display: grid; gap: 5px; }
+.week .rowlab.you { color: var(--you); }
+.week .rowlab.claude { color: var(--claude); }
+.week .daylab { display: none; }
+
+/* tables */
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+th { text-align: left; font-size: 0.76rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); font-weight: 600; background: var(--panel); padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+td .mono { color: var(--muted); display: block; font-size: 0.78rem; margin-top: 2px; }
+.pill { display: inline-block; font-size: 0.76rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.p-on { background: var(--ok-tint); color: var(--ok); }
+.p-rec { background: var(--rec-tint); color: var(--rec); }
+.p-flip { background: var(--flip-tint); color: var(--flip); }
+.p-test { background: var(--test-tint); color: var(--test); }
+.p-wait { background: var(--wait-tint); color: var(--wait); }
+.yes { color: var(--ok); font-weight: 600; }
+.no { color: var(--test); font-weight: 600; }
+.part { color: var(--flip); font-weight: 600; }
+
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.plain { margin: 0; padding-left: 1.1em; display: grid; gap: 8px; font-size: 0.93rem; }
+.plain li::marker { color: var(--muted); }
+.sources { columns: 2; column-gap: 28px; font-size: 0.86rem; margin: 0; padding-left: 1.1em; }
+.sources li { margin-bottom: 6px; break-inside: avoid; }
+footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.86rem; }
+
+@media (max-width: 1080px) {
+  .path { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .split { grid-template-columns: 1fr; }
+  .lanes { grid-template-columns: 1fr; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .two { grid-template-columns: 1fr; }
+  .sources { columns: 1; }
+  .week { grid-template-columns: 1fr; }
+  .week > .hd, .week > .corner, .week > .rowlab { display: none; }
+  .week > div { border-left: 0; }
+  .week .daylab { display: block; font-weight: 600; margin-bottom: 6px; }
+  .week .daylab small { color: var(--muted); font-weight: 500; }
+}
+@media (max-width: 560px) {
+  .path { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  h2 { font-size: 1.5rem; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .filters button { transition: background-color 120ms ease, color 120ms ease; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="brand"><i aria-hidden="true"></i><b>healdesk</b><span>Launch board</span></div>
+    <h1>Built and deployed. Twelve go-live promises still open.</h1>
+    <p class="intro">The product runs on AWS and the website is live. What stands between today and a clinic answering real patients is mostly yours: accounts, switches, signatures and a handful of real-world tests. None of the open go-live promises waits on new code.</p>
+    <p class="asof">Checked Sunday 1 November 2026, 19:15 Dubai, against <code>main</code> at <code>7d194b7</code> (CI green, deployed to AWS 1 Nov 14:38 UTC), the go-live list in <code>launch.ts</code>, GitHub's run history and the Launch plan tab. Launch read as <b>Thursday 5 November</b>; if you meant the 12th, every step still holds and the outside reviews get a week more. Production's switches and records (jobs, attestations) are visible only to you in <code>/admin</code>.</p>
+    <div class="stats">
+      <div class="stat hot"><div class="n" id="days-left">4 days</div><div class="l" id="days-label">to Thursday 5 November</div></div>
+      <div class="stat"><div class="n">12 <span style="font-size:1.1rem;color:var(--muted)">of 14</span></div><div class="l">go-live promises still open</div></div>
+      <div class="stat"><div class="n">7</div><div class="l">decisions only you can make</div></div>
+      <div class="stat"><div class="n">2</div><div class="l">outside reviews not yet submitted (Google, Meta)</div></div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+<section aria-labelledby="h-bottom">
+  <div class="split">
+    <div>
+      <div class="section-head"><h2 id="h-bottom">The bottom line</h2></div>
+      <ol class="points">
+        <li><p><b>Opening the doors on Thursday is realistic:</b> live checkout, signing, provisioning and the setup wizard, once Stripe's live setup is done and the homepage's invented reviews come down.</p></li>
+        <li><p><b>A clinic answering real patients on Thursday needs all 12 open promises closed by Wednesday.</b> Seven need real tests with phones, cards and calendars; one of them needs forwarded calls from Verizon, Spectrum and AT&amp;T lines.</p></li>
+        <li><p><b>Today one open voice or Meta promise holds website chat too.</b> If each channel goes live on its own checks (D2), website chat needs only 8 of the 14, and two of those are tests on the demo clinic.</p></li>
+        <li><p><b>Google's calendar review and Meta's App Review cannot finish by Thursday;</b> neither is submitted. Plan launch week around them: booking requests until Google approves, the Meta packages off sale until Meta does.</p></li>
+      </ol>
+    </div>
+    <div class="card" aria-labelledby="h-meter">
+      <h3 id="h-meter">Go-live promises: 2 of 14 On</h3>
+      <p class="lead" style="font-size:0.9rem;margin-top:4px">No clinic answers a patient on any channel until all 14 are On and you attest them on <code>/admin/compliance</code>.</p>
+      <div class="meter" role="img" aria-label="14 promises: 2 on, 2 need only the record updated, 3 are switches or records you flip, 7 need a real test">
+        <span class="s-on" title="Urgent messages reach the clinic"></span>
+        <span class="s-on" title="Never-say list on Meta"></span>
+        <span class="s-rec" title="BAA 1.6.0 retention wording"></span>
+        <span class="s-rec" title="Direct-booking addendum"></span>
+        <span class="s-flip" title="Every alert reaches the clinic"></span>
+        <span class="s-flip" title="Daily summary and weekly recap"></span>
+        <span class="s-flip" title="Business associate agreements recorded"></span>
+        <span class="s-test" title="Booking into Google Calendar"></span>
+        <span class="s-test" title="Deposit link in website chat"></span>
+        <span class="s-test" title="Deposit link on Meta"></span>
+        <span class="s-test" title="Failures reach the direct line"></span>
+        <span class="s-test" title="No call audio kept"></span>
+        <span class="s-test" title="Forwarding codes per carrier"></span>
+        <span class="s-test" title="Phone live once forwarding is set"></span>
+      </div>
+      <ul class="legend">
+        <li><span class="sw s-on"></span><span class="c">2</span><span>On<small>urgent alert, never-say list on Meta</small></span></li>
+        <li><span class="sw s-rec"></span><span class="c">2</span><span>Only the record is behind: production already does it, Claude updates the list (C1)<small>BAA 1.6.0 retention, direct-booking addendum</small></span></li>
+        <li><span class="sw s-flip"></span><span class="c">3</span><span>Switches and records you flip, minutes each (O4, O5)<small>alert sender, daily summary, agreements recorded</small></span></li>
+        <li><span class="sw s-test"></span><span class="c">7</span><span>Need a real test (O8 to O13)<small>calendar booking, deposit in chat, deposit on Meta, failure to direct line, no audio kept, carrier codes, phone live</small></span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="h-path">
+  <div class="section-head">
+    <h2 id="h-path">Shortest path to a first clinic on website chat</h2>
+    <p class="lead">Assumes D2 (each channel on its own checks). Voice follows the same path plus the call tests; Meta follows App Review.</p>
+  </div>
+  <ol class="path">
+    <li><span class="who">You</span>Answer D1 to D7<span class="when">Mon morning</span></li>
+    <li class="c"><span class="who">Claude</span>Per-channel list, records, infra set, switch list<span class="when">Mon</span></li>
+    <li><span class="who">You</span>Stripe live and Connect, switches on, agreements recorded<span class="when">Mon</span></li>
+    <li><span class="who">You</span>Approve the landing; apply and deploy<span class="when">Tue</span></li>
+    <li><span class="who">You</span>Demo booking, deposit link, restore drill<span class="when">Tue</span></li>
+    <li class="c"><span class="who">Claude</span>Promises to On with evidence; go/no-go report<span class="when">Tue to Wed</span></li>
+    <li><span class="who">You</span>Attest; pilot clinic buys and pastes the snippet<span class="when">Wed to Thu</span></li>
+    <li class="g"><span class="who">System</span>Practice questions pass, website chat goes live<span class="when">Thu</span></li>
+  </ol>
+</section>
+
+<section aria-labelledby="h-dec">
+  <div class="section-head">
+    <h2 id="h-dec">Decisions only you can make</h2>
+    <p class="lead">Answer these first, Monday morning; about 30 minutes. Everything else follows from them.</p>
+  </div>
+  <div class="grid-cards">
+    <article class="dec">
+      <div class="top"><span class="id">D1</span><h3>What does Thursday mean?</h3></div>
+      <p>Doors open: clinics buy, sign and set up, and AYA answers as each channel clears. Or a first clinic answering real patients on Thursday itself.</p>
+      <div class="rec"><b>Recommended:</b> doors open Thursday, with a friendly pilot clinic on website chat as the first to go live.</div>
+    </article>
+    <article class="dec">
+      <div class="top"><span class="id">D2</span><h3>Should each channel go live on its own checks?</h3></div>
+      <p>Your rule (27 Oct) keeps every channel shut until all 14 promises are On, so the carrier calls hold website chat too. Changing the rule is yours alone.</p>
+      <div class="rec"><b>Recommended:</b> yes. Claude builds it Monday (C4, about a day); you approve the landing Tuesday.</div>
+    </article>
+    <article class="dec">
+      <div class="top"><span class="id">D3</span><h3>Sell the Meta packages on Thursday?</h3></div>
+      <p>App Review is not submitted and Meta takes up to a week after it; WhatsApp also waits on Tech Provider access. Your rule: a channel is sold only once it is ready.</p>
+      <div class="rec"><b>Recommended:</b> take AYA Meta Chat and Voice + Meta Chat off pricing until Meta approves (C3). The demo page keeps your design.</div>
+    </article>
+    <article class="dec">
+      <div class="top"><span class="id">D4</span><h3>Real clinics' calendars before Google approves?</h3></div>
+      <p>Two of your records disagree. The Launch plan's go/no-go lets pilot clinics connect through Google's "unverified app" screen (Google allows up to 100 accounts). <code>google-verification/STATUS.md</code> (31 Oct) says no real clinic until approval.</p>
+      <div class="rec"><b>Recommended:</b> named pilot clinics through the warning screen; every other clinic takes booking requests its staff confirm until approval.</div>
+    </article>
+    <article class="dec">
+      <div class="top"><span class="id">D5</span><h3>The invented reviews on the homepage</h3></div>
+      <p>15 sample reviews have shown as real since the "examples" label came off on 12 October; no real review is published. The FTC's 2024 rule on fake reviews makes this a legal risk.</p>
+      <div class="rec"><b>Recommended:</b> Claude removes the section Monday (C2); it returns with real reviews.</div>
+    </article>
+    <article class="dec">
+      <div class="top"><span class="id">D6</span><h3>Your 30 Oct agreement release never reached main</h3></div>
+      <p>BAA 1.7.0 and a DPA with 10-day breach and 15-day vendor notice were built on 30 Oct on a branch with no pull request. Checkout still offers BAA 1.6.0 and DPA 1.1.0 (60-day breach notice), and main's live DPA 1.1.0 is a different release, so the branch's numbers now collide.</p>
+      <div class="rec"><b>Recommended:</b> land it before launch so the first clinics sign the terms you chose. Claude reconciles it Monday (C13), you approve Tuesday.</div>
+    </article>
+    <article class="dec">
+      <div class="top"><span class="id">D7</span><h3>A second voice task before real calls?</h3></div>
+      <p>One voice task runs today; if it stops, every call on it drops and Retell falls back to the clinic's line. A second costs about $29 a month.</p>
+      <div class="rec"><b>Recommended:</b> yes, in the same infrastructure change as C5.</div>
+    </article>
+  </div>
+</section>
+
+<section aria-labelledby="h-who">
+  <div class="section-head">
+    <h2 id="h-who">Who does what</h2>
+    <p class="lead">Reply with the IDs you want started, for example "Go C1, C2, C5". Claude starts on your word; nothing lands, deploys or applies without your yes. Times are rough.</p>
+  </div>
+  <div class="filters" role="group" aria-label="Show tasks">
+    <button type="button" data-filter="all" aria-pressed="true">Everything</button>
+    <button type="button" data-filter="pre" aria-pressed="false">Before Thursday</button>
+    <button type="button" data-filter="block" aria-pressed="false">Blocks go-live</button>
+    <button type="button" data-filter="after" aria-pressed="false">Optional or after launch</button>
+  </div>
+
+  <div class="lanes">
+    <!-- Claude -->
+    <div class="lane claude" data-lane>
+      <div class="lane-head">
+        <h3>Claude can do <span class="cnt" data-count>13 tasks</span></h3>
+        <p>Engineering, records and runbooks. Each one lands only with your yes.</p>
+      </div>
+
+      <div class="task" data-when="pre" data-block="1">
+        <div class="t"><span class="id">C1</span><h4>Record what production already does</h4></div>
+        <p>Mark BAA 1.6.0 retention and the direct-booking addendum On, with the 29 Oct and 28 Oct runs as evidence, and fix the direct-booking line, which still says the apply and deploy are pending.</p>
+        <div class="tags"><span class="tag block">Blocks go-live</span><span class="tag day">Mon</span><span class="eff">≈ 30 min · your OK</span></div>
+      </div>
+      <div class="task" data-when="pre">
+        <div class="t"><span class="id">C2</span><h4>Take down the invented reviews</h4></div>
+        <p>Remove the homepage review wall until real reviews exist (D5).</p>
+        <div class="tags"><span class="tag pre">Before Thursday</span><span class="tag day">Mon</span><span class="eff">≈ 15 min + site deploy</span></div>
+      </div>
+      <div class="task" data-when="pre">
+        <div class="t"><span class="id">C3</span><h4>Take the Meta packages off sale</h4></div>
+        <p>AYA Meta Chat and Voice + Meta Chat leave pricing and checkout until Meta approves, if you choose D3.</p>
+        <div class="tags"><span class="tag pre">Before Thursday</span><span class="tag day">Mon</span><span class="eff">≈ 2 h with checks</span></div>
+      </div>
+      <div class="task" data-when="pre" data-block="1">
+        <div class="t"><span class="id">C4</span><h4>Let each channel go live on its own checks</h4></div>
+        <p>Tag every promise with its channel so an open voice or Meta item stops holding website chat (D2): code, tests and one migration.</p>
+        <div class="tags"><span class="tag block">Blocks go-live</span><span class="tag opt">If you choose D2</span><span class="tag day">Mon</span><span class="eff">≈ 1 day</span></div>
+      </div>
+      <div class="task" data-when="pre" data-block="1">
+        <div class="t"><span class="id">C5</span><h4>One infrastructure change for your single apply</h4></div>
+        <p>Already in the file, never applied: automatic voice provisioning (31 Oct) and the texting permission (30 Oct). Added on your word: the Stripe Connect client id, the website-read address, your test phone numbers and a second voice task (D7).</p>
+        <div class="tags"><span class="tag block">Blocks go-live</span><span class="tag day">Mon</span><span class="eff">≈ 1 h · needs your ids</span></div>
+      </div>
+      <div class="task" data-when="pre" data-block="1">
+        <div class="t"><span class="id">C6</span><h4>Your switch list for System › Jobs</h4></div>
+        <p>Every background job, on or off for launch, one line why. The email sender, daily summary, weekly recap and practice questions are among the ons.</p>
+        <div class="tags"><span class="tag block">Blocks go-live</span><span class="tag day">Mon</span><span class="eff">≈ 1 h</span></div>
+      </div>
+      <div class="task" data-when="pre">
+        <div class="t"><span class="id">C7</span><h4>One checklist per day, in click order</h4></div>
+        <p>From the runbooks that exist: Stripe live setup, Connect, the attestations, Retell, the voice tests, the restore drill and the test purchase.</p>
+        <div class="tags"><span class="tag pre">Before Thursday</span><span class="tag day">Mon</span><span class="eff">≈ 2 h</span></div>
+      </div>
+      <div class="task" data-when="pre">
+        <div class="t"><span class="id">C8</span><h4>Land and deploy each batch on your yes</h4></div>
+        <p>Full local verify, CI green on the exact tree, then the deploy and a health check after it. You confirm no call is running.</p>
+        <div class="tags"><span class="tag pre">Before Thursday</span><span class="tag day">Tue</span><span class="eff">≈ 1 h each</span></div>
+      </div>
+      <div class="task" data-when="pre" data-block="1">
+        <div class="t"><span class="id">C9</span><h4>Turn your test results into evidence</h4></div>
+        <p>Move each promise to On in the commit that records its proof, keep <code>/admin/map</code> and the handoff true, and fix what the tests find the same day.</p>
+        <div class="tags"><span class="tag block">Blocks go-live</span><span class="tag day">Tue to Wed</span></div>
+      </div>
+      <div class="task" data-when="pre">
+        <div class="t"><span class="id">C10</span><h4>Go/no-go report, Wednesday evening</h4></div>
+        <p>Every promise with its evidence, every attestation you recorded, a yes or no per channel, and what is still open.</p>
+        <div class="tags"><span class="tag pre">Before Thursday</span><span class="tag day">Wed</span><span class="eff">≈ 1 h</span></div>
+      </div>
+      <div class="task" data-when="pre">
+        <div class="t"><span class="id">C11</span><h4>Fix the records that disagree</h4></div>
+        <p>The handoff, the HIPAA checklist's true boxes and its vendor rows now; the Launch plan tab on your word (list below).</p>
+        <div class="tags"><span class="tag pre">Before Thursday</span><span class="tag day">Mon</span><span class="eff">≈ 1 h</span></div>
+      </div>
+      <div class="task" data-when="pre">
+        <div class="t"><span class="id">C12</span><h4>Refresh the two review packs</h4></div>
+        <p>The Google demo-video script and Meta's screen-recording script, checked against today's screens so W1 and W2 can go in this week.</p>
+        <div class="tags"><span class="tag pre">Before Thursday</span><span class="tag day">Mon</span><span class="eff">≈ 1 h each</span></div>
+      </div>
+      <div class="task" data-when="pre">
+        <div class="t"><span class="id">C13</span><h4>Land your 30 Oct agreement release</h4></div>
+        <p>Bring branch <code>claude/friendly-edison-bwvr76</code> onto main: BAA 1.7.0, its DPA renumbered 1.2.0 (main's 1.1.0 is live), a new migration number, a full verify and a second review, since it sets legal clocks (D6).</p>
+        <div class="tags"><span class="tag opt">If you choose D6</span><span class="tag day">Mon</span><span class="eff">≈ half a day + deploy</span></div>
+      </div>
+    </div>
+
+    <!-- You -->
+    <div class="lane you" data-lane>
+      <div class="lane-head">
+        <h3>Only you can do <span class="cnt" data-count>17 tasks</span></h3>
+        <p>Accounts, money, signatures, real phones and the final yes.</p>
+      </div>
+
+      <div class="group-label">Monday · accounts and switches</div>
+      <div class="task" data-when="pre">
+        <div class="t"><span class="id">O1</span><h4>Stripe live setup</h4></div>
+        <p>Run the product setup with your live key, create the live webhook endpoint and paste its secret, and set the payment methods (card, Apple Pay, Google Pay) on Vercel. Until then a payment creates no account.</p>
+        <div class="tags"><span class="tag pre">Before Thursday</span><span class="eff">≈ 1 h</span></div>
+      </div>
+      <div class="task" data-when="pre" data-block="1">
+        <div class="t"><span class="id">O2</span><h4>Stripe Connect</h4></div>
+        <p>Switch Connect on, send Claude the client id (it is public) and paste the webhook secret in AWS. Until then no clinic can connect its deposit account.</p>
+        <div class="tags"><span class="tag block">Blocks go-live</span><span class="eff">≈ 1 h</span></div>
+      </div>
+      <div class="task" data-when="pre" data-block="1">
+        <div class="t"><span class="id">O3</span><h4>Retell checks</h4></div>
+        <p>The key in AWS belongs to the workspace with the product agents; your plan has outage mode; auto recharge is on with a low-balance alert.</p>
+        <div class="tags"><span class="tag block">Blocks go-live</span><span class="eff">≈ 30 min</span></div>
+      </div>
+      <div class="task" data-when="pre" data-block="1">
+        <div class="t"><span class="id">O4</span><h4>Switch on the email sender and the jobs</h4></div>
+        <p>In System › Jobs, from Claude's list (C6), and confirm the email key is set on the host. Closes 2 promises.</p>
+        <div class="tags"><span class="tag block">Blocks go-live</span><span class="eff">≈ 10 min</span></div>
+      </div>
+      <div class="task" data-when="pre" data-block="1">
+        <div class="t"><span class="id">O5</span><h4>Record the vendor agreements</h4></div>
+        <p>On <code>/admin/compliance</code>: Anthropic, the database host, AWS and Retell, each with where its signed copy is kept. Closes the agreements promise.</p>
+        <div class="tags"><span class="tag block">Blocks go-live</span><span class="eff">≈ 20 min</span></div>
+      </div>
+      <div class="task" data-when="pre">
+        <div class="t"><span class="id">O6</span><h4>HIPAA records</h4></div>
+        <p>Name the Security Official (still a blank in two policies), read and sign the policies and risk analysis, file the AWS Artifact screenshot and the signed Retell and Anthropic copies.</p>
+        <div class="tags"><span class="tag pre">Before Thursday</span><span class="eff">≈ 2 h</span></div>
+      </div>
+
+      <div class="group-label">Tuesday · apply, deploy, first tests</div>
+      <div class="task" data-when="pre" data-block="1">
+        <div class="t"><span class="id">O7</span><h4>Approve the apply and the deploy</h4></div>
+        <p>Infra plan, then apply, then Deploy apps/app, for C5 and Monday's code. Confirm no call is running.</p>
+        <div class="tags"><span class="tag block">Blocks go-live</span><span class="eff">≈ 45 min, mostly waiting</span></div>
+      </div>
+      <div class="task" data-when="pre" data-block="1">
+        <div class="t"><span class="id">O8</span><h4>Book on the demo clinic</h4></div>
+        <p>One website-chat booking with healdesk's test Google account. Closes calendar booking.</p>
+        <div class="tags"><span class="tag block">Blocks go-live</span><span class="eff">≈ 20 min</span></div>
+      </div>
+      <div class="task" data-when="pre" data-block="1">
+        <div class="t"><span class="id">O9</span><h4>Send a deposit link</h4></div>
+        <p>After O2, on the demo clinic: book in website chat and receive the link; then on Instagram or Messenger if Meta stays in. Closes 1 or 2 promises.</p>
+        <div class="tags"><span class="tag block">Blocks go-live</span><span class="eff">≈ 45 min</span></div>
+      </div>
+      <div class="task" data-when="pre">
+        <div class="t"><span class="id">O10</span><h4>Restore drill</h4></div>
+        <p>In AWS CloudShell, from the ready run sheet. The infrastructure runbook requires it before the first live clinic; it has never been run.</p>
+        <div class="tags"><span class="tag pre">Before Thursday</span><span class="eff">≈ 1 to 2 h</span></div>
+      </div>
+
+      <div class="group-label">Wednesday · calls and the full run</div>
+      <div class="task" data-when="pre" data-block="1">
+        <div class="t"><span class="id">O11</span><h4>Voice tests on the demo clinic</h4></div>
+        <p>A clinic-side test call, the "AYA off reaches the direct line" test and the no-audio deletion check. Needs O3 and O7 first.</p>
+        <div class="tags"><span class="tag block">Blocks go-live</span><span class="eff">≈ 1 h</span></div>
+      </div>
+      <div class="task" data-when="pre" data-block="1">
+        <div class="t"><span class="id">O12</span><h4>A forwarded call per carrier</h4></div>
+        <p>From a Verizon, a Spectrum Business Voice and an AT&amp;T line. Needs US lines on those carriers; a pilot clinic or a US contact may be the fastest route.</p>
+        <div class="tags"><span class="tag block">Blocks go-live</span><span class="eff">depends on line access</span></div>
+      </div>
+      <div class="task" data-when="pre" data-block="1">
+        <div class="t"><span class="id">O13</span><h4>Turn on real calls</h4></div>
+        <p>Real calls on in the settings file, then apply and deploy, once O11 passes. Until then voice answers only the made-up demo clinic.</p>
+        <div class="tags"><span class="tag block">Blocks go-live</span><span class="eff">≈ 30 min</span></div>
+      </div>
+      <div class="task" data-when="pre">
+        <div class="t"><span class="id">O14</span><h4>Your test purchase, end to end</h4></div>
+        <p>From the E2E run sheet: buy, provisioning, sign-in, passkey, wizard, website chat live, an urgent message, a booking request, the transcript email. Going live works once the promises are On.</p>
+        <div class="tags"><span class="tag pre">Before Thursday</span><span class="eff">≈ 2 h</span></div>
+      </div>
+      <div class="task" data-when="pre" data-block="1">
+        <div class="t"><span class="id">O15</span><h4>Attest and decide</h4></div>
+        <p>When <code>/admin/compliance#launch</code> shows the promises On, attest them and each channel's runtime checks. The go/no-go is yours.</p>
+        <div class="tags"><span class="tag block">Blocks go-live</span><span class="eff">≈ 15 min</span></div>
+      </div>
+
+      <div class="group-label">Any day this week</div>
+      <div class="task" data-when="pre">
+        <div class="t"><span class="id">O16</span><h4>Line up pilot clinics</h4></div>
+        <p>One to three friendly clinics ready to buy on Thursday, with each one's phone carrier and booking system noted.</p>
+        <div class="tags"><span class="tag pre">Before Thursday</span></div>
+      </div>
+      <div class="task" data-when="pre">
+        <div class="t"><span class="id">O17</span><h4>An outside uptime check</h4></div>
+        <p>On healdesk.io and <code>app.healdesk.io/api/health</code>, alerting your phone.</p>
+        <div class="tags"><span class="tag pre">Before Thursday</span><span class="eff">≈ 15 min</span></div>
+      </div>
+    </div>
+
+    <!-- Others -->
+    <div class="lane others" data-lane>
+      <div class="lane-head">
+        <h3>Waiting on others <span class="cnt" data-count>4 tasks</span></h3>
+        <p>Your part is to submit; the answer comes after Thursday. Start these first: they are the longest clocks.</p>
+      </div>
+      <div class="task" data-when="pre">
+        <div class="t"><span class="id">W1</span><h4>Google's calendar review</h4></div>
+        <p>Not submitted. Done today: "In production", the test Google account, the YouTube channel. Left: check the branding page, record the demo video, submit. Google then takes 2 to 3 business days for the brand and about 10 for the scope, sometimes weeks.</p>
+        <div class="tags"><span class="tag pre">Submit this week</span><span class="eff">≈ 2 h of yours</span></div>
+      </div>
+      <div class="task" data-when="pre">
+        <div class="t"><span class="id">W2</span><h4>Meta App Review</h4></div>
+        <p>Not submitted. One screen recording per permission on a working demo clinic, then up to a week. Instagram and Messenger connect only after it.</p>
+        <div class="tags"><span class="tag pre">Submit this week</span><span class="eff">≈ half a day of yours</span></div>
+      </div>
+      <div class="task" data-when="after">
+        <div class="t"><span class="id">W3</span><h4>WhatsApp Tech Provider access</h4></div>
+        <p>Meta's access check, then the WhatsApp login configuration id goes into the settings file.</p>
+        <div class="tags"><span class="tag after">After launch</span></div>
+      </div>
+      <div class="task" data-when="after">
+        <div class="t"><span class="id">W4</span><h4>The texting number, for the optional payment-link text</h4></div>
+        <p>Leave AWS's SMS sandbox, buy one toll-free number and register it: up to 15 business days. The text sends nothing until then.</p>
+        <div class="tags"><span class="tag after">After launch</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="h-week">
+  <div class="section-head">
+    <h2 id="h-week">The week</h2>
+    <p class="lead">If a day slips, Thursday becomes "doors open" and go-live follows as each item closes. Nothing moves to On without its evidence.</p>
+  </div>
+  <div class="week">
+    <div class="corner" aria-hidden="true"></div>
+    <div class="hd">Monday<small>2 November</small></div>
+    <div class="hd">Tuesday<small>3 November</small></div>
+    <div class="hd">Wednesday<small>4 November</small></div>
+    <div class="hd launch">Thursday<small>5 November · launch</small></div>
+
+    <div class="rowlab you">You</div>
+    <div><span class="daylab">Monday <small>2 Nov · you</small></span><ul><li>D1 to D7 first</li><li>Start W1 and W2</li><li>O1 Stripe live, O2 Connect</li><li>O3 Retell, O4 switches</li><li>O5 agreements, O6 Security Official</li></ul></div>
+    <div><span class="daylab">Tuesday <small>3 Nov · you</small></span><ul><li>O7 apply and deploy</li><li>O8 demo booking</li><li>O9 deposit link</li><li>O10 restore drill</li><li>O6 sign-offs</li></ul></div>
+    <div><span class="daylab">Wednesday <small>4 Nov · you</small></span><ul><li>O11 voice tests</li><li>O12 carrier calls</li><li>O13 real calls on</li><li>O14 test purchase</li><li>O15 attest</li></ul></div>
+    <div class="launch"><span class="daylab">Thursday <small>5 Nov · you</small></span><ul><li>Go/no-go in the morning</li><li>Doors open; pilot clinics buy</li><li>First outreach batch</li></ul></div>
+
+    <div class="rowlab claude">Claude</div>
+    <div><span class="daylab">Monday <small>2 Nov · Claude</small></span><ul><li>C1 records, C2 reviews</li><li>C3 Meta off sale (D3)</li><li>C4 per channel (D2)</li><li>C13 agreement release (D6)</li><li>C5 infra set, C6 switch list</li><li>C7 checklists, C11, C12</li></ul></div>
+    <div><span class="daylab">Tuesday <small>3 Nov · Claude</small></span><ul><li>C8 land and deploy Monday's work</li><li>Health check after the deploy</li><li>C9 promises to On as tests pass</li></ul></div>
+    <div><span class="daylab">Wednesday <small>4 Nov · Claude</small></span><ul><li>C9 fixes the same day</li><li>Final full verify</li><li>C10 go/no-go report by evening</li></ul></div>
+    <div class="launch"><span class="daylab">Thursday <small>5 Nov · Claude</small></span><ul><li>On watch with you: go-live holds, alerts, failed jobs</li><li>Fixes ship on your yes</li></ul></div>
+  </div>
+</section>
+
+<section aria-labelledby="h-promises">
+  <div class="section-head">
+    <h2 id="h-promises">The 14 go-live promises</h2>
+    <p class="lead">From <code>apps/web/src/lib/admin/seo/launch.ts</code>; the live list is <code>/admin/compliance#launch</code>. The other 8 promises do not block go-live.</p>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Promise</th><th>Now</th><th>What closes it</th><th>Who</th><th>Channel</th></tr></thead>
+      <tbody>
+        <tr><td>Urgent messages reach the clinic at once<span class="mono">urgent-alert</span></td><td><span class="pill p-on">On</span></td><td>Holds only while the email sender is on (row 5)</td><td>None</td><td>All</td></tr>
+        <tr><td>The never-say list applies on Meta too<span class="mono">never-say-meta</span></td><td><span class="pill p-on">On</span></td><td>On since 28 Oct, on your word</td><td>None</td><td>Meta</td></tr>
+        <tr><td>BAA 1.6.0 states the model provider's retention correctly<span class="mono">baa-1-6-0-retention</span></td><td><span class="pill p-rec">Record only</span></td><td>Deployed 29 Oct (migration 0136); mark On</td><td>C1</td><td>All</td></tr>
+        <tr><td>A clinic can elect direct booking under its agreement<span class="mono">direct-booking-addendum</span></td><td><span class="pill p-rec">Record only</span></td><td>Released 28 Oct; mark On</td><td>C1</td><td>All</td></tr>
+        <tr><td>Every alert reaches the clinic<span class="mono">alert-sender-on</span></td><td><span class="pill p-flip">Switch</span></td><td>Email sender job on; email key confirmed on the host</td><td>O4</td><td>All</td></tr>
+        <tr><td>A summary email each working day, with the weekly recap<span class="mono">daily-summary</span></td><td><span class="pill p-flip">Switch</span></td><td>Daily-summary and weekly-recap jobs on</td><td>O4</td><td>All</td></tr>
+        <tr><td>We sign a business associate agreement and handle patient data under it<span class="mono">baa-chain</span></td><td><span class="pill p-flip">Record</span></td><td>Four vendor attestations on <code>/admin/compliance</code></td><td>O5</td><td>All</td></tr>
+        <tr><td>AYA books into the clinic's Google Calendar<span class="mono">direct-booking</span></td><td><span class="pill p-test">Test</span></td><td>One live booking on the demo clinic; switch already on since 29 Oct</td><td>O8</td><td>Chat, voice</td></tr>
+        <tr><td>In website chat AYA sends the clinic's own deposit link<span class="mono">deposit-link-chat</span></td><td><span class="pill p-test">Test</span></td><td>Stripe Connect, then one link sent on the demo clinic</td><td>O2, O9</td><td>Chat</td></tr>
+        <tr><td>On Instagram, Messenger and WhatsApp AYA sends the deposit link<span class="mono">deposit-link-meta</span></td><td><span class="pill p-test">Test</span></td><td>Stripe Connect, then one link on Meta (see D2, D3)</td><td>O2, O9</td><td>Meta</td></tr>
+        <tr><td>Every failure ends with calls going to a direct clinic line<span class="mono">failure-direct-line</span></td><td><span class="pill p-test">Test</span></td><td>Retell key and outage mode confirmed, one failure test call</td><td>O3, O11</td><td>Voice</td></tr>
+        <tr><td>healdesk keeps no call audio; Retell holds a call a day at most<span class="mono">no-audio</span></td><td><span class="pill p-test">Test</span></td><td>Automatic provisioning applied and deployed, a test call that proves the deletion</td><td>C5, O7, O11</td><td>Voice</td></tr>
+        <tr><td>The right call-forwarding codes for each carrier<span class="mono">forwarding-codes</span></td><td><span class="pill p-test">Test</span></td><td>One forwarded call from each carrier's line</td><td>O12</td><td>Voice</td></tr>
+        <tr><td>Phone is live once call forwarding is set<span class="mono">voice-service</span></td><td><span class="pill p-test">Test</span></td><td>A clinic-side test call, then real calls on</td><td>O11, O13</td><td>Voice</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section aria-labelledby="h-done">
+  <div class="section-head">
+    <h2 id="h-done">What is already done</h2>
+    <p class="lead">Built and deployed means it is in production. Seen working means someone used it for real, beyond tests.</p>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Product</th><th>Built</th><th>In production</th><th>Seen working</th><th>Note</th></tr></thead>
+      <tbody>
+        <tr><td>Website, pricing, Terms, Privacy, guides</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td>Terms and Privacy print version 2026-10-30.2 (checked 31 Oct)</td></tr>
+        <tr><td>Personalised demo and the demo call (Aya as receptionist)</td><td class="yes">Yes</td><td class="yes">Yes, 1 Nov</td><td class="part">Your test calls</td><td>Today's restructure is deployed; your next test call checks it</td></tr>
+        <tr><td>Checkout, signing, provisioning on first paid invoice</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td>Stripe's product setup never run with the live key; no purchase yet</td></tr>
+        <tr><td>Clinic portal, setup wizard, passkeys</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td>No clinic has signed in yet</td></tr>
+        <tr><td>Website chat widget</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td>Confirms itself once pasted (since 30 Oct); never on a real clinic's site</td></tr>
+        <tr><td>Voice agent on Retell</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="part">Demo calls</td><td>Answers only the made-up demo clinic until real calls are on</td></tr>
+        <tr><td>Booking into Google Calendar</td><td class="yes">Yes</td><td class="yes">Switch on, 29 Oct</td><td class="no">No</td><td>No booking placed yet; Google review not submitted</td></tr>
+        <tr><td>Deposit links through the clinic's own Stripe</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td>Waits on Stripe Connect (client id empty)</td></tr>
+        <tr><td>Instagram, Messenger, WhatsApp</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="part">One test run</td><td>13 of 13 on 22 Oct; App Review and WhatsApp access pending</td></tr>
+        <tr><td>Alerts, daily summary, transcripts by email</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td>Sender and jobs ship switched off</td></tr>
+        <tr><td>Support: portal help chat, support email, drafted replies</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td>Slack approvals built and off (optional)</td></tr>
+        <tr><td>Go-live gate, practice questions, answer gate</td><td class="yes">Yes</td><td class="yes">Yes, 30 Oct</td><td class="no">No</td><td>Every code check is built; what holds go-live now is people's checks</td></tr>
+        <tr><td>Operator console <code>/admin</code></td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">You use it</td><td>Where you see the jobs, the attestations and the live go-live list</td></tr>
+        <tr><td>AWS host, database, alarms</td><td class="yes">Yes</td><td class="yes">Since 14 Oct</td><td class="yes">Health ok</td><td>CI green on <code>main</code>; a database restore never rehearsed</td></tr>
+        <tr><td>Agreements at checkout: BAA 1.6.0, DPA 1.1.0, direct-booking addendum</td><td class="yes">Yes</td><td class="yes">28 to 30 Oct</td><td>n/a</td><td>Released by you without external counsel; 1.7.0 waits on D6</td></tr>
+        <tr><td>Vendor agreements: AWS, Retell, Anthropic; database under AWS</td><td>n/a</td><td class="part">Signed</td><td>n/a</td><td>AWS 22 Sep, Retell 19 Oct, Anthropic 26 Oct (your report); recording on <code>/admin</code> not visible from here</td></tr>
+        <tr><td>Accounts: Meta business verification, Google project and Search Console</td><td>n/a</td><td class="yes">Done</td><td>n/a</td><td>Meta verified 4 Oct; Google client on the host 31 Oct</td></tr>
+        <tr><td>Optional payment-link text after a call</td><td class="yes">Yes</td><td class="part">Code only</td><td class="no">No</td><td>Sends nothing until the texting number is registered (W4)</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section aria-labelledby="h-disagree">
+  <div class="section-head">
+    <h2 id="h-disagree">Records that disagree with the code</h2>
+    <p class="lead">Found while building this board. Claude fixes the repo ones (C11); the Launch plan tab is yours.</p>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Where</th><th>It says</th><th>The code and the runs say</th></tr></thead>
+      <tbody>
+        <tr><td>Launch plan tab, steps 1.14 and 3.3</td><td>Checkout offers BAA 1.7.0 and a DPA with 10-day breach and 15-day vendor notice, released 30 Oct</td><td>Built on branch <code>claude/friendly-edison-bwvr76</code>, never opened as a pull request. Checkout offers BAA 1.6.0 and DPA 1.1.0 (60 days). Main's live DPA 1.1.0 and migration 0140 are a different release, so the branch needs new numbers (D6, C13)</td></tr>
+        <tr><td><code>docs/google-verification/STATUS.md</code> on main</td><td>Audience not confirmed; test account and YouTube channel not started</td><td>Done today, recorded on branch <code>claude/eager-keller-d0zdiv</code>, not yet merged</td></tr>
+        <tr><td>Go-live list, direct booking</td><td>Left: the infrastructure apply, then the deploy</td><td>Applied 28 Oct (run 40670359689) and rolled 29 Oct (run 40870436687). Only the test booking is left</td></tr>
+        <tr><td>Go-live list, BAA 1.6.0 retention</td><td>Waits on its deploy</td><td>Migration 0136 ran in the 29 Oct deploy</td></tr>
+        <tr><td>Settings file, automatic voice provisioning</td><td>On since 31 Oct</td><td>Never applied: the last apply was 28 Oct, and the 30 Oct run only planned (run 41123558371)</td></tr>
+        <tr><td>Launch plan tab, step 3.6 and the dates</td><td>The support chat is not built; target 21 October</td><td>The support chat is built and deployed; 21 October has passed</td></tr>
+        <tr><td><code>AGENTS.md</code>, next actions</td><td>The demo restructure is not merged</td><td>Landed as PR 95 and deployed 1 Nov (run 41316349409)</td></tr>
+        <tr><td><code>docs/hipaa-compliance.md</code>, pre-launch list</td><td>All 10 boxes unticked</td><td>At least the AWS host is true; the Security Official, the security review and the attorney review are yours to decide</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section aria-labelledby="h-after">
+  <div class="section-head">
+    <h2 id="h-after">After launch</h2>
+    <p class="lead">None of this blocks Thursday.</p>
+  </div>
+  <div class="two">
+    <ul class="plain">
+      <li>Google approves: real clinics' calendars connect, and booking reaches every clinic.</li>
+      <li>Meta approves: the Meta packages go back on sale; WhatsApp follows Tech Provider access.</li>
+      <li>The texting number is registered: the optional payment-link text can be offered.</li>
+      <li>More locations per clinic: partly built, switched off.</li>
+      <li>Full payment instead of a deposit: saved per clinic, not yet wired to the assistant.</li>
+    </ul>
+    <ul class="plain">
+      <li>Slack approvals and support-mail forwarding: conveniences, off today.</li>
+      <li>Your search and AI-visibility steps on <code>/admin/seo</code>.</li>
+      <li>20 open dependency-update pull requests: leave them until after launch. The one audit exception expires 20 December.</li>
+      <li>A native speaker's review of the Spanish lines.</li>
+      <li>Multi-AZ database and the web firewall: off by your choice, worth revisiting with real traffic.</li>
+    </ul>
+  </div>
+</section>
+
+<section aria-labelledby="h-sources">
+  <div class="section-head"><h2 id="h-sources">Sources</h2></div>
+  <ul class="sources">
+    <li><a href="https://github.com/liamariavisoiu-ai98/healdesk.io/blob/main/apps/web/src/lib/admin/seo/launch.ts">launch.ts</a>, the go-live promises</li>
+    <li><a href="https://github.com/liamariavisoiu-ai98/healdesk.io/blob/main/apps/app/src/lib/onboarding/go-live.ts">go-live.ts</a> and <a href="https://github.com/liamariavisoiu-ai98/healdesk.io/blob/main/apps/app/src/lib/compliance/subjects.ts">subjects.ts</a>, what go-live checks</li>
+    <li><a href="https://github.com/liamariavisoiu-ai98/healdesk.io/blob/main/infra/aws/production.tfvars">production.tfvars</a>, the production switches</li>
+    <li><a href="https://github.com/liamariavisoiu-ai98/healdesk.io/blob/main/docs/design/launch-readiness-2026-10-27/status.md">Launch readiness audit</a>, 27 Oct</li>
+    <li><a href="https://github.com/liamariavisoiu-ai98/healdesk.io/blob/main/docs/design/launch-readiness-2026-10-27/e2e-production-run-sheet.md">E2E run sheet</a>, the test purchase</li>
+    <li><a href="https://github.com/liamariavisoiu-ai98/healdesk.io/blob/main/docs/design/launch-readiness-2026-10-27/no-audio-run-sheet.md">No-audio run sheet</a> and <a href="https://github.com/liamariavisoiu-ai98/healdesk.io/blob/main/docs/design/launch-readiness-2026-10-27/restore-into-production.md">restore plan</a></li>
+    <li><a href="https://github.com/liamariavisoiu-ai98/healdesk.io/blob/main/docs/google-verification/STATUS.md">Google verification status</a> and <a href="https://github.com/liamariavisoiu-ai98/healdesk.io/blob/main/docs/meta-app-review.md">Meta App Review pack</a></li>
+    <li><a href="https://github.com/liamariavisoiu-ai98/healdesk.io/blob/main/AGENTS.md">AGENTS.md</a> and the <a href="https://github.com/liamariavisoiu-ai98/healdesk.io/blob/main/HEALDESK_CLAUDE_CODE_LAUNCH_EXECUTION_PLAN.md">execution plan</a></li>
+    <li>Runs: <a href="https://github.com/liamariavisoiu-ai98/healdesk.io/actions/runs/41316341623">CI 1 Nov</a>, <a href="https://github.com/liamariavisoiu-ai98/healdesk.io/actions/runs/41316349409">deploy 1 Nov</a>, <a href="https://github.com/liamariavisoiu-ai98/healdesk.io/actions/runs/40670359689">apply 28 Oct</a>, <a href="https://github.com/liamariavisoiu-ai98/healdesk.io/actions/runs/41123558371">plan 30 Oct</a></li>
+    <li><a href="https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ">Launch plan tab</a> of the spec's source doc, read 1 Nov</li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">A snapshot for launch week, not a tracker: the live go-live list is <code>/admin/compliance#launch</code> and the task list is the Launch plan tab. Written from the repository, GitHub's runs and the Launch plan tab on 1 November 2026; nothing in production was read or changed.</div>
+</footer>
+
+<script>
+(function () {
+  // Days to launch, counted in Dubai's calendar days. The static text above is the Sunday value.
+  var LAUNCH = Date.UTC(2026, 10, 5);
+  try {
+    var parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()).split("-");
+    var today = Date.UTC(+parts[0], +parts[1] - 1, +parts[2]);
+    var d = Math.round((LAUNCH - today) / 86400000);
+    var n = document.getElementById("days-left");
+    var l = document.getElementById("days-label");
+    if (d > 1) { n.textContent = d + " days"; }
+    else if (d === 1) { n.textContent = "1 day"; }
+    else if (d === 0) { n.textContent = "Today"; l.textContent = "is launch day, Thursday 5 November"; }
+    else { n.textContent = (-d) + (d === -1 ? " day" : " days"); l.textContent = "since Thursday 5 November"; }
+  } catch (e) { /* keep the static text */ }
+
+  // Filters: show the tasks that match, hide day labels left empty, keep each lane's count true.
+  var buttons = document.querySelectorAll(".filters button");
+  function matches(task, f) {
+    if (f === "all") return true;
+    if (f === "pre") return task.getAttribute("data-when") === "pre";
+    if (f === "block") return task.getAttribute("data-block") === "1";
+    if (f === "after") return task.getAttribute("data-when") === "after" || !!task.querySelector(".tag.opt");
+    return true;
+  }
+  function apply(f) {
+    document.querySelectorAll("[data-lane]").forEach(function (lane) {
+      var shown = 0;
+      lane.querySelectorAll(".task").forEach(function (t) {
+        var ok = matches(t, f);
+        t.hidden = !ok;
+        if (ok) shown++;
+      });
+      lane.querySelectorAll(".group-label").forEach(function (g) {
+        var el = g.nextElementSibling, any = false;
+        while (el && !el.classList.contains("group-label")) {
+          if (el.classList.contains("task") && !el.hidden) any = true;
+          el = el.nextElementSibling;
+        }
+        g.hidden = !any;
+      });
+      var c = lane.querySelector("[data-count]");
+      if (c) c.textContent = shown + (shown === 1 ? " task" : " tasks");
+    });
+  }
+  buttons.forEach(function (b) {
+    b.addEventListener("click", function () {
+      buttons.forEach(function (x) { x.setAttribute("aria-pressed", x === b ? "true" : "false"); });
+      apply(b.getAttribute("data-filter"));
+    });
+  });
+})();
+</script>
+</body>
+</html>

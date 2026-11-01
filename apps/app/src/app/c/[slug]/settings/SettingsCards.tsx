@@ -53,7 +53,7 @@ export function Card(props: { id: string; title: string; intro?: ReactNode; chil
     <section
       id={props.id}
       aria-labelledby={`${props.id}-heading`}
-      className="border-line scroll-mt-6 rounded-md border bg-white px-4 py-4 sm:px-5"
+      className="border-line scroll-mt-6 rounded-lg border bg-white shadow-sm px-4 py-4 sm:px-5"
     >
       <h2 id={`${props.id}-heading`} className="text-lg font-semibold">
         {props.title}

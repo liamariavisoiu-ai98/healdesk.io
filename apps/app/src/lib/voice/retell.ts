@@ -85,6 +85,7 @@ import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
 import { redialPromptBlock, takeRedialContext, welcomeBackLine, type RedialContext } from "./redial";
 import { businessLine, busyLine, fragmentLine, isFragment, withGreetingQuestion } from "./call-lines";
 import { DEMO_CALLER_PHONE, demoBookingTools } from "./demo-booking";
+import { fillerFor } from "./fillers";
 import { HURRIED_SHARE, speakingMs, splitPauses, withoutPauses, withoutPausesKeepingLead } from "./pauses";
 import { soundAlikeNote, soundAlikes } from "./sound-alike";
 import type { SpokenLanguage } from "./spoken";
@@ -297,6 +298,9 @@ export const ACKNOWLEDGEMENTS: Readonly<Record<SpokenLanguage, readonly string[]
  * by then is heard without one.
  */
 export const ACKNOWLEDGE_AFTER_MS = 900;
+
+/** When a filler is said (fillers.ts): at once, as a person starts an answer about 200 ms after the other has finished. */
+export const FILLER_AFTER_MS = 0;
 
 /**
  * How long the model may sit idle on a call before it is readied again
@@ -729,6 +733,8 @@ export class RetellCallSession {
   private lastAcknowledgement: string | null = null;
   /** The last reply said began with an acknowledgement: the next may not. */
   private acknowledgedLastTurn = false;
+  /** Every filler said this call, in order (fillers.ts reads it: never the last one again, each at most twice). */
+  private fillersSaid: string[] = [];
   /** Silences answered so far: the check-ins, then the close. */
   private reminders = 0;
   /** A demo call's context, once opened: the requester's first name and the clinic's profile. In memory only. */
@@ -1591,13 +1597,16 @@ export class RetellCallSession {
       !(this.disclosurePlayedAt && !agentSpokeYet) &&
       !(language.language === "es" && !this.spanishDisclosed) &&
       !(resumed && !this.welcomedBack);
+    // A test's own acknowledgements, as before; otherwise the filler that fits what they said (fillers.ts), on most
+    // turns, never the one said last and at most twice a call (owner, 1 November 2026).
     const ackLines = this.deps.acknowledgements ?? ACKNOWLEDGEMENTS[language.language];
+    const filler = this.deps.acknowledgements ? null : fillerFor(words, language.language, this.fillersSaid, this.deps.random ?? Math.random);
     const acknowledgeable =
-      ackLines.length > 0 &&
+      (filler !== null || ackLines.length > 0) &&
       nothingDue &&
       !jump &&
-      // Never two turns running (ACKNOWLEDGEMENTS).
-      !this.acknowledgedLastTurn &&
+      // A test's acknowledgement list: never two turns running (ACKNOWLEDGEMENTS). A filler may come every turn.
+      (filler !== null || !this.acknowledgedLastTurn) &&
       // In the caller's own language only: no English "Okay." to Spanish words.
       messageLanguage(words, { knownTerms: languageTerms(facts) }) === language.language &&
       words.split(/\s+/).filter(Boolean).length >= ACKNOWLEDGE_MIN_WORDS &&
@@ -1608,7 +1617,7 @@ export class RetellCallSession {
     // A sentence held back from streaming (speak), and everything after it.
     let held = false;
     const ackChoices = ackLines.filter((line) => line !== this.lastAcknowledgement);
-    const ackLine = ackChoices[Math.floor((this.deps.random ?? Math.random)() * ackChoices.length)] ?? ackChoices[0] ?? "";
+    const ackLine = filler ?? ackChoices[Math.floor((this.deps.random ?? Math.random)() * ackChoices.length)] ?? ackChoices[0] ?? "";
     // Said only if the reply has not started by then: the first sentence,
     // or the end of the turn, stops it.
     let ackTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1681,11 +1690,12 @@ export class RetellCallSession {
       // A demo: the clinic's own facts, with healdesk's words on its never-say list (c4093be6).
       facts: this.demoContext ? demoRoleplayFacts(facts) : facts,
       channel: "voice",
-      acknowledge: acknowledgeable
+      // Never ahead of a line the call says itself (call-lines.ts).
+      acknowledge: acknowledgeable && !fixedMove
         ? {
             line: ackLine,
             say: () => {
-              ackTimer = setTimeout(() => {
+              const sayIt = () => {
                 ackTimer = null;
                 // Not for a request a newer one has already replaced.
                 if (responseId !== this.latestResponseId || this.closing || streamed) return;
@@ -1693,8 +1703,13 @@ export class RetellCallSession {
                 acknowledgement = ackLine;
                 this.acknowledged += 1;
                 this.lastAcknowledgement = ackLine;
+                if (filler) this.fillersSaid.push(filler);
                 heard();
-              }, this.deps.acknowledgeAfterMs ?? ACKNOWLEDGE_AFTER_MS);
+              };
+              // A filler goes at once, the moment the caller has finished; a test's acknowledgement only for a slow reply.
+              const after = this.deps.acknowledgeAfterMs ?? (filler ? FILLER_AFTER_MS : ACKNOWLEDGE_AFTER_MS);
+              if (after <= 0) sayIt();
+              else ackTimer = setTimeout(sayIt, after);
             },
           }
         : null,

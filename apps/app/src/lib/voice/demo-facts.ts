@@ -1326,8 +1326,11 @@ export function demoAssistantFacts(context: Pick<DemoCallContext, "slug" | "clin
     greeting: { phone: defaultPhoneGreeting(clinic.clinicName), chat: defaultChatGreeting() },
     tone: "warm",
     languages: ["en", "es"],
-    suggestAddOns: false,
+    // On for a demo (owner, 1 November 2026, review point 7): one pairing from the clinic's own menu, chosen by
+    // code (pairings.ts), offered once, to show the dream. A clinic's own calls keep the spec's default, off.
+    suggestAddOns: true,
     providerNames: clinic.providers.map((p) => p.name),
+    samples: clinic.sampled ?? null,
     // No alert is ever raised on a demo call: the urgent reply never says the team was told.
     urgentAlertsReady: false,
     // Her own workings and claims healdesk does not make are refused (guard.ts, offScript; a17b5aff).

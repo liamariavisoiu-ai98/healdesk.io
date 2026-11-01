@@ -4,6 +4,7 @@ import { bookingTools, EMPTY_TOOL_STATE, type BookingEngine, type BookingToolSta
 import { EMPTY_CAPTURE, offeredTimeNamed, withoutFreeTimeClaims } from "@/lib/assistant/turn";
 import { BOOKING_LINES_VOICE_EN } from "@/lib/booking/lines";
 import { lookupLine, pause, PAUSE_MS, speakingMs, splitPauses, withoutPauses } from "@/lib/voice/pauses";
+import { fillerFor, FILLER_MAX_PER_CALL } from "@/lib/voice/fillers";
 import { keyFactOf } from "@/lib/voice/retell";
 import { spokenHourEn, spokenSlotEn } from "@/lib/voice/spoken";
 
@@ -123,5 +124,27 @@ describe("never the same thing twice", () => {
   test("a free time named to a question that asked for none is taken out, the rest kept", () => {
     expect(withoutFreeTimeClaims("Full? Not at all, we have openings this week.")).toBe("It varies day to day.");
     expect(withoutFreeTimeClaims("We do stay busy. We have openings Thursday at 2 PM. Want me to check?")).toBe("We do stay busy. Want me to check?");
+  });
+});
+
+describe("fillers", () => {
+  const first = () => 0;
+  test("fit what they said: sympathy for a worry, delight for an occasion, a thinking word for a question", () => {
+    expect(fillerFor("Ugh, I'm so frustrated with my skin lately", "en", [], first)).toBe("Oh no,");
+    expect(fillerFor("It's for my wedding in June", "en", [], first)).toBe("Oh, nice!");
+    expect(fillerFor("How much is a HydraFacial?", "en", [], first)).toBe("So,");
+    expect(fillerFor("I'd like to book Botox please", "en", [], first)).toBe("Sure,");
+    expect(fillerFor("¿Cuánto cuesta el Botox?", "es", [], first)).toBe("A ver,");
+  });
+
+  test("none for a thank-you, a goodbye, a word or two, or a number", () => {
+    for (const words of ["Thanks so much.", "Okay, bye now.", "Yes please", "Sam.", "It's 305 555 0199."]) expect(fillerFor(words, "en", [], first), words).toBeNull();
+  });
+
+  test("never the one said last, each at most twice a call, and 'Hmm' once", () => {
+    expect(fillerFor("How much is a HydraFacial?", "en", ["So,"], first)).not.toBe("So,");
+    const twice = Array.from({ length: FILLER_MAX_PER_CALL }, () => "So,");
+    expect(fillerFor("How much is a HydraFacial?", "en", [...twice, "Okay,"], first)).not.toBe("So,");
+    expect(fillerFor("What about Dysport then?", "en", ["Hmm,", "Okay,"], () => 0.99)).not.toBe("Hmm,");
   });
 });

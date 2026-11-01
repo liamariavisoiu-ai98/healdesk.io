@@ -1412,7 +1412,7 @@ export async function answerTurn(input: {
   }
   if (channel === "voice") notes.push(...voiceHabits(input.history, capture.firstName ?? input.callerFirstName ?? null, personText));
   if (input.acknowledge) {
-    notes.push(`If your answer is slow to start, "${input.acknowledge.line}" is said out loud for you first: begin with the answer itself, never with an acknowledgement or filler.`);
+    notes.push(`"${input.acknowledge.line}" is being said out loud for you first: carry straight on from it, with no other opener, filler or feeling sound, as one sentence that starts with it would.`);
   }
   const system = {
     stable: input.stablePrompt ?? buildAssistantPrompt(facts, channel, { bookingTools: toolsLive }),

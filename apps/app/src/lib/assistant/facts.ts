@@ -105,6 +105,14 @@ export type AssistantFacts = {
   languages: ScreenedLanguage[];
   /** "Suggest add-on treatments": on lets AYA suggest a complementary service during a booking. */
   suggestAddOns: boolean;
+  /**
+   * A demonstration only (owner, 1 November 2026): the values filled in where
+   * the clinic's website showed none (apps/web lib/demo/benchmarks.ts, sealed
+   * as DemoCallClinic.sampled), marked "(sample)" in the prompt so the model
+   * says them as given, as the practice's own, and invents nothing else.
+   * Absent on every clinic's own call.
+   */
+  samples?: { prices: readonly string[]; menu: boolean; hours: boolean; deposit: boolean } | null;
   /** The practice's providers, as it names them: words the language check reads as no language. */
   providerNames: string[];
   /**

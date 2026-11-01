@@ -56,13 +56,15 @@ function says(words: string, json: Record<string, unknown> = {}): string {
 type Response = Extract<RetellOutbound, { response_type: "response" }>;
 
 /** A demo session whose model streams each scripted answer in small pieces, as the API does. */
-async function session() {
+async function session(options: { fillers?: boolean } = {}) {
   const queue: string[] = [];
   let asked = 0;
   let stable = "";
+  let turnNote = "";
   const responder: AssistantResponder = async ({ onText, system }) => {
     asked += 1;
     stable = (system as { stable: string }).stable;
+    turnNote = (system as { turn: string }).turn;
     const text = queue.shift();
     if (text === undefined) throw new Error("no scripted answer left for this turn");
     for (let i = 0; i < text.length; i += 6) onText?.(text.slice(i, i + 6));
@@ -72,7 +74,8 @@ async function session() {
   const context: DemoCallContext = { v: 1, slug: "miami-skin-vein-test", mode: "browser", firstName: null, issuedAt: CALLED_AT, offer: null, test: true, buyButton: null, clinic: CLINIC };
   const s = new RetellCallSession("demo", "call_latency", (m) => sent.push(m), {
     responder,
-    acknowledgeAfterMs: 60_000,
+    // Fillers off unless the test asks for them (they go at once by default, FILLER_AFTER_MS).
+    ...(options.fillers ? {} : { acknowledgeAfterMs: 60_000 }),
     pauseScale: 0,
     now: () => new Date(CALLED_AT),
     random: () => 0,
@@ -86,6 +89,7 @@ async function session() {
   return {
     asked: () => asked,
     stable: () => stable,
+    turnNote: () => turnNote,
     async turn(caller: string, model: string[]) {
       queue.length = 0;
       queue.push(...model);
@@ -176,5 +180,16 @@ describe("the demo's latency with the booking tools live", () => {
     for (const no of ["Do you have Botox?", "How much is Dysport?", "Thursday works.", "I'll take three PM."]) {
       expect(asksForTimes(no), no).toBe(false);
     }
+  });
+
+  test("a filler that fits what they said goes first, the model is told it was said, and none comes for a thank-you", async () => {
+    const call = await session({ fillers: true });
+    const worried = await call.turn("I'm really nervous about needles, is Botox bad?", [says("Totally normal to feel that. Dr. Shaun Patel goes through it all with you first.")]);
+    expect(worried.parts.length).toBeGreaterThanOrEqual(2);
+    expect(["Oh no,", "Aw,", "Oh, I hear you,"]).toContain(worried.parts[0]);
+    expect(call.turnNote()).toContain(`"${worried.parts[0]}" is being said out loud for you first`);
+    const thanks = await call.turn("Thanks so much.", [says("You're welcome! Anything else?")]);
+    expect(thanks.whole).toBe("You're welcome! Anything else?");
+    await call.finish();
   });
 });

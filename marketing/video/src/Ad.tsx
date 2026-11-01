@@ -1,50 +1,45 @@
 import React from "react";
 import { AbsoluteFill, Audio, Sequence, staticFile } from "remotion";
 
-import { DURATION, SCENES } from "./copy";
-import { Speed, Stage } from "./motion";
-import { Captions } from "./parts";
-import { Close } from "./scenes/Close";
-import { Dashboard } from "./scenes/Dashboard";
-import { Deposit } from "./scenes/Deposit";
-import { Hello } from "./scenes/Hello";
-import { Interrupt } from "./scenes/Interrupt";
-import { Missed } from "./scenes/Missed";
-import { c, font } from "./tokens";
+import { color, font } from "./brand";
+import { Channels } from "./shots/Channels";
+import { Close } from "./shots/Close";
+import { Interrupt } from "./shots/Interrupt";
+import { Line } from "./shots/Line";
+import { Meet } from "./shots/Meet";
+import { Missed } from "./shots/Missed";
+import { Pay } from "./shots/Pay";
+import { Value } from "./shots/Value";
+import { Website } from "./shots/Website";
+import { SHOTS } from "./timeline.mjs";
 
-const span = (s: { from: number; to: number }) => ({ from: s.from, durationInFrames: s.to - s.from });
-
-const SCENE_COMPONENTS: Record<keyof typeof SCENES, React.FC> = {
+const SHOT: Record<string, React.FC> = {
   missed: Missed,
   interrupt: Interrupt,
-  aya: Hello,
-  dashboard: Dashboard,
-  deposit: Deposit,
+  meet: Meet,
+  website: Website,
+  channels: Channels,
+  value: Value,
+  pay: Pay,
+  line: Line,
   close: Close,
 };
 
 /**
- * The 44-second cut, to the owner's Apple-style storyboard. Each scene counts
- * its own frames from 0; the timeline, with each scene's speed, is
- * src/timeline.json, which the soundtrack reads too.
+ * The ad: nine shots cut on the beat of its own track. Each shot counts its
+ * frames from 0; where each starts and ends is src/timeline.mjs, which the
+ * soundtrack is built from too.
  */
 export const Ad: React.FC = () => (
-  <AbsoluteFill style={{ background: c.night, fontFamily: font, overflow: "hidden" }}>
-    {(Object.keys(SCENES) as (keyof typeof SCENES)[]).map((key) => {
-      const Scene = SCENE_COMPONENTS[key];
+  <AbsoluteFill style={{ background: color.black, fontFamily: font, overflow: "hidden" }}>
+    {SHOTS.map(({ id, from, to }) => {
+      const Shot = SHOT[id];
       return (
-        <Sequence key={key} {...span(SCENES[key])} layout="none">
-          <Speed value={SCENES[key].speed}>
-            <Scene />
-          </Speed>
+        <Sequence key={id} from={from} durationInFrames={to - from} layout="none">
+          <Shot />
         </Sequence>
       );
     })}
-    <Sequence from={0} durationInFrames={DURATION} layout="none">
-      <Stage>
-        <Captions />
-      </Stage>
-    </Sequence>
     <Audio src={staticFile("soundtrack.wav")} />
   </AbsoluteFill>
 );

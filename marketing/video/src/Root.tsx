@@ -2,9 +2,7 @@ import React from "react";
 import { Composition, continueRender, delayRender } from "remotion";
 
 import { Ad } from "./Ad";
-import { DURATION } from "./copy";
-
-const FPS = 30;
+import { DURATION, FPS } from "./timeline.mjs";
 
 // Wait for healdesk's two faces before any frame is taken.
 const fontsReady = delayRender("Instrument Sans and Fraunces");
@@ -15,6 +13,7 @@ Promise.all([
   .then(() => continueRender(fontsReady))
   .catch(() => continueRender(fontsReady));
 
+/** 9:16 for Reels, Shorts and TikTok; 4:5 for the feeds; 16:9 for YouTube and the site. */
 const FORMATS = [
   { id: "AyaHero", width: 1080, height: 1920 },
   { id: "AyaFeed", width: 1080, height: 1350 },

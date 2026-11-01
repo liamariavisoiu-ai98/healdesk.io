@@ -1,3 +1,7 @@
+> **Superseded.** This is the first brief, kept for the record. The ad now
+> follows the owner's Apple-style storyboard of 1 November 2026; `README.md`
+> describes it as built. Do not build from this file.
+
 # AYA — "Meet your AYA" · motion-design ad script
 
 Master cut: **36 seconds**, motion design, built to make a clinic owner click

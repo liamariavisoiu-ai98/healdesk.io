@@ -29,24 +29,26 @@ const PER_PAGE = [1, 3, 5];
 const MAX_BODY = 340;
 
 describe("placeholder reviews stay apart from published ones", () => {
-  test("the homepage shows the sample set only while nothing is published", () => {
+  test("the homepage shows the wall only once a review is published, never the sample set", () => {
+    // Owner, 1 November 2026 (D5 on docs/launch-board.html): the invented
+    // sample set read as real clinics' words, so an empty list shows no wall.
     const source = readFileSync(HOMEPAGE, "utf8");
-    expect(source).toContain("const SHOWING_EXAMPLES = PUBLISHED.length === 0;");
     expect(source).toContain(
-      "const REVIEWS = SHOWING_EXAMPLES ? SAMPLE : summarize(PUBLISHED);",
+      "const REVIEWS = PUBLISHED.length > 0 ? summarize(PUBLISHED) : null;",
     );
-    expect(source).toContain("<Reviews summary={REVIEWS} />");
+    expect(source).toContain("{REVIEWS && <Reviews summary={REVIEWS} />}");
+    expect(source).not.toContain("@/lib/reviews.sample");
     expect(source).not.toMatch(/\b(4\.9|286)\b/);
   });
 
-  test("nothing else imports the sample set", () => {
+  test("no page imports the sample set", () => {
     const importers = (readdirSync(SRC, { recursive: true }) as string[])
       .filter((file) => /\.tsx?$/.test(file))
       .filter((file) => !/\.test\.tsx?$/.test(file))
       .filter((file) =>
         readFileSync(`${SRC}/${file}`, "utf8").includes("@/lib/reviews.sample"),
       );
-    expect(importers).toEqual(["app/page.tsx"]);
+    expect(importers).toEqual([]);
   });
 
   test("no placeholder review is in PUBLISHED", () => {

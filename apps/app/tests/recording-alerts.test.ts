@@ -1,3 +1,4 @@
+import { RETELL_CALL_SETTINGS } from "@healdesk/catalog";
 import { createHmac } from "node:crypto";
 
 import { sign as signOps, SIGNATURE_HEADER, TIMESTAMP_HEADER } from "@healdesk/catalog";
@@ -115,8 +116,14 @@ describe("a clinic's Retell agent", () => {
       // How a call feels (24 October 2026): backchannel, immediate yielding, some pitch variety.
       stt_mode: "fast",
       enable_backchannel: true,
-      backchannel_frequency: 0.7,
+      backchannel_frequency: 0.3,
       backchannel_words: ["mm-hmm", "uh-huh", "yeah", "I see"],
+      // A quiet front desk, and her mood reaching her voice (owner, 1 November 2026).
+      ambient_sound: "call-center",
+      ambient_sound_volume: 0.3,
+      enable_expressive_mode: true,
+      expressive_emotion_tags: ["happy", "empathetic"],
+      expressive_mode_prompt: RETELL_CALL_SETTINGS.expressive_mode_prompt,
       interruption_sensitivity: 0.8,
       responsiveness: 1,
       enable_dynamic_responsiveness: false,

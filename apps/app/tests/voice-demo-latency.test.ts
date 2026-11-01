@@ -56,7 +56,7 @@ function says(words: string, json: Record<string, unknown> = {}): string {
 type Response = Extract<RetellOutbound, { response_type: "response" }>;
 
 /** A demo session whose model streams each scripted answer in small pieces, as the API does. */
-async function session(options: { fillers?: boolean } = {}) {
+async function session(options: { fillers?: boolean; expressive?: boolean } = {}) {
   const queue: string[] = [];
   let asked = 0;
   let stable = "";
@@ -77,14 +77,17 @@ async function session(options: { fillers?: boolean } = {}) {
     // Fillers off unless the test asks for them (they go at once by default, FILLER_AFTER_MS).
     ...(options.fillers ? {} : { acknowledgeAfterMs: 60_000 }),
     pauseScale: 0,
+    expressive: async () => options.expressive === true,
     now: () => new Date(CALLED_AT),
     random: () => 0,
     demo: { secret: SECRET, detailsWaitMs: 200 },
   });
   const raw = () => sent.filter((m): m is Response => m.response_type === "response");
   await s.open();
-  await s.handle(JSON.stringify({ interaction_type: "call_details", call: { retell_llm_dynamic_variables: { demo_context: sealDemoCallContext(context, SECRET) } } }));
+  await s.handle(JSON.stringify({ interaction_type: "call_details", call: { agent_id: "agent_demo_engine", retell_llm_dynamic_variables: { demo_context: sealDemoCallContext(context, SECRET) } } }));
   await vi.waitFor(() => expect(raw()).toHaveLength(1));
+  // The agent check runs as the call starts (retellAgentExpressive): let it land.
+  await new Promise((resolve) => setTimeout(resolve, 0));
   let n = 0;
   return {
     asked: () => asked,
@@ -100,6 +103,7 @@ async function session(options: { fillers?: boolean } = {}) {
       return { parts: parts.map((m) => m.content ?? "").filter(Boolean), whole: parts.map((m) => m.content ?? "").join("").replace(/\s+/g, " ").trim() };
     },
     finish: () => s.finish(),
+    record: () => (s as unknown as { turns: { speaker: string; text: string }[] }).turns,
   };
 }
 
@@ -190,6 +194,23 @@ describe("the demo's latency with the booking tools live", () => {
     expect(call.turnNote()).toContain(`"${worried.parts[0]}" is being said out loud for you first`);
     const thanks = await call.turn("Thanks so much.", [says("You're welcome! Anything else?")]);
     expect(thanks.whole).toBe("You're welcome! Anything else?");
+    await call.finish();
+  });
+
+  test("on an agent with Expressive Mode her mood is sent as Retell's tag, never into the record, at most every three turns", async () => {
+    const call = await session({ expressive: true });
+    const sad = await call.turn("Ugh, my last place really messed up my lips.", [says("[sympathetic] Oh no, that's rough. We'll take good care of you here.")]);
+    expect(sad.parts[0]).toMatch(/^\[empathetic\] Oh no, that's rough\./);
+    expect(call.record().every((t) => !/\[(?:empathetic|happy|sympathetic)\]/.test(t.text))).toBe(true);
+    const happy = await call.turn("Oh nice, and it's for my wedding!", [says("[excited] Oh, how exciting! Congratulations.")]);
+    expect(happy.whole).not.toMatch(/\[/);
+    await call.finish();
+  });
+
+  test("on an agent without it, no tag is ever sent", async () => {
+    const call = await session({ expressive: false });
+    const sad = await call.turn("Ugh, my last place really messed up my lips.", [says("[sympathetic] Oh no, that's rough. We'll take good care of you here.")]);
+    expect(sad.whole).not.toMatch(/\[/);
     await call.finish();
   });
 });

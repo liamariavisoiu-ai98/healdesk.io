@@ -184,7 +184,17 @@ export type BookingTools = {
     /** The person's words this turn: a call reads its yes to a number read back from them (readBack). */
     words?: string;
   }): Promise<ToolTurn | null>;
+  /**
+   * Read the calendar ahead for a find_times the turn is likely to ask for
+   * (a day or part of the day the caller named), so its answer is ready when
+   * it is asked; a find_times for the same day, window and service within
+   * PREFETCH_FRESH_MS uses it. Read-only, never throws, optional.
+   */
+  prefetch?(action: Extract<ToolAction, { type: "find_times" }>, now: Date): void;
 };
+
+/** How long a calendar read ahead (prefetch) is used for. */
+const PREFETCH_FRESH_MS = 20_000;
 
 /**
  * Every switch that must be on before the tools are offered: the owner's
@@ -298,20 +308,35 @@ export function bookingTools(
     };
   }
 
+  // The calendar read ahead (prefetch): one read, by what it was asked for.
+  let ahead: { key: string; at: number; answer: Promise<OfferTimes> } | null = null;
+  const keyOf = (action: Extract<ToolAction, { type: "find_times" }>, service: string | null) => JSON.stringify([service, action.day ?? null, action.after && action.day ? action.after : null]);
+  const read = (action: Extract<ToolAction, { type: "find_times" }>, service: string | null, now: Date) =>
+    engine.offerTimes(context.clinicId, {
+      channel: context.channel,
+      holderKey: context.holderKey,
+      day: action.day ? zonedDayStart(action.day, context.timeZone) : null,
+      // "After four": the engine starts from that hour of the day they named (or of today), and the window is kept below.
+      ...(action.after && action.day ? { from: atHour(zonedDayStart(action.day, context.timeZone), action.after) } : {}),
+      service,
+      now,
+      actor: context.actor,
+    });
+
+  function prefetch(action: Extract<ToolAction, { type: "find_times" }>, now: Date): void {
+    const answer = read(action, action.service, now);
+    answer.catch(() => {});
+    ahead = { key: keyOf(action, action.service), at: Date.now(), answer };
+  }
+
   async function findTimes(action: Extract<ToolAction, { type: "find_times" }>, state: BookingToolState, now: Date, L: BookingLines): Promise<ToolTurn> {
     const service = action.service ?? state.service;
     let answer: OfferTimes;
     try {
-      answer = await engine.offerTimes(context.clinicId, {
-        channel: context.channel,
-        holderKey: context.holderKey,
-        day: action.day ? zonedDayStart(action.day, context.timeZone) : null,
-        // "After four": the engine starts from that hour of the day they named (or of today), and the window is kept below.
-        ...(action.after && action.day ? { from: atHour(zonedDayStart(action.day, context.timeZone), action.after) } : {}),
-        service,
-        now,
-        actor: context.actor,
-      });
+      const ready = ahead && ahead.key === keyOf(action, service) && Date.now() - ahead.at < PREFETCH_FRESH_MS ? ahead.answer : null;
+      ahead = null;
+      // A read ahead that failed is never the answer: the calendar is asked again, as it always was.
+      answer = ready ? await ready.catch(() => read(action, service, now)) : await read(action, service, now);
     } catch (error) {
       log.error("booking tool find_times failed", { clinicId: context.clinicId, error: describeError(error) });
       return findTimesFailed(state, L);
@@ -608,7 +633,7 @@ export function bookingTools(
     return deposit ? { ...answered, reply: `${answered.reply} ${deposit}` } : answered;
   }
 
-  return { channel: context.channel, available, run };
+  return { channel: context.channel, available, run, prefetch };
 }
 
 /**

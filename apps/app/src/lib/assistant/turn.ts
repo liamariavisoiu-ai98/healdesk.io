@@ -27,6 +27,8 @@ import type { AssistantChannel, AssistantFacts } from "./facts";
 import { cardNumberIn, guardAssistantReply, guardedLine, movingOnLine, routedAgainLine, routingProvider, type GuardRefusal } from "./guard";
 import { holdLine, lookupLine, pause, writeLine } from "@/lib/voice/pauses";
 
+import { pairingFor } from "./pairings";
+
 import { assistantTurnContext, buildAssistantPrompt, SPOKEN_END } from "./prompt";
 import { isModelRefusal, type AssistantMessage, type AssistantResponder } from "./responder";
 
@@ -846,6 +848,19 @@ export function offeredTimeNamed(words: string, offered: readonly { at: string }
   return matches.length === 1 ? matches[0]!.at : null;
 }
 
+/** An occasion the caller mentioned (a wedding, a trip), the word as said; null when none. */
+const OCCASION = /\b(wedding|birthday|anniversary|honeymoon|vacation|holiday|trip|graduation|reunion|party|prom|photoshoot|interview|event)\b/i;
+export function occasionIn(texts: readonly string[]): string | null {
+  for (const text of [...texts].reverse()) {
+    const m = OCCASION.exec(text);
+    if (m) return m[1]!.toLowerCase();
+  }
+  return null;
+}
+/** The caller winding the call down: a goodbye, a thank-you, nothing more to ask. */
+const WRAPPING_UP = /\b(?:bye|goodbye|that'?s (?:all|it|everything)|nothing else|no,? that'?s (?:all|it)|thanks?,? (?:so much|a lot)?\W*$)/i;
+const GOODBYE_SAID = /\b(?:bye|have a (?:great|good|lovely|nice|wonderful)|take care|enjoy)\b/i;
+
 /** The person asks which times are free ("what do you have Thursday?", "anything after five?"), not for a treatment. */
 const ASKS_TIMES =
   /\b(?:what|which|any)\s+(?:other\s+)?(?:times?|slots?|openings?|availability|appointments?)\b|\bwhat (?:do|have) you (?:got|have)\b|\bwhat(?:'s| is) (?:open|free|available)\b|\b(?:are|is) (?:you|there) (?:free|open|available|anything)\b|\banything (?:open|available|free)\b|\bavailabilit(?:y|ies)\b/i;
@@ -1233,6 +1248,8 @@ export async function answerTurn(input: {
    * nothing after it is said. The result's `spoken` is what went out.
    */
   speak?: ((sentence: string) => void) | null;
+  /** A call: how fast the caller speaks, from Retell's word timings (retell.ts paceOf); null or absent when unknown. */
+  pace?: "quick" | "slow" | null;
   /**
    * What the adapter knows about the whole conversation that the facts do
    * not say, for the turn context after the cached prefix: a personalised
@@ -1411,6 +1428,31 @@ export async function answerTurn(input: {
     );
   }
   if (channel === "voice") notes.push(...voiceHabits(input.history, capture.firstName ?? input.callerFirstName ?? null, personText));
+  if (channel === "voice") {
+    // How fast they speak, from Retell's word timings (retell.ts paceOf): the brisk or the unhurried example.
+    if (input.pace === "quick") notes.push("They speak quickly: keep it brisk and short, no small talk, as in the brisk caller's call.");
+    if (input.pace === "slow") notes.push("They speak slowly and calmly: unhurried and warm, never rushed.");
+    // Their moment (a wedding, a trip), once, in the goodbye (owner, 1 November 2026: remember the caller's moment).
+    const occasion = occasionIn([...input.history.filter((t) => t.speaker !== "assistant").map((t) => t.text), personText]);
+    const wished = occasion && input.history.some((t) => t.speaker === "assistant" && t.text.toLowerCase().includes(occasion) && GOODBYE_SAID.test(t.text));
+    if (occasion && !wished && (toolState.done || WRAPPING_UP.test(personText))) {
+      notes.push(`They mentioned their ${occasion}: in your goodbye, wish them well for it in a few words ("Have the best time at the ${occasion}!"), once.`);
+    }
+    // One add-on from the practice's own menu, on a demonstration, before times are looked for (pairings.ts).
+    const service = toolState.service ?? capture.service ?? null;
+    const pairing = facts.demoCall && facts.suggestAddOns && toolsLive && service && toolState.offered.length === 0 && !toolState.chosen && input.pace !== "quick" ? pairingFor(service, facts.services) : null;
+    if (pairing && !input.history.some((t) => t.speaker === "assistant" && t.text.toLowerCase().includes(pairing.name.toLowerCase().replace(/[®™]/g, "").split(/\s+/)[0]!))) {
+      notes.push(
+        `You may suggest one add-on, once, before looking for times: ${pairing.name} (${pairing.price}), ${pairing.why}. Say it as their convenience in one short sentence ("Since you're coming in for ${service}, ..."), with its price, then ask if they'd like it too; at a no, drop it for good. Never what it will do for them. If they say yes, the service is "${service} and ${pairing.name}".`,
+      );
+    }
+    // The calendar read ahead for a day or part of the day they named, so the times are ready when asked for.
+    if (toolsLive && service && !toolState.chosen && input.tools?.prefetch) {
+      const day = dayNamedIn(personText, now, facts.timeZone);
+      const window = windowNamedIn(personText);
+      if (day || window.after || window.before) input.tools.prefetch({ type: "find_times", service, day, ...window }, now);
+    }
+  }
   if (input.acknowledge) {
     notes.push(`"${input.acknowledge.line}" is being said out loud for you first: carry straight on from it, with no other opener, filler or feeling sound, as one sentence that starts with it would.`);
   }

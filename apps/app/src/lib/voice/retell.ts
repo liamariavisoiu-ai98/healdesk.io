@@ -56,6 +56,21 @@ export function keyFactOf(reply: string): string | null {
   return null;
 }
 
+/**
+ * Her mood word (turn.ts MOODS) as one of the two Retell emotion tags the
+ * owner tuned the Sloane voice with (apps/web lib/demo/sloane-voice.ts:
+ * [happy] for a greeting, a thank-you or good news; [empathetic] when they
+ * describe something hard); every other mood is said as it is, untagged.
+ */
+const EXPRESSIVE_TAG: Readonly<Record<string, string>> = { sympathetic: "empathetic", apologetic: "empathetic", cheerful: "happy", excited: "happy" };
+/** At most one tag in this many turns. */
+const EXPRESSIVE_EVERY = 3;
+
+/** The mood a reply opened with ("[sympathetic] Oh no..."), or null. */
+export function moodOf(raw: string): string | null {
+  return /^\s*\[([a-z]{3,14})\]/i.exec(raw)?.[1]?.toLowerCase() ?? null;
+}
+
 /** The human stall (stall.ts): off (owner, 1 November 2026). */
 const STALL_ON = false;
 import {
@@ -86,6 +101,7 @@ import { redialPromptBlock, takeRedialContext, welcomeBackLine, type RedialConte
 import { businessLine, busyLine, fragmentLine, isFragment, withGreetingQuestion } from "./call-lines";
 import { DEMO_CALLER_PHONE, demoBookingTools } from "./demo-booking";
 import { fillerFor } from "./fillers";
+import { retellAgentExpressive } from "./retell-api";
 import { HURRIED_SHARE, speakingMs, splitPauses, withoutPauses, withoutPausesKeepingLead } from "./pauses";
 import { soundAlikeNote, soundAlikes } from "./sound-alike";
 import type { SpokenLanguage } from "./spoken";
@@ -419,6 +435,8 @@ export type RetellSessionDeps = {
   acknowledgeAfterMs?: number;
   /** How much of each pause is waited (pauses.ts); 0 sends the pieces at once, for tests. */
   pauseScale?: number;
+  /** Whether the call's Retell agent has Expressive Mode on (retell-api.ts retellAgentExpressive; tests). */
+  expressive?: (agentId: string) => Promise<boolean>;
   /** The words said while the model thinks, in place of ACKNOWLEDGEMENTS (tests). */
   acknowledgements?: readonly string[];
   /** How long the model may sit idle on a call before it is warmed again (KEEP_WARM_MS); 0 turns keeping warm off. */
@@ -548,6 +566,42 @@ const CALL_DETAILS_WAIT_MS = 1_500;
 const DEMO_CALL_DETAILS_WAIT_MS = 3_000;
 
 /** The caller's words since the agent last spoke, from Retell's transcript. */
+/**
+ * How fast the caller speaks this turn, from Retell's word timings (each
+ * transcript word carries start and end, in seconds of call audio; Retell
+ * custom-LLM docs, read 1 November 2026): "quick" from about 200 words a
+ * minute, "slow" under about 110, over at least five words; null when the
+ * timings are missing or too short to say (owner, 1 November 2026: match
+ * their pace from timing, not words).
+ */
+export function paceOf(transcript: unknown): "quick" | "slow" | null {
+  if (!Array.isArray(transcript)) return null;
+  const entries = transcript as (RetellTranscriptEntry & { words?: unknown })[];
+  const timed: { start: number; end: number }[] = [];
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const entry = entries[i]!;
+    if (entry.role === "agent") break;
+    if (entry.role !== "user" || !Array.isArray(entry.words)) continue;
+    for (const w of entry.words as { start?: unknown; end?: unknown }[]) {
+      if (typeof w?.start === "number" && typeof w?.end === "number" && w.end >= w.start) timed.push({ start: w.start, end: w.end });
+    }
+  }
+  if (timed.length < 5) return null;
+  const seconds = Math.max(...timed.map((w) => w.end)) - Math.min(...timed.map((w) => w.start));
+  if (!(seconds > 0.5)) return null;
+  const perSecond = timed.length / seconds;
+  return perSecond >= 3.3 ? "quick" : perSecond < 1.8 ? "slow" : null;
+}
+
+/** The caller says goodbye ("Okay, bye.", "That's all, thanks, bye"): with her own goodbye back, the call ends. */
+const CALLER_GOODBYE = /\b(?:bye|goodbye|bye-bye|have a (?:good|great|nice) (?:day|one|night)|adi[oó]s|hasta luego)\b/i;
+const HER_GOODBYE = /\b(?:bye|goodbye|have a (?:great|good|lovely|nice|wonderful) (?:day|one|evening|weekend|night)|take care|adi[oó]s|que tenga)\b/i;
+
+/** Both said goodbye, and she asked nothing: the call ends, whatever the model's "end" said (be078f77, section G). */
+export function mutualGoodbye(callerWords: string, reply: string): boolean {
+  return CALLER_GOODBYE.test(callerWords) && !/\?/.test(callerWords) && HER_GOODBYE.test(reply) && !/\?/.test(reply);
+}
+
 export function latestCallerWords(transcript: unknown): string {
   if (!Array.isArray(transcript)) return "";
   const entries = transcript as RetellTranscriptEntry[];
@@ -833,6 +887,14 @@ export class RetellCallSession {
       if (content !== unpaused) log.warn("retell structured text kept out of speech", { callId: this.callId });
       // When these words will have been said: the next piece after a pause waits for it.
       if (content.trim()) this.speechEndsAt = Math.max(Date.now(), this.speechEndsAt) + speakingMs(content);
+      // Her mood as Retell's emotion tag, before the first of her own words this turn; Retell reads it, never says it.
+      if (this.pendingTag && content.trim() && message.response_type === "response") {
+        const lead = /^\s*/.exec(content)?.[0] ?? "";
+        const tagged = `${lead}[${this.pendingTag}] ${content.trimStart()}`;
+        this.pendingTag = null;
+        this.sendRaw({ ...message, content: tagged });
+        return;
+      }
       this.sendRaw({ ...message, content });
       return;
     }
@@ -870,7 +932,7 @@ export class RetellCallSession {
       this.send({ response_type: "response", response_id: responseId, content: options.spokenBefore ? (text ? ` ${text}` : "") : text, content_complete: true, ...last });
       return;
     }
-    const share = this.hurried ? HURRIED_SHARE : 1;
+    const share = this.hurried || this.demoProgress?.hurried === true ? HURRIED_SHARE : 1;
     const sendPiece = (i: number) => {
       const piece = pieces[i]!;
       const complete = i === pieces.length - 1;
@@ -904,6 +966,20 @@ export class RetellCallSession {
 
   /** Pieces of a reply waiting out a pause (say): cleared when the call ends. */
   private pauseTimers = new Set<ReturnType<typeof setTimeout>>();
+
+  /**
+   * Retell's Expressive Mode is on for this call's agent (checked as the call
+   * starts): her mood word is sent as Retell's emotion tag (EXPRESSIVE_TAG),
+   * at most every EXPRESSIVE_EVERY turns (owner's tuning of the Sloane voice:
+   * "each at most once every few turns"). Off until the check says so.
+   */
+  private expressive = false;
+  /** The tag to put before the next words sent (send), never into the record. */
+  private pendingTag: string | null = null;
+  /** The turn a tag was last sent on. */
+  private lastTagTurn = -EXPRESSIVE_EVERY;
+  /** Turns answered so far, for EXPRESSIVE_EVERY. */
+  private turnCount = 0;
 
   /** The caller speaks quickly (paceOf, from Retell's word timings): pauses are halved, and the model told to keep it brisk. */
   private hurried = false;
@@ -1401,6 +1477,15 @@ export class RetellCallSession {
   }
 
   private callDetails(event: RetellEvent): void {
+    // Expressive Mode, read off the call's own agent as it starts, during the opening line.
+    const agentId = typeof (event.call as { agent_id?: unknown } | undefined)?.agent_id === "string" ? ((event.call as { agent_id: string }).agent_id) : null;
+    if (agentId) {
+      (this.deps.expressive ?? retellAgentExpressive)(agentId)
+        .then((on) => {
+          this.expressive = on;
+        })
+        .catch(() => {});
+    }
     if (this.deps.demo) {
       // Only the call object, for the sealed context: no caller's number,
       // no forwarding lines, no redial. A demo call-back is outbound, and
@@ -1523,6 +1608,11 @@ export class RetellCallSession {
     }
     const words = latestCallerWords(event.transcript);
     if (!words) return;
+    this.turnCount += 1;
+    this.pendingTag = null;
+    // Their pace, from Retell's word timings: a quick talker gets half the pauses and the brisk manner (paceOf).
+    const pace = paceOf(event.transcript);
+    if (pace) this.hurried = pace === "quick";
     // What the caller heard of the last reply, then the record cut back to
     // what they heard: a reply dropped unheard, and the half sentence it
     // answered, are not part of the conversation (heardTurns).
@@ -1656,6 +1746,8 @@ export class RetellCallSession {
     // A time line says the call's line, with no model call: its words would be replaced unsaid.
     const fixedMove = callLine !== null;
     const base: AssistantResponder | null | undefined = fixedMove ? async () => `Okay.\n${SPOKEN_END}\n{"handoff":false,"end":false}` : this.deps.responder;
+    // What the model wrote, for its mood (moodOf): the deltas as they come, or the whole answer.
+    let modelText = "";
     const responder: AssistantResponder | null = base
       ? (request) =>
           base({
@@ -1664,12 +1756,23 @@ export class RetellCallSession {
               ? {
                   onText: (delta: string) => {
                     modelFirstAt ??= Date.now();
+                    modelText += delta;
                     request.onText!(delta);
                   },
                 }
               : {}),
+          }).then((answer) => {
+            if (typeof answer === "string" && !modelText) modelText = answer;
+            return answer;
           })
       : null;
+    // Her mood as Retell's emotion tag, on an agent with Expressive Mode, at most every EXPRESSIVE_EVERY turns.
+    const tagFor = (): string | null => {
+      if (!this.expressive || this.turnCount - this.lastTagTurn < EXPRESSIVE_EVERY) return null;
+      const tag = EXPRESSIVE_TAG[moodOf(modelText) ?? ""] ?? null;
+      if (tag) this.lastTagTurn = this.turnCount;
+      return tag;
+    };
     // A jump-in try is written whole and said whole, or not at all.
     const quiet = jump !== null || fixedMove;
     // The human stall (stall.ts): once per call, never ahead of a line that
@@ -1713,6 +1816,7 @@ export class RetellCallSession {
             },
           }
         : null,
+      pace,
       speak: nothingDue && !quiet
         ? (sentence: string) => {
             stopAck();
@@ -1731,6 +1835,7 @@ export class RetellCallSession {
               return;
             }
             const lead = acknowledgement || streamed ? " " : "";
+            if (!streamed) this.pendingTag = tagFor();
             this.send({ response_type: "response", response_id: responseId, content: `${lead}${sentence}`, content_complete: false, end_call: false });
             streamed = streamed ? `${streamed} ${sentence}` : sentence;
             heard();
@@ -1852,8 +1957,9 @@ export class RetellCallSession {
     }
     // An apology said once is never said on its own again (roleplayCheckedReply, a44374c9).
     if (this.demoContext && /\b(?:sorry|apologi[sz]e)\b/i.test(roleplayLine ?? turn.reply) && !turn.urgent) this.demoProgress = { ...this.demoProgress, apologised: true };
-    // A demo call ends on a goodbye like any call: there is no talk with the owner after it.
-    const ends = turn.end;
+    // A demo call ends on a goodbye like any call: there is no talk with the owner after it. A goodbye from both
+    // ends it too, when the model's details forgot to (be078f77: "Goodbye!" and the call stayed open).
+    const ends = turn.end || (!turn.urgent && !turn.handoff && turn.source !== "fallback" && mutualGoodbye(words, turn.reply));
 
     let urgentQueued = false;
     if (turn.urgent && !this.urgent && this.deps.demo) {
@@ -1986,6 +2092,8 @@ export class RetellCallSession {
     // What actually went out (`streamed`), not what the turn wrote: a held
     // "Ring ring" or exit line was never said, and is said now if it stands.
     const already = streamed && reply.startsWith(streamed) ? streamed : "";
+    // A reply said whole that is the model's own words: its mood, as a tag, before them.
+    if (!streamed && turn.source === "model" && !roleplayLine && !stallLine && !turn.urgent) this.pendingTag = tagFor();
     this.say(responseId, already ? reply.slice(already.length).trim() : reply, {
       endCall: ends && !transferTo,
       transferTo,

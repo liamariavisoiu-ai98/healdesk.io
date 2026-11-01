@@ -140,3 +140,30 @@ export async function setRetellFallbackNumber(number: string, fallback: string |
   }
   if (parse(body)?.fallbackNumber !== fallback) throw new Error("Retell did not keep the fallback number");
 }
+
+/** Expressive Mode on an agent, as Retell holds it, cached for a while per agent: a call reads it as it starts. */
+const expressiveSeen = new Map<string, { at: number; value: boolean }>();
+const EXPRESSIVE_FRESH_MS = 10 * 60_000;
+
+/**
+ * Whether Retell's Expressive Mode is on for this agent (get-agent's
+ * enable_expressive_mode; Retell docs, read 1 November 2026: it reads emotion
+ * tags in the text only on platform voices with the mode on). False on any
+ * doubt: no key, a failure, a missing agent. A call sends no tag unless this
+ * says true, so a tag is never read aloud by an agent that has not got it yet.
+ */
+export async function retellAgentExpressive(agentId: string, options: RetellApiOptions = {}): Promise<boolean> {
+  if (!/^[\w-]{6,80}$/.test(agentId)) return false;
+  const seen = expressiveSeen.get(agentId);
+  if (seen && Date.now() - seen.at < EXPRESSIVE_FRESH_MS) return seen.value;
+  try {
+    const response = await request(`/get-agent/${encodeURIComponent(agentId)}`, { method: "GET" }, { timeoutMs: 2_000, ...options });
+    if (!response.ok) return false;
+    const body = (await response.json()) as { enable_expressive_mode?: unknown } | null;
+    const value = body?.enable_expressive_mode === true;
+    expressiveSeen.set(agentId, { at: Date.now(), value });
+    return value;
+  } catch {
+    return false;
+  }
+}

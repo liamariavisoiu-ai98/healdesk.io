@@ -5,7 +5,9 @@ import { EMPTY_CAPTURE, offeredTimeNamed, withoutFreeTimeClaims } from "@/lib/as
 import { BOOKING_LINES_VOICE_EN } from "@/lib/booking/lines";
 import { lookupLine, pause, PAUSE_MS, speakingMs, splitPauses, withoutPauses } from "@/lib/voice/pauses";
 import { fillerFor, FILLER_MAX_PER_CALL } from "@/lib/voice/fillers";
-import { keyFactOf } from "@/lib/voice/retell";
+import { keyFactOf, mutualGoodbye, paceOf } from "@/lib/voice/retell";
+import { pairingFor } from "@/lib/assistant/pairings";
+import { occasionIn } from "@/lib/assistant/turn";
 import { spokenHourEn, spokenSlotEn } from "@/lib/voice/spoken";
 
 /**
@@ -146,5 +148,58 @@ describe("fillers", () => {
     const twice = Array.from({ length: FILLER_MAX_PER_CALL }, () => "So,");
     expect(fillerFor("How much is a HydraFacial?", "en", [...twice, "Okay,"], first)).not.toBe("So,");
     expect(fillerFor("What about Dysport then?", "en", ["Hmm,", "Okay,"], () => 0.99)).not.toBe("Hmm,");
+  });
+});
+
+describe("the moments a person remembers", () => {
+  const svc = (name: string, from: number | null) => ({ name, priceFromUsd: from, priceToUsd: null, priceKind: "fixed" as const, unit: null, durationMinutes: null, depositUsd: null }) as never;
+  test("one add-on from the practice's own priced menu, with why, and none when nothing pairs", () => {
+    const menu = [svc("BOTOX® Cosmetic", 18), svc("HydraFacial", 199), svc("Restylane", 950), svc("Laser hair removal", 150)];
+    expect(pairingFor("BOTOX® Cosmetic", menu)).toMatchObject({ name: "HydraFacial", why: "in the same visit" });
+    expect(pairingFor("Restylane", menu)?.name).toBe("BOTOX® Cosmetic");
+    expect(pairingFor("Laser hair removal", menu)).toBeNull();
+    // Never one without a listed price.
+    expect(pairingFor("BOTOX® Cosmetic", [svc("BOTOX® Cosmetic", 18), svc("HydraFacial", null)])).toBeNull();
+  });
+
+  test("their occasion, the latest one they mentioned", () => {
+    expect(occasionIn(["Hi", "It's for my wedding in June"])).toBe("wedding");
+    expect(occasionIn(["How much is Botox?"])).toBeNull();
+  });
+
+  test("pace from Retell's word timings: quick, slow, or not enough to say", () => {
+    const at = (n: number, perSecond: number) => Array.from({ length: n }, (_, i) => ({ word: "w", start: i / perSecond, end: i / perSecond + 0.2 }));
+    expect(paceOf([{ role: "agent", content: "Hi" }, { role: "user", content: "x", words: at(12, 4.5) }])).toBe("quick");
+    expect(paceOf([{ role: "user", content: "x", words: at(8, 1.2) }])).toBe("slow");
+    expect(paceOf([{ role: "user", content: "x", words: at(10, 2.5) }])).toBeNull();
+    expect(paceOf([{ role: "user", content: "x", words: at(3, 4) }])).toBeNull();
+    expect(paceOf([{ role: "user", content: "x" }])).toBeNull();
+  });
+
+  test("a goodbye from both ends the call; a question in either keeps it open", () => {
+    expect(mutualGoodbye("Okay, goodbye.", "Thanks for calling, have a great day!")).toBe(true);
+    expect(mutualGoodbye("You're not... Goodbye.", "Goodbye!")).toBe(true);
+    expect(mutualGoodbye("Bye, wait, one more thing?", "Sure, what is it?")).toBe(false);
+    expect(mutualGoodbye("Okay, goodbye.", "Before you go, want me to book that?")).toBe(false);
+    expect(mutualGoodbye("Thanks for the help.", "Have a great day!")).toBe(false);
+  });
+});
+
+describe("the calendar read ahead", () => {
+  test("a find_times for the day read ahead uses that read; another day reads again", async () => {
+    const offerTimes = vi.fn(async () => ({ status: "ok" as const, timeZone: TZ, serviceMinutes: 30, canonicalService: null, slots: [{ at: new Date("2026-11-05T15:00:00Z"), providerId: null }] }));
+    const engine = { offerTimes, placeHold: vi.fn(), bookConversation: vi.fn(), chatDepositFor: vi.fn(), logRequest: vi.fn() } as unknown as BookingEngine;
+    const tools = bookingTools(
+      { clinicId: "c", channel: "voice", holderKey: "retell:x", bookingKey: "retell:x:1", conversationId: null, timeZone: TZ, budgetMs: 1000, actor: { kind: "system", id: "t" } as never },
+      engine,
+      (async () => ({ decision: "answer" })) as never,
+    );
+    const now = new Date("2026-11-01T13:00:00Z");
+    tools.prefetch!({ type: "find_times", service: "Botox", day: "2026-11-05" }, now);
+    expect(offerTimes).toHaveBeenCalledTimes(1);
+    await tools.run({ action: { type: "find_times", service: "Botox", day: "2026-11-05" }, capture: EMPTY_CAPTURE, state: EMPTY_TOOL_STATE, now });
+    expect(offerTimes).toHaveBeenCalledTimes(1);
+    await tools.run({ action: { type: "find_times", service: "Botox", day: "2026-11-06" }, capture: EMPTY_CAPTURE, state: EMPTY_TOOL_STATE, now });
+    expect(offerTimes).toHaveBeenCalledTimes(2);
   });
 });

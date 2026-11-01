@@ -63,14 +63,18 @@ import { readWidgetSighting, sightingLine } from "@/lib/channels/widget-sighting
 import { snippetOpen, widgetSnippet } from "@/lib/setup/snippet";
 import { loadSetupState, type SetupState } from "@/lib/setup/state";
 import { urgentHelpField } from "@/lib/setup/urgent";
+import { portalMetaOutcome } from "@/lib/meta/portal-return";
 import { readMetaConnectView } from "@/lib/meta/reconnect";
 import { readPaymentFacts } from "@/lib/portal/switch-resets";
 import { switchRules } from "@/lib/portal/switch-rules";
 import { withTenant } from "@/lib/tenant";
+import { SignInShell } from "@/app/sign-in/shell";
+import { CardLede, CardTitle } from "@/app/sign-in/ui";
 
 import { HelpPanel } from "../HelpPanel";
 
 import { connectCalendar, disconnectCalendar } from "./calendar-actions";
+import { SetupFrame } from "./SetupFrame";
 import { BackupScreen } from "./screens/BackupScreen";
 import {
   CoverageScreen,
@@ -139,12 +143,12 @@ export default async function SetupPage({
 
   if (state.clinic.offboardingStartedAt) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center px-4 py-16">
-        <h1 className="text-2xl font-semibold">This account has closed</h1>
-        <p className="text-muted mt-3">
+      <SignInShell>
+        <CardTitle small>This account has closed</CardTitle>
+        <CardLede>
           There is nothing left to set up. If you think this is a mistake, email hello@healdesk.io.
-        </p>
-      </main>
+        </CardLede>
+      </SignInShell>
     );
   }
 
@@ -165,34 +169,41 @@ export default async function SetupPage({
   const backHref = previous ? `${home}/setup?s=${previous}` : null;
   const audience = audienceFor(state.clinic.specialty);
   return (
-    <main className="mx-auto min-h-screen max-w-xl px-4 py-10">
-      <p className="text-muted text-sm">
-        <a href={home} className="underline underline-offset-2">
-          {state.clinic.name}
-        </a>{" "}
-        · Setup
-      </p>
-      <Progress state={state} screen={screen} home={home} />
-      <section className="mt-8">
-        {renderScreen(state, screen, {
-          slug: portal.clinicSlug,
-          backHref,
-          home,
-          actor: who,
-          steppedUp: actor.steppedUp,
-          notice: screen === "calendar" ? notice : null,
-          connectOutcome: screen === "deposits" ? connectOutcome : null,
-          metaProblem: screen === "channels" && typeof meta === "string" ? meta : null,
-        })}
-      </section>
-      <HelpPanel audience={audience} />
-      {definition.step === "end" ? null : (
-        <p className="text-muted mt-6 text-xs">
-          Every step saves as you finish it. Close this page any time; setup picks up where you left
-          it.
-        </p>
-      )}
-    </main>
+    <SetupFrame
+      crumb={
+        <>
+          <a href={home} className="si-link font-normal">
+            {state.clinic.name}
+          </a>{" "}
+          · Setup
+        </>
+      }
+      progress={<Progress state={state} screen={screen} home={home} />}
+      below={
+        <>
+          {definition.step === "end" ? null : (
+            // Under the card's warm shadow, where the muted ink alone measured
+            // 4.26:1: the crumb's mix keeps it over 4.5:1 (globals.css).
+            <p className="wz-crumb mt-5 px-2 text-[13px] text-pretty">
+              Every step saves as you finish it. Close this page any time; setup picks up where you
+              left it.
+            </p>
+          )}
+          <HelpPanel audience={audience} />
+        </>
+      }
+    >
+      {renderScreen(state, screen, {
+        slug: portal.clinicSlug,
+        backHref,
+        home,
+        actor: who,
+        steppedUp: actor.steppedUp,
+        notice: screen === "calendar" ? notice : null,
+        connectOutcome: screen === "deposits" ? connectOutcome : null,
+        metaProblem: screen === "channels" && typeof meta === "string" ? meta : null,
+      })}
+    </SetupFrame>
   );
 }
 
@@ -209,7 +220,7 @@ function Progress({
   const step = SCREEN_DEFINITIONS[screen].step;
   if (step === "end") {
     return (
-      <p className="mt-4 text-sm font-semibold">
+      <p className="text-sm font-semibold">
         {wizardFinished(state.screens, state.progress)
           ? "Setup done · one last thing"
           : "One last thing"}
@@ -219,24 +230,28 @@ function Progress({
   const inStep = state.screens.filter((id) => SCREEN_DEFINITIONS[id].step === step);
   const done = inStep.filter((id) => state.progress.has(id)).length;
   return (
-    <div className="mt-4">
-      <p className="text-sm font-semibold">
-        Step {step} of 4 · {STEP_TITLES[step as StepNumber]}
+    <div>
+      <p className="text-sm">
+        <span className="text-muted">Step {step} of 4 ·</span>{" "}
+        <span className="font-semibold">{STEP_TITLES[step as StepNumber]}</span>
       </p>
-      {/* One segment per screen, filled as each is left: no inline style,
-          which the page's Content-Security-Policy would refuse. */}
+      {/* One segment per screen, filled as each is left, the open one
+          lit: no inline style, which the page's Content-Security-Policy
+          would refuse. */}
       <div
         role="progressbar"
         aria-label={`Step ${step} progress`}
         aria-valuemin={0}
         aria-valuemax={inStep.length}
         aria-valuenow={done}
-        className="mt-2 flex h-2 gap-1"
+        className="mt-2.5 flex h-1.5 gap-1"
       >
         {inStep.map((id) => (
           <span
             key={id}
-            className={`h-full flex-1 rounded-full ${state.progress.has(id) ? "bg-green" : "bg-paper-2"}`}
+            className={`wz-segment ${
+              state.progress.has(id) ? "wz-segment-done" : id === screen ? "wz-segment-here" : ""
+            }`}
           />
         ))}
       </div>
@@ -251,7 +266,7 @@ function Progress({
                   aria-current={id === screen ? "step" : undefined}
                   className={
                     id === screen
-                      ? "font-semibold"
+                      ? "font-semibold underline decoration-orange-deep decoration-2 underline-offset-[6px]"
                       : "text-muted underline-offset-2 hover:underline"
                   }
                 >
@@ -581,6 +596,10 @@ async function ChannelsStep({
   metaProblem: string | null;
 }) {
   const finished = channelSetupFinished(state.screens, state.progress);
+  // What `?meta=` means, read here rather than on the screen: the table's
+  // module also builds Meta's redirects, from code that must not reach the
+  // browser (in development it stopped this page compiling, 1 November 2026).
+  const metaOutcome = portalMetaOutcome(metaProblem) ?? null;
   const bought = state.channels.map((c) => c.channel);
   const metaView = bought.includes("meta")
     ? await withTenant({ clinicId: state.clinic.id, actor }, (tx) => readMetaConnectView(tx.db, tx.clinicId))
@@ -605,7 +624,7 @@ async function ChannelsStep({
       // This app's /help/call, as Help links it, which sends the browser on
       // to the scheduling page set now; never the scheduling page itself.
       callBookingUrl={helpContacts().callBookingUrl ? "/help/call" : null}
-      metaProblem={metaProblem}
+      metaOutcome={metaOutcome}
       rows={state.channels.map((c) => {
         // The one reading of a channel's status (lib/setup/channel-status.ts),
         // shared with Settings. A step shown below the row is the one the row

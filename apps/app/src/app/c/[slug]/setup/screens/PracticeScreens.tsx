@@ -13,7 +13,7 @@ import {
   type HoursInitial,
   type ServiceRow,
 } from "../../editors";
-import { Choice, Field, ScreenShell } from "../ScreenShell";
+import { Choice, Field, ScreenShell, SELECT_CLASS } from "../ScreenShell";
 
 export type { HoursInitial, ServiceRow };
 
@@ -156,15 +156,15 @@ export function BasicsScreen(
         type="url"
         maxLength={200}
       />
-      <div className="grid gap-1">
-        <label htmlFor={zoneId} className="text-sm font-semibold">
+      <div className="grid gap-1.5">
+        <label htmlFor={zoneId} className="px-1 text-sm font-semibold">
           Time zone
         </label>
         <select
           id={zoneId}
           value={timezone}
           onChange={(event) => setTimezone(event.target.value)}
-          className="border-line min-h-11 rounded-md border bg-white px-4 py-2"
+          className={SELECT_CLASS}
         >
           {options.map((zone) => (
             <option key={zone.id} value={zone.id}>
@@ -172,7 +172,7 @@ export function BasicsScreen(
             </option>
           ))}
         </select>
-        <p className="text-muted text-xs">
+        <p className="text-muted px-1 text-[13px] leading-snug">
           {props.addressZone && props.addressZone === timezone
             ? "From your address. Your hours, closed days and emails use it."
             : "Your hours, closed days and emails use it."}

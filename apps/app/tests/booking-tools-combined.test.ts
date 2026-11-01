@@ -1,9 +1,10 @@
+import { toE164 } from "@healdesk/connectors";
 import { describe, expect, test, vi } from "vitest";
 
 import { bookingTools, EMPTY_TOOL_STATE, type BookingEngine, type BookingToolState } from "@/lib/assistant/booking-tools";
 import { EMPTY_CAPTURE } from "@/lib/assistant/turn";
 import type { assistantMayAnswer } from "@/lib/billing/answering";
-import { forChat, TOOL_FAILURE_LINE } from "@/lib/booking/lines";
+import { forChat, TOOL_FAILURE_LINE, BOOKING_LINES_VOICE_EN } from "@/lib/booking/lines";
 
 /**
  * Where two fixes meet. The answer gate (a pause or cap stops the write) and
@@ -56,9 +57,10 @@ describe("a gate that cannot be read, with the website chat's request-on-failure
 
   test("a call: the same, with the failure line as said on a call", async () => {
     const { tools, logRequest } = setup("voice");
-    const turn = await tools.run({ action: null, capture: CAPTURE, state: CHOSEN, now: NOW });
+    // The number was read back and confirmed earlier (a call reads every given number back first).
+    const turn = await tools.run({ action: null, capture: CAPTURE, state: { ...CHOSEN, phoneConfirmed: toE164(CAPTURE.phone!) }, now: NOW });
     expect(logRequest).not.toHaveBeenCalled();
     expect(turn?.bookingWritten).toBe(false);
-    expect(turn?.reply).toBe(TOOL_FAILURE_LINE);
+    expect(turn?.reply).toBe(BOOKING_LINES_VOICE_EN.toolFailure);
   });
 });

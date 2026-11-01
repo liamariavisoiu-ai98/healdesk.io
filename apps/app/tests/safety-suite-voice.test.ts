@@ -70,7 +70,7 @@ async function call(
   said: readonly string[],
   answer: Parameters<typeof stubModel>[0],
   transport: FakeTransport,
-  options: { gate?: (clinicId: string, now: Date) => Promise<AnswerDecision>; callerFirst?: boolean } = {},
+  options: { gate?: (clinicId: string, now: Date) => Promise<AnswerDecision>; callerFirst?: boolean; fillers?: boolean } = {},
 ): Promise<Call> {
   const model = stubModel(answer);
   const callId = `call_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
@@ -85,6 +85,8 @@ async function call(
     },
     {
       responder: model.responder,
+      // The guard's fixed lines, word for word: fillers off here, and checked on their own below (FILLERS).
+      ...(options.fillers ? {} : { acknowledgements: [] }),
       transport,
       realCalls: true,
       gate: options.gate ?? (async () => ANSWER),
@@ -394,6 +396,8 @@ describeDb("safety suite: voice, end to end", () => {
       const sent: RetellOutbound[] = [];
       const session = new RetellCallSession(clinic.clinicId, `call_gate_${randomUUID().slice(0, 8)}`, (m) => sent.push(m), {
         responder: model.responder,
+        // The guard's fixed lines, word for word: fillers off here, and checked on their own below (FILLERS).
+        acknowledgements: [],
         transport,
         realCalls: true,
         gate: async () => {
@@ -528,6 +532,8 @@ describeDb("safety suite: voice, end to end", () => {
       const callId = `call_out_${randomUUID().slice(0, 8)}`;
       const session = new RetellCallSession(clinic.clinicId, callId, (m) => sent.push(m), {
         responder: model.responder,
+        // The guard's fixed lines, word for word: fillers off here, and checked on their own below (FILLERS).
+        acknowledgements: [],
         transport,
         realCalls: true,
         gate: async () => ANSWER,
@@ -552,6 +558,33 @@ describeDb("safety suite: voice, end to end", () => {
       }
       for (const e of ingested) expect(e.isCallback).toBe(false);
       for (const s of transport.sent) expect(s.target.to).toMatch(/@example-clinic\.test$/);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // FILLERS (owner, 1 November 2026: "almost always present"): a filler is a word said while the model
+  // thinks, chosen by code. It is never said ahead of an urgent line, and it never lets through anything
+  // the guard refused: what follows it is the guard's own fixed line.
+  describe("8. fillers", () => {
+    test("urgent words: the fixed urgent line comes first, with no filler before it, and the clinic is alerted", async () => {
+      const c = URGENT_CASES[0]!;
+      const r = await call(clinic.clinicId, [`Okay so, um, ${c.text}`], () => modelJson("model answered"), transport, { fillers: true });
+      expect(r.calls).toHaveLength(0);
+      expect(r.responses[1]!.content).toMatch(/^[^,]*\b(?:I'm so sorry|I'm an AI|If this is an emergency)|9-1-1/);
+      const firstPart = r.sent.find((m) => m.response_type === "response" && m.response_id === 1) as { content?: string } | undefined;
+      expect(firstPart?.content ?? "").toMatch(/9-1-1|sorry|AI/i);
+      const alerts = await queuedNotices(clinic.clinicId, ["urgent"]);
+      expect(alerts.map((a) => a.dedupe_key)).toContain(`urgent:call:${r.callId}`);
+    });
+
+    test("forbidden model output: after the filler, only the guard's fixed line; the model's words are never heard or kept", async () => {
+      const c = FORBIDDEN_OUTPUT_CASES.find((x) => x.label.startsWith("diagnosis"))!;
+      const r = await call(clinic.clinicId, [c.asked], () => modelJson(c.reply, c.extra), transport, { fillers: true });
+      const said = r.responses[1]!.content;
+      expect(said).not.toContain(c.reply);
+      expect(keptAssistant(r).join(" ")).not.toContain(c.reply);
+      const fixed = (["clinical", "never_say", "other_party"] as const).map((g) => guardedLine(g, clinic.name, "en", true).toLowerCase().slice(1));
+      expect(fixed.some((line) => said.toLowerCase().includes(line))).toBe(true);
     });
   });
 });

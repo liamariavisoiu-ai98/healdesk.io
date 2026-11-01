@@ -126,49 +126,21 @@ describe("mood-first replies (VOICE-T16b)", () => {
 });
 
 describe("the human stall (VOICE-T16a)", () => {
-  test("a reply refused for something she cannot say is heard as a stall once, then as the refusal with a sorry opener", async () => {
+  // Off since 1 November 2026 (owner, approving docs/design/demo-aya-simpler-2026-11-01.md row 20 and review point
+  // 4): a planned "Sorry, say that again?" cost the caller a turn and ended on the same refusal.
+  test("the stall is off: a refused reply is answered at once, never with a planned 'say that again', and no note offers one", async () => {
     const c = await demoCall();
     await c.toRoleplay();
     const peel = "A chemical peel is $350.";
-    // The price is refused and asked again (PRICE_AGAIN), refused again: the stall is said instead of the fixed line.
     const first = await c.turn("How much is a chemical peel?", says(peel), says(peel));
-    expect(STALL_LINES.en).toContain(first);
+    expect(STALL_LINES.en).not.toContain(first);
     expect(first).not.toContain("$350");
-    expect(c.seen.at(-1)).toContain("You have not used it yet");
-    // Said again: the refusal, opened with warmth, and the model told why.
-    const second = await c.turn("How much is a chemical peel?", says(peel), says(peel));
-    const opener = STALL_SORRY.en.find((o) => second.startsWith(`${o} `));
-    expect(opener, second).toBeDefined();
-    expect(second).toContain("I don't have a price for that one");
-    expect(c.seen.at(-2)).toContain("You just asked them to say it again");
-    expect(c.seen.at(-2)).not.toContain("You have not used it yet");
-    // Never a second stall in the call, and the sorry opener only the turn after it.
-    const third = await c.turn("And a chemical peel for my sister?", says(peel), says(peel));
-    expect(STALL_LINES.en).not.toContain(third);
-    expect(STALL_SORRY.en.some((o) => third.startsWith(o))).toBe(false);
-    expect(third).not.toContain("$350");
-  });
-
-  test("a stall she writes herself is kept as said, and the stall is then used up", async () => {
-    const c = await demoCall();
-    const said = await c.turn("Yeah, that's me. Do you plug into Zenoti?", says("Sorry, what was that?", { stall: true, asked: null }));
-    expect(said).toBe("Sorry, what was that?");
-    await c.turn("Zenoti, the booking software.", says(`Ah, that's one for the team. What's your role at ${CLINIC}?`, { asked: "role" }));
-    expect(c.seen.at(-1)).toContain("You just asked them to say it again");
-    await c.turn("I'm the owner.", says("Nice. Hear more, or a role-play?", { asked: "choice" }));
     expect(c.seen.at(-1)).not.toContain("You have not used it yet");
+    const second = await c.turn("How much is a chemical peel?", says(peel), says(peel));
+    expect(STALL_SORRY.en.some((o) => second.startsWith(`${o} `))).toBe(false);
     expect(c.seen.at(-1)).not.toContain("You just asked them to say it again");
-  });
-
-  test("urgent words never stall: the fixed urgent line, and the stall is still there for later", async () => {
-    const c = await demoCall();
-    await c.toRoleplay();
-    const before = c.seen.length;
     const urgent = await c.turn("My face is swelling up and I can't breathe.");
     expect(urgent).toMatch(/9-1-1/);
-    expect(c.seen.length).toBe(before);
-    const peel = "A chemical peel is $350.";
-    expect(STALL_LINES.en).toContain(await c.turn("How much is a chemical peel?", says(peel), says(peel)));
   });
 
   test("the lines: one this call has not said, and what counts as a stall", () => {

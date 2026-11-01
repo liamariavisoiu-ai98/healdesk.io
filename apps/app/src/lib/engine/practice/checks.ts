@@ -1,3 +1,4 @@
+import { forVoice } from "@/lib/assistant/turn";
 import type { Channel } from "@healdesk/catalog";
 import { assertNoTreatmentName, TreatmentNameError } from "@healdesk/connectors";
 
@@ -16,6 +17,7 @@ import { HOLD_SECONDS } from "@/lib/booking/holds";
 import {
   DEPOSIT_HOLD_LINE,
   DEPOSIT_REQUEST_LINE,
+  BOOKING_LINES_VOICE_EN,
   depositLine,
   forChat,
   REQUEST_TAKEN_LINE,
@@ -338,7 +340,7 @@ export function bookingCaseChecks(input: BookingCaseInput): PracticeCheck[] {
       checks.push(
         check(
           "nothing_confirmed_before_the_write",
-          turns.every((t, i) => i >= writeTurn || (!t.bookingWritten && !t.reply.includes("You're booked"))),
+          turns.every((t, i) => i >= writeTurn || (!t.bookingWritten && !/you're booked/i.test(t.reply))),
         ),
       );
       const written = turns[writeTurn];
@@ -346,7 +348,8 @@ export function bookingCaseChecks(input: BookingCaseInput): PracticeCheck[] {
       checks.push(
         check(
           "confirmed_in_the_tool_layer_words",
-          Boolean(written && written.source === "tool" && written.bookingWritten && written.reply.startsWith(expected)),
+          // A call leads into it with the moment it takes to write it in ("Okay, putting that in now..."; pauses.ts).
+          Boolean(written && written.source === "tool" && written.bookingWritten && written.reply.includes(expected)),
           `expected "${expected}"`,
         ),
       );
@@ -375,7 +378,8 @@ export function bookingCaseChecks(input: BookingCaseInput): PracticeCheck[] {
           );
           break;
         case "spoken":
-          checks.push(check("says_the_deposit_the_desk_will_take", Boolean(written?.reply.includes(deskLine))));
+          // Said in the call's own words (BOOKING_LINES_VOICE_EN), shaped for a voice as the call says it.
+          checks.push(check("says_the_deposit_the_desk_will_take", Boolean(written?.reply.includes(forVoice(BOOKING_LINES_VOICE_EN.deposit({ action: "book_and_flag", amountUsd, scope: "booking" }))))));
           checks.push(
             check(
               "no_link_on_a_call",

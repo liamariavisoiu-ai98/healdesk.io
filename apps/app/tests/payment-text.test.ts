@@ -1,3 +1,4 @@
+import { withoutPauses } from "@/lib/voice/pauses";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { EMPTY_TOOL_STATE, type BookingTools, type BookingToolState, type ToolTurn } from "@/lib/assistant/booking-tools";
@@ -981,11 +982,13 @@ describeDb("the call flow and the one send, against the database", { timeout: 30
         now: NOW,
       });
       expect(first.source).toBe("tool");
-      expect(first.reply).toBe(`You're booked for Tuesday at 10. ${PAYMENT_TEXT_LINES_EN.offer}`);
+      // A call takes the moment a person takes to write it in (pauses.ts), then the booked line and the offer.
+      expect(withoutPauses(first.reply)).toMatch(/^(?:Okay, putting that in now\.\.\.|Let me pop that in\.\.\.|Just writing that in\.\.\.) /);
+      expect(withoutPauses(first.reply).endsWith(`You're booked for Tuesday at 10. ${PAYMENT_TEXT_LINES_EN.offer}`)).toBe(true);
       const second = await answerTurn({
         facts,
         channel: "voice",
-        history: [{ speaker: "assistant", text: first.reply }],
+        history: [{ speaker: "assistant", text: withoutPauses(first.reply) }],
         text: "Yes please, text me.",
         responder: responder(`Sure thing, I'll text it now!\n###\n${JSON.stringify({ state: { paymentText: { agreed: true } } })}`),
         tools: booking,

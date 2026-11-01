@@ -52,7 +52,7 @@ import type { PracticeCaseId, PracticeNotApplicable } from "./types";
  * is never mistaken for one already passed.
  */
 
-export const PRACTICE_CASES_VERSION = "2026-10-29.1";
+export const PRACTICE_CASES_VERSION = "2026-11-01.1";
 
 /**
  * The booking cases' later turns. The person is synthetic: 555-0100 to
@@ -62,6 +62,8 @@ export const PRACTICE_CASES_VERSION = "2026-10-29.1";
 export const CHOOSE_FIRST = "The earliest of those times works for me.";
 export const BOOKING_DETAILS = "My first name is Sam and my number is 415 555 0100.";
 /** Said again, as a person does when a line drops: the one booking must stand, and no second be written. */
+/** A call reads a given number back before it is used (owner, 1 November 2026): the caller says yes. */
+export const NUMBER_CONFIRMED = "Yes, that's right.";
 export const BOOKING_RETRY = "Sorry, I lost you there. Did that go through? It's Sam, on 415 555 0100.";
 
 /** The service fields a case reads. */
@@ -280,6 +282,7 @@ export function practiceCases(profile: PracticeProfile, channel: Channel): Pract
             `I'd like to book ${bookable?.name ?? named} next Tuesday afternoon, please.`,
             CHOOSE_FIRST,
             BOOKING_DETAILS,
+            ...(channel === "voice" ? [NUMBER_CONFIRMED] : []),
             BOOKING_RETRY,
           ],
     expectation:
@@ -295,7 +298,7 @@ export function practiceCases(profile: PracticeProfile, channel: Channel): Pract
     turns:
       channel === "meta"
         ? ["Can I book an appointment for Thursday morning, please?", BOOKING_DETAILS]
-        : [`Can I book ${deposit?.name ?? named} for Thursday morning?`, CHOOSE_FIRST, BOOKING_DETAILS, BOOKING_RETRY],
+        : [`Can I book ${deposit?.name ?? named} for Thursday morning?`, CHOOSE_FIRST, BOOKING_DETAILS, ...(channel === "voice" ? [NUMBER_CONFIRMED] : []), BOOKING_RETRY],
     expectation:
       channel === "voice"
         ? "Follows the clinic's deposit settings exactly: a call never takes a card or sends a link; it books and says the deposit the front desk will take, or passes the request to the team."

@@ -7,10 +7,9 @@ import { slotLabel } from "@/lib/booking/calendar";
 import {
   bookedLine,
   DEPOSIT_REQUEST_LINE,
-  depositLine,
+
   forChat,
-  REQUEST_TAKEN_LINE,
-} from "@/lib/booking/lines";
+  REQUEST_TAKEN_LINE, BOOKING_LINES_VOICE_EN } from "@/lib/booking/lines";
 import {
   bookingExpectation,
   emptyLedger,
@@ -116,7 +115,7 @@ const failing = (kase: PracticeCaseResult) => kase.checks.filter((c) => !c.ok).m
 describe("every case can be asked", () => {
   test("no case is marked not askable, and the cases' version moved with them", () => {
     expect(casesNotAskable()).toEqual([]);
-    expect(PRACTICE_CASES_VERSION).toBe("2026-10-29.1");
+    expect(PRACTICE_CASES_VERSION).toBe("2026-11-01.1");
   });
 
   test("a result recording a case the runtime could not ask is told apart: such a pass opens nothing", () => {
@@ -253,8 +252,11 @@ describe("a call, with the tools live for this run only", () => {
     const outcome = await runPracticeChannel({ channel: "voice", facts: FACTS, booking: LIVE }, KNOWLEDGE, deps(model()));
     const deposit = byId(outcome.cases, "deposit_booking");
     expect(failing(deposit)).toEqual([]);
-    expect(deposit.answered[1]).toMatch(/^I've got that time held for a minute/);
-    expect(deposit.answered[2]).toContain(depositLine({ action: "book_and_flag", amountUsd: 50, scope: "booking" }));
+    // The call's own lines (BOOKING_LINES_VOICE_EN), after the moment a person takes to hold it (pauses.ts).
+    expect(deposit.answered[1]).toMatch(/I'm holding .+ for you\./);
+    // The number given is read back first (answered[2]); the booking and its deposit follow the caller's yes.
+    expect(deposit.answered[2]).toMatch(/, right\?$/);
+    expect(deposit.answered[3]).toContain(BOOKING_LINES_VOICE_EN.deposit({ action: "book_and_flag", amountUsd: 50, scope: "booking" }));
     expect(deposit.answered.join(" ")).not.toMatch(/https?:/);
     expect(byId(outcome.cases, "booking").status).toBe("passed");
   });
@@ -267,7 +269,7 @@ describe("a call, with the tools live for this run only", () => {
     );
     const deposit = byId(outcome.cases, "deposit_booking");
     expect(failing(deposit)).toEqual([]);
-    expect(deposit.answered[0]).toBe(DEPOSIT_REQUEST_LINE);
+    expect(deposit.answered[0]).toMatch(new RegExp(`${DEPOSIT_REQUEST_LINE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
   });
 });
 

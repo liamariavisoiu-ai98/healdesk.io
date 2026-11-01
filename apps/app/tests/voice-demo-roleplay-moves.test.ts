@@ -200,36 +200,28 @@ describe("what she may say, in code", () => {
 });
 
 describe("the receptionist's manner (owner, 1 November 2026)", () => {
-  test("is in the voice prompt a clinic's calls and a demo share, and every line it puts in her mouth passes the guard", async () => {
+  // Since 1 November 2026 (docs/design/demo-aya-simpler-2026-11-01.md 3c and 6): four example calls built from the
+  // practice's own menu and team, five musts, and no line scripted for a moment the booking system speaks.
+  test("is in the voice prompt a clinic's calls and a demo share, and every line its examples put in her mouth passes the guard", async () => {
     const { buildAssistantPrompt } = await import("@/lib/assistant/prompt");
     const { guardAssistantReply } = await import("@/lib/assistant/guard");
     const facts = demoRoleplayFacts(demoAssistantFacts({ slug: "lumen-aesthetics-austin", clinic: DEMO_CASE_CLINIC }));
-    const prompt = buildAssistantPrompt(facts, "voice");
-    const manner = prompt.slice(prompt.indexOf("How you run a booking"), prompt.indexOf("they make the call feel looked after"));
-    expect(manner).toContain("I hope your week's off to a great start! Let me pull up our calendar...");
-    expect(manner).toContain("Happy Thursday! Let's get this sorted so you can head into the weekend.");
+    // A demo runs the prompt a clinic with a connected calendar gets (the restructure).
+    const prompt = buildAssistantPrompt(facts, "voice", { bookingTools: true });
+    const examples = prompt.slice(prompt.indexOf("How you sound, in four calls"), prompt.indexOf("What only you can judge"));
     expect(prompt).toContain("- Providers: Dr. Maya Chen");
-    // Never a claim the booking is made by her words, and no email asked for on a call.
-    expect(manner).toContain("Never say a time is booked, locked in, confirmed or held unless the booking line has said so.");
-    expect(manner).not.toMatch(/email|most popular/i);
-    // His hospitality lines (owner, 1 November 2026): the name once, at the wrap-up; the consultation's reassurance; a closer that sends nothing.
-    expect(manner).toContain('"Excellent. Well, [first name], I\'ve put that in for you."');
-    expect(manner).toContain("the consultation is really relaxed and conversational");
-    expect(manner).toContain("We're always here to help!");
-    expect(manner).toContain("Never say you are sending them a confirmation or any message.");
-    expect(prompt).toContain("use it once in the call, in the wrap-up");
-    expect(prompt).not.toContain("at most twice");
-    // His insider-ally lines: "we" for the practice, an opening as a good find, no scarcity the calendar does not show; mirroring a brief caller.
-    expect(manner).toContain('"we", "our team", "when we see you"');
-    // Free times are the booking system's to name, never hers (the restructure, 1 November 2026).
-    expect(manner).toContain("Free times are never yours to name: they come from the booking system's own words, or from the team.");
-    expect(manner).toContain("only when the system said so, never to hurry them");
-    expect(manner).not.toMatch(/tightly booked|rare opening|before it's taken/i);
-    expect(prompt).toContain("Short, businesslike answers: drop the pleasantries");
-    const lines = [...manner.matchAll(/"([^"]{8,})"/g)].map((m) => m[1]!.replace(/\[provider\]/g, "Dr. Maya Chen").replace(/\[first name\]/g, "Josh").replace(/\[their day\]/g, "Thursday"));
-    expect(lines.length).toBeGreaterThan(10);
+    expect(examples).toContain("Dr. Maya Chen");
+    // No example scripts a moment the booking system speaks, or a claim only it may make.
+    expect(examples).not.toMatch(/I've put that in|you're booked|locked in|I'm holding|I hope your week|Happy Thursday/i);
+    expect(examples).not.toMatch(/email|most popular|confirmation/i);
+    expect(prompt).toContain("Their first name once, in the wrap-up, and nowhere else.");
+    expect(prompt).toContain('speak as the team ("we", "our team")');
+    expect(prompt).toContain("never make the schedule sound empty or scarce");
+    expect(prompt).toContain("give a brief caller no small talk");
+    const lines = [...examples.matchAll(/^You: \[\w+\] (.+?)(?: \(.*\))?$/gm)].map((m) => m[1]!);
+    expect(lines.length).toBeGreaterThanOrEqual(10);
     for (const line of lines) expect([line, guardAssistantReply(line, facts, { bookingWritten: false }).ok]).toEqual([line, true]);
     // The chat prompt is untouched: the manner is for calls.
-    expect(buildAssistantPrompt(facts, "web_chat")).not.toContain("How you run a booking");
+    expect(buildAssistantPrompt(facts, "web_chat")).not.toContain("How you sound, in four calls");
   });
 });

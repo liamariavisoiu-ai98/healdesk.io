@@ -376,7 +376,7 @@ describe("a demo call on the voice engine", () => {
     // The clinic's own front-desk prompt, the one its patients get, with the receptionist's manner; never a sales prompt
     // (owner, 1 November 2026: "Remove the sales pitch completely. Aya is now only a receptionist").
     expect(m.seen[0]!.stable).toContain("You are the AI assistant answering the phone for Lumen Aesthetics");
-    expect(m.seen[0]!.stable).toContain("How you run a booking");
+    expect(m.seen[0]!.stable).toContain("How you sound, in four calls");
     expect(m.seen[0]!.stable).not.toMatch(/healdesk.s Aya|Book Onboarding|the product they are hearing/);
 
     // The demo runs the prompt a clinic with a connected calendar gets, with the booking actions (the restructure).

@@ -35,6 +35,44 @@ import { withTenant } from "@/lib/tenant";
 
 import { nextCallLanguage, START_LANGUAGE, type CallLanguageState } from "./call-language";
 import { afterStallNote, isStallReply, pickUnsaid, STALL_LINES, STALL_REASONS, STALL_SORRY, stallNote } from "./stall";
+
+/**
+ * The key fact of a reply said before, in the fewest words (owner, 1 November
+ * 2026: "always worded differently and always the shortest version
+ * possible"): its price ("From $18 per unit."), its time ("Thursday the 5th
+ * at 3."), or its first clause when that is shorter than the sentence; null
+ * when there is nothing shorter to say.
+ */
+export function keyFactOf(reply: string): string | null {
+  const price = /(?:from |starting at )?\$\d[\d,]*(?:\.\d{2})?(?: (?:per|a|an) (?:unit|syringe|session|area|treatment|visit|month))?/i.exec(reply)?.[0];
+  // A yes or a no it opened with stays: "Yes, $50." answers "do I have to pay?", where "$50." alone does not.
+  const verdict = /^\W*(yes|yeah|yep|no|nope)\b/i.exec(reply)?.[1];
+  if (price) return verdict ? `${verdict.charAt(0).toUpperCase()}${verdict.slice(1).toLowerCase()}, ${price}.` : `${price.charAt(0).toUpperCase()}${price.slice(1)}.`;
+  const time = /\b(?:mon|tues|wednes|thurs|fri|satur|sun)day(?: the \d{1,2}(?:st|nd|rd|th))?(?: at \d{1,2}(?::\d{2})?(?: [AP]M)?)?/i.exec(reply)?.[0];
+  if (time && / at /.test(time)) return `${time.charAt(0).toUpperCase()}${time.slice(1)}.`;
+  const first = reply.split(/(?<=[.!?])\s+/)[0] ?? reply;
+  const clause = first.split(/,\s+|\s+(?:and|but|so)\s+/)[0]?.replace(/[.!?]+$/, "");
+  if (clause && clause.length + 8 < first.length && clause.split(/\s+/).length >= 3) return `${clause}.`;
+  return null;
+}
+
+/**
+ * Her mood word (turn.ts MOODS) as one of the two Retell emotion tags the
+ * owner tuned the Sloane voice with (apps/web lib/demo/sloane-voice.ts:
+ * [happy] for a greeting, a thank-you or good news; [empathetic] when they
+ * describe something hard); every other mood is said as it is, untagged.
+ */
+const EXPRESSIVE_TAG: Readonly<Record<string, string>> = { sympathetic: "empathetic", apologetic: "empathetic", cheerful: "happy", excited: "happy" };
+/** At most one tag in this many turns. */
+const EXPRESSIVE_EVERY = 3;
+
+/** The mood a reply opened with ("[sympathetic] Oh no..."), or null. */
+export function moodOf(raw: string): string | null {
+  return /^\s*\[([a-z]{3,14})\]/i.exec(raw)?.[1]?.toLowerCase() ?? null;
+}
+
+/** The human stall (stall.ts): off (owner, 1 November 2026). */
+const STALL_ON = false;
 import {
   afterDemoReply,
   DEMO_START_PROGRESS,
@@ -60,8 +98,11 @@ import { fallbackLineFor, rememberDirectLine, rememberedDirectLine, usableLine, 
 import { forwardedFromCall, type ForwardedFrom } from "./forwarded-from";
 import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
 import { redialPromptBlock, takeRedialContext, welcomeBackLine, type RedialContext } from "./redial";
-import { businessLine, busyLine, fragmentLine, isFragment, withGreetingQuestion } from "./call-lines";
+import { businessLine, fragmentLine, isFragment, withGreetingQuestion } from "./call-lines";
 import { DEMO_CALLER_PHONE, demoBookingTools } from "./demo-booking";
+import { afterFiller, fillerFor } from "./fillers";
+import { retellAgentExpressive } from "./retell-api";
+import { HURRIED_SHARE, speakingMs, splitPauses, withoutPauses, withoutPausesKeepingLead } from "./pauses";
 import { soundAlikeNote, soundAlikes } from "./sound-alike";
 import type { SpokenLanguage } from "./spoken";
 import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./test-calls";
@@ -94,8 +135,10 @@ import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./te
  *                   agent's last turn) go to the shared brain
  *                   (lib/assistant/turn.ts: card numbers cut, urgent content
  *                   answered with a fixed line before the model, the guard
- *                   after it), and the reply is sent whole, never streamed,
- *                   because the guard reads all of it first. A newer request
+ *                   after it), and the reply is spoken sentence by sentence,
+ *                   each once the guard has read it (turn.ts `speak`), and
+ *                   read whole only from the first time offered to the
+ *                   booking, when the tool layer's lines take over. A newer request
  *                   supersedes an older one still being answered. Urgent
  *                   content queues the clinic's L12 alert, sent in-process
  *                   once it has committed, and a caller asking for a person
@@ -216,8 +259,8 @@ export const REMINDER_LINES = ["Still with me?", "Hm, you there?"] as const;
 
 /** What a demo says in place of a line it would say twice, word for word (a test call of 1 November 2026). */
 const NOT_TWICE = [
-  "I don't have that detail in front of me, but the team can confirm it for you. Anything else I can help with?",
-  "That one's best checked with the team directly. What else can I help you with?",
+  "That one's for the team, I'm afraid.",
+  "I'd need the team for that one.",
 ] as const;
 export const REMINDER_CLOSE_LINE = "Looks like I lost you. I'll let you go, call back any time!";
 
@@ -271,6 +314,9 @@ export const ACKNOWLEDGEMENTS: Readonly<Record<SpokenLanguage, readonly string[]
  * by then is heard without one.
  */
 export const ACKNOWLEDGE_AFTER_MS = 900;
+
+/** When a filler is said (fillers.ts): at once, as a person starts an answer about 200 ms after the other has finished. */
+export const FILLER_AFTER_MS = 0;
 
 /**
  * How long the model may sit idle on a call before it is readied again
@@ -387,6 +433,10 @@ export type RetellSessionDeps = {
   cacheFacts?: boolean;
   /** How long a reply may take to start before the acknowledgement is said (ACKNOWLEDGE_AFTER_MS). */
   acknowledgeAfterMs?: number;
+  /** How much of each pause is waited (pauses.ts); 0 sends the pieces at once, for tests. */
+  pauseScale?: number;
+  /** Whether the call's Retell agent has Expressive Mode on (retell-api.ts retellAgentExpressive; tests). */
+  expressive?: (agentId: string) => Promise<boolean>;
   /** The words said while the model thinks, in place of ACKNOWLEDGEMENTS (tests). */
   acknowledgements?: readonly string[];
   /** How long the model may sit idle on a call before it is warmed again (KEEP_WARM_MS); 0 turns keeping warm off. */
@@ -516,6 +566,42 @@ const CALL_DETAILS_WAIT_MS = 1_500;
 const DEMO_CALL_DETAILS_WAIT_MS = 3_000;
 
 /** The caller's words since the agent last spoke, from Retell's transcript. */
+/**
+ * How fast the caller speaks this turn, from Retell's word timings (each
+ * transcript word carries start and end, in seconds of call audio; Retell
+ * custom-LLM docs, read 1 November 2026): "quick" from about 200 words a
+ * minute, "slow" under about 110, over at least five words; null when the
+ * timings are missing or too short to say (owner, 1 November 2026: match
+ * their pace from timing, not words).
+ */
+export function paceOf(transcript: unknown): "quick" | "slow" | null {
+  if (!Array.isArray(transcript)) return null;
+  const entries = transcript as (RetellTranscriptEntry & { words?: unknown })[];
+  const timed: { start: number; end: number }[] = [];
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const entry = entries[i]!;
+    if (entry.role === "agent") break;
+    if (entry.role !== "user" || !Array.isArray(entry.words)) continue;
+    for (const w of entry.words as { start?: unknown; end?: unknown }[]) {
+      if (typeof w?.start === "number" && typeof w?.end === "number" && w.end >= w.start) timed.push({ start: w.start, end: w.end });
+    }
+  }
+  if (timed.length < 5) return null;
+  const seconds = Math.max(...timed.map((w) => w.end)) - Math.min(...timed.map((w) => w.start));
+  if (!(seconds > 0.5)) return null;
+  const perSecond = timed.length / seconds;
+  return perSecond >= 3.3 ? "quick" : perSecond < 1.8 ? "slow" : null;
+}
+
+/** The caller says goodbye ("Okay, bye.", "That's all, thanks, bye"): with her own goodbye back, the call ends. */
+const CALLER_GOODBYE = /\b(?:bye|goodbye|bye-bye|have a (?:good|great|nice) (?:day|one|night)|adi[oó]s|hasta luego)\b/i;
+const HER_GOODBYE = /\b(?:bye|goodbye|have a (?:great|good|lovely|nice|wonderful) (?:day|one|evening|weekend|night)|take care|adi[oó]s|que tenga)\b/i;
+
+/** Both said goodbye, and she asked nothing: the call ends, whatever the model's "end" said (be078f77, section G). */
+export function mutualGoodbye(callerWords: string, reply: string): boolean {
+  return CALLER_GOODBYE.test(callerWords) && !/\?/.test(callerWords) && HER_GOODBYE.test(reply) && !/\?/.test(reply);
+}
+
 export function latestCallerWords(transcript: unknown): string {
   if (!Array.isArray(transcript)) return "";
   const entries = transcript as RetellTranscriptEntry[];
@@ -701,6 +787,8 @@ export class RetellCallSession {
   private lastAcknowledgement: string | null = null;
   /** The last reply said began with an acknowledgement: the next may not. */
   private acknowledgedLastTurn = false;
+  /** Every filler said this call, in order (fillers.ts reads it: never the last one again, each at most twice). */
+  private fillersSaid: string[] = [];
   /** Silences answered so far: the check-ins, then the close. */
   private reminders = 0;
   /** A demo call's context, once opened: the requester's first name and the clinic's profile. In memory only. */
@@ -793,37 +881,117 @@ export class RetellCallSession {
    */
   private send(message: RetellOutbound): void {
     if ((message.response_type === "response" || message.response_type === "agent_interrupt") && typeof message.content === "string") {
-      const content = spokenOnly(message.content);
-      if (content !== message.content) log.warn("retell structured text kept out of speech", { callId: this.callId });
+      // A pause marker never reaches Retell: say() times the pieces itself (pauses.ts).
+      const unpaused = withoutPausesKeepingLead(message.content);
+      const content = spokenOnly(unpaused);
+      if (content !== unpaused) log.warn("retell structured text kept out of speech", { callId: this.callId });
+      // When these words will have been said: the next piece after a pause waits for it.
+      if (content.trim()) this.speechEndsAt = Math.max(Date.now(), this.speechEndsAt) + speakingMs(content);
+      // Her mood as Retell's emotion tag, before the first of her own words this turn; Retell reads it, never says it.
+      if (this.pendingTag && content.trim() && message.response_type === "response") {
+        const lead = /^\s*/.exec(content)?.[0] ?? "";
+        const tagged = `${lead}[${this.pendingTag}] ${content.trimStart()}`;
+        this.pendingTag = null;
+        this.sendRaw({ ...message, content: tagged });
+        return;
+      }
       this.sendRaw({ ...message, content });
       return;
     }
     this.sendRaw(message);
   }
 
+  /** When the words sent so far will have been said, estimated from their length (Date.now() clock). */
+  private speechEndsAt = 0;
+
   private say(
     responseId: number,
     content: string,
     options: { endCall?: boolean; transferTo?: string | null; spokenBefore?: string | null; noInterruption?: boolean; interruptId?: number | null } = {},
   ): void {
-    this.turns.push({ speaker: "assistant", text: spokenOnly([options.spokenBefore, content].filter(Boolean).join(" ")) });
+    this.turns.push({ speaker: "assistant", text: spokenOnly(withoutPauses([options.spokenBefore, content].filter(Boolean).join(" "))) });
     if (options.interruptId) {
       // A jump-in (anticipation): said at once, over the caller if they are
       // still talking, and never the end of the call or a transfer.
       this.send({ response_type: "agent_interrupt", interrupt_id: options.interruptId, content, content_complete: true, no_interruption_allowed: false });
       return;
     }
-    if (options.endCall || options.transferTo) this.final = { content, endCall: Boolean(options.endCall), transferTo: options.transferTo ?? null };
+    if (options.endCall || options.transferTo) this.final = { content: withoutPauses(content), endCall: Boolean(options.endCall), transferTo: options.transferTo ?? null };
     if (options.transferTo) this.transferred = true;
-    this.send({
-      response_type: "response",
-      response_id: responseId,
-      content: options.spokenBefore ? (content ? ` ${content}` : "") : content,
-      content_complete: true,
+    const last = {
       end_call: Boolean(options.endCall),
       ...(options.transferTo ? { transfer_number: options.transferTo } : {}),
       ...(options.noInterruption ? { no_interruption_allowed: true } : {}),
-    });
+    };
+    // A reply with pauses in it (pauses.ts): each piece after one waits until the
+    // words before it have been said, plus the pause's silence; the last carries
+    // the turn's end. A newer request, or a closed call, drops what is still waiting.
+    const pieces = splitPauses(content);
+    if (pieces.length <= 1) {
+      const text = pieces[0]?.text ?? "";
+      this.send({ response_type: "response", response_id: responseId, content: options.spokenBefore ? (text ? ` ${text}` : "") : text, content_complete: true, ...last });
+      return;
+    }
+    const share = this.hurried || this.demoProgress?.hurried === true ? HURRIED_SHARE : 1;
+    const sendPiece = (i: number) => {
+      const piece = pieces[i]!;
+      const complete = i === pieces.length - 1;
+      const lead = i > 0 || options.spokenBefore ? " " : "";
+      this.send({ response_type: "response", response_id: responseId, content: `${lead}${piece.text}`, content_complete: complete, ...(complete ? last : { end_call: false }) });
+      if (complete) return;
+      const next = pieces[i + 1]!;
+      if (this.pauseScale() === 0) return sendPiece(i + 1);
+      const wait = Math.max(0, this.speechEndsAt + Math.round(next.pauseMs * share) - Date.now());
+      const timer = setTimeout(() => {
+        this.pauseTimers.delete(timer);
+        // Superseded by newer words from the caller: Retell has moved on, and so does the call.
+        if (responseId !== this.latestResponseId || this.ended) return;
+        sendPiece(i + 1);
+      }, Math.round(wait * this.pauseScale()));
+      this.pauseTimers.add(timer);
+    };
+    if (pieces[0]!.pauseMs > 0 && options.spokenBefore && this.pauseScale() > 0) {
+      // The pause comes after words already streamed this turn ("Let me pull up Thursday..." then the times).
+      const wait = Math.max(0, this.speechEndsAt + Math.round(pieces[0]!.pauseMs * share) - Date.now());
+      const timer = setTimeout(() => {
+        this.pauseTimers.delete(timer);
+        if (responseId !== this.latestResponseId || this.ended) return;
+        sendPiece(0);
+      }, Math.round(wait * this.pauseScale()));
+      this.pauseTimers.add(timer);
+      return;
+    }
+    sendPiece(0);
+  }
+
+  /** Pieces of a reply waiting out a pause (say): cleared when the call ends. */
+  private pauseTimers = new Set<ReturnType<typeof setTimeout>>();
+
+  /**
+   * Retell's Expressive Mode is on for this call's agent (checked as the call
+   * starts): her mood word is sent as Retell's emotion tag (EXPRESSIVE_TAG),
+   * at most every EXPRESSIVE_EVERY turns (owner's tuning of the Sloane voice:
+   * "each at most once every few turns"). Off until the check says so.
+   */
+  private expressive = false;
+  /** The tag to put before the next words sent (send), never into the record. */
+  private pendingTag: string | null = null;
+  /** The turn a tag was last sent on. */
+  private lastTagTurn = -EXPRESSIVE_EVERY;
+  /** Turns answered so far, for EXPRESSIVE_EVERY. */
+  private turnCount = 0;
+
+  /** The caller speaks quickly (paceOf, from Retell's word timings): pauses are halved, and the model told to keep it brisk. */
+  private hurried = false;
+
+  /** The call has been recorded or closed: nothing waiting is said. */
+  private get ended(): boolean {
+    return this.recording || this.cutOff;
+  }
+
+  /** How much of each pause is waited (tests set 0: the pieces go at once, in order). */
+  private pauseScale(): number {
+    return this.deps.pauseScale ?? 1;
   }
 
   /**
@@ -1325,6 +1493,15 @@ export class RetellCallSession {
   }
 
   private callDetails(event: RetellEvent): void {
+    // Expressive Mode, read off the call's own agent as it starts, during the opening line.
+    const agentId = typeof (event.call as { agent_id?: unknown } | undefined)?.agent_id === "string" ? ((event.call as { agent_id: string }).agent_id) : null;
+    if (agentId) {
+      (this.deps.expressive ?? retellAgentExpressive)(agentId)
+        .then((on) => {
+          this.expressive = on;
+        })
+        .catch(() => {});
+    }
     if (this.deps.demo) {
       // Only the call object, for the sealed context: no caller's number,
       // no forwarding lines, no redial. A demo call-back is outbound, and
@@ -1447,6 +1624,11 @@ export class RetellCallSession {
     }
     const words = latestCallerWords(event.transcript);
     if (!words) return;
+    this.turnCount += 1;
+    this.pendingTag = null;
+    // Their pace, from Retell's word timings: a quick talker gets half the pauses and the brisk manner (paceOf).
+    const pace = paceOf(event.transcript);
+    if (pace) this.hurried = pace === "quick";
     // What the caller heard of the last reply, then the record cut back to
     // what they heard: a reply dropped unheard, and the half sentence it
     // answered, are not part of the conversation (heardTurns).
@@ -1521,13 +1703,16 @@ export class RetellCallSession {
       !(this.disclosurePlayedAt && !agentSpokeYet) &&
       !(language.language === "es" && !this.spanishDisclosed) &&
       !(resumed && !this.welcomedBack);
+    // A test's own acknowledgements, as before; otherwise the filler that fits what they said (fillers.ts), on most
+    // turns, never the one said last and at most twice a call (owner, 1 November 2026).
     const ackLines = this.deps.acknowledgements ?? ACKNOWLEDGEMENTS[language.language];
+    const filler = this.deps.acknowledgements ? null : fillerFor(words, language.language, this.fillersSaid, this.deps.random ?? Math.random);
     const acknowledgeable =
-      ackLines.length > 0 &&
+      (filler !== null || ackLines.length > 0) &&
       nothingDue &&
       !jump &&
-      // Never two turns running (ACKNOWLEDGEMENTS).
-      !this.acknowledgedLastTurn &&
+      // A test's acknowledgement list: never two turns running (ACKNOWLEDGEMENTS). A filler may come every turn.
+      (filler !== null || !this.acknowledgedLastTurn) &&
       // In the caller's own language only: no English "Okay." to Spanish words.
       messageLanguage(words, { knownTerms: languageTerms(facts) }) === language.language &&
       words.split(/\s+/).filter(Boolean).length >= ACKNOWLEDGE_MIN_WORDS &&
@@ -1538,7 +1723,7 @@ export class RetellCallSession {
     // A sentence held back from streaming (speak), and everything after it.
     let held = false;
     const ackChoices = ackLines.filter((line) => line !== this.lastAcknowledgement);
-    const ackLine = ackChoices[Math.floor((this.deps.random ?? Math.random)() * ackChoices.length)] ?? ackChoices[0] ?? "";
+    const ackLine = filler ?? ackChoices[Math.floor((this.deps.random ?? Math.random)() * ackChoices.length)] ?? ackChoices[0] ?? "";
     // Said only if the reply has not started by then: the first sentence,
     // or the end of the turn, stops it.
     let ackTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1564,7 +1749,8 @@ export class RetellCallSession {
     const officeNumber = this.demoContext ? (facts.urgentPhone ?? null) : (facts.phone ?? null);
     const fragment = !jump && isFragment(words);
     const business = businessLine(words, officeNumber);
-    const callLine = business ?? busyLine(words) ?? (fragment ? fragmentLine(this.fragmentsInRow + 1) : null);
+    // "Are you always full?" is the model's to answer since 1 November 2026 (row 17); a free time it names is taken out.
+    const callLine = business ?? (fragment ? fragmentLine(this.fragmentsInRow + 1) : null);
     // What the line most likely heard: a word that sounds like the menu, a provider or what she just said (sound-alike.ts).
     const heardNote = soundAlikeNote(
       soundAlikes(words, {
@@ -1577,6 +1763,8 @@ export class RetellCallSession {
     // A time line says the call's line, with no model call: its words would be replaced unsaid.
     const fixedMove = callLine !== null;
     const base: AssistantResponder | null | undefined = fixedMove ? async () => `Okay.\n${SPOKEN_END}\n{"handoff":false,"end":false}` : this.deps.responder;
+    // What the model wrote, for its mood (moodOf): the deltas as they come, or the whole answer.
+    let modelText = "";
     const responder: AssistantResponder | null = base
       ? (request) =>
           base({
@@ -1585,17 +1773,33 @@ export class RetellCallSession {
               ? {
                   onText: (delta: string) => {
                     modelFirstAt ??= Date.now();
+                    modelText += delta;
                     request.onText!(delta);
                   },
                 }
               : {}),
+          }).then((answer) => {
+            if (typeof answer === "string" && !modelText) modelText = answer;
+            return answer;
           })
       : null;
+    // Her mood as Retell's emotion tag, on an agent with Expressive Mode, at most every EXPRESSIVE_EVERY turns.
+    const tagFor = (): string | null => {
+      if (!this.expressive || this.turnCount - this.lastTagTurn < EXPRESSIVE_EVERY) return null;
+      const mood = moodOf(modelText);
+      // Only the moods listed: a model-written "[constructor]" must never reach Object's prototype.
+      const tag = mood && Object.hasOwn(EXPRESSIVE_TAG, mood) ? EXPRESSIVE_TAG[mood]! : null;
+      if (tag) this.lastTagTurn = this.turnCount;
+      return tag;
+    };
     // A jump-in try is written whole and said whole, or not at all.
     const quiet = jump !== null || fixedMove;
     // The human stall (stall.ts): once per call, never ahead of a line that
     // must come first. The turn after one, a refusal opens with a sorry word.
-    const stallOpen = !this.stalled && nothingDue && !jump;
+    // Off since 1 November 2026 (owner, approving docs/design/demo-aya-simpler-2026-11-01.md row 20 and review
+    // point 4): a planned "Sorry, say that again?" cost the caller a whole turn and ended on the same refusal,
+    // which is what "going in circles" sounded like. The refusal is said at once. Kept as a switch, never as a note.
+    const stallOpen = STALL_ON && !this.stalled && nothingDue && !jump;
     const afterStall = this.stallPending && !jump;
     const turnNotes = [
       ...(this.demoContext ? [demoStageNote(this.demoContext, stageNow, this.now().getTime(), progress ?? undefined)] : []),
@@ -1612,11 +1816,12 @@ export class RetellCallSession {
       // A demo: the clinic's own facts, with healdesk's words on its never-say list (c4093be6).
       facts: this.demoContext ? demoRoleplayFacts(turnFacts) : turnFacts,
       channel: "voice",
-      acknowledge: acknowledgeable
+      // Never ahead of a line the call says itself (call-lines.ts).
+      acknowledge: acknowledgeable && !fixedMove
         ? {
             line: ackLine,
             say: () => {
-              ackTimer = setTimeout(() => {
+              const sayIt = () => {
                 ackTimer = null;
                 // Not for a request a newer one has already replaced.
                 if (responseId !== this.latestResponseId || this.closing || streamed) return;
@@ -1624,11 +1829,17 @@ export class RetellCallSession {
                 acknowledgement = ackLine;
                 this.acknowledged += 1;
                 this.lastAcknowledgement = ackLine;
+                if (filler) this.fillersSaid.push(filler);
                 heard();
-              }, this.deps.acknowledgeAfterMs ?? ACKNOWLEDGE_AFTER_MS);
+              };
+              // A filler goes at once, the moment the caller has finished; a test's acknowledgement only for a slow reply.
+              const after = this.deps.acknowledgeAfterMs ?? (filler ? FILLER_AFTER_MS : ACKNOWLEDGE_AFTER_MS);
+              if (after <= 0) sayIt();
+              else ackTimer = setTimeout(sayIt, after);
             },
           }
         : null,
+      pace,
       speak: nothingDue && !quiet
         ? (sentence: string) => {
             stopAck();
@@ -1647,7 +1858,10 @@ export class RetellCallSession {
               return;
             }
             const lead = acknowledgement || streamed ? " " : "";
-            this.send({ response_type: "response", response_id: responseId, content: `${lead}${sentence}`, content_complete: false, end_call: false });
+            if (!streamed) this.pendingTag = tagFor();
+            // The first words after a filler join it as one sentence (fillers.ts afterFiller).
+            const joined = !streamed && acknowledgement ? afterFiller(acknowledgement, sentence) : sentence;
+            this.send({ response_type: "response", response_id: responseId, content: `${lead}${joined}`, content_complete: false, end_call: false });
             streamed = streamed ? `${streamed} ${sentence}` : sentence;
             heard();
           }
@@ -1763,15 +1977,20 @@ export class RetellCallSession {
         // A real answer asked for again is said again, shorter; a refusal, in words not said yet.
         const first = now.split(/(?<=[.!?])\s+/)[0] ?? now;
         const answer = !/\b(?:don'?t have|don'?t know|can'?t|cannot|not able|isn'?t something|not sure)\b/i.test(now) && first.length > 12;
-        roleplayLine = answer
-          ? `Like I mentioned, ${/^(?:I\b|[A-Z][a-z]*[A-Z]|[A-Z]{2})/.test(first) ? first : first.charAt(0).toLowerCase() + first.slice(1)}`
-          : ([...again, ...NOT_TWICE].find((line) => !before.some((b) => b.includes(line))) ?? "What else can I help you with?");
+        // Never the same words twice (owner, 1 November 2026): a real answer asked for again is its key fact alone,
+        // in the fewest words (keyFactOf); a refusal, in words not said yet.
+        const key = answer ? keyFactOf(now) : null;
+        roleplayLine =
+          key && !before.includes(key)
+            ? key
+            : ([...again, ...NOT_TWICE].find((line) => !before.some((b) => b.includes(line))) ?? "What else can I do for you?");
       }
     }
     // An apology said once is never said on its own again (roleplayCheckedReply, a44374c9).
     if (this.demoContext && /\b(?:sorry|apologi[sz]e)\b/i.test(roleplayLine ?? turn.reply) && !turn.urgent) this.demoProgress = { ...this.demoProgress, apologised: true };
-    // A demo call ends on a goodbye like any call: there is no talk with the owner after it.
-    const ends = turn.end;
+    // A demo call ends on a goodbye like any call: there is no talk with the owner after it. A goodbye from both
+    // ends it too, when the model's details forgot to (be078f77: "Goodbye!" and the call stayed open).
+    const ends = turn.end || (!turn.urgent && !turn.handoff && turn.source !== "fallback" && mutualGoodbye(words, turn.reply));
 
     let urgentQueued = false;
     if (turn.urgent && !this.urgent && this.deps.demo) {
@@ -1906,7 +2125,11 @@ export class RetellCallSession {
     // What actually went out (`streamed`), not what the turn wrote: a held
     // "Ring ring" or exit line was never said, and is said now if it stands.
     const already = streamed && reply.startsWith(streamed) ? streamed : "";
-    this.say(responseId, already ? reply.slice(already.length).trim() : reply, {
+    // A reply said whole that is the model's own words: its mood, as a tag, before them.
+    if (!streamed && turn.source === "model" && !roleplayLine && !stallLine && !turn.urgent) this.pendingTag = tagFor();
+    // A reply said whole after a filler joins it as one sentence (fillers.ts afterFiller).
+    const remaining = already ? reply.slice(already.length).trim() : reply;
+    this.say(responseId, !already && acknowledgement ? afterFiller(acknowledgement, remaining) : remaining, {
       endCall: ends && !transferTo,
       transferTo,
       spokenBefore: [acknowledgement, already].filter(Boolean).join(" ") || null,
@@ -2011,6 +2234,8 @@ export class RetellCallSession {
     this.recording = true;
     this.closing = true;
     this.stopKeepingWarm();
+    for (const timer of this.pauseTimers) clearTimeout(timer);
+    this.pauseTimers.clear();
     // The earlier call's turns were for this call's replies only.
     this.redial = null;
     this.redialLookup = null;

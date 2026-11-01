@@ -1,3 +1,4 @@
+import { withoutPauses } from "@/lib/voice/pauses";
 import { spokenSlotEn } from "@/lib/voice/spoken";
 import { forVoice } from "@/lib/assistant/turn";
 import { createHash } from "node:crypto";
@@ -19,7 +20,7 @@ import type { AssistantFacts } from "@/lib/assistant/facts";
 import { openingLine } from "@/lib/assistant/opening";
 import type { assistantMayAnswer } from "@/lib/billing/answering";
 import { slotLabel } from "@/lib/booking/calendar";
-import { bookedLine, forChat } from "@/lib/booking/lines";
+import { bookedLine, BOOKING_LINES_VOICE_EN, forChat } from "@/lib/booking/lines";
 import { EMPTY_BOOKING_FIELDS, mergeBookingFields, type BookingFields } from "@/lib/meta/booking-requests";
 import { closureLines, priceText } from "@/lib/assistant/prompt";
 import {
@@ -321,7 +322,11 @@ function assistantBrain(
     serviceNames: allServiceNames(booking, facts.services),
     bookedLineFor: (startsAt, service) => {
       // A call says the time as a person says it, and its lines are shaped for a voice (booking-tools.ts, turn.ts forVoice).
-      const line = bookedLine(channel === "web_chat" ? slotLabel(new Date(startsAt), facts.timeZone) : spokenSlotEn(new Date(startsAt), facts.timeZone), service);
+      // A call's own line, with the caller's first name at the wrap-up (BOOKING_LINES_VOICE_EN; the cases' caller is Sam).
+      const line =
+        channel === "web_chat"
+          ? bookedLine(slotLabel(new Date(startsAt), facts.timeZone), service)
+          : BOOKING_LINES_VOICE_EN.booked(spokenSlotEn(new Date(startsAt), facts.timeZone), service, "Sam");
       return channel === "web_chat" ? forChat(line) : forVoice(line);
     },
     session(caseId) {
@@ -380,9 +385,11 @@ function assistantBrain(
       });
       session.toolState = turn.toolState;
       const modelText = wrote === null ? null : parseModelAnswer(wrote).reply;
+      // What the clinic reads is what was said: a pause marker is the call's timing, never words (pauses.ts).
+      const said = withoutPauses(turn.reply);
       return {
-        reply: turn.reply,
-        body: turn.reply,
+        reply: said,
+        body: said,
         capture: turn.capture,
         bookingWritten: turn.tool?.bookingWritten === true,
         source: turn.source,

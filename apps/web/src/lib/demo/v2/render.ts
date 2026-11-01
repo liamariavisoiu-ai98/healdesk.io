@@ -1,7 +1,7 @@
 import { PRODUCTS, shortClinicName } from "@healdesk/catalog";
 
 import { demoGaps, gapLabel } from "../gaps";
-import { sampleLabel, withDemoSamples } from "../samples";
+import { liveDemo, sampleLabel } from "../samples";
 import { weekSchedule } from "../opening-hours";
 import type { ClinicProfile } from "../profile";
 import { CHAT_SLOT_ID, VOICE_SLOT_ID } from "./slots";
@@ -56,6 +56,8 @@ export type DemoV2Input = {
   offerEndsAt: Date | null;
   /** The AYA portrait shown beside the demo bars. */
   ayaImage: string;
+  /** The made-up values the build stored (DemoSession.demoFill); absent or null on a row built before the fill step. */
+  demoFill?: unknown;
 };
 
 export type DemoV2 = { body: string; script: string };
@@ -130,17 +132,15 @@ function setupFees(percentOff: number) {
  * section"; 1 November 2026: invent the calendar, the deposit and the prices
  * "just to show them the dream outcome", with "a visible disclaimer saying
  * this wasn't available so we invented this for demo purposes"). The made-up
- * list is lib/demo/samples.ts's, the same values Aya uses on the call and in
- * the chat; the rest is what this scan missed and nothing replaced
- * (lib/demo/gaps.ts).
+ * list is the stored fill's (lib/demo/samples.ts), the same values Aya uses
+ * on the call and in the chat; the rest is what this scan missed and nothing
+ * replaced (lib/demo/gaps.ts), read from the profile with the fill in place,
+ * so a treatment left at "Price at consultation" is listed as still missing.
  */
-export function demoNoteHtml(profile: ClinicProfile): string {
-  const { invented } = withDemoSamples(profile);
-  const made = invented.map((sample) => sampleLabel(sample, profile));
-  const covered = new Set(["treatments", "prices", "some-prices", "hours", "policy"]);
-  const missed = demoGaps(profile)
-    .filter((gap) => !covered.has(gap))
-    .map((gap) => gapLabel(gap, "patients"));
+export function demoNoteHtml(profile: ClinicProfile, demoFill: unknown = null): string {
+  const live = liveDemo(profile, demoFill);
+  const made = live.invented.map((sample) => sampleLabel(sample, profile));
+  const missed = demoGaps(live.profile).map((gap) => gapLabel(gap, "patients"));
   const li = (items: string[]) => items.map((item) => `<li>${escapeHtml(item.charAt(0).toUpperCase() + item.slice(1))}</li>`).join("");
   const stillMissing = missed.length > 0 ? `<p class="hd-note-p">Still not found, so Aya won't say them: </p><ul class="hd-note-l">${li(missed)}</ul>` : "";
   return `<aside class="hd-note" role="note"><span class="hd-note-i" aria-hidden="true">i</span><div><p class="hd-note-h">Made up for this demo</p><p class="hd-note-p">Your public website and Google listing didn't show everything, so to show you the full experience we invented these for this demo only. At setup, Aya uses your real ones.</p><ul class="hd-note-l">${li(made)}</ul>${stillMissing}</div></aside>`;
@@ -148,7 +148,7 @@ export function demoNoteHtml(profile: ClinicProfile): string {
 
 export function renderDemoV2(input: DemoV2Input): DemoV2 {
   // The page shows what the call and the chat use: the made-up values in place (demoNoteHtml says which).
-  const ctx = demoV2Context({ ...input, profile: withDemoSamples(input.profile).profile });
+  const ctx = demoV2Context({ ...input, profile: liveDemo(input.profile, input.demoFill ?? null).profile });
   const name = escapeHtml(input.name);
   const short = escapeHtml(ctx.short);
   const pct = `${Math.round(input.percentOff)}%`;
@@ -156,7 +156,7 @@ export function renderDemoV2(input: DemoV2Input): DemoV2 {
 
   let body = DEMO_V2_BODY;
   // What a demo from public pages cannot know, above the two cards.
-  body = swapAll(body, '<div class="demo-grid" data-show="voice">', `${demoNoteHtml(input.profile)}<div class="demo-grid" data-show="voice">`);
+  body = swapAll(body, '<div class="demo-grid" data-show="voice">', `${demoNoteHtml(input.profile, input.demoFill ?? null)}<div class="demo-grid" data-show="voice">`);
   // The two stand-in card bodies become slots; each card keeps its own header.
   body = swapSpan(body, '<div class="vseg-wrap">', "\n      </div>\n\n      <!-- Chat -->", `<div id="${VOICE_SLOT_ID}" class="hd-slot"></div>`);
   body = swapSpan(body, '<div class="chtabs">', "\n      </div>\n    </div>\n\n    <div class=\"live-card\"", `<div id="${CHAT_SLOT_ID}" class="hd-slot"></div>`);

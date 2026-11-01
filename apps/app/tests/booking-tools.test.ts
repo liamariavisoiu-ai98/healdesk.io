@@ -1,3 +1,4 @@
+import { withoutPauses } from "@/lib/voice/pauses";
 import { randomUUID } from "node:crypto";
 
 import { DIRECT_BOOKING_ADDENDUM_VERSION } from "@healdesk/catalog";
@@ -46,12 +47,10 @@ import {
   depositLine,
   detailsBeforeHoldLine,
   forChat,
-  heldAskLine,
   MANUAL_BOOKING_LINE,
   REQUEST_TAKEN_LINE,
   requestAskLine,
-  TOOL_FAILURE_LINE,
-} from "@/lib/booking/lines";
+  TOOL_FAILURE_LINE, BOOKING_LINES_VOICE_EN } from "@/lib/booking/lines";
 import { sendWebChatMessage, startWebChat, type WebChatClinic } from "@/lib/chat/web-chat";
 import { COVERAGE_VENDORS } from "@/lib/compliance/vendor-coverage";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
@@ -291,6 +290,8 @@ describeDb("the booking tool layer in the web chat and the call", () => {
     const recorded: VoiceCallEvent[] = [];
     const session = new RetellCallSession(clinicId, `call_${randomUUID().slice(0, 8)}`, (m) => sent.push(m), {
       responder,
+      // The pieces after a pause go at once here (pauses.ts), so a turn reads whole.
+      pauseScale: 0,
       realCalls: true,
       gate: async (): Promise<AnswerDecision> => ({ decision: "answer" }),
       ingest: async (event) => {
@@ -333,13 +334,14 @@ describeDb("the booking tool layer in the web chat and the call", () => {
       ]);
       const call = await callSession(f.clinicId, responder);
 
-      expect(await call.say("I'd like a consultation")).toMatch(/^I have .+\. Which would suit you\?$/);
+      // The call's own lines (BOOKING_LINES_VOICE_EN), after a filler and the moment a person takes to look or hold.
+      expect(await call.say("I'd like a consultation")).toMatch(/I've got .+\. (?:Any of those|Does that) work\?$/);
       const heldLine = await call.say("Eleven please");
-      expect(heldLine).toBe(heldAskLine("first_name"));
+      expect(heldLine).toMatch(/Great, I'm holding .+ for you\. What's your first name\?$/);
       expect((await rows(f.clinicId)).holds).toEqual([expect.objectContaining({ status: "held", channel: "voice" })]);
 
       const said = await call.say("Ben");
-      expect(said).toMatch(/^You're booked for .+ for Consultation\. It's in the clinic's calendar\.$/);
+      expect(said).toMatch(/Perfect, Ben, you're booked for Consultation on .+\.$/);
       const { appointments, requests } = await rows(f.clinicId);
       expect(appointments).toHaveLength(1);
       expect(requests).toEqual([expect.objectContaining({ status: "confirmed", channel: "voice" })]);
@@ -381,7 +383,7 @@ describeDb("the booking tool layer in the web chat and the call", () => {
       expect(taken?.bookingWritten).toBe(true);
 
       const said = await call.say("Cleo");
-      expect(said).toMatch(/^That time has just gone\. The nearest times I have are .+\.$/);
+      expect(said).toMatch(/Ah, .+ just went\. I've got .+\?$/);
       expect(said).not.toContain(slotLabel(held!.starts_at, DESK_TZ));
       expect((await rows(f.clinicId)).appointments).toHaveLength(1);
       expect(inserts()).toHaveLength(1);
@@ -665,7 +667,8 @@ describeDb("the booking tool layer in the web chat and the call", () => {
         const said = await booking(f, "voice", at);
         expect(said).toMatchObject({ bookingWritten: true });
         // A call says the time as a person says it (spokenSlotEn).
-        expect(said!.reply).toBe(`${bookedLine(spokenSlotEn(at, DESK_TZ), "Facial")} ${depositLine({ action: "book_and_flag", amountUsd: 50, scope: "booking" })}`);
+        // The call's own lines: the booking with the caller's name, a beat, then the deposit (pauses.ts).
+        expect(withoutPauses(said!.reply)).toBe(`${BOOKING_LINES_VOICE_EN.booked(spokenSlotEn(at, DESK_TZ), "Facial", "Ivy")} ${BOOKING_LINES_VOICE_EN.deposit({ action: "book_and_flag", amountUsd: 50, scope: "booking" })}`);
         expect(said!.reply).not.toMatch(/https?:|link/i);
         expect(fake.calls).toEqual([]);
         expect(await appointment(f.clinicId)).toEqual([expect.objectContaining({ deposit_status: "pending_front_desk", deposit_usd: "50.00" })]);
@@ -790,12 +793,13 @@ describe("the booking tool layer's lines, on a scripted engine", () => {
     expect(held!.reply).toBe(BOOKING_LINES_ES.heldAsk("first_name"));
     const booked = await tools.run({ action: null, capture: { ...EMPTY_CAPTURE, firstName: "Ana" }, state: held!.state, callerPhone: PHONE, now, language: "es" });
     expect(booked!.reply).toBe(
-      "Su cita está reservada para el martes 3 de noviembre a las siete de la mañana para Consultation. Está en el calendario de la clínica. Se requiere un depósito de 50 dólares para reservar la cita. La recepción le llamará para cobrarlo; no se cobra nada en esta llamada.",
+      "Su cita está reservada para el martes 3 de noviembre a las siete de la mañana para Consultation. Está en el calendario de la clínica. ⟪beat⟫ Se requiere un depósito de 50 dólares para reservar la cita. La recepción le llamará para cobrarlo; no se cobra nada en esta llamada.",
     );
     expect(booked!.reply).not.toMatch(/https?:|link/i);
     // English, or no language, is the English line byte for byte.
     const english = await tools.run({ action: { type: "find_times", service: "Consultation", day: null }, capture: EMPTY_CAPTURE, state: EMPTY_TOOL_STATE, now });
-    expect(english!.reply).toBe(`I have ${spokenSlotEn(new Date(at), context.timeZone)}. Which would suit you?`);
+    // English on a call: the call's own line, the day said once (BOOKING_LINES_VOICE_EN).
+    expect(english!.reply).toBe(`${spokenSlotEn(new Date(at), context.timeZone).split(" at ")[0]}, I've got 7 AM. Does that work?`);
   });
 
   test("the website chat stays English whatever language is passed, and the English set is the English lines themselves", async () => {
@@ -819,7 +823,7 @@ describe("the booking tool layer's lines, on a scripted engine", () => {
     // a call keeps its tools and offers the clinic or the details.
     const tools = bookingTools(context, engine({ offerTimes: async () => ({ status: "unavailable" }) as never }));
     const said = await tools.run({ action: { type: "find_times", service: "Consultation", day: null }, capture: EMPTY_CAPTURE, state: EMPTY_TOOL_STATE, now: new Date() });
-    expect(said!.reply).toBe(TOOL_FAILURE_LINE);
+    expect(said!.reply).toBe(BOOKING_LINES_VOICE_EN.toolFailure);
     expect(said!.state.manual).toBe(false);
     const spanish = await tools.run({ action: { type: "find_times", service: "Consultation", day: null }, capture: EMPTY_CAPTURE, state: EMPTY_TOOL_STATE, now: new Date(), language: "es" });
     expect(spanish!.reply).toBe(BOOKING_LINES_ES.toolFailure);

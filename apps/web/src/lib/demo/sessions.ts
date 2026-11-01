@@ -262,6 +262,7 @@ function decode(cells: readonly Cell[]): DemoSession {
     auditedAt: r.auditedAt ?? null,
     auditHash: r.auditHash ?? null,
     retryCount: r.retryCount ?? 0,
+    demoFill: r.demoFill ?? null,
   };
 }
 
@@ -424,6 +425,7 @@ export async function createDemoSession(input: NewDemo, now: Date = new Date()):
     auditedAt: null,
     auditHash: null,
     retryCount: 0,
+    demoFill: null,
   };
   const client = await store();
   await client.appendRows(DEMO_SESSIONS.title, [recordToRow(DEMO_SESSIONS, session)]);

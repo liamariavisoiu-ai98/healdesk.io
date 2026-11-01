@@ -16,6 +16,7 @@ import { countWebsiteChanges } from "@/lib/website/store";
 import { readWaitingCounts, type WaitingCounts } from "./bookings";
 import { readAnswerAttention, type AnswerAttention } from "./missed-contacts";
 import { readOpenPatientRequests, type OpenPatientRequest } from "./patient-requests";
+import { readWeekSchedule, type WeekDay } from "./week-schedule";
 
 /**
  * The facts Home reads beyond the setup state, in one tenant transaction:
@@ -56,6 +57,8 @@ export type HomeFacts = {
    * each is marked; nobody is named here. 0 before go-live.
    */
   endedEarly: number;
+  /** After go-live: this week, Monday to Sunday, appointments per day (counts only). Null before. */
+  schedule: WeekDay[] | null;
 };
 
 /** Home's week: the seven days to now, the stretch the spec's "this week" covers on any day. */
@@ -68,6 +71,8 @@ export async function readHomeFacts(input: {
   /** The clinic's channels as the page read them; after go-live, Home reads its numbers. */
   channels?: readonly ChannelState[];
   now?: Date;
+  /** The clinic's zone, for the week's days. */
+  timeZone?: string;
 }): Promise<HomeFacts> {
   const now = input.now ?? new Date();
   const channels = input.channels ?? [];
@@ -102,6 +107,7 @@ export async function readHomeFacts(input: {
       patientRequests: await readOpenPatientRequests(tx),
       answering: await readAnswerAttention(tx, now),
       endedEarly: live ? await countEndedEarly(tx, new Date(now.getTime() - HOME_WEEK_DAYS * 86_400_000)) : 0,
+      schedule: live ? await readWeekSchedule(tx, now, input.timeZone ?? "America/New_York") : null,
     };
   });
 }

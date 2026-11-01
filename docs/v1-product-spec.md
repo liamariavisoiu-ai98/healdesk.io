@@ -811,7 +811,7 @@ Two gaps stay open by design, and both are handled by scoping rather than by pap
 - Transcripts are not stored: each is emailed to the clinic through Amazon SES, with TLS required, when its conversation ends, and Healdesk deletes its encrypted copy the moment Amazon SES reports it delivered, keeping a receipt without the words (when it was sent, when it was delivered, how many attempts). A copy never confirmed is deleted 72 hours after it goes; one that cannot be delivered, after 30 days. No other copy is kept anywhere. The conversation record, without the words, keeps a 90-day clock. Demo sandbox transcripts purge on a 7 to 14 day cycle whether or not the lead ever buys.
 - Second factor before any conversation or booking can be opened, and an access log of who opened what.
 - Offboarding is export first, then destroy, on a clock that matches the agreement text.
-- Breach notification runs to the clinic without unreasonable delay and inside 60 days, and vendor notices flow upward into that obligation.
+- Breach notification runs to the clinic without unreasonable delay and inside 10 calendar days (BAA 1.7.0 and DPA 1.2.0, the owner's release of 30 October 2026; 60 days under the versions before), and vendor notices flow upward into that obligation.
 - Non-payment never produces a dead phone line. Every degradation path, whether a usage cap, a suspension or a cancellation, ends with calls forwarding to the clinic's own line. A patient calling a medical clinic must always reach someone
 
 ### Five rules that are not optional
@@ -827,7 +827,7 @@ Two gaps stay open by design, and both are handled by scoping rather than by pap
 
 **The model retention rule contradicts minimum retention, and the contradiction has to be disclosed.** Anthropic's agreement covers the first-party API, but its covered models require 30-day data retention and cannot run with zero retention. Everywhere else this document pushes retention down. Both are true at once: state the 30-day window in the clinic-facing agreement, explain why it exists, and do not let a clinic's counsel be the one who discovers it.
 
-**Breach response is a written procedure or it is nothing.** The agreement commits Healdesk to notifying the clinic without unreasonable delay and inside 60 days. That obligation needs a named person, a defined trigger, a log, a template notice and a rule for vendor notices arriving from Retell, Anthropic or the database provider and flowing upward. Write it before signing an agreement that promises it.
+**Breach response is a written procedure or it is nothing.** The agreement commits Healdesk to notifying the clinic without unreasonable delay and inside 10 calendar days (60 under the versions before BAA 1.7.0 and DPA 1.2.0). That obligation needs a named person, a defined trigger, a log, a template notice and a rule for vendor notices arriving from Retell, Anthropic or the database provider and flowing upward. Write it before signing an agreement that promises it.
 
 **Call recording and transcription consent.** Healdesk keeps no call audio and the voice vendor holds a recording for no more than a day, but transcription of a call is still capture, and consent rules vary by state, with some requiring all parties to consent. Confirm the position for the states being sold into, and where consent is required, make the disclosure line carry it: the assistant says it is an AI assistant and that the call is being transcribed, in the same breath.
 

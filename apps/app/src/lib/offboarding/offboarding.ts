@@ -258,7 +258,7 @@ export const OFFBOARDING_BACKDATE_LIMIT_DAYS = 7;
  * then, from its delivery if later, and from day 89 regardless (BAA 1.3.0,
  * and 1.4.0, 1.5.0 and 1.5.1, whose Term clause is 1.3.0's own, and 1.6.0,
  * released 29 October 2026, and 1.7.0, released 30 October 2026, whose Term
- * clauses state the same rule; DPA 1.0.0 and 1.1.0). Every hourly run
+ * clauses state the same rule; DPA 1.0.0, 1.1.0 and 1.2.0). Every hourly run
  * destroys on either rule.
  */
 export type DestructionRule = "thirty_days" | "export_or_ninety";
@@ -275,7 +275,7 @@ export type DestructionRule = "thirty_days" | "export_or_ninety";
  */
 export const DESTRUCTION_RULES: Readonly<Record<AgreementKind, Readonly<Record<string, DestructionRule>>>> = {
   baa: {
-    // Released by the owner on 30 October 2026, landed 1 November 2026 (drizzle/0142). Its Term
+    // Released by the owner on 30 October 2026, reconciled 1 November 2026 (drizzle/0142). Its Term
     // clause is 1.6.0's own object, so it states the same rule.
     "1.7.0": "export_or_ninety",
     // Released by the owner on 29 October 2026 (drizzle/0136; a draft from
@@ -294,7 +294,7 @@ export const DESTRUCTION_RULES: Readonly<Record<AgreementKind, Readonly<Record<s
     "0.1.0-draft": "thirty_days",
   },
   dpa: {
-    // DPA 1.2.0, landed 1 November 2026: its Term clause is 1.0.0's own
+    // DPA 1.2.0, reconciled 1 November 2026: its Term clause is 1.0.0's own
     // object (through 1.1.0), and states the same rule. Listed only while its
     // release stands (DPA_1_2_0_RELEASED in dpa.ts). Its release migration
     // (drizzle/0142) added it to app_destruction_rule() in the same commit

@@ -59,11 +59,11 @@ export function subprocessorNoticeClauseBody(): string {
 
 /**
  * How far ahead, in days, BAA 1.7.0 and DPA 1.2.0 (released 30 October
- * 2026, landed 1 November 2026) tell the practice about a new subcontractor. The owner asked that day
+ * 2026, reconciled 1 November 2026) tell the practice about a new subcontractor. The owner asked that day
  * to lengthen the 24 hours ("24 hours' notice before adding a new vendor:
  * adjust whatever's needed"): fifteen days is what BAA 1.2.1 and 1.2.2 gave,
  * and inside the usual fifteen to thirty (docs/counsel/agreement-changes.md
- * §22; docs/counsel/brief.md row 14). The recipient, the contents and the
+ * §22; docs/counsel/brief.md row 13). The recipient, the contents and the
  * objection right are the 24-hour sentence's, word for word.
  */
 export const SUBPROCESSOR_NOTICE_DAYS_1_7 = 15;

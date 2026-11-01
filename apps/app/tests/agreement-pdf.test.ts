@@ -876,7 +876,7 @@ describe("a Data Protection Agreement's PDF", () => {
 
     const running = lines.filter((line) => line.startsWith("healdesk data protection agreement"));
     expect(running).toHaveLength(pageCount);
-    // The current DPA: dpa/1.2.0 since it landed on 1 November 2026 (the
+    // The current DPA: dpa/1.2.0 since it landed (reconciled 1 November 2026) (the
     // owner's release of 30 October; dpa/1.1.0 before it).
     for (const line of running) expect(line).toContain("template dpa/1.2.0");
     // The DPA's own text speaks of business associate agreements (its status

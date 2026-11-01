@@ -82,6 +82,18 @@
 > product has no way for it to re-sign a newer DPA. No payment-link text goes
 > to a caller of a practice whose accepted agreement is older than the
 > version that carries the exception.
+>
+> **BAA 1.7.0 and DPA 1.2.0, the owner's release of 30 October 2026** (§ 22,
+> `docs/baa-v1.7.0.txt`, `docs/dpa-v1.2.0.txt`): ten calendar days to report a
+> breach or security incident, and fifteen days' notice of a new
+> subcontractor. Built on a branch as "BAA 1.7.0 and DPA 1.1.0" and
+> reconciled on 1 November 2026: main had released its own DPA 1.1.0 (the
+> payment-link text, § 21), so the DPA lands as 1.2.0 on top of it. From the
+> commit that lands it, checkout offers 1.7.0, the go-live floor with no
+> overlap, and dpa/1.2.0 to new DPA practices; 1.6.0, dpa/1.1.0 and dpa/1.0.0
+> stay registered and frozen, and a practice keeps the version it signed.
+> Production holds it once `deploy-app.yml` runs migration 0142. The notes
+> above say what checkout offered at each earlier release.
 
 ## Contents
 
@@ -103,6 +115,7 @@
 16. [BAA 1.5.1: the optional booking details asked in a website chat too](#16-baa-151-the-optional-booking-details-asked-in-a-website-chat-too) (released 19 October 2026)
 17. [BAA 1.6.0: the model provider's retention, as Anthropic documents it](#17-baa-160-the-model-providers-retention-as-anthropic-documents-it) (drafted 19 October 2026, released by the owner 29 October 2026)
 21. [DPA 1.1.0: the one optional payment-link text](#21-dpa-110-the-one-optional-payment-link-text-drafted-and-released-30-october-2026) (drafted 30 October 2026, released by the owner 30 October 2026)
+22. [BAA 1.7.0 and DPA 1.2.0: ten days to report, fifteen days' notice](#22-baa-170-and-dpa-120-ten-days-to-report-fifteen-days-notice-released-30-october-2026-reconciled-1-november-2026) (released by the owner 30 October 2026; built as "DPA 1.1.0" on its branch and renumbered 1.2.0)
 18. [Review log](#review-log-2026-10-01)
 
 ---
@@ -3526,7 +3539,8 @@ promise that a text is offered or sent.
 ### 21.4 How it is held back
 
 1.1.0 is not registered in `DPA_TEMPLATES` while the switch is off
-(`dpaTemplatesFor(false)` is dpa/1.0.0 alone), so `CURRENT_DPA_VERSION`,
+(`dpaTemplatesFor(false, false)` is dpa/1.0.0 alone; since dpa/1.2.0, § 22,
+the function takes 1.2.0's switch too, and refuses 1.2.0 without 1.1.0), so `CURRENT_DPA_VERSION`,
 checkout's copy, signing (`signableDpaTemplate`), the release gate
 (`agreementTemplateReleased`), provisioning and go-live behave exactly as
 before. This differs from BAA 1.6.0's draft, which sat after 1.5.1 and
@@ -3590,7 +3604,7 @@ released it himself, without external counsel, as he released dpa/1.0.0 on
 
 ---
 
-## 22. BAA 1.7.0 and DPA 1.2.0: ten days to report, fifteen days' notice (released 30 October 2026, landed 1 November 2026)
+## 22. BAA 1.7.0 and DPA 1.2.0: ten days to report, fifteen days' notice (released 30 October 2026, reconciled 1 November 2026)
 
 > **Released by the owner on 30 October 2026, without external counsel.**
 > After that day's legal status review the owner asked to tighten two terms:

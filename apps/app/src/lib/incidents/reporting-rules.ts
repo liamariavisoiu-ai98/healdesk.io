@@ -68,7 +68,7 @@ export const REPORTING_RULES: Readonly<
     "0.1.0-draft": "five_days",
   },
   dpa: {
-    // DPA 1.2.0, the owner's release of 30 October 2026, landed 1 November
+    // DPA 1.2.0, the owner's release of 30 October 2026, reconciled 1 November
     // 2026: its Incidents clause reports in no case later than 10 calendar
     // days after discovery, as BAA 1.7.0's (dpa.ts, INCIDENTS_1_2). Listed
     // only while its release stands (DPA_1_2_0_RELEASED), as 1.1.0 is.
@@ -102,7 +102,7 @@ export const SUBCONTRACTOR_NOTICE_RULES: Readonly<
     "0.1.0-draft": "fifteen_days",
   },
   dpa: {
-    // DPA 1.2.0, landed 1 November 2026: at least 15 days' notice by email
+    // DPA 1.2.0, reconciled 1 November 2026: at least 15 days' notice by email
     // (subprocessorNoticeClauseBody15Days), as BAA 1.7.0; listed only while
     // released, as above.
     ...(DPA_1_2_0_RELEASED ? { "1.2.0": "fifteen_days" as const } : {}),

@@ -160,8 +160,8 @@ import { wrap } from "./wrap";
  * external counsel: 1.0.0 with the Safeguards clause's telephone exception
  * carrying the one optional payment-link text after a call, as BAA 1.6.0's
  * does (DPA_NO_SMS_1_1, below; agreement-changes.md §21). DPA_1_1_0_RELEASED
- * is true, so 1.1.0 is DPA_TEMPLATES[0] and 1.0.0 follows it, released and
- * never offered again. It applies to new signers only: a practice that signed
+ * is true, so 1.1.0 was DPA_TEMPLATES[0], 1.0.0 after it, released and
+ * never offered again, until dpa/1.2.0 took [0] (DPA_1_2_0_RELEASED, below). It applies to new signers only: a practice that signed
  * 1.0.0 stays on 1.0.0, since nothing in the product lets it re-sign a newer
  * DPA, and no payment-link text may go to a caller of a practice whose
  * accepted agreement is older than the one that carries the exception.
@@ -1383,7 +1383,7 @@ function preamble110(v: DpaVariables): string {
  * California's 'immediately': adjust whatever's needed"; "24 hours' notice
  * before adding a new vendor: adjust whatever's needed"), released by the
  * owner that day with BAA 1.7.0 ("release BAA 1.7.0 and DPA 1.1.0"), without
- * external counsel (docs/counsel/agreement-changes.md §21).
+ * external counsel (docs/counsel/agreement-changes.md §22).
  *
  * Why 1.2.0 and not 1.1.0: that release was built on a branch
  * (claude/friendly-edison-bwvr76, LEGAL-4) as a "dpa/1.1.0" carrying three
@@ -1501,8 +1501,9 @@ function preamble120(v: DpaVariables): string {
  * a migration of its own (0091) to give it a destruction rule, 1.1.0 was not
  * registered at all while the switch was off.
  *
- * True (now): 1.1.0 is DPA_TEMPLATES[0] with approvedByCounsel true, and 1.0.0
- * follows it, released, signed by whoever signed it, and never offered again
+ * True (since its release): 1.1.0 is released with approvedByCounsel true. It
+ * was DPA_TEMPLATES[0] until dpa/1.2.0 took [0], and now follows it; 1.0.0
+ * follows 1.1.0, released, signed by whoever signed it, and never offered again
  * (signableDpaTemplate takes only the current version). The DPA has no
  * go-live floor, so a practice bound to 1.0.0 still goes live under it. The
  * release migration (apps/app drizzle/0140_dpa_release_1_1_0.sql) landed in
@@ -1610,12 +1611,12 @@ export function dpaTemplatesFor(
 // (0090), go-live's copy of this flag, and the form to
 // app_calendar_election_released(). No hash moved: nothing in the text marked
 // it a draft (docs/counsel/dpa.md, gap 11). dpa/1.1.0, drafted on 30 October
-// 2026, was released by the owner the same day (DPA_1_1_0_RELEASED): it is at
-// [0], and 1.0.0 follows it, released but never offered again. The migration
+// 2026, was released by the owner the same day (DPA_1_1_0_RELEASED): it was
+// at [0] until dpa/1.2.0, and 1.0.0 follows it, released but never offered again. The migration
 // of that day, dpa_release_1_1_0 (apps/app drizzle/0140), added dpa/1.1.0 to
 // app_dpa_version_released() and to app_destruction_rule(). dpa/1.2.0 (ten
 // days to report, fifteen days' notice of a subcontractor) is at [0] since it
-// landed on 1 November 2026 (DPA_1_2_0_RELEASED), and 1.1.0 and 1.0.0 follow
+// landed (reconciled 1 November 2026; DPA_1_2_0_RELEASED), and 1.1.0 and 1.0.0 follow
 // it; its migration, baa_release_1_7_0_dpa_1_2_0 (apps/app drizzle/0142),
 // added it to both functions.
 export const DPA_TEMPLATES: readonly DpaTemplate[] = dpaTemplatesFor(

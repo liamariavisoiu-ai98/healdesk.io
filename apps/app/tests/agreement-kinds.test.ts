@@ -865,7 +865,7 @@ describeDb("provisioning records the regime and the kind (0051)", () => {
           calendar_account: "personal",
           booking_sync: "live",
           booking_system: "none",
-          document_version: "dpa/1.1.0",
+          document_version: "dpa/1.2.0",
           document_hash: signed[0]!.document_hash,
         },
       ]);
@@ -881,9 +881,9 @@ describeDb("provisioning records the regime and the kind (0051)", () => {
         clauseId,
         source: "agreement",
         sequence: 1,
-        documentVersion: "dpa/1.1.0",
+        documentVersion: "dpa/1.2.0",
         agreementId: noAgreement,
-        agreementVersion: "dpa/1.1.0",
+        agreementVersion: "dpa/1.2.0",
         allowsWrite: true,
       });
 

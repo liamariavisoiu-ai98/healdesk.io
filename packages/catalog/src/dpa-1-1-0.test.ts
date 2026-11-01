@@ -196,7 +196,7 @@ describe("DPA 1.1.0: the text", () => {
 });
 
 describe("DPA 1.1.0: the switch, on (released by the owner on 30 October 2026)", () => {
-  test("the switch is on; since 1 November 2026 dpa/1.2.0 is current and 1.1.0 follows it, released", () => {
+  test("the switch is on; since C13 landed dpa/1.2.0 is current and 1.1.0 follows it, released", () => {
     expect(DPA_1_1_0_RELEASED).toBe(true);
     expect(DPA_TEMPLATES.map((t) => [t.version, t.approvedByCounsel])).toEqual([
       ["dpa/1.2.0", true],

@@ -16,13 +16,13 @@ import * as dpa from "./dpa";
  * and asked a tab still on 1.0.0 to reload, both stay released (a 1.0.0
  * signer keeps a released agreement, and stays on it: nothing in the product
  * re-signs a newer DPA), and the agreement kind a practice signs did not
- * change. Since 1 November 2026 dpa/1.2.0 is current (dpa-1-2-0.test.ts):
+ * change. Since C13 landed, dpa/1.2.0 is current (dpa-1-2-0.test.ts):
  * 1.1.0 stays released behind it, and a tab still on 1.1.0 is asked to
  * reload as 1.0.0's is.
  */
 
 describe("DPA 1.1.0 released", () => {
-  test("1.1.0 is released, and since 1 November 2026 dpa/1.2.0 is current ahead of it", () => {
+  test("1.1.0 is released, and since C13 landed dpa/1.2.0 is current ahead of it", () => {
     expect(dpa.DPA_1_1_0_RELEASED).toBe(true);
     expect(dpa.CURRENT_DPA_VERSION).toBe("dpa/1.2.0");
     expect(dpa.currentDpaTemplate().approvedByCounsel).toBe(true);

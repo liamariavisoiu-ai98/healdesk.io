@@ -41,7 +41,7 @@ import {
  * practice and a practice that answered "No" take since the owner released it
  * on 20 October 2026:
  * rendered through prepareDpa, stored under the current version (`dpa/1.2.0`
- * since it landed on 1 November 2026, `dpa/1.1.0` before it) with its own variables,
+ * since it landed (reconciled 1 November 2026), `dpa/1.1.0` before it) with its own variables,
  * held to the BAA path's refusals by field, its displayed-hash comparison and
  * its released-templates-only rule, and sent to the signer as a PDF and an
  * email that name the document they signed.
@@ -204,7 +204,7 @@ describe("which agreement, and whether it can be signed", () => {
   });
 
   test("released, only the current DPA signs: no BAA version, no unknown version", () => {
-    // dpa/1.2.0 is current since it landed on 1 November 2026; dpa/1.1.0 and
+    // dpa/1.2.0 is current since it landed (reconciled 1 November 2026); dpa/1.1.0 and
     // dpa/1.0.0 stay released but are never offered again: a tab still on
     // either is asked to reload.
     expect(signableDpaTemplate("dpa/1.2.0", RELEASED)).toBe(currentDpaTemplate());
@@ -403,7 +403,7 @@ describeDb("signing the DPA", () => {
     return Number(rows[0]!.n);
   }
 
-  test("a vet signs it: the row stores the current DPA (dpa/1.2.0 since 1 November 2026), the DPA kind and its variables", async () => {
+  test("a vet signs it: the row stores the current DPA (dpa/1.2.0 since C13 landed), the DPA kind and its variables", async () => {
     const request = vetRequest();
     const shown = displayed(request);
     const signed = await signOnDate({ ...request, displayedHash: shown.hash });

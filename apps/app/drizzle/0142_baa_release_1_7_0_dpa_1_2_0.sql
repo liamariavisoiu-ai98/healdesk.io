@@ -77,7 +77,7 @@ AS $$
 $$;--> statement-breakpoint
 
 COMMENT ON FUNCTION app_dpa_version_released(text) IS
-  'The released DPA versions, written out: dpa/1.0.0, released by the owner on 20 October 2026 (dpa_release_1_0_0); dpa/1.1.0, released on 30 October 2026 (dpa_release_1_1_0); and dpa/1.2.0, released on 30 October 2026 and landed on 1 November 2026 (baa_release_1_7_0_dpa_1_2_0). Must equal getDpaTemplate(v).approvedByCounsel in @healdesk/catalog (parity test in tests/go-live.test.ts); a release needs a migration redefining it.';--> statement-breakpoint
+  'The released DPA versions, written out: dpa/1.0.0, released by the owner on 20 October 2026 (dpa_release_1_0_0); dpa/1.1.0, released on 30 October 2026 (dpa_release_1_1_0); and dpa/1.2.0, released on 30 October 2026 and reconciled on 1 November 2026 (baa_release_1_7_0_dpa_1_2_0). Must equal getDpaTemplate(v).approvedByCounsel in @healdesk/catalog (parity test in tests/go-live.test.ts); a release needs a migration redefining it.';--> statement-breakpoint
 
 CREATE OR REPLACE FUNCTION app_destruction_rule(version text)
 RETURNS text

@@ -24,7 +24,7 @@ import { DESTRUCTION_RULES } from "@/lib/offboarding/offboarding";
 
 /**
  * BAA 1.7.0's and DPA 1.2.0's release (owner, 30 October 2026: "release BAA
- * 1.7.0 and DPA 1.1.0"; landed 1 November 2026, where the DPA's number moved
+ * 1.7.0 and DPA 1.1.0"; reconciled 1 November 2026, where the DPA's number moved
  * to 1.2.0 because main had released its own dpa/1.1.0, see dpa.ts), behind
  * one switch each (BAA_1_7_0_RELEASED in packages/catalog/src/baa.ts,
  * DPA_1_2_0_RELEASED in src/dpa.ts) and one migration

@@ -55,8 +55,8 @@ import type { EmailTemplate } from "./types";
  * (lib/portal/incidents.ts): the secure transfer the agreement's Safeguards
  * clause provides. A report queued before that page existed carries no
  * link and says the list comes by secure transfer, as it did. Nor does the email state any deadline: the
- * agreements' is "without unreasonable delay and in no case later than 60
- * calendar days", and healdesk's own 24-hour target is internal (owner,
+ * agreements' is "without unreasonable delay and in no case later than" 10
+ * or 60 "calendar days", by version, and healdesk's own 24-hour target is internal (owner,
  * 12 October 2026). A report is as complete as healdesk can make it when it
  * goes, and an update follows as more is learned; `isUpdate` says which this
  * is.

@@ -97,7 +97,7 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     promise: "Every alert AYA promises the clinic reaches it, the urgent one included",
     where: "Terms section 2, AYA's urgent reply (\"I've told the team\")",
     status: "owner",
-    left: "Switch on the billing-notices job (System › Jobs, /admin/system/jobs) and set RESEND_API_KEY on the host before the first clinic goes live: every booking alert waits on both. While either is off, AYA leaves "I've told the team" out of its urgent reply (apps/app lib/notices/urgent-readiness.ts) and the alert waits in the queue, so the clinic hears nothing until the sender runs. Go-live does not check the switch itself, and nothing stops it being switched off later. If an urgent alert cannot be queued at all, you are emailed at once to phone the clinic, and neither the call nor website chat says the team was told.",
+    left: "Switch on the billing-notices job (System › Jobs, /admin/system/jobs) and set RESEND_API_KEY on the host before the first clinic goes live: every booking alert waits on both. While either is off, AYA leaves \"I've told the team\" out of its urgent reply (apps/app lib/notices/urgent-readiness.ts) and the alert waits in the queue, so the clinic hears nothing until the sender runs. Go-live does not check the switch itself, and nothing stops it being switched off later. If an urgent alert cannot be queued at all, you are emailed at once to phone the clinic, and neither the call nor website chat says the team was told.",
     evidence:
       "apps/app/src/lib/email/outbox.ts, apps/app/src/lib/notices/booking-alerts.ts (URGENT_ALERT_DELIVERED), apps/app/src/lib/scheduler/jobs.ts (JOB_BILLING_NOTICES)",
     blocksGoLive: true,

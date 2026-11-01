@@ -191,7 +191,7 @@ export function dpaClauseExplainer(
  * Notes for a version whose clause says something different from what
  * DPA_CLAUSE_EXPLAINERS describes (dpa/1.0.0's), keyed by version and then
  * clause id. dpa/1.2.0 gives fifteen days' notice of a new subcontractor
- * (released 30 October 2026, landed 1 November 2026); dpa/1.1.0 gives
+ * (released 30 October 2026, reconciled 1 November 2026); dpa/1.1.0 gives
  * dpa/1.0.0's 24 hours, as DPA_CLAUSE_EXPLAINERS says.
  */
 export const DPA_CLAUSE_EXPLAINERS_BY_VERSION: Readonly<

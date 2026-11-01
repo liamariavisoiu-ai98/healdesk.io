@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import {
   CURRENT_DPA_VERSION,
   DPA_1_1_0_RELEASED,
+  DPA_1_2_0_RELEASED,
   DPA_TEMPLATE_1_1_0_DRAFT,
   DPA_TEMPLATES,
   DPA_VERSION_PREFIX,
@@ -25,9 +26,12 @@ import { DESTRUCTION_RULES, destructionRuleFor } from "@/lib/offboarding/offboar
  * to what the catalogue will say once released, so the release cannot be a
  * flip with a migration that disagrees with it, or a flip with no migration.
  *
- * Released by the owner on 30 October 2026 (DPA_1_1_0_RELEASED true): 1.1.0
- * is current, the release migration is drizzle/0140_dpa_release_1_1_0.sql,
- * and every version-to-rule map in apps/app gives 1.1.0 1.0.0's rules.
+ * Released by the owner on 30 October 2026 (DPA_1_1_0_RELEASED true): the
+ * release migration is drizzle/0140_dpa_release_1_1_0.sql, and every
+ * version-to-rule map in apps/app gives 1.1.0 1.0.0's rules. Since 1 November
+ * 2026 dpa/1.2.0 is current ahead of it (baa-release-1-7-0.test.ts), so this
+ * file reads 1.1.0's release as it happened, with 1.2.0's switch off, and
+ * leaves out of 0140's comparisons what 0142 added after it.
  */
 
 const DRIZZLE = fileURLToPath(new URL("../drizzle/", import.meta.url));
@@ -48,12 +52,20 @@ function allowList(sql: string, fn: string): string[] {
   return [...body![1]!.matchAll(/'([^']*)'/g)].map((m) => m[1]!).sort();
 }
 
-/** The DPA versions released once the switch is in the given state. */
+/** The DPA versions released once 1.1.0's switch is in the given state, 1.2.0's off. */
 function releasedUnder(released: boolean): string[] {
-  return dpaTemplatesFor(released)
+  return dpaTemplatesFor(released, false)
     .filter((t) => t.approvedByCounsel)
     .map((t) => t.version)
     .sort();
+}
+
+/** What drizzle/0142 (baa_release_1_7_0_dpa_1_2_0) added to the export rule after 0140. */
+const ADDED_BY_0142 = ["1.7.0", "dpa/1.2.0"];
+
+/** The versions DESTRUCTION_RULES gave the export rule when 0140 ran, namespaced as stored. */
+function exportRuleVersionsAt0140(): string[] {
+  return exportRuleVersionsToday().filter((v) => !ADDED_BY_0142.includes(v));
 }
 
 /** The versions DESTRUCTION_RULES gives the export rule today, namespaced as stored. */
@@ -68,13 +80,15 @@ function exportRuleVersionsToday(): string[] {
 }
 
 describe("the switch", () => {
-  test("today's catalogue is what the switch says", () => {
-    expect(DPA_TEMPLATES).toEqual(dpaTemplatesFor(DPA_1_1_0_RELEASED));
-    expect(CURRENT_DPA_VERSION).toBe(DPA_1_1_0_RELEASED ? "dpa/1.1.0" : "dpa/1.0.0");
+  test("today's catalogue is what the switches say", () => {
+    expect(DPA_TEMPLATES).toEqual(dpaTemplatesFor(DPA_1_1_0_RELEASED, DPA_1_2_0_RELEASED));
+    expect(CURRENT_DPA_VERSION).toBe(
+      DPA_1_2_0_RELEASED ? "dpa/1.2.0" : DPA_1_1_0_RELEASED ? "dpa/1.1.0" : "dpa/1.0.0",
+    );
   });
 
   test("off, 1.0.0 alone is registered, and apps/app's rules do not know 1.1.0", () => {
-    expect(dpaTemplatesFor(false).map((t) => [t.version, t.approvedByCounsel])).toEqual([
+    expect(dpaTemplatesFor(false, false).map((t) => [t.version, t.approvedByCounsel])).toEqual([
       ["dpa/1.0.0", true],
     ]);
     expect(releasedUnder(false)).toEqual(["dpa/1.0.0"]);
@@ -87,15 +101,15 @@ describe("the switch", () => {
     }
   });
 
-  test("on, 1.1.0 is current and released and 1.0.0 stays released after it", () => {
-    expect(dpaTemplatesFor(true).map((t) => [t.version, t.approvedByCounsel])).toEqual([
+  test("on, as released, 1.1.0 was current and 1.0.0 stayed released after it", () => {
+    expect(dpaTemplatesFor(true, false).map((t) => [t.version, t.approvedByCounsel])).toEqual([
       ["dpa/1.1.0", true],
       ["dpa/1.0.0", true],
     ]);
     expect(releasedUnder(true)).toEqual(["dpa/1.0.0", "dpa/1.1.0"]);
     // 1.1.0's Term, Incidents and Subcontractors clauses are 1.0.0's own
     // objects, which is why the release gives it 1.0.0's rules in every map.
-    const v100 = dpaTemplatesFor(true)[1]!;
+    const v100 = dpaTemplatesFor(true, false)[1]!;
     for (const id of ["term", "incidents", "subcontractors"]) {
       expect(
         DPA_TEMPLATE_1_1_0_DRAFT.clauses.find((c) => c.id === id),
@@ -113,13 +127,14 @@ describe("the release migration", () => {
 
   test("the prepared migration gives 1.1.0 the export rule and changes no other version's", () => {
     const sql = readFileSync(STAGED, "utf8");
-    const expected = [...new Set([...exportRuleVersionsToday(), "dpa/1.1.0"])].sort();
+    const expected = [...new Set([...exportRuleVersionsAt0140(), "dpa/1.1.0"])].sort();
     expect(allowList(sql, "app_destruction_rule")).toEqual(expected);
   });
 
   test("the switch is on: the owner released 1.1.0 on 30 October 2026", () => {
     expect(DPA_1_1_0_RELEASED).toBe(true);
-    expect(CURRENT_DPA_VERSION).toBe("dpa/1.1.0");
+    // Current since C13 landed: dpa/1.2.0, with 1.1.0 released behind it.
+    expect(CURRENT_DPA_VERSION).toBe("dpa/1.2.0");
     // 1.1.0's rules in every map are 1.0.0's, read from the released registry.
     expect(getDpaTemplate("dpa/1.1.0")?.approvedByCounsel).toBe(true);
     expect(destructionRuleFor("dpa/1.1.0")).toEqual({
@@ -157,6 +172,6 @@ describe("the release migration", () => {
     const sql = readFileSync(`${DRIZZLE}${files[0]}`, "utf8");
     expect(sql).not.toContain("<DAY>");
     expect(allowList(sql, "app_dpa_version_released")).toEqual(releasedUnder(true));
-    expect(allowList(sql, "app_destruction_rule")).toEqual(exportRuleVersionsToday());
+    expect(allowList(sql, "app_destruction_rule")).toEqual(exportRuleVersionsAt0140());
   });
 });

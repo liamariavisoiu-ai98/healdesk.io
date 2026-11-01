@@ -408,7 +408,7 @@ describe("AGREEMENT_COPY", () => {
     expect(agreementCopyFor("dpa")).toBe(dpa);
     expect(dpa.kind).toBe("dpa");
     expect(dpa.title).toBe("Data Protection Agreement");
-    // dpa/1.2.0, current since it landed on 1 November 2026, words its two
+    // dpa/1.2.0, current since it landed (reconciled 1 November 2026), words its two
     // changed periods in its own explainer; dpa/1.0.0 and dpa/1.1.0, which
     // state 1.0.0's periods, keep DPA_EXPLAINER.
     expect(dpa.explainer).toBe(dpaExplainerFor("dpa/1.2.0"));

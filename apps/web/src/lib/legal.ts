@@ -65,7 +65,7 @@ import {
 // prices, the block rule and section 4's price-change notice are unchanged.
 // It replaces the live 2026-10-30.1.
 // 2026-11-01.1 is BAA 1.7.0's and DPA 1.2.0's release text (owner, 30
-// October 2026; landed 1 November 2026, "Go C13" on docs/launch-board.html):
+// October 2026; reconciled 1 November 2026, "Go C13" on docs/launch-board.html):
 // Terms' security annex and Privacy § 9 say a breach or security incident is
 // reported to the clinic in no case later than 10 calendar days after
 // discovery, where they said 60, as both agreements now do. It was first

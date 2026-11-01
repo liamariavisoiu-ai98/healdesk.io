@@ -646,7 +646,7 @@ describeDb("database audit (0031)", () => {
     // 29 October 2026), as 1.5.1 had replaced 1.5.0 (0081, 19 October), and
     // the test above refuses a 1.5.1 clinic. Go-live reads the floor through
     // app_baa_version_acceptable, never a version of its own (0090), so the
-    // next release moved it too: 1.7.0's (0142, landed 1 November 2026) raised it
+    // next release moved it too: 1.7.0's (0142, reconciled 1 November 2026) raised it
     // to 1.7.0, which replaced 1.6.0 outright for its reporting and notice
     // periods, with no clinic holding a 1.6.0 signature.
     expect(MIN_ACCEPTABLE_BAA_VERSION).toBe("1.7.0");

@@ -190,7 +190,7 @@ describe("DPA freeze", () => {
   });
 
   test("is registered once, namespaced and released, and nothing in the text ever said it was a draft", () => {
-    // dpa/1.2.0 is current since it landed on 1 November 2026, and 1.1.0
+    // dpa/1.2.0 is current since it landed (reconciled 1 November 2026), and 1.1.0
     // and 1.0.0 follow it once each, still released (dpa-1-2-0.test.ts,
     // dpa-1-1-0.test.ts).
     expect(DPA_TEMPLATES.map((t) => t.version)).toEqual(["dpa/1.2.0", "dpa/1.1.0", "dpa/1.0.0"]);

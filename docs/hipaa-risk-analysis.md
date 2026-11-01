@@ -49,7 +49,7 @@ the code, the repo or the mailbox named.
   numbered 1.1.0 on the branch that built it; main had already released a
   dpa/1.1.0 for the payment-link text, so it landed as 1.2.0.)
 - **T4's notice period is 15 days** under BAA 1.7.0 and DPA 1.2.0. It was 24
-  hours in BAA 1.3.0 to 1.6.0 and DPA 1.0.0, which no real clinic signed.
+  hours in BAA 1.3.0 to 1.6.0, DPA 1.0.0 and DPA 1.1.0, which no real clinic signed.
 - **Still open, owner only:** the Security Official's name
   (`policies/security-official.md`), the Security Official's read and
   signature of this analysis and the policies (`policies/training-log.md`),

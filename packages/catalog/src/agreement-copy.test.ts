@@ -83,7 +83,7 @@ describe("AGREEMENT_COPY", () => {
     expect(dpa.explainer("dpa/1.0.0")).toBe(DPA_EXPLAINER);
     // dpa/1.1.0 states dpa/1.0.0's periods, so it keeps DPA_EXPLAINER.
     expect(dpa.explainer("dpa/1.1.0")).toBe(DPA_EXPLAINER);
-    // dpa/1.2.0, current since it landed on 1 November 2026, words its two changed periods.
+    // dpa/1.2.0, current since it landed (reconciled 1 November 2026), words its two changed periods.
     expect(dpa.explainer(CURRENT_DPA_VERSION)).toBe(dpaExplainerFor(CURRENT_DPA_VERSION));
     for (const version of [CURRENT_DPA_VERSION, "1.2.1", "1.3.0"]) {
       expect(dpa.explainer(version), version).not.toBe(BAA_EXPLAINER);
@@ -135,7 +135,7 @@ describe("AGREEMENT_COPY", () => {
     expect(dpaClauseExplainer("dpa/1.0.0", "subcontractors")?.plain).toContain(
       "at least 24 hours",
     );
-    // dpa/1.1.0 still gives 24 hours; dpa/1.2.0, current since 1 November 2026, gives fifteen days.
+    // dpa/1.1.0 still gives 24 hours; dpa/1.2.0, current since C13 landed, gives fifteen days.
     expect(dpaClauseExplainer("dpa/1.1.0", "subcontractors")?.plain).toContain(
       "at least 24 hours",
     );

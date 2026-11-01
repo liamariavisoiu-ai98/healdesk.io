@@ -1,4 +1,4 @@
-healdesk Data Protection Agreement — version dpa/1.2.0, RELEASED, landed 1
+healdesk Data Protection Agreement — version dpa/1.2.0, RELEASED, reconciled 1
 November 2026. Released by the owner: on 30 October 2026 he said "release BAA
 1.7.0 and DPA 1.1.0" for this content, built that day on a branch as
 "dpa/1.1.0"; main released a different dpa/1.1.0 (the payment-link text) the
@@ -11,7 +11,7 @@ app_dpa_version_released lists it (apps/app
 drizzle/0142_baa_release_1_7_0_dpa_1_2_0). It applies to practices that sign
 from the release on; a practice that signed an earlier DPA stays on it.
 Drafted by an AI assistant on the owner's instruction and AI-reviewed; counsel
-has not reviewed it (docs/counsel/agreement-changes.md §21). It is frozen now:
+has not reviewed it (docs/counsel/agreement-changes.md §22). It is frozen now:
 a change is a new version, never an edit.
 
 What changed against dpa/1.1.0, on the owner's instruction of 30 October 2026
@@ -30,8 +30,8 @@ prints it.
 
 Rendered for the same sample practice as docs/dpa-v1.0.0.txt: a med spa that
 answered "No"; bookings in Mindbody; a personal Google account. From the title
-line on, the sample is exactly what packages/catalog/src/dpa.test.ts freezes
-as dpa/1.2.0 / sample (SHA-256
+line on, the sample is exactly what packages/catalog/src/dpa-1-2-0.test.ts
+freezes as dpa/1.2.0 / sample (SHA-256
 9e34238a0e47f8a67404b57ee8fa1ba40d6d7fecdc210149fc59d3018a54e49d; dpa/1.1.0's
 is a5f1eeff14fb2133ac76de1ad517124ce013e3ae74eb190d6f0601112cf79c6c). The
 clauses that render only for some practices follow in Appendix A, numbered as

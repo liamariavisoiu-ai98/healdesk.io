@@ -114,7 +114,7 @@ const PINNED_WITH_1_6_0 = {
 
 /**
  * The text once BAA 1.7.0 and DPA 1.2.0 are released (BAA_1_7_0_RELEASED;
- * the owner's release of 30 October 2026, landed 1 November 2026): Terms'
+ * the owner's release of 30 October 2026, reconciled 1 November 2026): Terms'
  * security annex and Privacy § 9 say a breach or security incident is
  * reported in no case later than 10 calendar days after discovery, where
  * 2026-10-30.2 said 60. Nothing else moves, and the deletion page is word for

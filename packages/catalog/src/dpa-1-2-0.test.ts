@@ -32,7 +32,7 @@ import { wrap } from "./wrap";
 /**
  * DPA 1.2.0: the owner's release of 30 October 2026 ("release BAA 1.7.0 and
  * DPA 1.1.0"; ten calendar days to report, fifteen days' notice of a new
- * subcontractor), landed on 1 November 2026 ("Go C13"). Its branch called it
+ * subcontractor), reconciled on 1 November 2026 ("Go C13"). Its branch called it
  * dpa/1.1.0, a number main had already released for the payment-link text,
  * so it sits on top of that one (dpa.ts; docs/counsel/agreement-changes.md
  * §22). What it says, that it says nothing else new against dpa/1.1.0, that
@@ -202,7 +202,7 @@ describe("DPA 1.2.0: the text", () => {
   });
 });
 
-describe("DPA 1.2.0: the switch, on (the owner's release, landed 1 November 2026)", () => {
+describe("DPA 1.2.0: the switch, on (the owner's release, reconciled 1 November 2026)", () => {
   test("the switch is on, and DPA_TEMPLATES is dpa/1.2.0, then dpa/1.1.0 and dpa/1.0.0, all released", () => {
     expect(DPA_1_1_0_RELEASED).toBe(true);
     expect(DPA_1_2_0_RELEASED).toBe(true);

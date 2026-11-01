@@ -164,7 +164,10 @@ describe("the agreement that covers the text", () => {
   test("BAA 1.6.0 and DPA 1.1.0 or later; anything older, a draft, unknown or unreadable is no", () => {
     expect(agreementVersionCoversText("1.6.0")).toBe(true);
     expect(agreementVersionCoversText("dpa/1.1.0")).toBe(true);
-    for (const v of ["1.5.1", "1.5.0", "1.2.1", "dpa/1.0.0", "1.1.0-draft", "1.7.0", "dpa/1.2.0", "dpa/", "", "1.6", "v1.6.0", null, undefined]) {
+    // Released since C13 landed, and carrying the same exception.
+    expect(agreementVersionCoversText("1.7.0")).toBe(true);
+    expect(agreementVersionCoversText("dpa/1.2.0")).toBe(true);
+    for (const v of ["1.5.1", "1.5.0", "1.2.1", "dpa/1.0.0", "1.1.0-draft", "1.8.0", "dpa/1.3.0", "dpa/", "", "1.6", "v1.6.0", null, undefined]) {
       expect(agreementVersionCoversText(v), String(v)).toBe(false);
     }
   });

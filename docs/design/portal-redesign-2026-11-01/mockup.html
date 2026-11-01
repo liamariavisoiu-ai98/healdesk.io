@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>healdesk portal redesign: mockup (1 Nov 2026)</title>
+<style>
+:root{
+  --ink:#172a3a; --muted:#5c6e7e; --paper:#fbfaf8; --card:#fff; --line:rgba(23,42,58,.10);
+  --orange:#ff761e; --orange-deep:#e05800; --peach:#ffe9de; --mint:#e5f6dc; --green:#2d6a4f;
+  --sun:#fff3bf; --r-sm:10px; --r-md:18px; --r-lg:28px;
+  --shadow:0 1px 2px rgba(23,42,58,.04),0 8px 24px rgba(23,42,58,.06);
+  font-family:"Instrument Sans",-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;
+  color:var(--ink); background:var(--paper);
+}
+*{box-sizing:border-box} body{margin:0;-webkit-font-smoothing:antialiased}
+.note{background:var(--sun);font-size:13px;padding:8px 16px;text-align:center}
+.app{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
+aside{padding:28px 18px;border-right:1px solid var(--line);background:rgba(255,255,255,.6);backdrop-filter:blur(12px);position:sticky;top:0;height:100vh}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:19px;letter-spacing:-.02em;margin:0 8px 6px}
+.dot{width:26px;height:26px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffb27a,var(--orange) 45%,#c0392b);box-shadow:0 2px 8px rgba(255,118,30,.45)}
+.clinic{font-size:13px;color:var(--muted);margin:0 8px 26px 44px}
+nav button{display:flex;align-items:center;gap:12px;width:100%;border:0;background:none;font:inherit;font-size:15px;color:var(--ink);padding:10px 12px;border-radius:12px;cursor:pointer;text-align:left}
+nav button:hover{background:rgba(23,42,58,.05)}
+nav button.on{background:var(--ink);color:#fff}
+nav svg{width:18px;height:18px;flex:none}
+.pause{margin-top:28px;padding:14px;border-radius:16px;background:var(--card);box-shadow:var(--shadow);font-size:13px}
+.pause .row{display:flex;justify-content:space-between;align-items:center;font-weight:600;font-size:14px}
+main{padding:36px 48px 80px;max-width:1120px}
+h1{font-size:34px;letter-spacing:-.03em;margin:0 0 4px;font-weight:700}
+.sub{color:var(--muted);margin:0 0 28px;font-size:15px}
+.grid{display:grid;gap:18px}
+.g3{grid-template-columns:repeat(3,1fr)} .g2{grid-template-columns:1.3fr 1fr}
+.card{background:var(--card);border-radius:var(--r-lg);box-shadow:var(--shadow);padding:24px 26px}
+.card h2{font-size:15px;font-weight:600;margin:0 0 14px;color:var(--muted);letter-spacing:.01em}
+.kpi .label{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.kpi .num{font-size:44px;font-weight:700;letter-spacing:-.04em;margin:6px 0 2px}
+.kpi .hint{font-size:13px;color:var(--muted)}
+.kpi.hero{background:linear-gradient(160deg,#fff 0%,#fff7f1 100%)}
+.kpi.hero .num{font-size:56px}
+.up{color:var(--green);font-weight:600}
+.week{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-top:6px}
+.day{background:#f6f5f3;border-radius:14px;min-height:150px;padding:10px 6px;text-align:center;font-size:13px;color:var(--muted)}
+.day b{display:block;color:var(--ink);font-weight:600;margin-bottom:8px}
+.slot{background:var(--orange);color:#fff;border-radius:10px;padding:6px 4px;font-size:12px;line-height:1.3;margin:6px 2px;font-weight:600;box-shadow:0 3px 10px rgba(255,118,30,.3)}
+.slot.req{background:#fff;color:var(--orange-deep);border:1.5px dashed var(--orange)}
+.list .item{display:flex;align-items:center;gap:14px;padding:14px 0;border-top:1px solid var(--line)}
+.list .item:first-child{border-top:0}
+.ic{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;color:#fff;font-weight:700;flex:none;font-size:15px}
+.ic.phone{background:#34c759}.ic.wa{background:#25d366}.ic.ig{background:linear-gradient(45deg,#f9a825,#e91e63,#7b1fa2)}.ic.ms{background:linear-gradient(45deg,#2979ff,#d500f9)}.ic.web{background:var(--ink)}
+.item .t{flex:1;min-width:0}.item .t small{color:var(--muted);display:block;font-size:12px}
+.item .t div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pill{border-radius:999px;padding:5px 12px;font-size:13px;font-weight:600;white-space:nowrap}
+.pill.or{background:var(--orange);color:#fff}.pill.ok{background:var(--mint);color:var(--green)}.pill.wait{background:#f1f1f1;color:var(--muted)}.pill.pe{background:var(--peach);color:var(--orange-deep)}
+.btn{border:0;border-radius:999px;padding:11px 20px;font:inherit;font-weight:600;font-size:14px;cursor:pointer}
+.btn.dark{background:var(--ink);color:#fff}.btn.light{background:#f1f1f1;color:var(--ink)}.btn.or{background:var(--orange);color:#fff}
+.attn{display:flex;align-items:center;gap:14px;background:var(--peach);border-radius:var(--r-md);padding:14px 18px;margin-bottom:18px}
+.attn .t{flex:1;font-size:15px}
+.setting{display:flex;align-items:center;gap:16px;padding:16px 0;border-top:1px solid var(--line)}
+.setting:first-of-type{border-top:0}
+.setting .t{flex:1}.setting .t b{font-weight:600;display:block}.setting .t span{color:var(--muted);font-size:14px}
+.tog{width:51px;height:31px;border-radius:999px;background:#d9dde1;position:relative;cursor:pointer;flex:none;transition:.2s}
+.tog::after{content:"";position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 2px 4px rgba(0,0,0,.2);transition:.2s}
+.tog.on{background:#34c759}.tog.on::after{left:22px}
+.seg{display:inline-flex;background:#f1f1f1;border-radius:12px;padding:3px;gap:2px}
+.seg button{border:0;background:none;font:inherit;font-size:13px;padding:8px 14px;border-radius:9px;cursor:pointer;color:var(--ink)}
+.seg button.on{background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.12);font-weight:600}
+.conn{display:flex;align-items:center;gap:12px;flex:1}
+.logo{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;font-weight:700;color:#fff;font-size:14px}
+table{width:100%;border-collapse:collapse;font-size:15px}
+td,th{text-align:left;padding:12px 6px;border-top:1px solid var(--line)} th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;border-top:0}
+.drop{border:2px dashed var(--line);border-radius:var(--r-md);padding:26px;text-align:center;color:var(--muted);font-size:14px}
+.meter{height:10px;border-radius:99px;background:#f1f1f1;overflow:hidden;margin:8px 0 4px}.meter i{display:block;height:100%;background:var(--orange);border-radius:99px}
+.plans{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:6px}
+.plan{border:1.5px solid var(--line);border-radius:var(--r-md);padding:16px;cursor:pointer}
+.plan.cur{border-color:var(--ink)}.plan.sel{border-color:var(--orange);background:#fff8f3}
+.plan b{display:block;font-size:16px}.plan span{color:var(--muted);font-size:13px}.plan .p{font-size:22px;font-weight:700;margin-top:8px;color:var(--ink)}
+.screen{display:none}.screen.on{display:block}
+.legend{font-size:12px;color:var(--muted);margin-top:10px}
+.tag{font-size:11px;font-weight:700;color:var(--orange-deep);background:var(--peach);border-radius:6px;padding:2px 6px;margin-left:6px;vertical-align:middle}
+@media (max-width:900px){.app{grid-template-columns:1fr}aside{position:static;height:auto}.g3,.g2,.plans{grid-template-columns:1fr}main{padding:24px 18px}}
+</style>
+</head>
+<body>
+<div class="note">Design mockup for the owner's review. Sample numbers, fictional clinic. Nothing here is built yet. Items marked <span class="tag">NEW</span> do not exist in the portal today.</div>
+<div class="app">
+<aside>
+  <div class="brand"><span class="dot"></span>healdesk</div>
+  <div class="clinic">Lumen Aesthetics</div>
+  <nav id="nav">
+    <button class="on" data-s="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-7 9 7v9a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1z"/></svg>Home</button>
+    <button data-s="bookings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Bookings</button>
+    <button data-s="conv"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a8 8 0 01-11.6 7.1L4 20l1-4.6A8 8 0 1121 12z"/></svg>Conversations</button>
+    <button data-s="knowledge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5a2 2 0 012-2h12v16H6a2 2 0 00-2 2zM4 21V5"/></svg>Your practice</button>
+    <button data-s="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>Settings</button>
+    <button data-s="billing"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M2 10h20"/></svg>Plan &amp; billing</button>
+  </nav>
+  <div class="pause"><div class="row">AYA is answering <span class="tog on" onclick="this.classList.toggle('on')"></span></div><div style="color:var(--muted);margin-top:6px">Switch off to pause on every channel. Calls go to your own line.</div></div>
+</aside>
+
+<main>
+<!-- HOME -->
+<section class="screen on" id="home">
+  <h1>Good morning, Lumen</h1>
+  <p class="sub">AYA answered everything this week. Here's what she booked.</p>
+  <div class="attn"><span style="font-size:20px">⚡</span><div class="t"><b>One thing needs you:</b> your Google Calendar connection expired. Bookings arrive as requests until you reconnect.</div><button class="btn dark">Reconnect</button></div>
+  <div class="grid g3">
+    <div class="card kpi hero"><div class="label">Booked value this week</div><div class="num">$1,448</div><div class="hint">4 bookings at your own prices · <span class="up">↑ $612 vs last week</span></div></div>
+    <div class="card kpi"><div class="label">Bookings</div><div class="num">4</div><div class="hint">from 27 conversations</div></div>
+    <div class="card kpi"><div class="label">Deposits collected</div><div class="num">$150</div><div class="hint">3 paid · 1 waiting</div></div>
+  </div>
+  <div class="grid g2" style="margin-top:18px">
+    <div class="card"><h2>This week</h2>
+      <div class="week">
+        <div class="day"><b>Mon</b></div><div class="day"><b>Tue</b></div>
+        <div class="day"><b>Wed</b><div class="slot">1:00 PM<br>$299</div></div>
+        <div class="day"><b>Thu</b><div class="slot">5:30 PM<br>$650</div></div>
+        <div class="day"><b>Fri</b><div class="slot">2:00 PM<br>$299</div></div>
+        <div class="day"><b>Sat</b><div class="slot">11:00 AM<br>$200</div><div class="slot req">Request<br>3:00 PM</div></div>
+        <div class="day"><b>Sun</b></div>
+      </div>
+      <div class="legend">Solid: booked by AYA. Dashed: waiting for your team to confirm. Open Bookings for names and treatments.</div>
+    </div>
+    <div class="card"><h2>AYA's channels</h2>
+      <div class="list">
+        <div class="item"><span class="ic phone">✆</span><div class="t"><div>Phone</div><small>After hours and when the line is busy</small></div><span class="pill ok">Live</span></div>
+        <div class="item"><span class="ic web">www</span><div class="t"><div>Website chat</div><small>On your site</small></div><span class="pill ok">Live</span></div>
+        <div class="item"><span class="ic ig">◎</span><div class="t"><div>Instagram &amp; Messenger</div><small>Connect with Facebook login</small></div><button class="btn light">Connect</button></div>
+        <div class="item"><span class="ic wa">✓</span><div class="t"><div>WhatsApp</div><small>Needs a payment method on WhatsApp</small></div><span class="pill wait">Waiting</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:18px"><h2>Your plan</h2>
+    <div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap">
+      <div style="flex:1;min-width:220px"><b>Voice + Meta Chat</b><div style="color:var(--muted);font-size:14px">500 minutes · 300 conversations · $580/month</div></div>
+      <div style="flex:1;min-width:200px"><div style="font-size:13px;color:var(--muted)">Minutes used: 312 of 500</div><div class="meter"><i style="width:62%"></i></div></div>
+      <button class="btn or" onclick="go('billing')">Upgrade</button>
+    </div>
+  </div>
+</section>
+
+<!-- BOOKINGS -->
+<section class="screen" id="bookings">
+  <h1>Bookings</h1><p class="sub">Everything AYA booked, with its deposit. One tap to confirm a request.</p>
+  <div class="card" style="margin-bottom:18px"><h2>Needs your OK</h2>
+    <div class="list"><div class="item"><span class="ic ig">◎</span><div class="t"><div>Maya R. · HydraFacial</div><small>Sat 3:00 PM · asked on Instagram</small></div><button class="btn light">Decline</button><button class="btn dark">Confirm</button></div></div>
+  </div>
+  <div class="card"><h2>This week · <span style="color:var(--ink)">Nov 3 to 9</span></h2>
+    <table><tr><th>When</th><th>Who</th><th>Treatment</th><th>Value</th><th>Deposit</th><th>From</th></tr>
+      <tr><td>Wed 1:00 PM</td><td>Jordan L.</td><td>Botox, 1 area</td><td>$299</td><td><span class="pill ok">$50 paid</span></td><td>Messenger</td></tr>
+      <tr><td>Thu 5:30 PM</td><td>Priya S.</td><td>Morpheus8</td><td>$650</td><td><span class="pill ok">$50 paid</span></td><td>WhatsApp</td></tr>
+      <tr><td>Fri 2:00 PM</td><td>Alex T.</td><td>Botox, 1 area</td><td>$299</td><td><span class="pill pe">Front desk to collect</span></td><td>Phone</td></tr>
+      <tr><td>Sat 11:00 AM</td><td>Sam K.</td><td>Chemical peel</td><td>$200</td><td><span class="pill ok">$50 paid</span></td><td>Instagram</td></tr>
+    </table>
+    <div class="legend">Names and treatments open only on a device with your passkey, as today.</div>
+  </div>
+</section>
+
+<!-- CONVERSATIONS -->
+<section class="screen" id="conv">
+  <h1>Conversations</h1><p class="sub">Every call, chat and message AYA answered, and what came of it.</p>
+  <div class="card"><div class="list">
+    <div class="item"><span class="ic phone">✆</span><div class="t"><small>Phone call · Today 7:42 PM · 2 min</small><div>Booked Fri 2:00 PM</div></div><span class="pill or">+$299</span></div>
+    <div class="item"><span class="ic wa">✓</span><div class="t"><small>WhatsApp · Today 6:58 PM</small><div>Booked Thu 5:30 PM</div></div><span class="pill or">+$650</span></div>
+    <div class="item"><span class="ic ig">◎</span><div class="t"><small>Instagram · Yesterday 11:48 PM</small><div>Asked about Saturday · request sent to you</div></div><span class="pill pe">Request</span></div>
+    <div class="item"><span class="ic web">www</span><div class="t"><small>Website chat · Yesterday 3:10 PM</small><div>Asked about parking · answered</div></div><span class="pill wait">Answered</span></div>
+  </div><div class="legend">The words aren't kept here: each transcript is emailed to you when the conversation ends.</div></div>
+</section>
+
+<!-- KNOWLEDGE -->
+<section class="screen" id="knowledge">
+  <h1>Your practice</h1><p class="sub">What AYA knows. Change anything; she uses it on the next call.</p>
+  <div class="grid g2">
+    <div class="card"><h2>Treatments &amp; prices</h2>
+      <table><tr><th>Treatment</th><th>Price</th><th>Length</th></tr>
+        <tr><td>Botox, 1 area</td><td>$299</td><td>30 min</td></tr><tr><td>HydraFacial</td><td>$199</td><td>45 min</td></tr>
+        <tr><td>Morpheus8</td><td>$650</td><td>60 min</td></tr><tr><td>Chemical peel</td><td>$200</td><td>45 min</td></tr></table>
+      <div style="margin-top:12px"><button class="btn light">+ Add a treatment</button></div>
+    </div>
+    <div class="card"><h2>Add what AYA should know <span class="tag">NEW</span></h2>
+      <div class="drop">Drop a price list, menu or info sheet (PDF, image, Word)<br><br><button class="btn dark">Choose a file</button><br><br>AYA reads it and shows you the prices and answers it found. Nothing changes until you approve.</div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:18px"><h2>Quick answers</h2>
+    <table><tr><th>When someone asks…</th><th>AYA says…</th></tr>
+      <tr><td>Where do I park?</td><td>Free parking behind the building, entrance on Oak Street.</td></tr>
+      <tr><td>About the venue</td><td>A quiet studio on the second floor, with a lift.</td></tr></table>
+    <div style="margin-top:12px"><button class="btn light">+ Add an answer</button></div>
+  </div>
+</section>
+
+<!-- SETTINGS -->
+<section class="screen" id="settings">
+  <h1>Settings</h1><p class="sub">Every switch in one place. Changes save as you make them.</p>
+  <div class="card" style="margin-bottom:18px"><h2>Phone calls</h2>
+    <div class="setting"><div class="t"><b>AYA answers calls</b><span>Your patients keep calling your number.</span></div><span class="tog on" onclick="this.classList.toggle('on')"></span></div>
+    <div class="setting"><div class="t"><b>When AYA picks up</b><span>We show you what to dial each time you change this.</span></div>
+      <div class="seg"><button>Every call, 24/7</button><button class="on">Busy or after hours</button><button>After hours only</button></div></div>
+  </div>
+  <div class="grid g2">
+    <div class="card"><h2>Connections</h2>
+      <div class="setting"><div class="conn"><span class="logo" style="background:#4285f4">G</span><div class="t"><b>Google Calendar</b><span>AYA books straight into it.</span></div></div><button class="btn dark">Connect</button></div>
+      <div class="setting"><div class="conn"><span class="logo" style="background:#635bff">S</span><div class="t"><b>Stripe</b><span>For deposits, paid to your own account.</span></div></div><button class="btn dark">Connect</button></div>
+      <div class="setting"><div class="conn"><span class="logo" style="background:linear-gradient(45deg,#2979ff,#d500f9)">f</span><div class="t"><b>Instagram, Messenger &amp; WhatsApp</b><span>Log in with Facebook.</span></div></div><button class="btn dark">Connect</button></div>
+    </div>
+    <div class="card"><h2>Bookings &amp; deposits</h2>
+      <div class="setting"><div class="t"><b>Confirm bookings automatically</b><span>Off: your team approves each one.</span></div><span class="tog on" onclick="this.classList.toggle('on')"></span></div>
+      <div class="setting"><div class="t"><b>Take a deposit</b><span>$50 on treatments you choose.</span></div><span class="tog on" onclick="this.classList.toggle('on')"></span></div>
+      <div class="setting"><div class="t"><b>Website chat</b><span>Copy one line onto your site.</span></div><button class="btn light">Copy code</button></div>
+    </div>
+  </div>
+</section>
+
+<!-- BILLING -->
+<section class="screen" id="billing">
+  <h1>Plan &amp; billing</h1><p class="sub">Your plan, what you've used, and a bigger plan in one tap.</p>
+  <div class="grid g2">
+    <div class="card"><h2>This month</h2>
+      <div style="font-size:14px">Voice minutes · 312 of 500</div><div class="meter"><i style="width:62%"></i></div>
+      <div style="font-size:14px;margin-top:14px">Chat conversations · 128 of 300</div><div class="meter"><i style="width:43%"></i></div>
+      <div class="legend">Renews Dec 1 · next invoice $580 · <a href="#">Invoices and card</a></div>
+    </div>
+    <div class="card"><h2>Change your plan</h2>
+      <div class="plans">
+        <div class="plan cur"><b>500 min</b><span>Current</span><div class="p">$580</div></div>
+        <div class="plan sel"><b>700 min</b><span>+200 minutes</span><div class="p">$740</div></div>
+        <div class="plan"><b>1,000 min</b><span>+500 minutes</span><div class="p">$980</div></div>
+      </div>
+      <div style="margin-top:14px"><button class="btn or">Review the change</button></div>
+      <div class="legend">Sample prices for the mockup. You see what it costs before anything is charged.</div>
+    </div>
+  </div>
+</section>
+</main>
+</div>
+<script>
+function go(s){document.querySelectorAll('.screen').forEach(e=>e.classList.toggle('on',e.id===s));document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.s===s));window.scrollTo(0,0)}
+document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>go(b.dataset.s));
+document.querySelectorAll('.seg').forEach(g=>g.querySelectorAll('button').forEach(b=>b.onclick=()=>{g.querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on')}));
+document.querySelectorAll('.plan').forEach(p=>p.onclick=()=>{document.querySelectorAll('.plan').forEach(x=>x.classList.remove('sel'));if(!p.classList.contains('cur'))p.classList.add('sel')});
+</script>
+</body></html>

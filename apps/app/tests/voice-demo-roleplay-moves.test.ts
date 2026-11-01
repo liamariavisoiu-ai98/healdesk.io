@@ -55,6 +55,11 @@ describe("the role-play's booking, in code", () => {
     // Once a call: the next time asked for, or one she just offered, is hers to take.
     expect(first("Thursday at 3 PM then.", { lookedUp: true, takenShown: true })).toBeNull();
     expect(first("2 PM is great.", { rpDay: 4, lastQuestion: "Ah, 3 PM on Thursday, November 5 is already taken, but I can do 2 PM or 4 PM that day. Would either of those work?" })).toBeNull();
+    // A caller who keeps it brief gets no pleasantry, and still the taken time with two near it (owner, 1 November 2026: mirror their efficiency).
+    const brief = ["Botox.", "This Thursday.", "3 PM."].reduce((p, w) => withDemoAnswer(p, "roleplay", w), at({ rpDay: 4 }));
+    expect(roleplayTimeLine(context, brief, "3 PM.")).toBe("Let me take a look... Ah, 3 PM on Thursday, November 5 is already taken, but I can do 2 PM or 4 PM that day. Would either of those work?");
+    const chatty = ["Hi! So I've been meaning to come in for Botox before my sister's wedding.", "This Thursday.", "3 PM."].reduce((p, w) => withDemoAnswer(p, "roleplay", w), at({ rpDay: 4 }));
+    expect(roleplayTimeLine(context, chatty, "3 PM.")).toMatch(/^Happy Friday! /);
     expect(first("Do you have parking available?")).toBeNull();
     expect(first("Do you have any Botox deals?")).toBeNull();
   });
@@ -131,6 +136,12 @@ describe("the receptionist's manner (owner, 1 November 2026)", () => {
     expect(manner).toContain("Never say you are sending them a confirmation or any message.");
     expect(prompt).toContain("use it once in the call, in the wrap-up");
     expect(prompt).not.toContain("at most twice");
+    // His insider-ally lines: "we" for the practice, an opening as a good find, no scarcity the calendar does not show; mirroring a brief caller.
+    expect(manner).toContain('"we", "our team", "when we see you"');
+    expect(manner).toContain('"Oh, perfect, I\'ve got Thursday at 3 PM. Want me to put that in for you?"');
+    expect(manner).toContain("only when the calendar shows it, never to hurry them");
+    expect(manner).not.toMatch(/tightly booked|rare opening|before it's taken/i);
+    expect(prompt).toContain("Short, businesslike answers: drop the pleasantries");
     const lines = [...manner.matchAll(/"([^"]{8,})"/g)].map((m) => m[1]!.replace(/\[provider\]/g, "Dr. Maya Chen").replace(/\[first name\]/g, "Josh").replace(/\[their day\]/g, "Thursday"));
     expect(lines.length).toBeGreaterThan(10);
     for (const line of lines) expect([line, guardAssistantReply(line, facts, { bookingWritten: false }).ok]).toEqual([line, true]);

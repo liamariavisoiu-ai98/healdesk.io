@@ -247,6 +247,10 @@ export type DemoProgress = {
   lookedUp?: boolean;
   /** The first time asked for was "already taken", with two near it offered: once a call (roleplayTimeLine). */
   takenShown?: boolean;
+  /** The most words the caller has said in one turn so far: a caller who keeps it brief gets no pleasantry (calendarLead). */
+  callerMaxWords?: number;
+  /** How many turns the caller has taken, "which part?" included. */
+  callerTurns?: number;
 };
 
 export const DEMO_START_PROGRESS: DemoProgress = { asked: null, roleplayTurns: 0 };
@@ -270,6 +274,8 @@ export function withDemoAnswer(progress: DemoProgress, _stage: DemoStage, words:
     confused: lost ? (progress.confused ?? 0) + 1 : 0,
     picked: pickedFrom(words, progress.lastListed ?? []),
     saidNo: SAID_NO.test(words.trim()),
+    callerMaxWords: Math.max(progress.callerMaxWords ?? 0, words.trim().split(/\s+/).filter(Boolean).length),
+    callerTurns: (progress.callerTurns ?? 0) + 1,
     ...roleplayHeard(progress, words),
   };
 }
@@ -641,12 +647,19 @@ export function roleplayTimeLine(context: Pick<DemoCallContext, "clinic" | "issu
  * zone on the day the call began); after that, a short "let me look".
  */
 export function calendarLead(context: Pick<DemoCallContext, "clinic" | "issuedAt">, progress: DemoProgress): string {
-  if (progress.lookedUp) return "Let me take a look...";
+  // A caller who keeps it brief (two turns or more, none over five words) gets no pleasantry: she mirrors their efficiency (owner, 1 November 2026).
+  if (progress.lookedUp || isBriefCaller(progress)) return "Let me take a look...";
   const day = weekdayOf(new Date(context.issuedAt), demoTimeZone(context.clinic.address));
   if (day === 1 || day === 2) return "I hope your week's off to a great start! Let me pull up our calendar...";
   if (day === 4 || day === 5) return `Happy ${WEEKDAY_NAMES[day]}! Let's get this sorted so you can head into the weekend. Let me see what we have open...`;
   return "Let me pull up our calendar...";
 }
+
+/** A caller whose every answer so far was short and transactional ("Botox." "Thursday at 3."). */
+export function isBriefCaller(progress: DemoProgress): boolean {
+  return (progress.callerTurns ?? 0) >= 2 && (progress.callerMaxWords ?? Infinity) <= BRIEF_WORDS;
+}
+const BRIEF_WORDS = 5;
 
 /** The two free hours nearest a time on a day, inside its hours: the "already taken" alternatives. */
 function nearTimes(span: { open: number; close: number }, minutes: number): number[] {

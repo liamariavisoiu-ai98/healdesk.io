@@ -202,11 +202,14 @@ enforceable rather than aspirational.
    pleasantry before the calendar, human words for a pause, a nod before
    each question, one sentence of validation once they choose, the caller's
    first name once at the wrap-up, a word that the consultation is relaxed, and
-   a closer that looks out for them) is in the
+   a closer that looks out for them, "we" and "our team" for the practice,
+   an opening offered as a good find, and her energy mirroring the caller's,
+   a brief caller getting no pleasantry) is in the
    shared voice prompt (`prompt.ts`, `RECEPTIONIST_MANNER`), so a clinic's
    own calls have it too; it never says a time is booked unless the booking
    line did, never says a confirmation or message is on its way, gives an
-   arrival tip only from the practice's facts, asks no email on a call, and states no popularity or outcome
+   arrival tip only from the practice's facts, claims no scarcity the
+   calendar does not show, asks no email on a call, and states no popularity or outcome
    claim as the clinic's fact. What the clinic's public pages did not show
    is made up for the live demo only (owner, 1 November 2026: invent the
    calendar, the deposit and the prices "just to show them the dream

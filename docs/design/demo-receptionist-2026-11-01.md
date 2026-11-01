@@ -127,3 +127,14 @@ clinic's own calls have them too):
 
 Every quoted line passes the guard on a demo clinic's facts
 (`voice-demo-roleplay-moves.test.ts`).
+
+## The insider ally (same day)
+
+The owner, 1 November 2026: collaborative team phrasing, high-status framing
+of the schedule, and dynamic energy mirroring.
+
+| His line | Now | Why |
+|---|---|---|
+| Speak as an integrated member of the team, "we", "our team", "when we welcome you in": "We will take absolute care of you when you arrive. Let's see when our team can bring you back..." | "we", "our team", "when we see you", never "the clinic" or "they" for the practice: "We'll take great care of you when you come in. Let's see when our team can see you..." | Kept; she stays its AI assistant (her opening says so), never a nurse or a provider, and never speaks for what a provider will recommend; "absolute care" softened |
+| The schedule as high-demand and exclusive, never empty: "Dr. [Name]'s schedule is tightly booked this month, but let me check... Oh, perfect, we actually have a rare opening this Thursday at 3:00 PM. Let's secure that for you before it's taken." | An opening is a good find, never room to spare: two times, never a long list, never "we're wide open" or "anything works": "Oh, perfect, I've got Thursday at 3 PM. Want me to put that in for you?" A full day, a rare time or one about to go only when the calendar shows it | On a clinic's real calls "tightly booked", "a rare opening" and "before it's taken" would often be untrue, and would hurry a patient with a pressure the calendar does not show. On a demo the scarcity is shown by the made-up "already taken" (DEMO-TAKEN-1) |
+| Mirror the caller: brief and transactional, drop the pleasantries and be crisp; chatty and expressive, slow down and match their warmth | In the style's "Mirror them" rule, and the manner's lines are skipped for a brief caller. On a demo, in code: a caller whose answers have all been five words or fewer, over two turns or more, gets "Let me take a look..." without the day's pleasantry (`isBriefCaller`, `calendarLead`) | As written |

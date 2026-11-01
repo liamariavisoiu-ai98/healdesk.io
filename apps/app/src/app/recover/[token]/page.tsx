@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { ContinueButton } from "@/app/sign-in/ContinueButton";
+import { SignInShell } from "@/app/sign-in/shell";
+import { CardBadge, CardLede, CardTitle, PRIMARY_BUTTON } from "@/app/sign-in/ui";
 import { auth } from "@/lib/auth";
 import { clientIp } from "@/lib/client-ip";
 import {
@@ -130,38 +133,39 @@ export default async function RecoverPage({ params }: { params: Promise<{ token:
   const { token } = await params;
   const link = await lookUpDeviceRecovery(token);
 
+  // In the sign-in pages' frame (app/sign-in/shell.tsx). The Continue form
+  // stays a direct child of the card: tests/device-recovery.test.ts finds its
+  // action by walking the element this returns.
   if (!link.ok) {
     const problem = PROBLEMS[link.reason];
     return (
-      <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6 py-16">
-        <h1 className="text-2xl font-semibold">{problem.title}</h1>
-        <p className="text-muted mt-3">{problem.body}</p>
-        <a
-          href="/sign-in"
-          className="bg-ink mt-8 inline-flex w-fit rounded-full px-6 py-3 text-sm font-bold text-white"
-        >
+      <SignInShell>
+        <CardBadge icon="link" />
+        <div className="mt-5">
+          <CardTitle small>{problem.title}</CardTitle>
+        </div>
+        <CardLede>{problem.body}</CardLede>
+        <a href="/sign-in" className={`${PRIMARY_BUTTON} mt-8`}>
           Go to sign-in
         </a>
-      </main>
+      </SignInShell>
     );
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6 py-16">
-      <h1 className="text-2xl font-semibold">Add a device to healdesk</h1>
-      <p className="text-muted mt-3">
-        Continue as <strong className="text-ink">{link.emailMasked}</strong>, on the phone or
-        computer you want to add. This link adds one device, once.
-      </p>
+    <SignInShell>
+      <CardBadge icon="device" />
+      <div className="mt-5">
+        <CardTitle>Add a device to healdesk</CardTitle>
+      </div>
+      <CardLede>
+        Continue as <strong className="text-ink font-semibold [overflow-wrap:anywhere]">{link.emailMasked}</strong>, on
+        the phone or computer you want to add. This link adds one device, once.
+      </CardLede>
       <form action={continueWithRecovery} className="mt-8">
         <input type="hidden" name="token" value={token} />
-        <button
-          type="submit"
-          className="bg-ink rounded-full px-6 py-3 text-sm font-bold text-white"
-        >
-          Continue
-        </button>
+        <ContinueButton />
       </form>
-    </main>
+    </SignInShell>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState, type ReactNode } from "react";
 
-import { Choice, Field, ScreenShell } from "../ScreenShell";
+import { Choice, Field, ScreenShell, SELECT_CLASS } from "../ScreenShell";
 
 /**
  * Step 3 · Calendar (plan Part E): 3.1 the calendar and how bookings arrive,
@@ -111,7 +111,7 @@ export function CalendarScreen(
               id={selectId}
               value={system}
               onChange={(event) => setSystem(event.target.value)}
-              className="border-line min-h-11 rounded-sm border bg-white px-2"
+              className={SELECT_CLASS}
             >
               <option value="" disabled>
                 Choose one
@@ -339,15 +339,15 @@ function ProviderRowFields(props: {
         onChange={(displayName) => props.onChange({ displayName })}
         maxLength={80}
       />
-      <div className="grid gap-1">
-        <label htmlFor={selectId} className="text-sm font-semibold">
+      <div className="grid gap-1.5">
+        <label htmlFor={selectId} className="px-1 text-sm font-semibold">
           Their calendar
         </label>
         <select
           id={selectId}
           value={row.calendarId ?? ""}
           onChange={(event) => props.onChange({ calendarId: event.target.value || null })}
-          className="border-line min-h-11 rounded-sm border bg-white px-2"
+          className={SELECT_CLASS}
         >
           <option value="" disabled>
             Choose a calendar

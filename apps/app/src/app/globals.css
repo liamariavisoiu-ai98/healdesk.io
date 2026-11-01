@@ -701,3 +701,170 @@
     pointer-events: none;
   }
 }
+
+/* The setup wizard (owner, 1 November 2026: "now do the same for the
+   onboarding wizard"): the sign-in pages' frame, wider for a form, in
+   app/c/[slug]/setup/SetupFrame.tsx. The wordmark on the same glow, one white
+   card holding the step's progress and the screen, and the sign-in pages'
+   fields (.si-input) and pills (.si-primary, .si-secondary). The glow sits
+   behind the top of the page only, since a screen can run long, and it does
+   not play its entrance here: every screen is a page load, and a light
+   rising on each one would be a show, not a help. */
+@layer components {
+  .wz-page {
+    position: relative;
+    isolation: isolate;
+    min-height: 100vh;
+    min-height: 100svh;
+    overflow: hidden;
+    overflow: clip;
+    background-color: var(--color-paper);
+  }
+  .wz-page::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    top: 0;
+    left: 50%;
+    width: min(64rem, 180vw);
+    height: 40rem;
+    transform: translate(-50%, -40%);
+    background:
+      radial-gradient(28% 30% at 50% 36%, rgb(255 118 30 / 0.24), transparent 70%),
+      radial-gradient(36% 40% at 33% 44%, rgb(230 38 39 / 0.13), transparent 72%),
+      radial-gradient(40% 44% at 67% 44%, rgb(255 118 30 / 0.2), transparent 72%),
+      radial-gradient(50% 42% at 50% 70%, rgb(250 199 72 / 0.3), transparent 74%);
+    filter: blur(24px);
+    pointer-events: none;
+  }
+
+  .wz-column {
+    width: 100%;
+    max-width: 40rem;
+    margin-inline: auto;
+    padding: 2.5rem 1rem 4rem;
+  }
+
+  /* The clinic's name under the wordmark, on the glow: the muted ink mixed a
+     fifth of the way to the ink, as the line under the sign-in card is, so it
+     keeps 4.5:1 where the glow is darkest. */
+  .wz-crumb {
+    color: var(--color-muted);
+    color: color-mix(in srgb, var(--color-muted) 80%, var(--color-ink));
+    font-size: 0.875rem;
+    line-height: 1.5;
+    text-align: center;
+  }
+
+  .wz-card {
+    padding: 1.5rem 1.25rem 1.75rem;
+    border-radius: var(--radius-lg);
+    background-color: #fff;
+    box-shadow:
+      0 0 0 1px rgb(23 42 58 / 0.06),
+      0 1px 2px rgb(23 42 58 / 0.05),
+      0 16px 36px -16px rgb(23 42 58 / 0.18),
+      0 44px 90px -36px rgb(218 25 26 / 0.22);
+  }
+  @media (min-width: 40rem) {
+    .wz-card {
+      padding: 2rem 2.5rem 2.5rem;
+    }
+  }
+
+  /* The step's bar: one segment per screen. Saved in the deep orange (3.4:1
+     on the track, as a meter needs), the screen open now in a light orange,
+     the rest the track. Its numbers are on the element for a screen reader. */
+  .wz-segment {
+    height: 100%;
+    flex: 1 1 0%;
+    border-radius: 9999px;
+    background-color: var(--color-paper-2);
+  }
+  .wz-segment-here {
+    background-color: rgb(255 118 30 / 0.35);
+  }
+  .wz-segment-done {
+    background-color: var(--color-orange-deep);
+  }
+
+  /* A tick or a radio anywhere in a screen, the hours' and services'
+     editors included, in the deep orange that marks what is chosen (the
+     card's ring, the step open now), where the system would draw its blue;
+     3.69:1 on white. The red stays for the action. */
+  .wz-card :is(input[type="checkbox"], input[type="radio"]) {
+    accent-color: var(--color-orange-deep);
+  }
+
+  /* A choice as a card: the radio stays real, and the chosen card takes the
+     field's orange ring and a warm tint. */
+  .wz-choice {
+    display: flex;
+    min-height: 2.75rem;
+    gap: 0.75rem;
+    padding: 0.875rem 1rem;
+    border-radius: var(--radius-md);
+    background-color: #fff;
+    box-shadow: inset 0 0 0 1px var(--color-line-strong);
+    cursor: pointer;
+    transition:
+      box-shadow 150ms ease,
+      background-color 150ms ease;
+  }
+  .wz-choice:hover {
+    box-shadow: inset 0 0 0 1px rgb(23 42 58 / 0.4);
+  }
+  .wz-choice:has(input:checked) {
+    background-color: #fff8f3;
+    box-shadow: inset 0 0 0 2px var(--color-orange-deep);
+  }
+  .wz-choice:has(input:disabled) {
+    cursor: default;
+    opacity: 0.6;
+  }
+  .wz-choice input {
+    width: 1.125rem;
+    height: 1.125rem;
+    flex-shrink: 0;
+    margin-top: 0.1875rem;
+  }
+
+  /* A list in the field's shape, with the chevron drawn here rather than the
+     system's; a high-contrast screen, which drops background images, gets
+     the system's arrow back. */
+  .wz-select {
+    appearance: none;
+    padding-right: 2.75rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%235c6e7e' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
+    background-position: right 1rem center;
+    background-repeat: no-repeat;
+    background-size: 1rem;
+    cursor: pointer;
+  }
+  @media (forced-colors: active) {
+    .wz-select {
+      appearance: auto;
+    }
+  }
+
+  /* What went wrong on Save, in the problem pair the portal uses. */
+  .wz-problem {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-md);
+    background-color: var(--color-tint-problem);
+    box-shadow: inset 0 0 0 1px var(--color-problem-line);
+    color: var(--color-problem);
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+}
+
+/* A screen's contents come in as the page opens, once, like the sign-in
+   card's: short, since the clinic moves through several. */
+@media (prefers-reduced-motion: no-preference) {
+  .wz-enter {
+    animation: si-rise 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}

@@ -1,4 +1,11 @@
-import type { Audience } from "@healdesk/catalog";
+import {
+  brandedEmailDocument,
+  EMAIL_COLORS,
+  EMAIL_DISPLAY_FONT,
+  EMAIL_FONT,
+  EMAIL_STYLES,
+  type Audience,
+} from "@healdesk/catalog";
 
 import { cutCardNumbersAcrossTurns } from "@/lib/assistant/guard";
 import { escapeHtml } from "@/lib/email/templates/compose";
@@ -220,26 +227,43 @@ export function renderTranscriptEmail(input: TranscriptEmailInput): RenderedTran
     ["—", why].join("\n"),
   ].join("\n\n");
 
-  const paragraph = (value: string, style = "") =>
-    `<p style="margin:0 0 12px;${style}">${escapeHtml(value).replace(/\n/g, "<br>")}</p>`;
-  const html = [
-    "<!doctype html>",
-    '<html><body style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#1f1f1f;">',
-    ...banner.map((line) => paragraph(line, "font-weight:700;color:#8a1c1c;")),
+  // healdesk's branded shell (@healdesk/catalog email-brand.ts): the logo,
+  // the subject as the title, the words below in Apple's type. The logo is
+  // one public file at one fixed URL, the same in every email, so fetching
+  // it says nothing about this call or the person on it.
+  const P = EMAIL_STYLES.paragraph;
+  const paragraph = (value: string, style = "", className = "hd-ink") =>
+    `<p class="${className}" style="${P}${style}">${escapeHtml(value).replace(/\n/g, "<br>")}</p>`;
+  const body = [
+    ...banner.map(
+      (line) =>
+        `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="hd-soft" ` +
+        `style="margin:0 0 22px;border-collapse:separate;background:${EMAIL_COLORS.soft};border-radius:14px;"><tr><td style="padding:16px 20px;">` +
+        `<p class="hd-link" style="margin:0;font-family:${EMAIL_FONT};font-size:17px;line-height:24px;font-weight:600;color:${EMAIL_COLORS.link};">` +
+        `${escapeHtml(line)}</p></td></tr></table>`,
+    ),
     paragraph(intro),
     paragraph(KEEP_IT, "font-weight:600;"),
     paragraph(DO_NOT_REPLY),
-    paragraph(reference, "color:#555;font-size:13px;"),
-    '<h2 style="font-size:16px;margin:20px 0 8px;">Transcript</h2>',
+    `<p class="hd-muted" style="${EMAIL_STYLES.small}">${escapeHtml(reference)}</p>`,
+    `<hr class="hd-rule" style="height:0;border:0;border-top:1px solid ${EMAIL_COLORS.rule};margin:28px 0 22px;">`,
+    `<h2 class="hd-ink" style="margin:0 0 16px;font-family:${EMAIL_DISPLAY_FONT};font-size:21px;line-height:26px;font-weight:700;letter-spacing:-0.3px;color:${EMAIL_COLORS.ink};">Transcript</h2>`,
+    // Each turn as lean as it can be: a long call is many turns, and Gmail
+    // clips a message over 102 KB. The wrapper carries the type for all.
+    `<div style="font-size:16px;line-height:24px;">`,
     ...turns.map(
       (t) =>
-        `<p style="margin:0 0 10px;"><strong>${escapeHtml(t.label)}:</strong> ${escapeHtml(t.text).replace(/\n/g, "<br>")}</p>`,
+        `<p style="margin:0 0 14px;"><strong>${escapeHtml(t.label)}:</strong> ${escapeHtml(t.text).replace(/\n/g, "<br>")}</p>`,
     ),
-    ...(cut ? [paragraph(cutNote, "font-style:italic;")] : []),
-    '<hr style="border:none;border-top:1px solid #ddd;margin:20px 0;">',
-    paragraph(why, "color:#555;font-size:13px;"),
-    "</body></html>",
+    `</div>`,
+    ...(cut ? [`<p class="hd-muted" style="${EMAIL_STYLES.small}font-style:italic;">${escapeHtml(cutNote)}</p>`] : []),
   ].join("\n");
+  const html = brandedEmailDocument({
+    subject: TRANSCRIPT_SUBJECT,
+    title: TRANSCRIPT_SUBJECT,
+    bodyHtml: body,
+    footerHtml: `<p class="hd-muted" style="${EMAIL_STYLES.footer}">${escapeHtml(why)}</p>`,
+  });
 
   return { subject: TRANSCRIPT_SUBJECT, text, html };
 }

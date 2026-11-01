@@ -3,44 +3,89 @@
 exports[`the incident report (L29) > a breach's report since the incident's page points there for the list, behind the passkey, and names no one 1`] = `
 {
   "html": "<!doctype html>
-<html lang="en">
+<html lang="en" dir="ltr" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<meta name="format-detection" content="telephone=no, date=no, address=no, email=no, url=no">
 <meta name="color-scheme" content="light dark">
 <meta name="supported-color-schemes" content="light dark">
 <title>healdesk incident report: a breach</title>
-<style>@media (prefers-color-scheme: dark) {
-  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
-  .hd-muted { color: #9da7b3 !important; }
-  a { color: #8cc4ff !important; }
-  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
-}</style>
+<!--[if mso]>
+<noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
+<style>td,th,div,p,a,h1,h2,span,li{font-family:'Segoe UI',Helvetica,Arial,sans-serif !important;}</style>
+<![endif]-->
+<style>
+  :root { color-scheme: light dark; supported-color-schemes: light dark; }
+  body { margin:0; padding:0; width:100%!important; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%; }
+  table { border-collapse:collapse; mso-table-lspace:0; mso-table-rspace:0; }
+  img { border:0; line-height:100%; outline:none; text-decoration:none; }
+  a[x-apple-data-detectors] { color:inherit!important; text-decoration:none!important; font:inherit!important; }
+  u + #body a { color:inherit; text-decoration:none; font:inherit; }
+  #MessageViewBody a { color:inherit; text-decoration:none; font:inherit; }
+  .hd-action:hover { opacity:.88; }
+
+  @media (max-width:620px) {
+    .hd-wrap { width:100%!important; }
+    .hd-px { padding-left:24px!important; padding-right:24px!important; }
+    .hd-title { font-size:24px!important; line-height:30px!important; }
+  }
+
+  @media (prefers-color-scheme: dark) {
+    body, .hd-page { background:#000000!important; }
+    .hd-ink { color:#F5F5F7!important; }
+    .hd-muted { color:#A1A1A6!important; }
+    .hd-rule { border-color:#38383A!important; }
+    .hd-soft { background:#1C1C1E!important; }
+    .hd-link { color:#FF453A!important; }
+    .hd-btn { background:#F5F5F7!important; }
+    a.hd-action { background:#F5F5F7!important; color:#1D1D1F!important; }
+    .hd-btn-outline { border-color:#F5F5F7!important; }
+  }
+  [data-ogsc] .hd-ink { color:#F5F5F7!important; }
+  [data-ogsc] .hd-muted { color:#A1A1A6!important; }
+  [data-ogsc] .hd-link { color:#FF453A!important; }
+  [data-ogsc] a.hd-action { color:#1D1D1F!important; }
+  [data-ogsc] .hd-btn-outline { border-color:#F5F5F7!important; }
+  [data-ogsb] .hd-page { background:#000000!important; }
+  [data-ogsb] .hd-soft { background:#1C1C1E!important; }
+  [data-ogsb] .hd-btn, [data-ogsb] a.hd-action { background:#F5F5F7!important; }
+</style>
 </head>
-<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">What happened, when, what was involved and what we&#39;ve done.</span>
-<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">We&#39;re reporting a breach of information your agreement with healdesk protects, as that agreement requires. It involves information healdesk handles for Radiance Med Spa.</p>
-<p style="margin:0 0 16px;">What happened: An email carrying information about people who contacted your practice went to a recipient who should not have received it.</p>
-<p style="margin:0 0 4px;"><strong>When it happened:</strong> Sunday 4 October</p>
-<p style="margin:0 0 4px;"><strong>When we discovered it:</strong> Monday 5 October</p>
-<p style="margin:0 0 16px;">The information involved:</p>
-<ul style="margin:0 0 16px;padding-left:20px;"><li>3 first names</li><li>3 phone numbers</li><li>1 conversation transcript</li></ul>
-<p style="margin:0 0 16px;">What we&#39;ve done:</p>
-<ul style="margin:0 0 16px;padding-left:20px;"><li>We asked the recipient to delete what they received, and they confirmed that they have.</li><li>We fixed the fault that caused it.</li></ul>
-<p style="margin:0 0 16px;">What the patients affected can do:</p>
-<ul style="margin:0 0 16px;padding-left:20px;"><li>Be wary of calls, texts and emails that mention their visit or say they come from your practice, and reach your practice through a number they already know before answering one.</li><li>Don&#39;t confirm personal details, a password or a payment to a message they weren&#39;t expecting.</li></ul>
-<p style="margin:0 0 16px;">What we recommend you do:</p>
-<ul style="margin:0 0 16px;padding-left:20px;"><li>Decide, with your own counsel if you have one, whether the law requires you to notify the people affected, and anyone else, and by when.</li><li>Let your front desk know to expect questions from the people affected, and how you&#39;d like them answered.</li></ul>
-<p style="margin:0 0 16px;">This email names no one. The identification of each patient affected is on this incident&#39;s page in healdesk, behind your passkey, as your agreement provides: it&#39;s never emailed. We&#39;ll tell you in an update if it isn&#39;t complete yet.</p>
-<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance/incidents/5c0ffee0-1111-4c2a-9a8b-1f2e3d4c5b6a" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">See who was affected</a></p>
-<p style="margin:0 0 16px;">This report is as complete as we can make it today, and we&#39;ll add to it as we learn more.</p>
-<p style="margin:0 0 16px;">Your contact at healdesk: reply to this email, or write to hello@healdesk.io.</p>
-<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
-<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
-<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
-<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
-</div>
+<body id="body" class="hd-page" style="margin:0;padding:0;background:#FFFFFF;">
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#FFFFFF;opacity:0;">What happened, when, what was involved and what we&#39;ve done.&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="hd-page" style="background:#FFFFFF;">
+<tr><td align="center" style="padding:0;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" class="hd-wrap" style="width:600px;max-width:600px;">
+<tr><td align="center" class="hd-px" style="padding:48px 48px 0 48px;"><img src="https://healdesk.io/brand/healdesk-logo-email.png" width="176" height="32" alt="healdesk" style="display:block;margin:0 auto;width:176px;height:32px;border:0;outline:none;text-decoration:none;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Helvetica Neue','Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:24px;line-height:32px;font-weight:700;color:#E62627;text-align:center;"></td></tr>
+<tr><td class="hd-px hd-ink" style="padding:40px 48px 0 48px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue','Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1D1D1F;">
+<h1 class="hd-title hd-ink" style="margin:0 0 28px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Helvetica Neue','Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:28px;line-height:34px;font-weight:700;letter-spacing:-0.5px;color:#1D1D1F;text-align:center;">healdesk incident report: a breach</h1>
+<p class="hd-ink" style="margin:0 0 18px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue','Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:17px;line-height:26px;color:#1D1D1F;">We&#39;re reporting a breach of information your agreement with healdesk protects, as that agreement requires. It involves information healdesk handles for Radiance Med Spa.</p>
+<p class="hd-ink" style="margin:0 0 18px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue','Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:17px;line-height:26px;color:#1D1D1F;">What happened: An email carrying information about people who contacted your practice went to a recipient who should not have received it.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 22px;"><tr><td class="hd-rule" style="padding:12px 0;border-top:1px solid #D2D2D7;"><p class="hd-muted" style="margin:0 0 2px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue','Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:18px;color:#6E6E73;">When it happened</p><p class="hd-ink" style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue','Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:17px;line-height:24px;color:#1D1D1F;word-break:break-word;overflow-wrap:anywhere;">Sunday 4 October</p></td></tr><tr><td class="hd-rule" style="padding:12px 0;border-top:1px solid #D2D2D7;border-bottom:1px solid #D2D2D7;"><p class="hd-muted" style="margin:0 0 2px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue','Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:18px;color:#6E6E73;">When we discovered it</p><p class="hd-ink" style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue','Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:17px;line-height:24px;color:#1D1D1F;word-break:break-word;overflow-wrap:anywhere;">Monday 5 October</p></td></tr></table>
+<p class="hd-ink" style="margin:0 0 18px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue','Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:17px;line-height:26px;color:#1D1D1F;">The information involved:</p>
+<ul class="hd-ink" style="margin:0 0 18px;padding:0 0 0 22px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue','Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:17px;line-height:26px;color:#1D1D1F;"><li style="margin:0 0 6px;">3 first names</li><li style="margin:0 0 6px;">3 phone numbers</li><li style="margin:0 0 6px;">1 conversation transcript</li></ul>
+<p class="hd-ink" style="margin:0 0 18px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue','Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:17px;line-height:26px;color:#1D1D1F;">What we&#39;ve done:</p>
+<ul class="hd-ink" style="margin:0 0 18px;padding:0 0 0 22px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue','Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:17px;line-height:26px;color:#1D1D1F;"><li style="margin:0 0 6px;">We asked the recipient to delete what they received, and they confirmed that they have.</li><li style="margin:0 0 6px;">We fixed the fault that caused it.</li></ul>
+<p class="hd-ink" style="margin:0 0 18px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue','Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:17px;line-height:26px;color:#1D1D1F;">What the patients affected can do:</p>
+<ul class="hd-ink" style="margin:0 0 18px;padding:0 0 0 22px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue','Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:17px;line-height:26px;color:#1D1D1F;"><li style="margin:0 0 6px;">Be wary of calls, texts and emails that mention their visit or say they come from your practice, and reach your practice through a number they already know before answering one.</li><li style="margin:0 0 6px;">Don&#39;t confirm personal details, a password or a payment to a message they weren&#39;t expecting.</li></ul>
+<p class="hd-ink" style="margin:0 0 18px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue','Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:17px;line-height:26px;color:#1D1D1F;">What we recommend you do:</p>
+<ul class="hd-ink" style="margin:0 0 18px;padding:0 0 0 22px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue','Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:17px;line-height:26px;color:#1D1D1F;"><li style="margin:0 0 6px;">Decide, with your own counsel if you have one, whether the law requires you to notify the people affected, and anyone else, and by when.</li><li style="margin:0 0 6px;">Let your front desk know to expect questions from the people affected, and how you&#39;d like them answered.</li></ul>
+<p class="hd-ink" style="margin:0 0 18px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue','Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:17px;line-height:26px;color:#1D1D1F;">This email names no one. The identification of each patient affected is on this incident&#39;s page in healdesk, behind your passkey, as your agreement provides: it&#39;s never emailed. We&#39;ll tell you in an update if it isn&#39;t complete yet.</p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:10px auto 28px;border-collapse:separate;"><tr><td align="center" class="hd-btn" style="background:#1D1D1F;border-radius:980px;mso-padding-alt:14px 34px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance/incidents/5c0ffee0-1111-4c2a-9a8b-1f2e3d4c5b6a" style="display:inline-block;padding:14px 34px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue','Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:17px;line-height:20px;font-weight:600;color:#FFFFFF;background:#1D1D1F;text-decoration:none;border-radius:980px;">See who was affected</a></td></tr></table>
+<p class="hd-ink" style="margin:0 0 18px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue','Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:17px;line-height:26px;color:#1D1D1F;">This report is as complete as we can make it today, and we&#39;ll add to it as we learn more.</p>
+<p class="hd-ink" style="margin:0 0 18px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue','Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:17px;line-height:26px;color:#1D1D1F;">Your contact at healdesk: reply to this email, or write to hello@healdesk.io.</p>
+</td></tr>
+<tr><td class="hd-px" style="padding:40px 48px 48px 48px;">
+<hr class="hd-rule" style="height:0;border:0;border-top:1px solid #D2D2D7;margin:0 0 24px 0;">
+<p class="hd-muted" style="margin:0 0 10px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue','Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:18px;color:#6E6E73;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 10px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue','Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:18px;color:#6E6E73;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 10px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue','Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:18px;color:#6E6E73;">800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</td></tr>
+</table>
+</td></tr>
+</table>
 </body>
 </html>",
   "preheader": "What happened, when, what was involved and what we've done.",

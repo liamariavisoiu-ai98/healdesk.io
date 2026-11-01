@@ -1,11 +1,13 @@
 import { describe, expect, test } from "vitest";
 
+import { EMAIL_LOGO, EMAIL_WIDTH } from "./email-brand";
 import { EMAIL_HTML_MAX_BYTES, emailHtmlDocument, htmlTwinOfText } from "./email-html";
 
 /**
  * The HTML twin apps/web's emails get from their text (Annex X1.8): one
- * column, system fonts, no images and nothing fetched, under 100 KB, and
- * nothing in it the text does not say.
+ * column in healdesk's branded shell (owner, 1 November 2026), system fonts,
+ * the logo the only thing fetched, under 100 KB, and nothing in it the text
+ * does not say.
  */
 
 const TEXT = [
@@ -54,15 +56,24 @@ describe("htmlTwinOfText", () => {
     expect(hrefs).toEqual(["https://healdesk.io/start?t=abc.def", "https://healdesk.io/contact"]);
   });
 
-  test("one column, system fonts, no images, nothing remote, light and dark", () => {
-    expect(html).not.toMatch(/<img|<table|src=|url\(|@import|<link/i);
+  test("branded: the logo is the one image and the one thing fetched; system fonts, light and dark", () => {
+    expect([...html.matchAll(/<img\b[^>]*>/g)]).toHaveLength(1);
+    expect([...html.matchAll(/\bsrc="([^"]*)"/g)].map((m) => m[1])).toEqual([EMAIL_LOGO.url]);
+    expect(html).toContain('alt="healdesk"');
+    expect(html).not.toMatch(/url\(|@import|<link|<script|<iframe/i);
     expect(html).toContain("-apple-system");
     expect(html).toContain("prefers-color-scheme: dark");
-    expect(html).toContain("max-width:560px");
+    expect(html).toContain(`width="${EMAIL_WIDTH}"`);
   });
 
-  test("the footer after the rule is set apart, one line to a paragraph", () => {
-    expect(html).toContain("<hr");
+  test("no title: these emails are letters, and the twin says only what the text says", () => {
+    expect(html).not.toContain("<h1");
+  });
+
+  test("the footer after the rule is set apart under the hairline, one line to a paragraph", () => {
+    const rule = html.indexOf('class="hd-rule"');
+    expect(rule).toBeGreaterThan(html.indexOf("Questions:"));
+    expect(html.indexOf("You&#39;re getting this because you asked.")).toBeGreaterThan(rule);
     expect(html).toMatch(/class="hd-muted"[^>]*>You&#39;re getting this because you asked\.<\/p>/);
   });
 

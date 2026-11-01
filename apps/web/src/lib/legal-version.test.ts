@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { BAA_1_6_0_RELEASED } from "@healdesk/catalog";
+import { BAA_1_6_0_RELEASED, BAA_1_7_0_RELEASED } from "@healdesk/catalog";
 import { describe, expect, test } from "vitest";
 
 import DataDeletionPage from "@/app/data-deletion/page";
@@ -112,7 +112,37 @@ const PINNED_WITH_1_6_0 = {
   },
 } as const;
 
-const PINNED = BAA_1_6_0_RELEASED ? PINNED_WITH_1_6_0 : PINNED_BEFORE_1_6_0;
+/**
+ * The text once BAA 1.7.0 and DPA 1.2.0 are released (BAA_1_7_0_RELEASED;
+ * the owner's release of 30 October 2026, landed 1 November 2026): Terms'
+ * security annex and Privacy § 9 say a breach or security incident is
+ * reported in no case later than 10 calendar days after discovery, where
+ * 2026-10-30.2 said 60. Nothing else moves, and the deletion page is word for
+ * word the same. Its branch numbered it 2026-10-30.1, which main had already
+ * published for other text, so it carries 2026-11-01.1.
+ */
+const PINNED_WITH_1_7_0 = {
+  version: "2026-11-01.1",
+  lastUpdated: "1 November 2026",
+  /** 2026-10-30.2 is the live text this one replaces. */
+  replaces: "2026-10-30.2",
+  sha256: {
+    ...PINNED_WITH_1_6_0.sha256,
+    // 2026-10-30.2's text with the security annex's 60 calendar days said
+    // as 10, and nothing else (checked by swapping the number back: the
+    // hash is 2026-10-30.2's).
+    "/terms": "be63612cbc961b21af9554f094b0b20ba9d05b08e97a25d1bde6002dcea37ff1",
+    // Privacy § 9 with 10 for 60, and nothing else; the same text the
+    // branch pinned for its 2026-10-30.1.
+    "/privacy": "4540676f387dc1a097c28f1019a696ac2f28f4723fb6c9bf3b558301a0193abd",
+  },
+} as const;
+
+const PINNED = BAA_1_7_0_RELEASED
+  ? PINNED_WITH_1_7_0
+  : BAA_1_6_0_RELEASED
+    ? PINNED_WITH_1_6_0
+    : PINNED_BEFORE_1_6_0;
 
 const PAGES = [
   ["/terms", TermsPage],

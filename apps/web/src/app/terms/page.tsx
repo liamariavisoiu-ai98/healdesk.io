@@ -1,5 +1,6 @@
 import {
   BAA_1_6_0_RELEASED,
+  BAA_1_7_0_RELEASED,
   MAX_STEP_UNITS,
   MIN_STEP_UNITS,
   MODEL_RETENTION_EXCEPTIONS,
@@ -1183,7 +1184,7 @@ export default function TermsPage() {
         <p>
           We tell the clinic of a breach of unsecured patient information, and of any other
           security incident whether or not it turns out to be a breach, without unreasonable delay
-          and in no case later than 60 calendar days after discovery. Who pays for what follows is in the
+          and in no case later than {BAA_1_7_0_RELEASED ? 10 : 60} calendar days after discovery. Who pays for what follows is in the
           agreements, not in small print: the cost of notifying patients and regulators sits with
           the clinic (section 14), and we carry no liability insurance (section 13). We say both
           plainly so a clinic can size its own cover.

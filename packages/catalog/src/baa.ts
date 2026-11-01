@@ -23,7 +23,10 @@ import {
 } from "./direct-booking-addendum";
 import { MODEL_RETENTION_AGREEMENT } from "./model-retention";
 import type { BookingSync } from "./platforms";
-import { subprocessorNoticeClauseBody } from "./subprocessor-notice";
+import {
+  subprocessorNoticeClauseBody,
+  subprocessorNoticeClauseBody15Days,
+} from "./subprocessor-notice";
 import { wrap } from "./wrap";
 
 /**
@@ -4895,6 +4898,116 @@ function validate160(v: BaaVariables): void {
   validateFrom130(v, "1.6.0");
 }
 
+// -----------------------------------------------------------------------------
+// 1.7.0 (a draft): ten days to report, fifteen days' notice of a subcontractor
+// -----------------------------------------------------------------------------
+
+/**
+ * ⚖️ 1.7.0, drafted 30 October 2026 and released by the owner the same day
+ * (BAA_1_7_0_RELEASED, below): 1.6.0 with two sentences changed, on the owner's instruction of
+ * that day ("Breach notice of 60 days vs California's 'immediately': adjust
+ * whatever's needed"; "24 hours' notice before adding a new vendor: adjust
+ * whatever's needed"; docs/counsel/agreement-changes.md §22). Against 1.6.0,
+ * two clauses change and nothing else does; every other clause is 1.6.0's
+ * own object, in 1.6.0's order, and the preamble differs only in its version
+ * line:
+ *
+ *   reporting        1.6.0's (1.3.0's object) but for its first sentence's
+ *                    outer limit: "in no case later than 10 calendar days
+ *                    after discovery", where 1.6.0 says 60. Sixty is the
+ *                    most 45 CFR 164.410(b) allows a business associate,
+ *                    and can use up a covered practice's own sixty days to
+ *                    tell its patients, which may run from healdesk's
+ *                    discovery (164.404(a)(2)); Cal. Civ. Code 1798.82(b)
+ *                    asks "immediately following discovery" of a business
+ *                    holding data it does not own. "Without unreasonable
+ *                    delay" stays first, so ten days is a ceiling, not a
+ *                    target. healdesk's internal target stays 24 hours and
+ *                    is never stated as a promise (apps/app lib/incidents).
+ *   subcontractors   1.6.0's but for its notice paragraph:
+ *                    subprocessorNoticeClauseBody15Days(), "at least 15
+ *                    days' notice by email", where 1.6.0 gives 24 hours;
+ *                    the recipient, the contents and the objection right are
+ *                    the same words. Fifteen days is what 1.2.1 and 1.2.2
+ *                    gave, inside the usual fifteen to thirty.
+ *
+ * Since its release it is BAA_TEMPLATES[0] and the go-live floor, with no
+ * overlap (app_baa_version_acceptable accepts 1.7.0 alone, drizzle/0142);
+ * its text and golden hashes are frozen.
+ */
+
+/** 1.6.0's Reporting clause, 1.3.0's object, which 1.4.0 to 1.6.0 carry. */
+const REPORTING_1_3: BaaClause = CLAUSES_1_6.find((clause) => clause.id === "reporting")!;
+
+/** The outer limit 1.3.0's Reporting clause states, in its first sentence. */
+const REPORTING_LIMIT_1_3 = `in no case later than 60 calendar days after discovery:`;
+
+/** 1.7.0's outer limit (owner, 30 October 2026). */
+const REPORTING_LIMIT_1_7 = `in no case later than 10 calendar days after discovery:`;
+
+/**
+ * 1.3.0's Reporting clause with its first sentence's outer limit as
+ * REPORTING_LIMIT_1_7 says it. Every other sentence is 1.3.0's, and the
+ * replacement refuses to render if 1.3.0's sentence is not there, compared
+ * with the wrap undone.
+ */
+const REPORTING_1_7: BaaClause = {
+  id: REPORTING_1_3.id,
+  heading: REPORTING_1_3.heading,
+  appliesWhen: REPORTING_1_3.appliesWhen,
+  body: (v) => {
+    const paragraphs = REPORTING_1_3.body(v).split("\n\n");
+    const first = paragraphs[0]!.replace(/\s+/g, " ").trim();
+    if (!first.endsWith(` ${REPORTING_LIMIT_1_3}`)) {
+      throw new Error("1.7.0's Reporting clause: 1.3.0's sixty-day sentence is not there.");
+    }
+    paragraphs[0] = wrap(first.slice(0, -REPORTING_LIMIT_1_3.length) + REPORTING_LIMIT_1_7);
+    return paragraphs.join("\n\n");
+  },
+};
+
+/**
+ * 1.6.0's Subcontractors clause with its notice paragraph as
+ * subprocessorNoticeClauseBody15Days() says it. The first two paragraphs are
+ * 1.6.0's, and the replacement refuses to render if 1.6.0's notice paragraph
+ * is not its last.
+ */
+const SUBCONTRACTORS_1_7: BaaClause = {
+  id: SUBCONTRACTORS_1_6.id,
+  heading: SUBCONTRACTORS_1_6.heading,
+  appliesWhen: SUBCONTRACTORS_1_6.appliesWhen,
+  body: (v) => {
+    const paragraphs = SUBCONTRACTORS_1_6.body(v).split("\n\n");
+    if (paragraphs[paragraphs.length - 1] !== wrap(subprocessorNoticeClauseBody())) {
+      throw new Error("1.7.0's Subcontractors clause: 1.6.0's 24-hour notice paragraph is not there.");
+    }
+    paragraphs[paragraphs.length - 1] = wrap(subprocessorNoticeClauseBody15Days());
+    return paragraphs.join("\n\n");
+  },
+};
+
+/** 1.6.0's clauses in 1.6.0's order, with the two clauses above in place of its own. */
+const CLAUSES_1_7: readonly BaaClause[] = CLAUSES_1_6.map((clause) => {
+  switch (clause.id) {
+    case REPORTING_1_7.id:
+      return REPORTING_1_7;
+    case SUBCONTRACTORS_1_7.id:
+      return SUBCONTRACTORS_1_7;
+    default:
+      return clause;
+  }
+});
+
+/** 1.3.0's preamble, naming version 1.7.0. */
+function preamble170(v: BaaVariables): string {
+  return preambleFrom130(v, "1.7.0");
+}
+
+/** 1.3.0's render guard, its refusals naming version 1.7.0. */
+function validate170(v: BaaVariables): void {
+  validateFrom130(v, "1.7.0");
+}
+
 /**
  * ⚖️ THE ONE SWITCH for releasing BAA 1.6.0 (owner's word only; see
  * docs/design/launch-readiness-2026-10-27/baa-1-6-0-owner-checklist.md).
@@ -4917,6 +5030,28 @@ function validate160(v: BaaVariables): void {
  * flip without it and on it without a flip.
  */
 export const BAA_1_6_0_RELEASED: boolean = true;
+
+/**
+ * ⚖️ THE ONE SWITCH for releasing BAA 1.7.0 (owner's word only; what the
+ * release commit changed with it is in
+ * docs/counsel/agreement-changes.md §22, "The release").
+ *
+ * Released by the owner: on 30 October 2026 he said "release BAA 1.7.0 and
+ * DPA 1.1.0" in chat, the day it was drafted, without external counsel (he
+ * decided that day that no lawyer will be engaged; docs/counsel/README.md).
+ * `approvedByCounsel` keeps the BAA's flag name for his release. He has
+ * stated there are no clients yet (synthetic data only), so no unprovisioned
+ * 1.6.0 signer is held by the floor's move.
+ *
+ * False: checkout offers 1.6.0, the floor is 1.6.0, and 1.7.0 is a draft
+ * after it with approvedByCounsel false. True: 1.7.0 is BAA_TEMPLATES[0]
+ * with approvedByCounsel true, the floor is 1.7.0 with no overlap, and 1.6.0
+ * stays registered and frozen below it. The release migration is
+ * apps/app/drizzle/0142_baa_release_1_7_0_dpa_1_2_0.sql, and
+ * apps/app/tests/baa-release-1-7-0.test.ts fails on a flip without it. It
+ * needs BAA_1_6_0_RELEASED, which has been true since 29 October 2026.
+ */
+export const BAA_1_7_0_RELEASED: boolean = true;
 
 const TEMPLATE_1_5_1: BaaTemplate = {
   version: "1.5.1",
@@ -4943,6 +5078,16 @@ const TEMPLATE_1_6_0_DRAFT: BaaTemplate = {
   preamble: preamble160,
   clauses: CLAUSES_1_6,
   validate: validate160,
+};
+
+const TEMPLATE_1_7_0_DRAFT: BaaTemplate = {
+  version: "1.7.0",
+  // Drafted and released the same day (owner, 30 October 2026).
+  publishedOn: "2026-10-30",
+  approvedByCounsel: false,
+  preamble: preamble170,
+  clauses: CLAUSES_1_7,
+  validate: validate170,
 };
 
 const TEMPLATES_BEFORE_1_5_1: readonly BaaTemplate[] = [
@@ -5083,15 +5228,34 @@ const TEMPLATES_BEFORE_1_5_1: readonly BaaTemplate[] = [
   },
 ] as const;
 
-/** BAA_TEMPLATES as it reads once the switch is in the given state. */
-export function baaTemplatesFor(released: boolean): readonly BaaTemplate[] {
+/** 1.6.0 as BAA_TEMPLATES carries it since its release on 29 October 2026. */
+const TEMPLATE_1_6_0: BaaTemplate = { ...TEMPLATE_1_6_0_DRAFT, approvedByCounsel: true };
+
+/**
+ * BAA_TEMPLATES as it reads once the switches are in the given state: the
+ * first argument is BAA_1_6_0_RELEASED's, the second BAA_1_7_0_RELEASED's
+ * (today's value unless given). A draft sits after the release it follows:
+ * 1.7.0 after 1.6.0, and after the 1.6.0 draft while 1.6.0 was one. 1.7.0
+ * cannot be released before 1.6.0.
+ */
+export function baaTemplatesFor(
+  released: boolean,
+  released170: boolean = BAA_1_7_0_RELEASED,
+): readonly BaaTemplate[] {
+  if (released170 && !released) {
+    throw new Error("BAA 1.7.0 cannot be released while 1.6.0 is not.");
+  }
+  if (released170) {
+    return [
+      { ...TEMPLATE_1_7_0_DRAFT, approvedByCounsel: true },
+      TEMPLATE_1_6_0,
+      TEMPLATE_1_5_1,
+      ...TEMPLATES_BEFORE_1_5_1,
+    ];
+  }
   return released
-    ? [
-        { ...TEMPLATE_1_6_0_DRAFT, approvedByCounsel: true },
-        TEMPLATE_1_5_1,
-        ...TEMPLATES_BEFORE_1_5_1,
-      ]
-    : [TEMPLATE_1_5_1, TEMPLATE_1_6_0_DRAFT, ...TEMPLATES_BEFORE_1_5_1];
+    ? [TEMPLATE_1_6_0, TEMPLATE_1_7_0_DRAFT, TEMPLATE_1_5_1, ...TEMPLATES_BEFORE_1_5_1]
+    : [TEMPLATE_1_5_1, TEMPLATE_1_6_0_DRAFT, TEMPLATE_1_7_0_DRAFT, ...TEMPLATES_BEFORE_1_5_1];
 }
 
 // Newest RELEASED first — CURRENT_BAA_VERSION and currentBaaTemplate() both
@@ -5104,7 +5268,13 @@ export function baaTemplatesFor(released: boolean): readonly BaaTemplate[] {
 // tracker (lib/admin/seo/launch.ts, baa-1-6-0-retention) held it as an item
 // that blocks go-live; that item closes once production runs the release
 // migration.
-export const BAA_TEMPLATES: readonly BaaTemplate[] = baaTemplatesFor(BAA_1_6_0_RELEASED);
+// ⚖️ 1.7.0, drafted and released by the owner on 2026-10-30
+// (BAA_1_7_0_RELEASED), is at [0]; 1.6.0 follows it, released but below the
+// floor.
+export const BAA_TEMPLATES: readonly BaaTemplate[] = baaTemplatesFor(
+  BAA_1_6_0_RELEASED,
+  BAA_1_7_0_RELEASED,
+);
 
 export const CURRENT_BAA_VERSION = BAA_TEMPLATES[0]!.version;
 
@@ -5171,10 +5341,22 @@ export const CURRENT_BAA_VERSION = BAA_TEMPLATES[0]!.version;
  * Go-live refuses any version that SQL list leaves out, and the parity test
  * in apps/app/tests/database-audit.test.ts fails until the two agree.
  */
-export const MIN_ACCEPTABLE_BAA_VERSION = minAcceptableBaaVersionFor(BAA_1_6_0_RELEASED);
+export const MIN_ACCEPTABLE_BAA_VERSION = minAcceptableBaaVersionFor(
+  BAA_1_6_0_RELEASED,
+  BAA_1_7_0_RELEASED,
+);
 
-/** The go-live floor once the switch is in the given state: 1.6.0 released, else 1.5.1. */
-export function minAcceptableBaaVersionFor(released: boolean): string {
+/**
+ * The go-live floor once the switches are in the given state: 1.7.0
+ * released, else 1.6.0 released, else 1.5.1. Whether 1.7.0's release raises
+ * the floor is the release commit's decision; this assumes it does, as every
+ * release since 1.2.2 has, and the release checklist says so.
+ */
+export function minAcceptableBaaVersionFor(
+  released: boolean,
+  released170: boolean = BAA_1_7_0_RELEASED,
+): string {
+  if (released170) return "1.7.0";
   return released ? "1.6.0" : "1.5.1";
 }
 
@@ -5189,14 +5371,20 @@ export function minAcceptableBaaVersionFor(released: boolean): string {
  * it sits: it is not approved for release.
  */
 export function isBaaVersionAcceptable(version: string): boolean {
-  return baaVersionAcceptableWhen(BAA_1_6_0_RELEASED, version);
+  return baaVersionAcceptableWhen(BAA_1_6_0_RELEASED, version, BAA_1_7_0_RELEASED);
 }
 
-/** isBaaVersionAcceptable() with the switch in the given state (the release test reads both). */
-export function baaVersionAcceptableWhen(released: boolean, version: string): boolean {
-  const templates = baaTemplatesFor(released);
+/** isBaaVersionAcceptable() with the switches in the given state (the release tests read both). */
+export function baaVersionAcceptableWhen(
+  released: boolean,
+  version: string,
+  released170: boolean = BAA_1_7_0_RELEASED,
+): boolean {
+  const templates = baaTemplatesFor(released, released170);
   const at = templates.findIndex((t) => t.version === version);
-  const floor = templates.findIndex((t) => t.version === minAcceptableBaaVersionFor(released));
+  const floor = templates.findIndex(
+    (t) => t.version === minAcceptableBaaVersionFor(released, released170),
+  );
   return at !== -1 && floor !== -1 && at <= floor && templates[at]!.approvedByCounsel;
 }
 /**

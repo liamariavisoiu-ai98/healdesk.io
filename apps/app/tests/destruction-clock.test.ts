@@ -70,13 +70,25 @@ const ACTOR = { type: "service", serviceName: "test" } as const;
  */
 const THIRTY_DAY_VERSIONS = ["1.2.2", "1.2.1", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft"];
 /**
- * Every version whose Term clause is 1.3.0's, and the DPA's two released
- * versions, which share one Term clause. 1.6.0 (BAA 1.5.1 with Anthropic's
- * retention corrected, agreement-changes.md §17) was released on 29 October
- * 2026 and dpa/1.1.0 (dpa/1.0.0 with the payment-link text, §21) on 30
- * October 2026; each rule is its text's, so each is held to the same clock.
+ * Every version whose Term clause states 1.3.0's rule, and the DPA's three
+ * released versions, which share one Term clause: 1.4.0 to 1.5.1 carry
+ * 1.3.0's clause, 1.6.0 says the same with one phrase about Anthropic
+ * changed (agreement-changes.md §17), 1.7.0 carries 1.6.0's own, dpa/1.1.0
+ * (the payment-link text) and dpa/1.2.0 (ten days, fifteen days) carry
+ * dpa/1.0.0's (§21, §22). Each rule is its text's, so each is held to the same
+ * clock.
  */
-const EXPORT_RULE_VERSIONS = ["1.6.0", "1.5.1", "1.5.0", "1.4.0", "1.3.0", "dpa/1.1.0", "dpa/1.0.0"];
+const EXPORT_RULE_VERSIONS = [
+  "1.7.0",
+  "1.6.0",
+  "1.5.1",
+  "1.5.0",
+  "1.4.0",
+  "1.3.0",
+  "dpa/1.2.0",
+  "dpa/1.1.0",
+  "dpa/1.0.0",
+];
 /**
  * A word for each version, for the labels clinics are seeded under. A label
  * of digits can give a slug the audit's PHI scan reads as a telephone number
@@ -90,8 +102,10 @@ const WORD: Record<string, string> = {
   "1.5.0": "newest",
   "1.5.1": "current",
   "1.6.0": "drafted",
-  "dpa/1.1.0": "revised",
+  "1.7.0": "tenday",
   "dpa/1.0.0": "dpa",
+  "dpa/1.1.0": "revised",
+  "dpa/1.2.0": "dpanew",
 };
 
 // -----------------------------------------------------------------------------
@@ -1130,7 +1144,17 @@ describeDb("the destruction clock in the database", () => {
       .map((t) => t.version)
       .filter((v) => exportRuleIsPromised(v))
       .sort();
-    expect(promising).toEqual(["1.3.0", "1.4.0", "1.5.0", "1.5.1", "1.6.0", "dpa/1.0.0", "dpa/1.1.0"]);
+    expect(promising).toEqual([
+      "1.3.0",
+      "1.4.0",
+      "1.5.0",
+      "1.5.1",
+      "1.6.0",
+      "1.7.0",
+      "dpa/1.0.0",
+      "dpa/1.1.0",
+      "dpa/1.2.0",
+    ]);
     // No text, no promise: an unknown version waits for the switch.
     expect(exportRuleIsPromised("9.9.9")).toBe(false);
     expect(exportRuleIsPromised(null)).toBe(false);

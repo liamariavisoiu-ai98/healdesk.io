@@ -19,7 +19,13 @@ import {
   dpaAssentSentence,
   prepareDpa,
 } from "./dpa";
-import { DPA_CLAUSE_EXPLAINERS, DPA_EXPLAINER, dpaClauseExplainer } from "./dpa-explainer";
+import {
+  DPA_CLAUSE_EXPLAINERS,
+  DPA_CLAUSE_EXPLAINERS_BY_VERSION,
+  DPA_EXPLAINER,
+  dpaClauseExplainer,
+  dpaExplainerFor,
+} from "./dpa-explainer";
 import { specialties } from "./specialties";
 
 /** Every string a copy object holds, flattened, for "never says" checks. */
@@ -40,11 +46,11 @@ describe("AGREEMENT_COPY", () => {
     expect(baa.explainer("1.2.2")).toBe(BAA_EXPLAINER);
     expect(baa.explainer("1.2.2").terms).toBe(BAA_EXPLAINER.terms);
     expect(baa.explainer("1.2.1")).toBe(BAA_EXPLAINER);
-    // 1.6.0, the current version since the owner released it on 29 October
-    // 2026, shows 1.3.0's own bullets (the next test), as 1.4.0, 1.5.0 and
-    // 1.5.1 did: its Term clause differs from 1.3.0's by one phrase the
-    // bullets do not word.
-    expect(baa.currentVersion).toBe("1.6.0");
+    // 1.7.0, the current version since the owner released it on 30 October
+    // 2026, shows 1.3.0's own bullets (the next test), as 1.4.0 to 1.6.0
+    // did: no bullet words the clauses it changed.
+    expect(baa.currentVersion).toBe("1.7.0");
+    expect(baa.explainer("1.6.0").terms).toBe(baa.explainer("1.3.0").terms);
     expect(baa.explainer("1.5.1").terms).toBe(baa.explainer("1.3.0").terms);
     expect(baa.explainer(baa.currentVersion).terms).toBe(baa.explainer("1.3.0").terms);
     expect(baa.explainer(baa.currentVersion)).not.toBe(BAA_EXPLAINER);
@@ -74,7 +80,11 @@ describe("AGREEMENT_COPY", () => {
     expect(dpa.kind).toBe("dpa");
     expect(dpa.title).toBe("Data Protection Agreement");
     expect(dpa.currentVersion).toBe(CURRENT_DPA_VERSION);
-    expect(dpa.explainer(CURRENT_DPA_VERSION)).toBe(DPA_EXPLAINER);
+    expect(dpa.explainer("dpa/1.0.0")).toBe(DPA_EXPLAINER);
+    // dpa/1.1.0 states dpa/1.0.0's periods, so it keeps DPA_EXPLAINER.
+    expect(dpa.explainer("dpa/1.1.0")).toBe(DPA_EXPLAINER);
+    // dpa/1.2.0, current since it landed on 1 November 2026, words its two changed periods.
+    expect(dpa.explainer(CURRENT_DPA_VERSION)).toBe(dpaExplainerFor(CURRENT_DPA_VERSION));
     for (const version of [CURRENT_DPA_VERSION, "1.2.1", "1.3.0"]) {
       expect(dpa.explainer(version), version).not.toBe(BAA_EXPLAINER);
     }
@@ -100,7 +110,10 @@ describe("AGREEMENT_COPY", () => {
     for (const clause of template.clauses) {
       const note = AGREEMENT_COPY.dpa.clauseNote(CURRENT_DPA_VERSION, clause.id);
       if (!note) continue;
-      expect(note, clause.id).toBe(DPA_CLAUSE_EXPLAINERS[clause.id]);
+      expect(note, clause.id).toBe(
+        DPA_CLAUSE_EXPLAINERS_BY_VERSION[CURRENT_DPA_VERSION]?.[clause.id] ??
+          DPA_CLAUSE_EXPLAINERS[clause.id],
+      );
       expect(note.citation, clause.id).toMatch(/^“.+”$/);
       expect(note.citation, clause.id).not.toMatch(/164\./);
       expect(note.plain, clause.id).not.toMatch(/\bpatients?\b/);
@@ -119,8 +132,15 @@ describe("AGREEMENT_COPY", () => {
     }
     expect(dpaClauseExplainer(CURRENT_DPA_VERSION, "toString")).toBeUndefined();
     expect(dpaClauseExplainer("1.2.1", "subcontractors")).toBeUndefined();
-    expect(dpaClauseExplainer(CURRENT_DPA_VERSION, "subcontractors")?.plain).toContain(
+    expect(dpaClauseExplainer("dpa/1.0.0", "subcontractors")?.plain).toContain(
       "at least 24 hours",
+    );
+    // dpa/1.1.0 still gives 24 hours; dpa/1.2.0, current since 1 November 2026, gives fifteen days.
+    expect(dpaClauseExplainer("dpa/1.1.0", "subcontractors")?.plain).toContain(
+      "at least 24 hours",
+    );
+    expect(dpaClauseExplainer(CURRENT_DPA_VERSION, "subcontractors")?.plain).toContain(
+      "at least 15 days",
     );
   });
 

@@ -630,13 +630,13 @@ describe("POST /api/agreement checks the calendar answers before anything is sig
       const response = await sign(null, signature("a@clinic.com", {}, practice));
       expect(response.status, practice.specialty).toBe(201);
       const body = (await response.json()) as { agreementId: string; version: string; text: string; approvedByCounsel: boolean };
-      // DPA 1.1.0 since the owner released it on 30 October 2026.
-      expect(body.version, practice.specialty).toBe("dpa/1.1.0");
+      // DPA 1.2.0 since it landed on 1 November 2026 (dpa/1.1.0 before it).
+      expect(body.version, practice.specialty).toBe("dpa/1.2.0");
       expect(body.approvedByCounsel).toBe(true);
-      expect(body.text.startsWith("HEALDESK DATA PROTECTION AGREEMENT\nVersion 1.1.0")).toBe(true);
+      expect(body.text.startsWith("HEALDESK DATA PROTECTION AGREEMENT\nVersion 1.2.0")).toBe(true);
       expect(body.text.replace(/\s+/g, " ")).toContain("a single text message that carries fixed wording");
       const found = await findAgreementRecord(body.agreementId);
-      expect(found.status === "found" && found.record.documentVersion).toBe("dpa/1.1.0");
+      expect(found.status === "found" && found.record.documentVersion).toBe("dpa/1.2.0");
     }
     // A veterinary practice that sends the BAA's wording is refused: the decision is the catalogue's.
     const vet = signature("a@clinic.com", {}, { specialty: "veterinary", covered: null });

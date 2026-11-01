@@ -639,18 +639,24 @@ describeDb("database audit (0031)", () => {
     }
   });
 
-  test("app_mark_clinic_production takes 1.6.0, the floor its release raised", async () => {
+  test("app_mark_clinic_production takes 1.7.0, the floor its release raised, and refuses 1.6.0", async () => {
     // 1.6.0's release (0136) raised MIN_ACCEPTABLE_BAA_VERSION to 1.6.0: no
     // clinic had signed 1.5.1, whose Subcontractors clause says Anthropic's
     // retention as Anthropic does not, so 1.6.0 replaced it outright (owner,
     // 29 October 2026), as 1.5.1 had replaced 1.5.0 (0081, 19 October), and
     // the test above refuses a 1.5.1 clinic. Go-live reads the floor through
     // app_baa_version_acceptable, never a version of its own (0090), so the
-    // next release moves it too.
-    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe("1.6.0");
+    // next release moved it too: 1.7.0's (0142, landed 1 November 2026) raised it
+    // to 1.7.0, which replaced 1.6.0 outright for its reporting and notice
+    // periods, with no clinic holding a 1.6.0 signature.
+    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe("1.7.0");
+    const { rows: refused } = await getMigratorPool().query<{ ok: boolean }>(
+      `select app_baa_version_acceptable('1.6.0') as ok`,
+    );
+    expect(refused[0]!.ok).toBe(false);
     const { clinicId, organizationId } = await seedClinic("acceptable");
     await readyForGoLive(clinicId);
-    await seedAcceptance(organizationId, "1.6.0");
+    await seedAcceptance(organizationId, "1.7.0");
     await committedInTenant(clinicId, (c) => c.query(`select app_mark_clinic_production($1::uuid)`, [clinicId]));
     const { rows } = await getMigratorPool().query(
       `select data_classification from clinics where id = $1`,
@@ -820,7 +826,7 @@ describeDb("database audit (0031)", () => {
     // healdesk, passed to the practice (L32); 0098 the list of who an incident
     // affected, which names contacts; 0108 the redial records of calls that
     // ended early, sealed turns keyed to a caller; 0139 the 30-day record of
-    // a missed call or chat, which keeps the caller's number; 0140 the
+    // a missed call or chat, which keeps the caller's number; 0141 the
     // payment-link text's ledger, which records a caller was texted about
     // their appointment.
     const expected = [

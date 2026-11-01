@@ -3590,6 +3590,88 @@ released it himself, without external counsel, as he released dpa/1.0.0 on
 
 ---
 
+## 22. BAA 1.7.0 and DPA 1.2.0: ten days to report, fifteen days' notice (released 30 October 2026, landed 1 November 2026)
+
+> **Released by the owner on 30 October 2026, without external counsel.**
+> After that day's legal status review the owner asked to tighten two terms:
+> "Breach notice of 60 days vs California's 'immediately': adjust whatever's
+> needed" and "24 hours' notice before adding a new vendor: adjust whatever's
+> needed". The same day he released both versions in chat: "release BAA 1.7.0
+> and DPA 1.1.0". He also decided that no lawyer will be engaged
+> (`README.md`; `brief.md`, "Decisions taken (30 October 2026)"). The wording
+> was drafted by an AI assistant. Not legal advice.
+>
+> **Why the DPA is 1.2.0.** This release was built on a branch
+> (`claude/friendly-edison-bwvr76`, LEGAL-4) as a "dpa/1.1.0" carrying three
+> changes from dpa/1.0.0: the ten days, the fifteen days and the payment-link
+> text. The same afternoon main released a different dpa/1.1.0 carrying only
+> the payment-link text, in the same words (§ 21), and deployed it. A
+> released version is never edited, so when the owner chose to land this
+> release before launch (1 November 2026, "Go C13" on
+> `docs/launch-board.html`), its two other changes became dpa/1.2.0, on top
+> of main's dpa/1.1.0. dpa/1.2.0's text is the branch's "dpa/1.1.0" word for
+> word but for its version line. BAA 1.7.0 kept its number.
+
+### 22.1 What changed
+
+| Clause | 1.6.0 / dpa/1.1.0 | 1.7.0 / dpa/1.2.0 |
+| --- | --- | --- |
+| Reporting (BAA clause 12; DPA clause 12) | "without unreasonable delay and in no case later than 60 calendar days after discovery" | "... in no case later than 10 calendar days after discovery" |
+| Subcontractors, its notice paragraph (BAA clause 13; DPA clause 11) | "at least 24 hours' notice by email" | "at least 15 days' notice by email" |
+
+Nothing else moves: dpa/1.2.0 keeps dpa/1.1.0's Safeguards clause, the
+payment-link text included (§ 21). Each changed clause is a new object that
+refuses to render if the earlier sentence is not there. Every other clause is
+the earlier version's own object, and the preamble differs only in its
+version line (`REPORTING_1_7`, `SUBCONTRACTORS_1_7` in
+`packages/catalog/src/baa.ts`; `INCIDENTS_1_2`, `SUBCONTRACTORS_1_2` in
+`dpa.ts`; `subprocessorNoticeClauseBody15Days` in `subprocessor-notice.ts`).
+`apps/app/tests/baa-golden.test.ts` checks, on every variant, that 1.7.0's
+text is 1.6.0's with exactly those two sentences swapped, and
+`packages/catalog/src/dpa-1-2-0.test.ts` checks the same of dpa/1.2.0 against
+dpa/1.1.0.
+
+### 22.2 Why these values
+
+- **Ten days.** Sixty days is the most 45 CFR 164.410(b) allows a business
+  associate. Where healdesk acts as the practice's agent, the practice's own
+  sixty days to tell its patients may run from healdesk's discovery
+  (164.404(a)(2)), so a report near sixty days could leave the practice no
+  time (`brief.md` row 14). Cal. Civ. Code 1798.82(b) asks a business holding
+  data it does not own to notify "immediately following discovery". "Without
+  unreasonable delay" still comes first, so ten days is a ceiling. healdesk's
+  internal target stays 24 hours and is never stated as a promise.
+- **Fifteen days.** A day left a practice almost no time to object (`brief.md`
+  row 13). Fifteen days is what 1.2.1 and 1.2.2 gave, at the low end of the
+  usual fifteen to thirty, and leaves room to replace a failing vendor. The
+  recipient, the contents and the right to object and terminate without
+  penalty are word for word the 24-hour sentence's.
+
+### 22.3 The release
+
+- `BAA_1_7_0_RELEASED` and `DPA_1_2_0_RELEASED` are true. 1.7.0 is
+  `BAA_TEMPLATES[0]` and the go-live floor with no overlap, on the owner's word
+  that there are no clients yet. dpa/1.2.0 is `DPA_TEMPLATES[0]`. 1.6.0,
+  dpa/1.1.0 and dpa/1.0.0 stay registered and frozen; the DPA has no go-live
+  floor, so a practice that signed an earlier DPA still goes live under it.
+- `apps/app/drizzle/0142_baa_release_1_7_0_dpa_1_2_0.sql` sets
+  `app_baa_version_acceptable()` to 1.7.0 alone, adds dpa/1.2.0 to
+  `app_dpa_version_released()`, and adds 1.7.0 and dpa/1.2.0 to
+  `app_destruction_rule()`: their Term clauses are the earlier versions' own.
+  It takes effect only when `deploy-app.yml` runs it, which is a separate
+  owner approval. Until then the running apps/app image refuses to provision
+  either version (Compliance › Launch, `baa-1-7-0-notice-periods`).
+- The incident console clocks 1.7.0 and dpa/1.2.0 at ten calendar days, and
+  their subcontractor notices at fifteen days
+  (`apps/app/src/lib/incidents/reporting-rules.ts`).
+- Terms (the security annex) and Privacy § 9 say ten days, under
+  `LEGAL_VERSION` 2026-11-01.1 (numbered 2026-10-30.1 on the branch, a number
+  main had already published for other text). No public page stated the 24
+  hours.
+- The signing screen's explainers and clause notes give each version its own
+  periods (`baa-explainer.ts`, `dpa-explainer.ts`).
+- Texts: `docs/baa-v1.7.0.txt` and `docs/dpa-v1.2.0.txt`.
+
 ## Review log (2026-10-01)
 
 Adversarial pass on the 1 October draft, then on BAA 1.2.0 and the terms as

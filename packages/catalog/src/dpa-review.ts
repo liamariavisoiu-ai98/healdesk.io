@@ -10,6 +10,7 @@ import {
   DPA_NO_SMS_1_1,
   DPA_PRACTICE_DESCRIPTORS,
   DPA_TEMPLATE_1_1_0_DRAFT,
+  DPA_TEMPLATE_1_2_0_DRAFT,
   getDpaTemplate,
   prepareDpa,
   type DpaTemplate,
@@ -261,12 +262,41 @@ function header110(): string {
   const sample = prepareDpa(template, DPA_REVIEW_SAMPLE);
   const was = prepareDpa(template100(), DPA_REVIEW_SAMPLE);
   return [
-    `healdesk Data Protection Agreement — version ${template.version}, RELEASED, drafted and released ${formatDay(template.publishedOn)}. Released by the owner, on the owner's own instruction ("release DPA 1.1.0 as well") and without external counsel: DPA_1_1_0_RELEASED is true in packages/catalog/src/dpa.ts, so DPA_TEMPLATES holds dpa/1.1.0 first and dpa/1.0.0 after it, checkout offers dpa/1.1.0, and app_dpa_version_released lists it (apps/app drizzle/0140_dpa_release_1_1_0). It applies to practices that sign from the release on. A practice that signed dpa/1.0.0 stays on dpa/1.0.0: the product has no way for it to re-sign a newer DPA, and no payment-link text may go to a caller of a practice whose accepted agreement is older than this version. Drafted by an AI assistant on the owner's instruction and AI-reviewed; counsel has not reviewed it (docs/counsel/agreement-changes.md §21). It is frozen now: a change is a new version, never an edit.`,
+    `healdesk Data Protection Agreement — version ${template.version}, RELEASED, drafted and released ${formatDay(template.publishedOn)}. Released by the owner, on the owner's own instruction ("release DPA 1.1.0 as well") and without external counsel: DPA_1_1_0_RELEASED is true in packages/catalog/src/dpa.ts, and app_dpa_version_released lists it (apps/app drizzle/0140_dpa_release_1_1_0). Checkout offered it from its release until dpa/1.2.0 took its place at DPA_TEMPLATES[0] (drizzle/0142_baa_release_1_7_0_dpa_1_2_0, docs/dpa-v1.2.0.txt); it stays released and frozen for every practice that signed it. A practice that signed dpa/1.0.0 stays on dpa/1.0.0: the product has no way for it to re-sign a newer DPA, and no payment-link text may go to a caller of a practice whose accepted agreement is older than this version. Drafted by an AI assistant on the owner's instruction and AI-reviewed; counsel has not reviewed it (docs/counsel/agreement-changes.md §21). It is frozen now: a change is a new version, never an edit.`,
     `What changed against dpa/1.0.0, and nothing else: the version line of the preamble, and the last two sentences of clause 9 (Safeguards), the telephone exception. dpa/1.0.0 says "${DPA_NO_SMS_1_0}" This version says "${DPA_NO_SMS_1_1}" The words are BAA 1.6.0's for the same text (packages/catalog/src/baa.ts, SAFEGUARDS_1_6), with the DPA's own "places no calls". Every other clause is 1.0.0's own, in 1.0.0's order, and renders byte for byte as docs/dpa-v1.0.0.txt prints it.`,
     `Rendered for the same sample practice as docs/dpa-v1.0.0.txt: a med spa that answered "No"; bookings in Mindbody; a personal Google account. From the title line on, the sample is exactly what packages/catalog/src/dpa.test.ts freezes as ${template.version} / sample (SHA-256 ${sample.hash}; dpa/1.0.0's is ${was.hash}). The clauses that render only for some practices follow in Appendix A, numbered as they render; none of them changed. The calendar election that names this agreement is Appendix B of docs/dpa-v1.0.0.txt (calendar-election-dpa/1.0.0), unchanged, which amends this version as it amends 1.0.0. Source: packages/catalog/src/dpa.ts (DPA_TEMPLATE_1_1_0_DRAFT, released through dpaTemplatesFor); written by npm run dpa:review -w @healdesk/catalog.`,
   ]
     .map((p) => wrap(p, ""))
     .join("\n\n");
+}
+
+/** docs/dpa-v1.2.0.txt's header: what the version is, why its number is 1.2.0, and what changed against 1.1.0. */
+function header120(): string {
+  const template = DPA_TEMPLATE_1_2_0_DRAFT;
+  const sample = prepareDpa(template, DPA_REVIEW_SAMPLE);
+  const was = prepareDpa(DPA_TEMPLATE_1_1_0_DRAFT, DPA_REVIEW_SAMPLE);
+  return [
+    `healdesk Data Protection Agreement — version ${template.version}, RELEASED, landed ${formatDay(template.publishedOn)}. Released by the owner: on 30 October 2026 he said "release BAA 1.7.0 and DPA 1.1.0" for this content, built that day on a branch as "dpa/1.1.0"; main released a different dpa/1.1.0 (the payment-link text) the same day and deployed it, and a released version is never edited, so this content landed as dpa/1.2.0, on top of it, on the owner's word of 1 November 2026 ("Go C13"), without external counsel. DPA_1_2_0_RELEASED is true in packages/catalog/src/dpa.ts, so DPA_TEMPLATES holds dpa/1.2.0 first, then dpa/1.1.0 and dpa/1.0.0, checkout offers dpa/1.2.0, and app_dpa_version_released lists it (apps/app drizzle/0142_baa_release_1_7_0_dpa_1_2_0). It applies to practices that sign from the release on; a practice that signed an earlier DPA stays on it. Drafted by an AI assistant on the owner's instruction and AI-reviewed; counsel has not reviewed it (docs/counsel/agreement-changes.md §21). It is frozen now: a change is a new version, never an edit.`,
+    `What changed against dpa/1.1.0, on the owner's instruction of 30 October 2026 ("Breach notice of 60 days vs California's 'immediately': adjust whatever's needed"; "24 hours' notice before adding a new vendor: adjust whatever's needed"), and nothing else: the version line of the preamble and two sentences in two clauses. Clause 12, Reporting incidents and breaches: "in no case later than 60 calendar days after discovery" became "in no case later than 10 calendar days after discovery", "without unreasonable delay" still first. Clause 11, Subcontractors: "at least 24 hours' notice by email" became "at least 15 days' notice by email", with the same recipient, contents and right to object and terminate without penalty. The same two sentences changed in BAA 1.7.0. Every other clause is 1.1.0's own, in 1.1.0's order, the payment-link text in clause 9 included, and renders byte for byte as docs/dpa-v1.1.0.txt prints it.`,
+    `Rendered for the same sample practice as docs/dpa-v1.0.0.txt: a med spa that answered "No"; bookings in Mindbody; a personal Google account. From the title line on, the sample is exactly what packages/catalog/src/dpa.test.ts freezes as ${template.version} / sample (SHA-256 ${sample.hash}; dpa/1.1.0's is ${was.hash}). The clauses that render only for some practices follow in Appendix A, numbered as they render; none of them changed. The calendar election that names this agreement is Appendix B of docs/dpa-v1.0.0.txt (calendar-election-dpa/1.0.0), unchanged, which amends this version as it amends 1.0.0 and 1.1.0. Source: packages/catalog/src/dpa.ts (DPA_TEMPLATE_1_2_0_DRAFT, released through dpaTemplatesFor) and subprocessor-notice.ts (subprocessorNoticeClauseBody15Days); written by npm run dpa:review -w @healdesk/catalog.`,
+  ]
+    .map((p) => wrap(p, ""))
+    .join("\n\n");
+}
+
+/** The whole file, exactly as docs/dpa-v1.2.0.txt must hold it: 1.2.0, rendered from its template. */
+export function dpaRelease120ReviewDocument(): string {
+  const template = DPA_TEMPLATE_1_2_0_DRAFT;
+  return [
+    header120(),
+    RULE,
+    render({}, template).trimEnd(),
+    RULE,
+    `APPENDIX A — CLAUSES THAT RENDER ONLY FOR SOME PRACTICES\n(not part of the sample above)`,
+    variantAppendix(template),
+  ]
+    .join("\n\n")
+    .concat("\n");
 }
 
 /** The whole file, exactly as docs/dpa-v1.1.0.txt must hold it: 1.1.0, rendered from its template. */

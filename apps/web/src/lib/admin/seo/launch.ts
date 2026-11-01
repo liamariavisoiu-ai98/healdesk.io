@@ -196,6 +196,18 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     blocksGoLive: true,
   },
   {
+    id: "baa-1-7-0-notice-periods",
+    promise:
+      "A breach or security incident is reported to the clinic in no case later than 10 calendar days after discovery, and a new subcontractor is announced at least 15 days ahead",
+    where:
+      "Terms annex (If something goes wrong), Privacy section 9, the business associate agreement and the data protection agreement signed at checkout",
+    status: "building",
+    left: "The owner released BAA 1.7.0 and the DPA's matching version on 30 October 2026, without external counsel, and chose on 1 November 2026 to land them before launch. The DPA's version is dpa/1.2.0: its branch called it dpa/1.1.0, a number main had already released for the payment-link text, so it sits on top of that one. BAA_1_7_0_RELEASED and DPA_1_2_0_RELEASED are true, so checkout offers 1.7.0 and dpa/1.2.0, the BAA floor is 1.7.0 with no overlap, the incident console clocks those versions at 10 calendar days and their subcontractor notices at 15 days, and Terms and Privacy say 10 days under LEGAL_VERSION 2026-11-01.1. Production does not do it yet: the release migration (apps/app/drizzle/0142_baa_release_1_7_0_dpa_1_2_0.sql) moves the database's go-live check to 1.7.0 only when deploy-app.yml runs it, and until then the running apps/app image refuses to provision 1.7.0 or dpa/1.2.0, so deploy-app.yml should run as soon as this lands. It moves to On in the commit that records that deploy.",
+    evidence:
+      "packages/catalog/src/baa.ts (BAA_1_7_0_RELEASED), packages/catalog/src/dpa.ts (DPA_1_2_0_RELEASED), apps/app/drizzle/0142_baa_release_1_7_0_dpa_1_2_0.sql, apps/app/src/lib/incidents/reporting-rules.ts, docs/baa-v1.7.0.txt, docs/dpa-v1.2.0.txt, docs/counsel/agreement-changes.md section 22",
+    blocksGoLive: true,
+  },
+  {
     id: "extra-locations",
     promise:
       "One AYA answers for every location of a practice, as one central assistant like a call centre, and each further location is added to the same plan from Billing, at the plan's price again plus its setup fee once, renewing on the same date",

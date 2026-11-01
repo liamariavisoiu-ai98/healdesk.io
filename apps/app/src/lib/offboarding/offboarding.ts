@@ -1,6 +1,7 @@
 import {
   agreementKindOfVersion,
   DPA_1_1_0_RELEASED,
+  DPA_1_2_0_RELEASED,
   DPA_VERSION_PREFIX,
   FORWARDING_PASS_THROUGH_DAYS,
   type AgreementKind,
@@ -256,7 +257,8 @@ export const OFFBOARDING_BACKDATE_LIMIT_DAYS = 7;
  * earlier). export_or_ninety: from day 29 if the export was delivered by
  * then, from its delivery if later, and from day 89 regardless (BAA 1.3.0,
  * and 1.4.0, 1.5.0 and 1.5.1, whose Term clause is 1.3.0's own, and 1.6.0,
- * released 29 October 2026, whose Term clause states the same rule; DPA 1.0.0). Every hourly run
+ * released 29 October 2026, and 1.7.0, released 30 October 2026, whose Term
+ * clauses state the same rule; DPA 1.0.0 and 1.1.0). Every hourly run
  * destroys on either rule.
  */
 export type DestructionRule = "thirty_days" | "export_or_ninety";
@@ -273,6 +275,9 @@ export type DestructionRule = "thirty_days" | "export_or_ninety";
  */
 export const DESTRUCTION_RULES: Readonly<Record<AgreementKind, Readonly<Record<string, DestructionRule>>>> = {
   baa: {
+    // Released by the owner on 30 October 2026, landed 1 November 2026 (drizzle/0142). Its Term
+    // clause is 1.6.0's own object, so it states the same rule.
+    "1.7.0": "export_or_ninety",
     // Released by the owner on 29 October 2026 (drizzle/0136; a draft from
     // drizzle/0091 until then). Its Term clause is 1.3.0's with one phrase
     // about Anthropic changed, and states the same rule.
@@ -289,6 +294,12 @@ export const DESTRUCTION_RULES: Readonly<Record<AgreementKind, Readonly<Record<s
     "0.1.0-draft": "thirty_days",
   },
   dpa: {
+    // DPA 1.2.0, landed 1 November 2026: its Term clause is 1.0.0's own
+    // object (through 1.1.0), and states the same rule. Listed only while its
+    // release stands (DPA_1_2_0_RELEASED in dpa.ts). Its release migration
+    // (drizzle/0142) added it to app_destruction_rule() in the same commit
+    // (tests/baa-release-1-7-0.test.ts).
+    ...(DPA_1_2_0_RELEASED ? { "1.2.0": "export_or_ninety" as const } : {}),
     // DPA 1.1.0, released by the owner on 30 October 2026: its Term clause is
     // 1.0.0's own object, and states the same rule. Listed only while the
     // owner's release stands (DPA_1_1_0_RELEASED in dpa.ts), so the map names

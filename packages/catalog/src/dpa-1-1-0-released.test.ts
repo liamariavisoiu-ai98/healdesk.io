@@ -12,24 +12,36 @@ import * as dpa from "./dpa";
  * true; the real switch, DPA_1_1_0_RELEASED in dpa.ts, is now true, so the
  * mock is gone and every assertion runs against the real catalogue.
  *
- * What the release does: checkout's copy names 1.1.0, signing takes 1.1.0
- * and asks a tab still on 1.0.0 to reload, both stay released (a 1.0.0
+ * What the release did: checkout's copy named 1.1.0, signing took 1.1.0
+ * and asked a tab still on 1.0.0 to reload, both stay released (a 1.0.0
  * signer keeps a released agreement, and stays on it: nothing in the product
- * re-signs a newer DPA), and the agreement kind a practice signs does not
- * change.
+ * re-signs a newer DPA), and the agreement kind a practice signs did not
+ * change. Since 1 November 2026 dpa/1.2.0 is current (dpa-1-2-0.test.ts):
+ * 1.1.0 stays released behind it, and a tab still on 1.1.0 is asked to
+ * reload as 1.0.0's is.
  */
 
 describe("DPA 1.1.0 released", () => {
-  test("1.1.0 is current", () => {
+  test("1.1.0 is released, and since 1 November 2026 dpa/1.2.0 is current ahead of it", () => {
     expect(dpa.DPA_1_1_0_RELEASED).toBe(true);
-    expect(dpa.CURRENT_DPA_VERSION).toBe("dpa/1.1.0");
+    expect(dpa.CURRENT_DPA_VERSION).toBe("dpa/1.2.0");
     expect(dpa.currentDpaTemplate().approvedByCounsel).toBe(true);
-    expect(dpa.DPA_TEMPLATES.map((t) => t.version)).toEqual(["dpa/1.1.0", "dpa/1.0.0"]);
+    expect(dpa.DPA_TEMPLATES.map((t) => t.version)).toEqual([
+      "dpa/1.2.0",
+      "dpa/1.1.0",
+      "dpa/1.0.0",
+    ]);
+    // As released on 30 October 2026, with 1.2.0's switch off: 1.1.0 first.
+    expect(dpa.dpaTemplatesFor(true, false).map((t) => t.version)).toEqual([
+      "dpa/1.1.0",
+      "dpa/1.0.0",
+    ]);
   });
 
-  test("checkout's copy names 1.1.0, and signing takes it and refuses a tab left on 1.0.0", () => {
-    expect(AGREEMENT_COPY.dpa.currentVersion).toBe("dpa/1.1.0");
-    expect(signableDpaTemplate("dpa/1.1.0").version).toBe("dpa/1.1.0");
+  test("checkout's copy names the current DPA, and signing refuses a tab left on 1.1.0 or 1.0.0", () => {
+    expect(AGREEMENT_COPY.dpa.currentVersion).toBe("dpa/1.2.0");
+    expect(signableDpaTemplate("dpa/1.2.0").version).toBe("dpa/1.2.0");
+    expect(() => signableDpaTemplate("dpa/1.1.0")).toThrow(/reload/);
     expect(() => signableDpaTemplate("dpa/1.0.0")).toThrow(/reload/);
   });
 

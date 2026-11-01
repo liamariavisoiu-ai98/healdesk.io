@@ -56,7 +56,12 @@ A3's misquote (`agreement-changes.md` § 17, `docs/baa-v1.6.0.txt`); its
 `approvedByCounsel` was false until the owner released it on 29 October
 2026, without external counsel (`agreement-changes.md` § 17): since then
 1.6.0 is the only version offered and the go-live floor, and 1.5.1 is
-frozen below it. On 20 October
+frozen below it. On 30 October 2026 the owner released BAA 1.7.0 and DPA
+1.2.0, without external counsel: both report a breach or incident in no case
+later than 10 calendar days after discovery and give 15 days' notice of a new
+subcontractor, and the DPA carries the payment-link text exception
+(`agreement-changes.md` § 22). 1.7.0 is the only BAA offered and the go-live
+floor; 1.6.0 is frozen below it. On 20 October
 2026 the owner released the Data Protection Agreement (`dpa/1.0.0`), which
 a veterinary practice and a practice that answers "No" to billing health
 insurance electronically sign in place of the BAA, with its own calendar
@@ -72,6 +77,14 @@ mostly questions about enforcement and platform policy that reasoning cannot
 close and that no clinic yet raises; and each of those points has a named
 trigger in `brief.md` at which a lawyer is engaged, state by state or
 counterparty by counterparty, instead of up front.
+
+**The decision is permanent (owner, 30 October 2026: "I won't hire a
+lawyer").** The triggers in `brief.md` no longer promise that a lawyer will
+be engaged. Each one marks the point where the owner looks at that risk
+again. The same day, the owner declined liability insurance for now and a
+separate US agent for service of process, and confirmed that the trade
+licence, Meta's healthcare rule and call-transcription consent are covered
+(`brief.md`, "Decisions taken (30 October 2026)").
 
 What that decision costs, stated plainly: the documents were drafted and
 reviewed by an AI assistant, not a licensed attorney. A defect in the BAA

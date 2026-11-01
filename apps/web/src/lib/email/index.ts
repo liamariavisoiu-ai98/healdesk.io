@@ -31,10 +31,12 @@ import { noteDailyQuota, quotaFromHeader } from "./quota";
  *   - the same link in the footer, and the postal address from legal.ts
  *   - a From that is a real person at a subdomain that is NOT one of the cold
  *     outreach domains (docs/handover.md); the two reputations never mix
- *   - an HTML twin of the text (Annex X1.8): one column, system fonts, no
- *     images and nothing fetched, under 100 KB, built from the text itself
- *     by the catalog's htmlTwinOfText unless the caller renders its own
- *     (the agreement copy), so the two can never say different things
+ *   - an HTML twin of the text (Annex X1.8), in healdesk's branded shell
+ *     (owner, 1 November 2026; the catalog's email-brand.ts): one column,
+ *     system fonts, the logo the only thing fetched, under 100 KB, built
+ *     from the text itself by the catalog's htmlTwinOfText unless the caller
+ *     renders its own (the agreement copy, the demo-ready email), so the two
+ *     can never say different things
  *
  * Whether a message MAY be sent at all is decided by the caller with
  * `canEmail()` in lib/leads.ts, which checks consent, unsubscribe and bounce

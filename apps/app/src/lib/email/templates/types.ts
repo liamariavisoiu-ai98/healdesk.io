@@ -37,7 +37,11 @@ export type RenderedEmail = {
   preheader: string;
   /** The plain-text body, written first (X1.8). */
   text: string;
-  /** The HTML twin, built from the same blocks: one column, system fonts, no images. */
+  /**
+   * The HTML twin, built from the same blocks in healdesk's branded shell
+   * (@healdesk/catalog email-brand.ts): one column, system fonts, the logo
+   * the one image.
+   */
   html: string;
 };
 

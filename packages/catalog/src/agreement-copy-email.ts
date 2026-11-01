@@ -1,4 +1,5 @@
 import { agreementKindOfVersion, DPA_VERSION_PREFIX, type AgreementKind } from "./agreement-kind";
+import { EMAIL_COLORS, EMAIL_MONO_FONT, EMAIL_STYLES } from "./email-brand";
 import { emailHtmlDocument } from "./email-html";
 import { SENDER_IDENTITY } from "./sender-identity";
 
@@ -24,9 +25,10 @@ import { SENDER_IDENTITY } from "./sender-identity";
  * (Annex X1.9): why it came, that replies reach the team and should leave out
  * patient details, and the sender's identity with the US mailing address. Its
  * subject is held to 70 characters (X4), the practice's name cut to fit, and
- * its HTML is the one-column, system-font document of email-html.ts, with no
- * link in it: the address to write to is printed, not a mailto: link, since
- * an email links only to a public https page of ours (X1.6).
+ * its HTML is healdesk's branded document (email-brand.ts, owner, 1 November
+ * 2026: the logo, the subject as the title, Apple's type), with no link in
+ * it: the address to write to is printed, not a mailto: link, since an email
+ * links only to a public https page of ours (X1.6).
  */
 
 const CONTACT = SENDER_IDENTITY.replyTo;
@@ -90,7 +92,7 @@ const DOCUMENT_WORDS: Readonly<
       `to produce its business associate agreements, this is the file.`,
     ],
     keepHtml:
-      `<p><strong>Please keep it.</strong> This is a contract with two parties to it, ` +
+      `<p class="hd-ink" style="${EMAIL_STYLES.paragraph}"><strong>Please keep it.</strong> This is a contract with two parties to it, ` +
       `and healdesk should not be the only one holding a copy — if your practice is ` +
       `ever asked to produce its business associate agreements, this is the file.</p>`,
   },
@@ -103,7 +105,7 @@ const DOCUMENT_WORDS: Readonly<
       `file.`,
     ],
     keepHtml:
-      `<p><strong>Please keep it.</strong> This is a contract with two parties to it, ` +
+      `<p class="hd-ink" style="${EMAIL_STYLES.paragraph}"><strong>Please keep it.</strong> This is a contract with two parties to it, ` +
       `and healdesk should not be the only one holding a copy — if your practice is ` +
       `ever asked what it agreed with healdesk about its clients' information, this is ` +
       `the file.</p>`,
@@ -152,29 +154,35 @@ export function renderAgreementCopy(copy: {
     ...footer,
   ].join("\n");
 
+  const p = `<p class="hd-ink" style="${EMAIL_STYLES.paragraph}">`;
   const body = [
-    `<p>Attached, as a PDF, is the ${words.noun} you signed for `,
+    `${p}Attached, as a PDF, is the ${words.noun} you signed for `,
     `<strong>${escapeHtml(copy.clinicName)}</strong>. It is the document we recorded `,
     `at signature, word for word — the same text that was on your screen.</p>`,
-    `<p>${escapeHtml(signed)}<br>`,
+    `${p}${escapeHtml(signed)}<br>`,
     `Agreement version ${escapeHtml(copy.version)}.</p>`,
     words.keepHtml,
-    `<p>Our reference for it is the SHA-256 of the agreement text:<br>`,
-    `<code style="word-break:break-all">${escapeHtml(copy.documentHash)}</code></p>`,
+    `${p}Our reference for it is the SHA-256 of the agreement text:</p>`,
+    // The hash in a soft grey box, its ground and ink repainted together in dark mode.
+    `<p class="hd-soft hd-ink" style="margin:0 0 18px;padding:14px 16px;background:${EMAIL_COLORS.soft};`,
+    `color:${EMAIL_COLORS.ink};border-radius:12px;font-family:${EMAIL_MONO_FONT};font-size:13px;line-height:20px;`,
+    `word-break:break-all;">${escapeHtml(copy.documentHash)}</p>`,
     // The address as text, not a mailto: link. An email links only to a
     // public https page of ours (X1.6), and a reply already reaches it.
-    `<p>If you need another copy, or this reached the wrong address, email `,
+    `${p}If you need another copy, or this reached the wrong address, email `,
     `${CONTACT} and a person will deal with it.</p>`,
-    `<p>If you did not sign anything, someone has typed this address by mistake. `,
+    `${p}If you did not sign anything, someone has typed this address by mistake. `,
     `You can ignore this email; if you would rather tell us, `,
     `${CONTACT} reaches a person.</p>`,
-    `<hr style="border:0;border-top:1px solid #d0d7de;margin:24px 0 12px;">`,
-    ...footer.map(
-      (line) =>
-        `<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">${escapeHtml(line)}</p>`,
-    ),
   ].join("");
-  const html = emailHtmlDocument(subject, body);
+  // healdesk's branded shell (email-brand.ts): the logo, the subject as the
+  // title, the footer under its hairline. Still no link: the logo is an image.
+  const html = emailHtmlDocument(subject, body, {
+    title: subject,
+    footerHtml: footer
+      .map((line) => `<p class="hd-muted" style="${EMAIL_STYLES.footer}">${escapeHtml(line)}</p>`)
+      .join("\n"),
+  });
 
   return { subject, text, html };
 }

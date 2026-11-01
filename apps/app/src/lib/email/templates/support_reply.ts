@@ -78,6 +78,8 @@ export function renderSupportReplyWith(subject: string): EmailTemplate<SupportRe
       {
         subject,
         preheader: first.length > 90 ? `${first.slice(0, 87).trimEnd()}...` : first,
+        // A reply reads as a letter under the logo, not a notice with a title.
+        title: null,
         blocks,
       },
       ctx,

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { AGREEMENT_COPY_SUBJECT_MAX, renderAgreementCopy } from "./agreement-copy-email";
+import { EMAIL_LOGO } from "./email-brand";
 
 /**
  * P6, the signer's copy of the agreement, as both apps send it: the footer
@@ -52,11 +53,17 @@ describe("renderAgreementCopy", () => {
     expect(long.text.replace(/\n/g, " ")).toContain(LONG);
   });
 
-  test("the HTML is one column in system fonts, with no link and nothing fetched", () => {
-    const { html } = renderAgreementCopy(COPY);
+  test("the HTML is the branded one-column document, with no link and nothing fetched but the logo", () => {
+    const { html, subject } = renderAgreementCopy(COPY);
     expect(html.startsWith("<!doctype html>")).toBe(true);
     expect(html).toContain("-apple-system");
-    expect(html).not.toMatch(/href=|src=|<img|url\(/i);
+    expect(html).not.toMatch(/href=|url\(/i);
+    // The logo is the one image, at its one fixed URL (owner, 1 November 2026).
+    expect([...html.matchAll(/<img\b/g)]).toHaveLength(1);
+    expect([...html.matchAll(/\bsrc="([^"]*)"/g)].map((m) => m[1])).toEqual([EMAIL_LOGO.url]);
+    // The subject is the title under the logo.
+    expect(html).toContain(`<h1 class="hd-title hd-ink"`);
+    expect(html).toContain(`>${subject}</h1>`);
     expect(html).toContain("hello@healdesk.io");
   });
 

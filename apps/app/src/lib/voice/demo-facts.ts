@@ -1262,7 +1262,8 @@ function usNumber(raw: string | null): string | null {
  * never-say list for the role-play, so the guard, which already owns what a
  * patient's call may hear, refuses any of it, whatever the model wrote.
  */
-export const ROLEPLAY_NEVER_SAY = ["healdesk", "heal desk", "setup fee", "onboarding", "demo page", "Aya Voice", "Aya Web Chat", "Aya Meta Chat", "getting that running", "hundred minutes", "on our side"] as const;
+// "role-play" since 1 November 2026: the call is only the clinic's front desk, with no role-play to speak of (c4093be6 replayed).
+export const ROLEPLAY_NEVER_SAY = ["healdesk", "heal desk", "setup fee", "onboarding", "demo page", "Aya Voice", "Aya Web Chat", "Aya Meta Chat", "getting that running", "hundred minutes", "on our side", "role-play", "role play"] as const;
 
 /** A role-play reply refused outright for healdesk's words: the practice's answer to what it does not know (criterion 7 of c4093be6). */
 export const ROLEPLAY_UNKNOWN_LINE = "Good question. ⟪think⟫ I'd have to check that with the team.";

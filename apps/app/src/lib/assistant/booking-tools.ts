@@ -89,7 +89,12 @@ export type ToolAction =
       /** Only times starting before this hour of the day: "before noon", "mornings". */
       before?: string | null;
     }
-  | { type: "choose_time"; at: string };
+  | { type: "choose_time"; at: string }
+  /**
+   * The times already offered, said again: all of them ("what?"), or only `only` ("Monday works" with two Monday
+   * times on offer), which then become the times on offer. Never asked for by the model; turn.ts sends it.
+   */
+  | { type: "offer_again"; only?: readonly string[] };
 
 export type OfferedSlot = { at: string; providerId: string | null };
 
@@ -120,6 +125,12 @@ export type BookingToolState = {
    */
   readBack?: string | null;
   phoneConfirmed?: string | null;
+  /**
+   * Every time offered so far, ISO: asked again, times not offered yet come first, so two searches never take turns
+   * (a44374c9 replayed: "any day", "whatever you have" heard the same two sets in turn). Optional, so a state sealed
+   * before it existed still reads.
+   */
+  shown?: string[];
   /** The conversation's one booking or request, once the engine has it. */
   done: { kind: "booked" | "request"; at: string | null; requestId: string | null; appointmentId: string | null } | null;
   /**
@@ -298,9 +309,11 @@ export function bookingTools(
   }
 
   function offered(state: BookingToolState, slots: readonly { at: Date; providerId: string | null }[], service: string | null): BookingToolState {
+    const now = spread(slots).map((s) => ({ at: s.at.toISOString(), providerId: s.providerId }));
     return {
       ...state,
-      offered: spread(slots).map((s) => ({ at: s.at.toISOString(), providerId: s.providerId })),
+      offered: now,
+      shown: [...new Set([...(state.shown ?? []), ...now.map((s) => s.at)])].slice(-60),
       service,
       chosen: null,
       held: false,
@@ -351,18 +364,46 @@ export function bookingTools(
     }
     // A window of the day they asked for ("after four", "not mornings"): only the times inside it (a test call of
     // 1 November 2026: "I want evening" offered the same morning-heavy times again).
+    // Nothing inside it ("nine PM" at a practice that closes at five, "before eleven" with nothing that morning):
+    // the times nearest to it that day, said with why, never "That one's full" alone (a call of 1 November 2026
+    // heard it four times running, word for word).
+    let lead: NearestLead | null = null;
     if (action.after || action.before) {
-      answer = { ...answer, slots: answer.slots.filter((slot) => inWindow(slot.at, context.timeZone, action.after ?? null, action.before ?? null)) };
+      const inside = answer.slots.filter((slot) => inWindow(slot.at, context.timeZone, action.after ?? null, action.before ?? null));
+      if (inside.length === 0) {
+        const wide = action.after && action.day ? await read({ ...action, after: null, before: null }, service, now).catch(() => null) : answer;
+        const pool = wide && wide.status !== "unavailable" && wide.status !== "request_only" ? wide.slots : [];
+        const edge = minutesOf(action.after ?? null) ?? minutesOf(action.before ?? null) ?? 0;
+        const onDay = action.day ? pool.filter((slot) => dayIn(slot.at, context.timeZone) === action.day) : pool;
+        const near = [...onDay].sort((a, b) => Math.abs(minutesIn(a.at, context.timeZone) - edge) - Math.abs(minutesIn(b.at, context.timeZone) - edge) || a.at.getTime() - b.at.getTime());
+        lead = action.after && !action.before ? "late" : action.before && !action.after ? "early" : "then";
+        answer = { ...answer, slots: near.slice(0, OFFERED).sort((a, b) => a.at.getTime() - b.at.getTime()) };
+      } else {
+        answer = { ...answer, slots: inside };
+      }
+    }
+    // A day with nothing free: the next free times after it, said as such.
+    if (answer.slots.length === 0 && action.day) {
+      const dayStart = zonedDayStart(action.day, context.timeZone);
+      const later = await read({ ...action, day: null, after: null, before: null }, service, now).catch(() => null);
+      const pool = later && later.status !== "unavailable" && later.status !== "request_only" ? later.slots.filter((slot) => !dayStart || dayIn(slot.at, context.timeZone) > action.day!) : [];
+      if (pool.length > 0) {
+        lead = "dayFull";
+        answer = { ...answer, slots: pool };
+      }
     }
     // Asked again, the times not just offered come first (the same three, three times, on a test call of 1 November 2026).
     if (state.offered.length > 0 && answer.slots.length > OFFERED) {
-      const before = new Set(state.offered.map((s) => s.at));
-      const fresh = answer.slots.filter((slot) => !before.has(slot.at.toISOString()));
+      const last = new Set(state.offered.map((s) => s.at));
+      const shown = new Set([...(state.shown ?? []), ...last]);
+      const unseen = answer.slots.filter((slot) => !shown.has(slot.at.toISOString()));
+      const fresh = unseen.length > 0 ? unseen : answer.slots.filter((slot) => !last.has(slot.at.toISOString()));
       if (fresh.length > 0) answer = { ...answer, slots: fresh };
     }
     if (answer.slots.length === 0) return turn(L.noFreeTime, offered(state, [], service));
     const next = offered(state, answer.slots, service);
-    return turn(L.offer(labelsOf(next.offered.map((s) => s.at), L)), next);
+    const labels = labelsOf(next.offered.map((s) => s.at), L);
+    return turn(lead && L.nearest ? L.nearest(lead, labels) : L.offer(labels), next);
   }
 
   /**
@@ -544,6 +585,13 @@ export function bookingTools(
       return turn(state.done.kind === "booked" ? L.oneBookingPerCall(state.done.at ? label(state.done.at) : null) : L.oneRequestPerCall, state);
     }
     if (action?.type === "find_times") return findTimes(action, state, now, L);
+    if (action?.type === "offer_again") {
+      const keep = action.only ? state.offered.filter((s) => action.only!.includes(s.at)) : state.offered;
+      if (keep.length === 0) return null;
+      const next = action.only ? { ...state, offered: keep } : state;
+      const labels = labelsOf(keep.map((s) => s.at), L);
+      return turn(L.offerAgain ? L.offerAgain(labels, Boolean(action.only)) : L.offer(labels), next);
+    }
 
     let chosenNow = false;
     if (action?.type === "choose_time") {
@@ -676,6 +724,20 @@ function atHour(dayStart: Date | null, hhmm: string): Date | null {
 }
 
 /** Whether a time starts inside a window of the day, in the practice's zone. */
+/** Why the times offered are not the ones asked for (BookingLines.nearest). */
+export type NearestLead = "late" | "early" | "then" | "dayFull";
+
+/** Minutes since midnight of `at`, in `timeZone`. */
+function minutesIn(at: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(at);
+  return (Number(parts.find((p) => p.type === "hour")?.value) % 24) * 60 + Number(parts.find((p) => p.type === "minute")?.value);
+}
+
+/** The calendar day of `at` in `timeZone`, "YYYY-MM-DD". */
+function dayIn(at: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
+}
+
 function inWindow(at: Date, timeZone: string, after: string | null, before: string | null): boolean {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(at);
   const minutes = Number(parts.find((p) => p.type === "hour")?.value) * 60 + Number(parts.find((p) => p.type === "minute")?.value);

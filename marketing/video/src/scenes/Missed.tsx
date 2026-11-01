@@ -42,7 +42,7 @@ export const Missed: React.FC = () => {
 
   const phoneW = wide ? 470 : 700;
   const phoneX = wide ? 1060 : (1080 - phoneW) / 2;
-  const phoneY = wide ? 40 : 230;
+  const phoneY = wide ? 40 : 300;
   const s = phoneW / 600;
 
   const punch = spring({ frame: frame - SWAP, fps, config: { damping: 12, stiffness: 200 } });
@@ -98,25 +98,32 @@ export const Missed: React.FC = () => {
   );
 };
 
-/** "Missed calls?" rolling to "Missed DMs?", set in a mask the way Apple reveals a line. */
+/**
+ * "Is your clinic missing calls?" rolling to "...DMs?": the question is put
+ * to the owner of a clinic, and only the last word moves, in a mask, the way
+ * Apple reveals a line.
+ */
 const Title: React.FC<{ frame: number; wide: boolean; exit: number }> = ({ frame, wide, exit }) => {
   const { fps } = useVideoConfig();
-  const size = wide ? 140 : 108;
+  const size = wide ? 110 : 96;
   const lh = size * 1.12;
   const roll = spring({ frame: frame - SWAP, fps, config: { damping: 15, stiffness: 140 } });
   // Fully set on frame 0, so the first frame already reads.
   const rise = spring({ frame: frame + 24, fps, config: { damping: 18 } });
   const box: React.CSSProperties = wide
-    ? { position: "absolute", left: 200, top: 330, width: 820, textAlign: "left" }
-    : { position: "absolute", left: 0, right: 0, top: 40, textAlign: "center" };
+    ? { position: "absolute", left: 160, top: 360, width: 860, textAlign: "left" }
+    : { position: "absolute", left: 0, right: 0, top: 36, textAlign: "center" };
   return (
-    <div style={{ ...box, fontFamily: font, fontWeight: 700, fontSize: size, letterSpacing: "-0.015em", lineHeight: `${lh}px`, color: "#F5F5F7", opacity: 1 - exit, zIndex: 30, textShadow: "0 10px 50px rgba(120,120,255,0.25)" }}>
-      <div style={{ display: wide ? "block" : "inline-flex", alignItems: "flex-start", gap: size * 0.28, overflow: "hidden", height: wide ? lh * 2 : lh }}>
-        <div style={{ transform: `translateY(${(1 - rise) * lh}px)` }}>Missed</div>
+    <div style={{ ...box, fontFamily: font, fontWeight: 700, fontSize: size, letterSpacing: "-0.02em", lineHeight: `${lh}px`, color: "#F5F5F7", opacity: 1 - exit, zIndex: 30, textShadow: "0 10px 50px rgba(120,120,255,0.25)" }}>
+      <div style={{ overflow: "hidden", height: lh }}>
+        <div style={{ transform: `translateY(${(1 - rise) * lh}px)` }}>Is your clinic</div>
+      </div>
+      <div style={{ display: "flex", justifyContent: wide ? "flex-start" : "center", gap: size * 0.26, overflow: "hidden", height: lh }}>
+        <div style={{ transform: `translateY(${(1 - rise) * lh}px)` }}>missing</div>
         <div style={{ height: lh, overflow: "hidden" }}>
-          <div style={{ transform: `translateY(${(1 - rise) * lh - roll * lh}px)` }}>
-            <div style={{ height: lh }}>calls?</div>
-            <div style={{ height: lh }}>DMs?</div>
+          <div style={{ transform: `translateY(${(1 - rise) * lh - roll * lh}px)`, color: "#FFFFFF" }}>
+            <div style={{ height: lh, backgroundImage: "linear-gradient(90deg, #FFB37A, #FF5A4E)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>calls?</div>
+            <div style={{ height: lh, backgroundImage: "linear-gradient(90deg, #FFB37A, #FF5A4E)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>DMs?</div>
           </div>
         </div>
       </div>
@@ -186,8 +193,15 @@ const LockScreen: React.FC<{ frame: number; s: number }> = ({ frame, s }) => {
       <div style={{ position: "absolute", top: 120 * s, width: "100%", textAlign: "center" }}>
         <div style={{ fontSize: 30 * s, fontWeight: 600, opacity: 0.85 }}>Tuesday, October 28</div>
         <div style={{ fontSize: 190 * s, fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1, marginTop: 4 * s, textShadow: "0 4px 30px rgba(0,0,0,0.25)" }}>{clock}</div>
+        {/* The clinic's front desk has gone home: a Focus, as iOS shows one. */}
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 10 * s, marginTop: 14 * s, padding: `${8 * s}px ${18 * s}px`, borderRadius: 999, background: "rgba(255,255,255,0.18)", backdropFilter: "blur(20px)", fontSize: 24 * s, fontWeight: 600 }}>
+          <svg width={24 * s} height={24 * s} viewBox="0 0 24 24">
+            <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z" fill="#A99BFF" />
+          </svg>
+          Front desk closed
+        </div>
       </div>
-      <div style={{ position: "absolute", left: 22 * s, right: 22 * s, top: 470 * s }}>
+      <div style={{ position: "absolute", left: 22 * s, right: 22 * s, top: 520 * s }}>
         {/* Newest DMs on top. */}
         {dms
           .slice()

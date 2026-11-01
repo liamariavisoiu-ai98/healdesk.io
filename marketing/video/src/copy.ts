@@ -18,8 +18,8 @@ export const DURATION = timeline.scenes.close.to;
 
 /** The storyboard's on-screen lines, in order. */
 export const LINES = {
-  calls: "Missed calls?",
-  dms: "Missed DMs?",
+  calls: "Is your clinic missing calls?",
+  dms: "Is your clinic missing DMs?",
   interrupt: "Not on my watch.",
   hello: "Hi, I'm Aya, your 24/7 assistant.",
   badges: ["Built for medspas", "We sign a BAA"],
@@ -42,7 +42,7 @@ const at = (scene: keyof typeof SCENES, frame: number) => SCENES[scene].from + M
 export const VO: readonly VoLine[] = [
   { from: at("missed", 10), to: at("missed", 120), text: LINES.calls, burn: false },
   { from: at("missed", 140), to: at("missed", 250), text: LINES.dms, burn: false },
-  { from: at("interrupt", 8), to: at("interrupt", 70), text: LINES.interrupt, burn: false },
+  { from: at("interrupt", 2), to: at("interrupt", 40), text: LINES.interrupt, burn: false },
   { from: at("aya", 20), to: at("aya", 110), text: LINES.hello, burn: false },
   { from: at("dashboard", 10), to: at("dashboard", 90), text: LINES.channels, burn: false },
   { from: at("deposit", 90), to: at("deposit", 140), text: LINES.deposit, burn: false },

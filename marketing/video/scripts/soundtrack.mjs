@@ -144,8 +144,10 @@ function brush(at, gain = 0.07, dur = 0.18, pan = 0) {
 
 // ---------------------------------------------------------------- the song
 
-// A punchy, positive track in D major at 120 BPM. Bars are laid so the drop
-// lands on the cut to "Not on my watch." (the interrupt's first frame).
+// A punchy pop-house track at 128 BPM in D major, the kind Apple's product
+// films ride on: four-on-the-floor kick, stomp-claps, offbeat house piano, an
+// offbeat bass, a vowel-chop hook, and a hit on every cut. Bars are laid so
+// the drop lands on the cut to "Not on my watch."
 const BPM = TIMELINE.bpm;
 const BEAT = 60 / BPM;
 const BAR = BEAT * 4;
@@ -153,6 +155,7 @@ const DROP = at("interrupt", 0);
 const GRID = DROP - Math.floor(DROP / BAR) * BAR; // the first downbeat after 0
 const END_GROOVE = at("close", 0);
 const SONG_END = f2s(S.close.to);
+const CUTS = [at("aya", 0), at("dashboard", 0), at("deposit", 0)];
 
 // I – V – vi – IV.
 const PROG = [
@@ -169,57 +172,83 @@ const SAW = new Float32Array(TABLE);
 for (let i = 0; i < TABLE; i++) for (let h = 1; h <= 24; h++) SAW[i] += (Math.sin((2 * Math.PI * h * i) / TABLE) / h) * 0.55;
 const saw = (phase) => SAW[Math.floor((((phase % 1) + 1) % 1) * TABLE)];
 
-const kicks = [];
-function songKick(t0, gain = 0.9) {
-  kicks.push(t0);
-  add(t0, 0.42, (t) => (Math.sin(2 * Math.PI * (48 * t + (110 / 22) * (1 - Math.exp(-22 * t)))) * Math.exp(-7 * t) + (t < 0.004 ? rand() * 0.6 : 0)), { gain });
+/** An RBJ band-pass, as a stateful step function. */
+function bandpass(f, q) {
+  const w = (2 * Math.PI * f) / SR;
+  const alpha = Math.sin(w) / (2 * q);
+  const a0 = 1 + alpha;
+  const b0 = alpha / a0;
+  const b2 = -alpha / a0;
+  const a1 = (-2 * Math.cos(w)) / a0;
+  const a2 = (1 - alpha) / a0;
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+  return (x) => {
+    const y = b0 * x + b2 * x2 - a1 * y1 - a2 * y2;
+    x2 = x1;
+    x1 = x;
+    y2 = y1;
+    y1 = y;
+    return y;
+  };
 }
-function clap(t0, gain = 0.32) {
-  const lp = lowpass(4200);
-  const lp2 = lowpass(900);
-  add(t0, 0.3, (t) => {
-    const burst = [0, 0.011, 0.022].some((o) => t >= o && t < o + 0.008) ? 1 : 0;
+
+const kicks = [];
+function songKick(t0, gain = 1) {
+  kicks.push(t0);
+  add(t0, 0.38, (t) => Math.tanh(1.8 * (Math.sin(2 * Math.PI * (52 * t + (150 / 28) * (1 - Math.exp(-28 * t)))) * Math.exp(-8 * t))) + (t < 0.003 ? rand() * 0.8 : 0), { gain });
+}
+/** The stomp-clap on 2 and 4: a low thump under a layered clap and a snare's crack. */
+function stompClap(t0, gain = 0.42) {
+  const lp = lowpass(5200);
+  const lp2 = lowpass(1100);
+  add(t0, 0.32, (t) => {
+    const burst = [0, 0.009, 0.019].some((o) => t >= o && t < o + 0.007) ? 1 : 0;
     const n = lp(rand());
-    return (n - lp2(n)) * (burst * 1.2 + Math.exp(-14 * t)) * 0.9;
-  }, { gain, send: 0.35 });
+    const clap = (n - lp2(n)) * (burst * 1.3 + Math.exp(-16 * t));
+    const thump = Math.sin(2 * Math.PI * (55 + 50 * Math.exp(-40 * t)) * t) * Math.exp(-18 * t);
+    return clap * 0.9 + thump * 0.8;
+  }, { gain, send: 0.3 });
 }
 function hat(t0, open = false, gain = 0.09, pan = 0.2) {
-  const lp = lowpass(7000);
-  const dur = open ? 0.22 : 0.05;
-  add(t0, dur, (t) => {
+  const lp = lowpass(8000);
+  add(t0, open ? 0.2 : 0.045, (t) => {
     const n = rand();
-    return (n - lp(n)) * Math.exp((open ? -14 : -70) * t);
+    return (n - lp(n)) * Math.exp((open ? -15 : -80) * t);
   }, { gain, pan });
 }
-function bassNote(t0, m, dur, gain = 0.28) {
+function bassNote(t0, m, dur, gain = 0.3) {
   const f = midi(m);
   let ph = 0;
   let y = 0;
   add(t0, dur, (t) => {
     ph += f / SR;
-    const cut = 300 + 2600 * Math.exp(-18 * t);
+    const cut = 260 + 2200 * Math.exp(-22 * t);
     const a = Math.exp((-2 * Math.PI * cut) / SR);
-    y = (1 - a) * (saw(ph) * 0.7 + Math.sin(2 * Math.PI * ph) * 0.6) + a * y;
-    return y * Math.min(1, t * 400) * Math.min(1, (dur - t) * 60);
+    y = (1 - a) * (saw(ph) * 0.6 + Math.sin(2 * Math.PI * ph) * 0.8) + a * y;
+    return Math.tanh(y * 1.4) * Math.min(1, t * 500) * Math.min(1, (dur - t) * 70);
   }, { gain });
 }
-function stab(t0, tones, dur = 0.22, gain = 0.16) {
-  const voices = tones.flatMap((m) => [-0.12, 0, 0.12].map((d) => ({ f: midi(m + 12) * 2 ** (d / 12), ph: (rand() + 1) / 2 })));
-  let y = 0;
-  add(t0, dur + 0.25, (t) => {
-    let v = 0;
-    for (const vc of voices) {
-      vc.ph += vc.f / SR;
-      v += saw(vc.ph);
-    }
-    const cut = 1200 + 5200 * Math.exp(-9 * t);
-    const a = Math.exp((-2 * Math.PI * cut) / SR);
-    y = (1 - a) * (v / voices.length) + a * y;
-    const env = Math.min(1, t * 300) * (t < dur ? 1 : Math.exp(-14 * (t - dur)));
-    return y * env * 2.2;
-  }, { gain, send: 0.4 });
+/** The house piano: a bright chord, short and percussive, on the offbeat. */
+function housePiano(t0, tones, gain = 0.1) {
+  tones.forEach((m, i) => piano(t0 + i * 0.004, m + 12, gain, 0.42, (i - 1.5) * 0.2));
+  piano(t0, tones[0], gain * 0.6, 0.42);
 }
-function songPad(t0, t1, gain = 0.07) {
+/** A vowel chop: a saw shaped by two formants, the "oh" of a pop hook. */
+const VOWELS = { ah: [730, 1090], oh: [570, 840], ee: [300, 2250] };
+function chop(t0, m, vowel = "ah", dur = 0.16, gain = 0.16, pan = 0) {
+  const f = midi(m);
+  const [f1, f2] = VOWELS[vowel];
+  const b1 = bandpass(f1, 6);
+  const b2 = bandpass(f2, 8);
+  let ph = 0;
+  add(t0, dur + 0.05, (t) => {
+    ph += (f * (1 - 0.03 * Math.exp(-40 * t))) / SR;
+    const x = saw(ph);
+    const v = b1(x) * 1.0 + b2(x) * 0.7;
+    return v * 3 * Math.min(1, t * 250) * (t < dur ? 1 : Math.exp(-40 * (t - dur)));
+  }, { gain, pan, send: 0.35 });
+}
+function songPad(t0, t1, gain = 0.05) {
   for (let t = t0; t < t1; t += BAR) {
     const ch = chordAt(t + 0.01);
     const len = Math.min(BAR + 0.5, t1 - t);
@@ -229,23 +258,36 @@ function songPad(t0, t1, gain = 0.07) {
       let v = 0;
       for (const vc of vs) {
         vc.ph += vc.f / SR;
-        v += saw(vc.ph) + saw(vc.ph * 1.003);
+        v += saw(vc.ph) + saw(vc.ph * 1.004);
       }
-      const a = Math.exp((-2 * Math.PI * 1500) / SR);
+      const a = Math.exp((-2 * Math.PI * 1700) / SR);
       y = (1 - a) * (v / 8) + a * y;
       return y * Math.min(1, tt / 0.3) * Math.min(1, (len - tt) / 0.4);
     }, { gain, send: 0.6 });
   }
 }
-// A bright plucked hook over the chords, two bars long.
-const HOOK = [0, 2, 3, 2, 1, 2, 3, 3, 0, 2, 3, 2, 3, 2, 1, 0];
-function melody(t0, t1, gain = 0.12) {
-  const step = BEAT / 2;
-  for (let k = 0; t0 + k * step < t1; k++) {
-    const t = t0 + k * step;
-    const ch = chordAt(t + 0.01);
-    if (k % 16 === 7 || k % 16 === 15) continue;
-    pluck(t, ch.tones[HOOK[k % HOOK.length]] + 12, gain, k % 2 ? 0.3 : -0.3);
+/** A cut hit: a crash and a low boom. */
+function hit(t0, gain = 0.3) {
+  const lp = lowpass(9000);
+  add(t0, 1.4, (t) => {
+    const n = rand();
+    return (n - lp(n)) * Math.exp(-3 * t) * 1.1 + Math.sin(2 * Math.PI * (40 + 60 * Math.exp(-20 * t)) * t) * Math.exp(-5 * t) * 0.9;
+  }, { gain, send: 0.5 });
+}
+
+// The hook: sixteenth positions across two bars, each a chord tone and a vowel.
+const HOOK = [
+  [0, 3, "oh"], [3, 2, "ah"], [6, 3, "oh"], [8, 1, "ah"], [10, 2, "oh"], [14, 3, "ee"],
+  [16, 3, "oh"], [19, 2, "ah"], [22, 3, "oh"], [24, 2, "ah"], [27, 1, "oh"], [30, 0, "ah"],
+];
+function hook(t0, t1, gain = 0.15) {
+  const s16 = BEAT / 4;
+  for (let bar2 = 0; t0 + bar2 * BAR * 2 < t1; bar2++) {
+    for (const [pos, tone, vowel] of HOOK) {
+      const t = t0 + bar2 * BAR * 2 + pos * s16;
+      if (t >= t1) continue;
+      chop(t, chordAt(t + 0.01).tones[tone] + 12, vowel, s16 * 1.6, gain, pos % 2 ? 0.25 : -0.25);
+    }
   }
 }
 
@@ -253,64 +295,63 @@ target = song;
 const beats = (from, to, fn) => {
   for (let i = Math.ceil((from - GRID) / BEAT - 1e-6); GRID + i * BEAT < to - 1e-6; i++) fn(GRID + i * BEAT, i);
 };
+// A half-beat of silence before the drop and before the close makes each land
+// harder; the cuts in between get a hit instead, so the groove never stutters.
+const stopped = (t) => (t >= DROP - BEAT / 2 && t < DROP) || (t >= END_GROOVE - BEAT / 2 && t < END_GROOVE);
 
-// The opening: the same song, muffled behind a filter that opens toward the
-// drop, with a riser and a snare roll.
+// The opening: the same groove, muffled behind a filter that opens toward the
+// drop, then a riser and a snare build, and a half-beat of nothing.
 beats(0, DROP, (t, i) => {
-  songKick(t, 0.75);
-  if (i % 2 === 1) hat(t, false, 0.05);
-  bassNote(t, chordAt(t + 0.01).root, BEAT * 0.45, 0.24);
-  bassNote(t + BEAT / 2, chordAt(t + 0.01).root + 12, BEAT * 0.4, 0.18);
+  if (stopped(t)) return;
+  songKick(t, 0.8);
+  if (i % 2 === 1) stompClap(t, 0.3);
+  hat(t + BEAT / 2, false, 0.05);
+  bassNote(t + BEAT / 2, chordAt(t + 0.01).root, BEAT * 0.42, 0.26);
+  if (t > DROP - BAR * 2) housePiano(t + BEAT / 2, chordAt(t + 0.01).tones, 0.07);
 });
-songPad(GRID - BAR, DROP, 0.06);
+songPad(GRID - BAR, DROP - BEAT / 2, 0.05);
 {
   const lpA = lowpass(10000);
   let lpB = 0;
-  const t0 = DROP - 2.2;
-  add(t0, 2.2, (t) => {
-    const cut = 300 + 7000 * (t / 2.2) ** 2;
+  const t0 = DROP - 2.4;
+  add(t0, 2.4 - BEAT / 2, (t) => {
+    const cut = 300 + 8000 * (t / 2.4) ** 2;
     const a = Math.exp((-2 * Math.PI * cut) / SR);
     const n = lpA(rand());
     lpB = (1 - a) * n + a * lpB;
-    return (n - lpB) * (t / 2.2) ** 1.6;
-  }, { gain: 0.22, send: 0.4 });
-  for (let k = 0; k < 16; k++) clap(DROP - BEAT * 2 + (k * BEAT) / 8, 0.05 + k * 0.012);
+    return (n - lpB) * (t / 2.4) ** 1.5;
+  }, { gain: 0.26, send: 0.4 });
+  for (let k = 0; k < 12; k++) stompClap(DROP - BEAT * 2 + (k * BEAT * 1.5) / 12, 0.08 + k * 0.016);
 }
 
-// The drop and the groove, through to the close.
-{
-  const lp = lowpass(9000);
-  add(DROP, 1.6, (t) => {
-    const n = rand();
-    return (n - lp(n)) * Math.exp(-2.6 * t) * 1.2;
-  }, { gain: 0.24, send: 0.5 });
-}
-const DASH = at("dashboard", 0);
+// The drop, and the groove through to the close.
+hit(DROP, 0.36);
+for (const cut of CUTS) hit(cut, 0.26);
 beats(DROP, END_GROOVE, (t, i) => {
+  if (stopped(t)) return;
   const ch = chordAt(t + 0.01);
   songKick(t);
-  if (i % 2 === 1) clap(t);
-  hat(t + BEAT / 2, true, 0.08, 0.25);
-  if (t >= DASH) {
-    hat(t + BEAT / 4, false, 0.05, -0.3);
-    hat(t + (3 * BEAT) / 4, false, 0.05, -0.3);
+  if (i % 2 === 1) stompClap(t);
+  hat(t + BEAT / 2, true, 0.07, 0.25);
+  if (t >= at("dashboard", 0)) {
+    hat(t + BEAT / 4, false, 0.045, -0.3);
+    hat(t + (3 * BEAT) / 4, false, 0.045, -0.3);
   }
-  bassNote(t, ch.root, BEAT * 0.42);
-  bassNote(t + BEAT / 2, ch.root + 12, BEAT * 0.38, 0.22);
-  // Stabs on the "and" of 1 and on 3, the lift.
-  if (i % 4 === 0) stab(t + BEAT / 2, ch.tones, 0.18);
-  if (i % 4 === 2) stab(t, ch.tones, 0.3);
+  bassNote(t + BEAT / 2, ch.root, BEAT * 0.4);
+  if (i % 4 === 3) bassNote(t + (3 * BEAT) / 4, ch.root + 12, BEAT * 0.22, 0.22);
+  housePiano(t + BEAT / 2, ch.tones, 0.085);
 });
-songPad(DROP, END_GROOVE, 0.05);
-melody(at("aya", 0), END_GROOVE, 0.1);
+songPad(DROP, END_GROOVE - BEAT / 2, 0.04);
+hook(DROP + BAR, END_GROOVE - BEAT / 2, 0.14);
 
-// The close: the groove stops and one warm D chord rings out.
+// The close: one last hit and a big D chord that rings out.
 {
   const t0 = END_GROOVE;
-  songKick(t0, 0.7);
-  stab(t0, [62, 66, 69, 74, 78], 1.4, 0.13);
-  bassNote(t0, 38, 2.4, 0.26);
-  [50, 57, 62, 66, 69, 74].forEach((m, i) => piano(t0 + i * 0.03, m, 0.07, SONG_END - t0, (i - 2.5) * 0.18));
+  songKick(t0, 0.9);
+  hit(t0, 0.3);
+  [50, 57, 62, 66, 69, 74, 78].forEach((m, i) => piano(t0 + i * 0.02, m, 0.08, SONG_END - t0, (i - 3) * 0.15));
+  bassNote(t0, 38, 2.6, 0.26);
+  chop(t0, 74, "oh", 1.2, 0.12);
   songPad(t0, SONG_END, 0.05);
 }
 target = dry;
@@ -331,14 +372,13 @@ target = dry;
     const t = n / SR;
     while (k + 1 < kicks.length && kicks[k + 1] <= t) k++;
     const since = kicks[k] !== undefined && t >= kicks[k] ? t - kicks[k] : 9;
-    const duck = 1 - 0.45 * Math.exp(-since / 0.09);
-    const cut = t < DROP ? 280 + 2400 * (t / DROP) ** 2.2 : 18000;
+    const duck = 1 - 0.5 * Math.exp(-since / 0.085);
+    const cut = t < DROP ? 300 + 2600 * (t / DROP) ** 2.2 : 18000;
     const a = Math.exp((-2 * Math.PI * cut) / SR);
     for (const ch of [0, 1]) {
       y1[ch] = (1 - a) * song[ch][n] + a * y1[ch];
       y2[ch] = (1 - a) * y1[ch] + a * y2[ch];
-      // Kicks were written into the song bus too; leave their low end undimmed by the duck.
-      dry[ch][n] += y2[ch] * (t < DROP ? 1.15 : duck) * 0.9;
+      dry[ch][n] += y2[ch] * (t < DROP ? 1.15 : since < 0.012 ? 1 : duck) * 0.9;
     }
   }
 }

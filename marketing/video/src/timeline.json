@@ -1,12 +1,12 @@
 {
   "fps": 30,
-  "bpm": 120,
+  "bpm": 128,
   "scenes": {
     "missed": { "from": 0, "to": 270, "speed": 1 },
-    "interrupt": { "from": 270, "to": 390, "speed": 1 },
-    "aya": { "from": 390, "to": 690, "speed": 1 },
-    "dashboard": { "from": 690, "to": 990, "speed": 1 },
-    "deposit": { "from": 990, "to": 1140, "speed": 1 },
-    "close": { "from": 1140, "to": 1260, "speed": 1 }
+    "interrupt": { "from": 270, "to": 315, "speed": 1 },
+    "aya": { "from": 315, "to": 615, "speed": 1 },
+    "dashboard": { "from": 615, "to": 915, "speed": 1 },
+    "deposit": { "from": 915, "to": 1065, "speed": 1 },
+    "close": { "from": 1065, "to": 1185, "speed": 1 }
   }
 }

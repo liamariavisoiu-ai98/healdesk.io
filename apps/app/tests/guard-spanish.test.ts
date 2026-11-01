@@ -438,5 +438,10 @@ describe("the Spanish patterns are safe from catastrophic backtracking", () => {
       // A catastrophic pattern takes minutes, not seconds.
       expect(best, piece).toBeLessThan(5000);
     }
-  });
+    // The bound above is per reply. The whole test reads ten of them, about
+    // 4 s of CPU on an idle machine, so Vitest's default 5 s for the whole
+    // test failed it on a busy CI runner with nothing wrong in the patterns
+    // (CI run 41350316662 on main, 1 November 2026). This timeout only ends a
+    // run that hangs; a catastrophic pattern still fails, on the bound or here.
+  }, 60_000);
 });

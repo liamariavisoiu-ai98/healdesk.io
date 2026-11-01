@@ -52,7 +52,7 @@ export function SignInCard(props: {
     <section
       id="sign-in"
       aria-labelledby="sign-in-heading"
-      className="border-line scroll-mt-6 rounded-md border bg-white px-4 py-4 sm:px-5"
+      className="border-line scroll-mt-6 rounded-lg border bg-white shadow-sm px-4 py-4 sm:px-5"
     >
       <h2 id="sign-in-heading" className="text-lg font-semibold">
         Sign-in

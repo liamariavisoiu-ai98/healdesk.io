@@ -230,13 +230,13 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
 <header>
   <div class="wrap">
     <div class="brand"><i aria-hidden="true"></i><b>healdesk</b><span>Launch board</span></div>
-    <h1>Built and deployed. Twelve go-live promises still open.</h1>
+    <h1>Built and deployed. Eleven go-live promises still open.</h1>
     <p class="intro">The product runs on AWS and the website is live. What stands between today and a clinic answering real patients is mostly yours: accounts, switches, signatures and a handful of real-world tests. None of the open go-live promises waits on new code.</p>
     <p class="asof">Checked Sunday 1 November 2026, 19:50 Dubai, against <code>main</code> at <code>7d194b7</code> (CI green; infrastructure applied 15:12 UTC and deployed 15:35 UTC today), the go-live list in <code>launch.ts</code>, GitHub's run history and the Launch plan tab, then corrected after an independent review of every sentence. Launch read as <b>Thursday 5 November</b>; if you meant the 12th, every step still holds and the outside reviews get a week more. Production's switches and records (jobs, attestations) are visible only to you in <code>/admin</code>.</p>
-    <p class="asof"><b>Updated later on 1 November:</b> you said "Go C1, C2, C5, C6, C13". All five are done on the branch <code>claude/quirky-keller-57tbah</code> and reviewed, waiting for your yes to land; the full local test run on the final commit is recorded in the handoff. Landing this batch moves the go-live count to 3 of 15 On, and C5 fixes a blocker found on the way: the background worker had no Anthropic key, so no clinic could have passed its practice questions.</p>
+    <p class="asof"><b>Landed and deployed, evening of 1 November:</b> after your "Land it and deploy once the tests pass" and "No call is running or planned, go ahead", C1, C2, C5, C6 and C13 were merged as pull request 111 (<code>a642af9</code>, CI green: 8,536 app tests, 0 skipped) and deployed by Deploy apps/app run 41347555876 (20:34 to 20:44 UTC: migration 0143, web, worker and voice rolled, smoke test passed). The Terms and Privacy pages now print 2026-11-01.1 and the 10 calendar days, and the homepage shows no review wall. Go-live count: 4 of 15 On; the BAA 1.7.0 item shows On in the console once its record (on the branch) lands. Still yours: the infrastructure apply that gives the background worker its Anthropic key (C5), then one more deploy. Until then no clinic can pass its practice questions.</p>
     <div class="stats">
       <div class="stat hot"><div class="n" id="days-left">4 days</div><div class="l" id="days-label">to Thursday 5 November</div></div>
-      <div class="stat"><div class="n">12 <span style="font-size:1.1rem;color:var(--muted)">of 14</span></div><div class="l">go-live promises still open</div></div>
+      <div class="stat"><div class="n">11 <span style="font-size:1.1rem;color:var(--muted)">of 15</span></div><div class="l">go-live promises still open</div></div>
       <div class="stat"><div class="n">8</div><div class="l">decisions only you can make</div></div>
       <div class="stat"><div class="n">2</div><div class="l">outside reviews not yet submitted (Google, Meta)</div></div>
     </div>
@@ -250,19 +250,20 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
     <div>
       <div class="section-head"><h2 id="h-bottom">The bottom line</h2></div>
       <ol class="points">
-        <li><p><b>A pilot launch on Thursday is realistic:</b> invited clinics buy, sign and set up, once Stripe's live setup is done and the homepage's invented reviews come down. Your own go/no-go keeps paid self-serve closed until Google approves the calendar connection (D1).</p></li>
-        <li><p><b>A clinic answering real patients on Thursday needs all 12 open promises closed by Wednesday.</b> Seven need real tests with phones, cards and calendars; one of them needs forwarded calls from Verizon, Spectrum and AT&amp;T lines.</p></li>
-        <li><p><b>Today one open voice or Meta promise holds website chat too.</b> If each channel goes live on its own checks (D2), website chat needs only 8 of the 14, and two of those are tests on the demo clinic.</p></li>
+        <li><p><b>A pilot launch on Thursday is realistic:</b> invited clinics buy, sign and set up, once Stripe's live setup is done (the homepage's invented reviews came down on 1 November). Your own go/no-go keeps paid self-serve closed until Google approves the calendar connection (D1).</p></li>
+        <li><p><b>A clinic answering real patients on Thursday needs all 11 open promises closed by Wednesday.</b> Seven need real tests with phones, cards and calendars; one of them needs forwarded calls from Verizon, Spectrum and AT&amp;T lines.</p></li>
+        <li><p><b>Today one open voice or Meta promise holds website chat too.</b> If each channel goes live on its own checks (D2), website chat needs only 9 of the 15 (3 of them already On), and two of those are tests on the demo clinic.</p></li>
         <li><p><b>Google's calendar review and Meta's App Review cannot finish by Thursday;</b> neither is submitted. Plan launch week around them: pilot clinics only until Google approves, the Meta packages off sale until Meta does.</p></li>
       </ol>
     </div>
     <div class="card" aria-labelledby="h-meter">
-      <h3 id="h-meter">Go-live promises: 2 of 14 On</h3>
-      <p class="lead" style="font-size:0.9rem;margin-top:4px">Go-live reads your launch-promises attestation on <code>/admin/compliance</code>. The console refuses a new one while any of the 14 is open, but one recorded before 26 October may still stand: withdraw it first (O0).</p>
-      <div class="meter" role="img" aria-label="14 promises: 2 on, 1 needs only the record updated, 4 are yours to switch, record or decide, 7 need a real test">
+      <h3 id="h-meter">Go-live promises: 4 of 15 On</h3>
+      <p class="lead" style="font-size:0.9rem;margin-top:4px">Go-live reads your launch-promises attestation on <code>/admin/compliance</code>. The console refuses a new one while any of the 15 is open, but one recorded before 26 October may still stand: withdraw it first (O0).</p>
+      <div class="meter" role="img" aria-label="15 promises: 4 on, 4 are yours to switch, record or decide, 7 need a real test">
         <span class="s-on" title="Urgent messages reach the clinic"></span>
         <span class="s-on" title="Never-say list on Meta"></span>
-        <span class="s-rec" title="BAA 1.6.0 retention wording"></span>
+        <span class="s-on" title="BAA 1.6.0 retention wording"></span>
+        <span class="s-on" title="BAA 1.7.0 notice periods"></span>
         <span class="s-flip" title="Direct-booking addendum (D8)"></span>
         <span class="s-flip" title="Every alert reaches the clinic"></span>
         <span class="s-flip" title="Daily summary and weekly recap"></span>
@@ -276,12 +277,11 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
         <span class="s-test" title="Phone live once forwarding is set"></span>
       </div>
       <ul class="legend">
-        <li><span class="sw s-on"></span><span class="c">2</span><span>On<small>urgent alert, never-say list on Meta</small></span></li>
-        <li><span class="sw s-rec"></span><span class="c">1</span><span>Only the record is behind: production already does it, Claude updates the list (C1)<small>BAA 1.6.0 retention</small></span></li>
+        <li><span class="sw s-on"></span><span class="c">4</span><span>On<small>urgent alert, never-say list on Meta, BAA 1.6.0 retention, BAA 1.7.0 notice periods</small></span></li>
         <li><span class="sw s-flip"></span><span class="c">4</span><span>Yours to switch, record or decide, minutes each (O4, O5, D8)<small>alert sender, daily summary, agreements recorded, direct-booking addendum</small></span></li>
         <li><span class="sw s-test"></span><span class="c">7</span><span>Need a real test (O8 to O13)<small>calendar booking, deposit in chat, deposit on Meta, failure to direct line, no audio kept, carrier codes, phone live</small></span></li>
       </ul>
-      <p class="lead" style="font-size:0.86rem;margin-top:12px">Counted on <code>main</code>. Once this batch lands, BAA 1.6.0 retention is On (C1), and BAA 1.7.0's ten-day and fifteen-day notices join the list until the app deploy runs its migration (C13): 3 of 15 On.</p>
+      <p class="lead" style="font-size:0.86rem;margin-top:12px">Counted on <code>main</code> after pull request 111 and its deploy (1 Nov): BAA 1.6.0 retention is On (C1) and BAA 1.7.0's ten-day and fifteen-day notices are live (C13, migration 0143); the console shows the 1.7.0 item On once its record lands.</p>
     </div>
   </div>
 </section>
@@ -295,7 +295,7 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
     <li><span class="who">You</span>Withdraw any old attestation; answer D1 to D8<span class="when">Mon morning</span></li>
     <li class="c"><span class="who">Claude</span>Per-channel list, records, infra set, switch list<span class="when">Mon</span></li>
     <li><span class="who">You</span>Stripe live and Connect, switches on, agreements recorded<span class="when">Mon</span></li>
-    <li><span class="who">You</span>Approve the landing; apply and deploy<span class="when">Tue</span></li>
+    <li><span class="who">You</span>Apply the infrastructure change and deploy (the batch landed 1 Nov)<span class="when">Tue</span></li>
     <li><span class="who">You</span>Demo booking, deposit link, restore drill<span class="when">Tue</span></li>
     <li class="c"><span class="who">Claude</span>Promises to On with evidence; go/no-go report<span class="when">Tue to Wed</span></li>
     <li><span class="who">You</span>Attest; pilot clinic buys and pastes the snippet<span class="when">Wed to Thu</span></li>
@@ -333,13 +333,13 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
       <div class="top"><span class="id">D5</span><h3>The invented reviews on the homepage</h3></div>
       <p>15 sample reviews and an invented 4.9 rating from 286 reviews have shown as real since the "examples" label came off on 12 October; no real review is published. The FTC's 2024 rule on fake reviews makes this a legal risk.</p>
       <div class="rec"><b>Recommended:</b> Claude removes the section Monday (C2); it returns with real reviews.</div>
-      <div class="answered">Answered 1 Nov: "Go C2". Done on the branch.</div>
+      <div class="answered">Answered 1 Nov: "Go C2". Live since 1 Nov: the homepage shows no review wall.</div>
     </article>
     <article class="dec">
       <div class="top"><span class="id">D6</span><h3>Your 30 Oct agreement release never reached main</h3></div>
       <p>BAA 1.7.0 and a DPA with 10-day breach and 15-day vendor notice were built on 30 Oct on a branch with no pull request. Checkout still offers BAA 1.6.0 and DPA 1.1.0 (60-day breach notice), and main's live DPA 1.1.0 is a different release, so the branch's numbers now collide.</p>
       <div class="rec"><b>Recommended:</b> land it before launch so the first clinics sign the terms you chose. Claude reconciles it Monday (C13), you approve Tuesday.</div>
-      <div class="answered">Answered 1 Nov: "Go C13". Prepared on the branch.</div>
+      <div class="answered">Answered 1 Nov: "Go C13". Landed and deployed 1 Nov (pull request 111, migration 0143).</div>
     </article>
     <article class="dec">
       <div class="top"><span class="id">D7</span><h3>A second voice task before real calls?</h3></div>
@@ -357,7 +357,7 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
 <section aria-labelledby="h-who">
   <div class="section-head">
     <h2 id="h-who">Who does what</h2>
-    <p class="lead">Reply with the IDs you want started, for example "Go C1, C2, C5". Claude starts on your word; nothing lands, deploys or applies without your yes. "Done on branch" means built and tested on <code>claude/quirky-keller-57tbah</code>, waiting for your yes to land. Times are rough.</p>
+    <p class="lead">Reply with the IDs you want started, for example "Go C3, C4". Claude starts on your word; nothing lands, deploys or applies without your yes. "Landed 1 Nov" means merged to <code>main</code> in pull request 111 and deployed the same evening. Times are rough.</p>
   </div>
   <div class="filters" role="group" aria-label="Show tasks">
     <button type="button" data-filter="all" aria-pressed="true">Everything</button>
@@ -377,12 +377,12 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
       <div class="task" data-when="pre" data-block="1">
         <div class="t"><span class="id">C1</span><h4>Record what production already does</h4></div>
         <p>Done: BAA 1.6.0 retention is On with its 29 Oct deploy as evidence; the direct-booking, no-audio and texting lines and three map entries now say what ran. The addendum waits on D8.</p>
-        <div class="tags"><span class="tag done">Done on branch</span><span class="tag block">Blocks go-live</span></div>
+        <div class="tags"><span class="tag done">Landed 1 Nov</span><span class="tag block">Blocks go-live</span></div>
       </div>
       <div class="task" data-when="pre">
         <div class="t"><span class="id">C2</span><h4>Take down the invented reviews</h4></div>
-        <p>Done: the wall shows only once a real review is published, and the invented set is on no page. Goes live with the site deploy after you approve the landing.</p>
-        <div class="tags"><span class="tag done">Done on branch</span><span class="tag pre">Before Thursday</span></div>
+        <p>Done and live: the wall shows only once a real review is published, and the invented set is on no page.</p>
+        <div class="tags"><span class="tag done">Landed 1 Nov</span><span class="tag pre">Before Thursday</span></div>
       </div>
       <div class="task" data-when="pre">
         <div class="t"><span class="id">C3</span><h4>Take the Meta packages off sale</h4></div>
@@ -396,13 +396,13 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
       </div>
       <div class="task" data-when="pre" data-block="1">
         <div class="t"><span class="id">C5</span><h4>One infrastructure change for your next apply</h4></div>
-        <p>Partly done: the website-read address, and a fix found today: the background worker never got the Anthropic key, so every practice-questions run would fail and no clinic could go live. Both checked with Terraform's tests. Still needed from you: the Stripe Connect client id (after O2), your test phone numbers, and a yes to D7.</p>
-        <div class="tags"><span class="tag done">Part done on branch</span><span class="tag block">Blocks go-live</span><span class="eff">needs your ids</span></div>
+        <p>Partly done and landed: the website-read address, and a fix found on 1 Nov: the background worker never got the Anthropic key, so every practice-questions run would fail and no clinic could go live. Both checked with Terraform's tests. They take effect only with your infrastructure apply, then a deploy. Still needed from you: the Stripe Connect client id (after O2), your test phone numbers, and a yes to D7.</p>
+        <div class="tags"><span class="tag done">Code landed; apply is yours</span><span class="tag block">Blocks go-live</span><span class="eff">needs your ids</span></div>
       </div>
       <div class="task" data-when="pre" data-block="1">
         <div class="t"><span class="id">C6</span><h4>Your switch list for System › Jobs</h4></div>
         <p>Done: <code>docs/design/launch-readiness-2026-10-27/jobs-switch-list.md</code>, every job on or off for the pilot with one line why: 33 on before go-live, 4 once a condition is met, 2 left off, 2 that cannot run in v1. Switch practice questions on only after the worker fix (C5) is applied and deployed.</p>
-        <div class="tags"><span class="tag done">Done on branch</span><span class="tag block">Blocks go-live</span></div>
+        <div class="tags"><span class="tag done">Landed 1 Nov</span><span class="tag block">Blocks go-live</span></div>
       </div>
       <div class="task" data-when="pre">
         <div class="t"><span class="id">C7</span><h4>One checklist per day, in click order</h4></div>
@@ -436,8 +436,8 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
       </div>
       <div class="task" data-when="pre">
         <div class="t"><span class="id">C13</span><h4>Land your 30 Oct agreement release</h4></div>
-        <p>Prepared: BAA 1.7.0 as you released it, the DPA as dpa/1.2.0 on top of the live 1.1.0, migration 0143, legal pages 2026-11-01.1. Its words are your 30 Oct release, checked by hash. Lands with your yes; the app deploy must follow at once.</p>
-        <div class="tags"><span class="tag done">Done on branch</span><span class="tag pre">Before Thursday</span></div>
+        <p>Landed and deployed 1 Nov: BAA 1.7.0 as you released it, the DPA as dpa/1.2.0 on top of the live 1.1.0, migration 0143 (run 41347555876), legal pages 2026-11-01.1. Its words are your 30 Oct release, checked by hash. Checkout offers 1.7.0 and dpa/1.2.0.</p>
+        <div class="tags"><span class="tag done">Landed 1 Nov</span><span class="tag pre">Before Thursday</span></div>
       </div>
       <div class="task" data-when="pre" data-block="1">
         <div class="t"><span class="id">C14</span><h4>Audit the call-forwarding guide</h4></div>
@@ -493,7 +493,7 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
       <div class="group-label">Tuesday · apply, deploy, first tests</div>
       <div class="task" data-when="pre" data-block="1">
         <div class="t"><span class="id">O7</span><h4>Approve the next apply and deploy</h4></div>
-        <p>Land this batch, then Infra plan, apply, and Deploy apps/app, as you did today. The deploy must follow the landing at once: it runs the agreement migration (C13), and the worker gets its Anthropic key (C5). Confirm no call is running.</p>
+        <p>The batch is landed and deployed (1 Nov). Still yours: Infra plan and apply for C5, then Deploy apps/app, so the worker gets its Anthropic key. Confirm no call is running.</p>
         <div class="tags"><span class="tag block">Blocks go-live</span><span class="eff">≈ 45 min, mostly waiting</span></div>
       </div>
       <div class="task" data-when="pre" data-block="1">
@@ -601,7 +601,7 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
     <div class="launch"><span class="daylab">Thursday <small>5 Nov · you</small></span><ul><li>Go/no-go in the morning</li><li>Doors open; pilot clinics buy</li><li>First outreach batch</li></ul></div>
 
     <div class="rowlab claude">Claude</div>
-    <div><span class="daylab">Monday <small>2 Nov · Claude</small></span><ul><li>C1 records, C2 reviews</li><li>C3 Meta off sale (D3)</li><li>C4 per channel (D2)</li><li>C13 agreement release (D6)</li><li>C5 infra set, C6 switch list</li><li>C7 checklists, C11, C12</li></ul></div>
+    <div><span class="daylab">Monday <small>2 Nov · Claude</small></span><ul><li>C1, C2, C5, C6, C13: done and deployed 1 Nov</li><li>C3 Meta off sale (D3)</li><li>C4 per channel (D2)</li><li>C7 checklists, C11, C12</li></ul></div>
     <div><span class="daylab">Tuesday <small>3 Nov · Claude</small></span><ul><li>C8 land and deploy Monday's work</li><li>Health check after the deploy</li><li>C9 promises to On as tests pass</li><li>C14 forwarding guide audit</li></ul></div>
     <div><span class="daylab">Wednesday <small>4 Nov · Claude</small></span><ul><li>C9 fixes the same day</li><li>Final full verify</li><li>C10 go/no-go report by evening</li></ul></div>
     <div class="launch"><span class="daylab">Thursday <small>5 Nov · Claude</small></span><ul><li>On watch with you: go-live holds, alerts, failed jobs</li><li>Fixes ship on your yes</li></ul></div>
@@ -610,7 +610,7 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
 
 <section aria-labelledby="h-promises">
   <div class="section-head">
-    <h2 id="h-promises">The 14 go-live promises</h2>
+    <h2 id="h-promises">The 15 go-live promises</h2>
     <p class="lead">From <code>apps/web/src/lib/admin/seo/launch.ts</code>; the live list is <code>/admin/compliance#launch</code>. The other 8 promises do not block go-live.</p>
   </div>
   <div class="table-wrap">
@@ -619,7 +619,8 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
       <tbody>
         <tr><td>Urgent messages reach the clinic at once<span class="mono">urgent-alert</span></td><td><span class="pill p-on">On</span></td><td>Holds only while the email sender is on (row 5)</td><td>None</td><td>All</td></tr>
         <tr><td>The never-say list applies on Meta too<span class="mono">never-say-meta</span></td><td><span class="pill p-on">On</span></td><td>On since 28 Oct, on your word</td><td>None</td><td>Meta</td></tr>
-        <tr><td>BAA 1.6.0 states the model provider's retention correctly<span class="mono">baa-1-6-0-retention</span></td><td><span class="pill p-rec">Record only</span></td><td>Deployed 29 Oct (migration 0136); mark On</td><td>C1</td><td>All</td></tr>
+        <tr><td>BAA 1.6.0 states the model provider's retention correctly<span class="mono">baa-1-6-0-retention</span></td><td><span class="pill p-on">On</span></td><td>Deployed 29 Oct (migration 0136); recorded On 1 Nov (C1)</td><td>None</td><td>All</td></tr>
+        <tr><td>Breach notice within 10 calendar days, new vendors announced 15 days ahead<span class="mono">baa-1-7-0-notice-periods</span></td><td><span class="pill p-on">On</span></td><td>Deployed 1 Nov (pull request 111, migration 0143); the console shows On once its record lands</td><td>None</td><td>All</td></tr>
         <tr><td>A clinic can elect direct booking under its agreement<span class="mono">direct-booking-addendum</span></td><td><span class="pill p-flip">Your call</span></td><td>Released 28 Oct, yet no page lets a clinic elect it; your answer to D8, then C1</td><td>D8, C1</td><td>All</td></tr>
         <tr><td>Every alert reaches the clinic<span class="mono">alert-sender-on</span></td><td><span class="pill p-flip">Switch</span></td><td>Email sender job on; email key confirmed on the host</td><td>O4</td><td>All</td></tr>
         <tr><td>A summary email each working day, with the weekly recap<span class="mono">daily-summary</span></td><td><span class="pill p-flip">Switch</span></td><td>Daily-summary and weekly-recap jobs on</td><td>O4</td><td>All</td></tr>
@@ -660,7 +661,7 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
         <tr><td>Go-live gate, practice questions, answer gate</td><td class="yes">Yes</td><td class="yes">Yes, 30 Oct</td><td class="no">No</td><td>Every code check is built; what holds go-live now is people's checks</td></tr>
         <tr><td>Operator console <code>/admin</code></td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">You use it</td><td>Where you see the jobs, the attestations and the live go-live list</td></tr>
         <tr><td>AWS host, database, alarms</td><td class="yes">Yes</td><td class="yes">Since 14 Oct</td><td class="yes">Health ok</td><td>CI green on <code>main</code>; a database restore never rehearsed</td></tr>
-        <tr><td>Agreements at checkout: BAA 1.6.0 and DPA 1.1.0; the direct-booking addendum released</td><td class="yes">Yes</td><td class="yes">28 to 30 Oct</td><td>n/a</td><td>Released by you without external counsel; the addendum gives a clinic nothing to sign (D8); 1.7.0 waits on D6</td></tr>
+        <tr><td>Agreements at checkout: BAA 1.7.0 and DPA 1.2.0; the direct-booking addendum released</td><td class="yes">Yes</td><td class="yes">28 Oct to 1 Nov</td><td>n/a</td><td>Released by you without external counsel; 1.7.0 and 1.2.0 landed and deployed 1 Nov (C13); the addendum gives a clinic nothing to sign (D8)</td></tr>
         <tr><td>Vendor agreements: AWS, Retell, Anthropic; database under AWS</td><td>n/a</td><td class="part">Signed</td><td>n/a</td><td>AWS 22 Sep, Retell 19 Oct, Anthropic 26 Oct (your report); recording on <code>/admin</code> not visible from here</td></tr>
         <tr><td>Accounts: Meta business verification, Google project and Search Console</td><td>n/a</td><td class="yes">Done</td><td>n/a</td><td>Meta verified 4 Oct; Google client on the host 31 Oct</td></tr>
         <tr><td>Optional payment-link text after a call</td><td class="yes">Yes</td><td class="part">Code and permission</td><td class="no">No</td><td>Its AWS permission went live today; it sends nothing until the texting number is registered (W4)</td></tr>
@@ -678,7 +679,7 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
     <table>
       <thead><tr><th>Where</th><th>It says</th><th>What is true</th></tr></thead>
       <tbody>
-        <tr><td>Launch plan tab, steps 1.14 and 3.3</td><td>Checkout offers BAA 1.7.0 and a DPA with 10-day breach and 15-day vendor notice, released 30 Oct</td><td>Built on branch <code>claude/friendly-edison-bwvr76</code>, never opened as a pull request. Checkout offers BAA 1.6.0 and DPA 1.1.0 (60 days). Main's live DPA 1.1.0 and migration 0140 are a different release, so it lands as DPA 1.2.0 with migration 0143 (C13, prepared); the tab should then say BAA 1.7.0 and DPA 1.2.0</td></tr>
+        <tr><td>Launch plan tab, steps 1.14 and 3.3</td><td>Checkout offers BAA 1.7.0 and a DPA with 10-day breach and 15-day vendor notice, released 30 Oct</td><td>Built on branch <code>claude/friendly-edison-bwvr76</code>, never opened as a pull request. Until 1 Nov checkout offered BAA 1.6.0 and DPA 1.1.0 (60 days). Main's live DPA 1.1.0 and migration 0140 are a different release, so it landed as DPA 1.2.0 with migration 0143 (C13, deployed 1 Nov); the tab should now say BAA 1.7.0 and DPA 1.2.0</td></tr>
         <tr><td><code>docs/google-verification/STATUS.md</code> on main</td><td>Audience not confirmed; test account and YouTube channel not started</td><td>Done today, recorded on branch <code>claude/eager-keller-d0zdiv</code>, not yet merged</td></tr>
         <tr><td>Go-live list, direct booking</td><td>Left: the infrastructure apply, then the deploy</td><td>Applied 28 Oct (run 40670359689) and rolled the same day (run 40703315369). Only the test booking is left. Fixed on the branch (C1)</td></tr>
         <tr><td>Go-live list, BAA 1.6.0 retention</td><td>Waits on its deploy</td><td>Migration 0136 ran in the 29 Oct deploy (run 40870436687). Fixed on the branch (C1)</td></tr>

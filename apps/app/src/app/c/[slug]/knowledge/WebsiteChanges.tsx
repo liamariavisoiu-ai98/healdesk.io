@@ -57,7 +57,7 @@ export function WebsiteChangesList(props: {
 
   const left = props.changes.filter((c) => !done.has(c.id));
   if (left.length === 0) {
-    return <p className="text-sm">Nothing left to review. AYA answers from Knowledge below.</p>;
+    return <p className="text-sm">Nothing left to review. AYA answers from the sections below.</p>;
   }
   return (
     <ul className="grid gap-3">

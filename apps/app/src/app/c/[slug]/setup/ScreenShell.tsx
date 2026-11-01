@@ -66,7 +66,7 @@ export function ScreenShell(props: {
           puts it (30 October 2026): the way back is read before the question,
           not found under the buttons after it. */}
       {props.backHref ? (
-        <p className="mb-3 text-sm">
+        <p className="-mt-2 mb-2 text-[15px]">
           <a
             href={props.backHref}
             className="text-muted hover:text-ink -ml-2 inline-flex min-h-11 items-center rounded-sm px-2 font-semibold"
@@ -75,9 +75,9 @@ export function ScreenShell(props: {
           </a>
         </p>
       ) : null}
-      <h1 className="text-2xl font-semibold">{props.title}</h1>
-      {props.intro ? <div className="text-muted mt-3 space-y-2">{props.intro}</div> : null}
-      {props.lead ? <div className="mt-6 grid gap-5">{props.lead}</div> : null}
+      <ScreenTitle>{props.title}</ScreenTitle>
+      {props.intro ? <ScreenIntro>{props.intro}</ScreenIntro> : null}
+      {props.lead ? <div className="mt-7 grid gap-5">{props.lead}</div> : null}
       <form
         noValidate
         aria-describedby={statusId}
@@ -86,29 +86,28 @@ export function ScreenShell(props: {
           void run(() => saveScreen(props.slug, props.screen, props.payload()), "save");
         }}
       >
-        <div className="mt-6 grid gap-5">{props.children}</div>
+        {props.children ? <div className="mt-7 grid gap-6">{props.children}</div> : null}
 
         <div
           id={statusId}
           role="status"
           aria-live="polite"
-          className={
-            problem
-              ? "mt-6 rounded-md border border-problem-line bg-white px-4 py-3 text-sm text-problem"
-              : "sr-only"
-          }
+          className={problem ? "wz-problem mt-7" : "sr-only"}
         >
           {problem ? (
             <>
-              {problem.message}
-              {problem.stepUpHref ? (
-                <>
-                  {" "}
-                  <a href={problem.stepUpHref} className="font-semibold underline">
-                    Confirm it&rsquo;s you
-                  </a>
-                </>
-              ) : null}
+              <ProblemGlyph />
+              <span>
+                {problem.message}
+                {problem.stepUpHref ? (
+                  <>
+                    {" "}
+                    <a href={problem.stepUpHref} className="font-semibold underline">
+                      Confirm it&rsquo;s you
+                    </a>
+                  </>
+                ) : null}
+              </span>
             </>
           ) : null}
         </div>
@@ -117,16 +116,16 @@ export function ScreenShell(props: {
             names it (aria-describedby), so it is read before the choice is
             made and not after. */}
         {props.skippable === false ? null : (
-          <p id={skipCostId} className="text-muted mt-6 text-sm">
+          <p id={skipCostId} className="text-muted mt-8 text-sm text-pretty">
             If you skip: {props.skipCost}
           </p>
         )}
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <button
-            type="submit"
-            disabled={working !== null}
-            className="bg-ink min-h-11 rounded-full px-6 py-3 text-sm font-bold text-white disabled:opacity-50"
-          >
+        {/* The sign-in pages' pills: full width on a phone, the primary on
+            top, and side by side from a tablet up. */}
+        <div
+          className={`grid gap-3 sm:flex sm:flex-wrap sm:items-center ${props.skippable === false ? "mt-8" : "mt-4"}`}
+        >
+          <button type="submit" disabled={working !== null} className="si-primary sm:w-auto sm:px-8">
             {working === "save" ? "Saving…" : (props.submitLabel ?? "Save and continue")}
           </button>
           {props.skippable === false ? null : (
@@ -135,7 +134,7 @@ export function ScreenShell(props: {
               disabled={working !== null}
               aria-describedby={skipCostId}
               onClick={() => void run(() => skipScreen(props.slug, props.screen), "skip")}
-              className="border-line min-h-11 rounded-full border px-5 py-3 text-sm font-semibold disabled:opacity-50"
+              className="si-secondary sm:w-auto sm:px-6"
             >
               {working === "skip" ? "Skipping…" : "Skip for now"}
             </button>
@@ -143,6 +142,33 @@ export function ScreenShell(props: {
         </div>
       </form>
     </>
+  );
+}
+
+/** A screen's question, in the sign-in card's heading type: large and tight. */
+export function ScreenTitle({ children }: { children: ReactNode }) {
+  return (
+    <h1 className="text-[26px] leading-[1.15] font-semibold tracking-[-0.022em] text-balance sm:text-[30px]">
+      {children}
+    </h1>
+  );
+}
+
+/** The lines under the question, at the sign-in card's 17px. */
+export function ScreenIntro({ children }: { children: ReactNode }) {
+  return <div className="text-muted mt-3 space-y-2 text-[17px] leading-[1.47] text-pretty">{children}</div>;
+}
+
+/** The sign-in pages' problem glyph, only repeating what the words say. */
+function ProblemGlyph() {
+  return (
+    <svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor" aria-hidden="true" className="mt-0.5 shrink-0">
+      <path
+        fillRule="evenodd"
+        d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm.75-11.25a.75.75 0 0 0-1.5 0v4.5a.75.75 0 0 0 1.5 0v-4.5ZM10 14.75a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"
+        clipRule="evenodd"
+      />
+    </svg>
   );
 }
 
@@ -182,18 +208,25 @@ export function Field(props: {
     maxLength: props.maxLength,
     placeholder: props.placeholder || undefined,
     "aria-describedby": props.hint ? hintId : undefined,
-    className: "border-line w-full rounded-md border bg-white px-4 py-3 text-base",
   };
   return (
-    <div className="grid gap-1">
-      <label htmlFor={id} className="text-sm font-semibold">
+    <div className="grid gap-1.5">
+      <label htmlFor={id} className="px-1 text-sm font-semibold">
         {props.label}
       </label>
+      {/* The sign-in pages' field (.si-input); a box of several lines grows
+          from three rather than keeping the one-line height. */}
       {props.multiline ? (
-        <textarea {...common} rows={3} onChange={(event) => props.onChange(event.target.value)} />
+        <textarea
+          {...common}
+          rows={3}
+          className="si-input h-auto py-3"
+          onChange={(event) => props.onChange(event.target.value)}
+        />
       ) : (
         <input
           {...common}
+          className="si-input"
           type={props.type ?? "text"}
           autoComplete={props.autoComplete ?? AUTOCOMPLETE_BY_TYPE[props.type ?? "text"]}
           inputMode={props.inputMode}
@@ -201,13 +234,16 @@ export function Field(props: {
         />
       )}
       {props.hint ? (
-        <p id={hintId} className="text-muted text-xs">
+        <p id={hintId} className="text-muted px-1 text-[13px] leading-snug text-pretty">
           {props.hint}
         </p>
       ) : null}
     </div>
   );
 }
+
+/** The class for a list (`<select>`) in the field's shape, with its own chevron. */
+export const SELECT_CLASS = "si-input wz-select";
 
 /** A set of radio choices with one line under each (spec: every switch says what it does). */
 export function Choice<T extends string>(props: {
@@ -220,16 +256,14 @@ export function Choice<T extends string>(props: {
 }) {
   const name = useId();
   return (
-    <fieldset className="grid gap-2">
-      <legend className="mb-1 text-sm font-semibold">{props.legend}</legend>
+    <fieldset className="grid gap-2.5">
+      <legend className="mb-2 px-1 text-sm font-semibold">{props.legend}</legend>
       {props.options.map((option) => {
         const id = `${name}-${option.id}`;
         return (
-          <label
-            key={option.id}
-            htmlFor={id}
-            className={`border-line flex min-h-11 gap-3 rounded-md border bg-white px-4 py-3 ${option.disabled ? "opacity-60" : "cursor-pointer"}`}
-          >
+          // A card per choice (globals.css, .wz-choice): the chosen one takes
+          // the field's orange ring; a choice not open now is dimmed.
+          <label key={option.id} htmlFor={id} className="wz-choice">
             <input
               id={id}
               type="radio"
@@ -239,11 +273,12 @@ export function Choice<T extends string>(props: {
               disabled={option.disabled}
               aria-describedby={props.describedBy}
               onChange={() => props.onChange(option.id)}
-              className="mt-1"
             />
             <span>
               <span className="block font-semibold">{option.label}</span>
-              {option.line ? <span className="text-muted block text-sm">{option.line}</span> : null}
+              {option.line ? (
+                <span className="text-muted mt-0.5 block text-sm text-pretty">{option.line}</span>
+              ) : null}
             </span>
           </label>
         );

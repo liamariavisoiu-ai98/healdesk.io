@@ -3,6 +3,7 @@
 import { useId, useState } from "react";
 
 import { beginBackup, finishBackup, skipScreen } from "../actions";
+import { ScreenIntro, ScreenTitle } from "../ScreenShell";
 
 /**
  * The end of setup: the backup factor, offered once when the sign-in has
@@ -74,20 +75,22 @@ export function BackupScreen(props: { slug: string; doneHref: string }) {
 
   return (
     <div>
-      <h1 className="text-2xl font-semibold">A backup way in</h1>
+      <ScreenTitle>A backup way in</ScreenTitle>
       {stage === "offer" ? (
         <>
-          <p className="text-muted mt-3">
-            If the phone or computer with your Face ID is lost, an authenticator app (Google
-            Authenticator, Microsoft Authenticator, 1Password) lets you add a new device yourself.
-            It takes a minute.
-          </p>
-          <div className="mt-6 flex flex-wrap gap-3">
+          <ScreenIntro>
+            <p>
+              If the phone or computer with your Face ID is lost, an authenticator app (Google
+              Authenticator, Microsoft Authenticator, 1Password) lets you add a new device yourself.
+              It takes a minute.
+            </p>
+          </ScreenIntro>
+          <div className="mt-8 grid gap-3 sm:flex sm:flex-wrap sm:items-center">
             <button
               type="button"
               disabled={working}
               onClick={() => void start()}
-              className="bg-ink min-h-11 rounded-full px-6 py-3 text-sm font-bold text-white disabled:opacity-50"
+              className="si-primary sm:w-auto sm:px-8"
             >
               Add an authenticator app
             </button>
@@ -95,12 +98,12 @@ export function BackupScreen(props: { slug: string; doneHref: string }) {
               type="button"
               disabled={working}
               onClick={() => void skip()}
-              className="border-line min-h-11 rounded-full border px-5 py-3 text-sm font-semibold disabled:opacity-50"
+              className="si-secondary sm:w-auto sm:px-6"
             >
               Skip for now
             </button>
           </div>
-          <p className="text-muted mt-3 text-sm">
+          <p className="text-muted mt-4 text-sm text-pretty">
             If you skip: losing the device with your Face ID means a call with us to get back in.
           </p>
         </>
@@ -114,7 +117,7 @@ export function BackupScreen(props: { slug: string; doneHref: string }) {
             void finish();
           }}
         >
-          <p className="text-muted">
+          <p className="text-muted text-[17px] leading-[1.47]">
             Scan this with the app on your phone. On the phone itself,{" "}
             <a href={proposal.otpauthUri} className="font-semibold underline">
               open it in the app
@@ -135,8 +138,8 @@ export function BackupScreen(props: { slug: string; doneHref: string }) {
               {proposal.secret.replace(/(.{4})/g, "$1 ").trim()}
             </code>
           </p>
-          <div className="grid gap-1">
-            <label htmlFor={codeId} className="text-sm font-semibold">
+          <div className="grid gap-1.5">
+            <label htmlFor={codeId} className="px-1 text-sm font-semibold">
               The 6-digit code the app shows
             </label>
             <input
@@ -146,13 +149,13 @@ export function BackupScreen(props: { slug: string; doneHref: string }) {
               inputMode="numeric"
               autoComplete="one-time-code"
               maxLength={8}
-              className="border-line min-h-11 w-40 rounded-md border bg-white px-4 py-2 tracking-widest"
+              className="si-input w-44 tracking-widest"
             />
           </div>
           <button
             type="submit"
             disabled={working || code.replace(/\D/g, "").length < 6}
-            className="bg-ink min-h-11 w-fit rounded-full px-6 py-3 text-sm font-bold text-white disabled:opacity-50"
+            className="si-primary sm:w-auto sm:justify-self-start sm:px-8"
           >
             {working ? "Checking…" : "Add it"}
           </button>
@@ -161,7 +164,7 @@ export function BackupScreen(props: { slug: string; doneHref: string }) {
 
       {stage === "codes" ? (
         <div className="mt-4 grid gap-4">
-          <p className="text-muted">
+          <p className="text-muted text-[17px] leading-[1.47]">
             Done. Keep these ten backup codes somewhere safe, away from this device: each one works
             once, if you ever lose the phone with the app too. We won&rsquo;t show them again.
           </p>
@@ -170,10 +173,7 @@ export function BackupScreen(props: { slug: string; doneHref: string }) {
               <li key={c}>{c}</li>
             ))}
           </ul>
-          <a
-            href={props.doneHref}
-            className="bg-ink inline-flex min-h-11 w-fit items-center rounded-full px-6 py-3 text-sm font-bold text-white"
-          >
+          <a href={props.doneHref} className="si-primary sm:w-auto sm:justify-self-start sm:px-8">
             I&rsquo;ve saved them
           </a>
         </div>

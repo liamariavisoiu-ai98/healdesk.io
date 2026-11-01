@@ -474,7 +474,7 @@ describeDb("the practice questions, against the database", DB_TEST_OPTIONS, () =
       buildTracker(state!, CALENDAR, practice).stages.find((s) => s.id === "practice_questions")!
         .detail,
     ).toBe(
-      "One thing to fix: 1 answer in Knowledge → Quick answers. Fix it there and she answers them again.",
+      "One thing to fix: 1 answer in Your practice → Quick answers. Fix it there and she answers them again.",
     );
   });
 

@@ -85,7 +85,7 @@ export function knowledgeTiles(input: {
 export function knowledgeSections(hasWebsiteChanges: boolean): { id: string; label: string }[] {
   return [
     ...(hasWebsiteChanges ? [{ id: WEBSITE_ANCHOR, label: "Website changes" }] : []),
-    { id: "practice", label: "Your practice" },
+    { id: "practice", label: "Contact details" },
     { id: "policies", label: "Policies" },
     { id: "prices", label: "Prices" },
     { id: "promotions", label: "Promotions" },

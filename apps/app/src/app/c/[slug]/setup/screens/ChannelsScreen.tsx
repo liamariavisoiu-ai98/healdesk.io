@@ -3,7 +3,6 @@
 import { useId, useState } from "react";
 
 import type { ChannelPresentation } from "@/lib/setup/channel-status";
-import { portalMetaOutcome } from "@/lib/meta/portal-return";
 import type { MetaConnectView } from "@/lib/meta/reconnect";
 import type { ForwardingView } from "@/lib/setup/forwarding";
 import type { ForwardingTestView } from "@/lib/setup/forwarding-test-words";
@@ -67,11 +66,15 @@ export function ChannelsScreen(props: {
   backHref: string | null;
   rows: readonly ChannelRow[];
   callBookingUrl: string | null;
-  /** `?meta=` from a Meta login that could not start. */
-  metaProblem?: string | null;
+  /**
+   * What `?meta=` said, from a Meta login that finished or could not start,
+   * in words (portalMetaOutcome, read on the server: its module also builds
+   * Meta's redirects, which must stay out of the browser).
+   */
+  metaOutcome?: { ok: boolean; text: string } | null;
 }) {
   const phone = props.rows.find((row) => row.channel === "voice");
-  const metaOutcome = portalMetaOutcome(props.metaProblem);
+  const metaOutcome = props.metaOutcome;
   return (
     <ScreenShell
       slug={props.slug}
@@ -83,9 +86,7 @@ export function ChannelsScreen(props: {
           {metaOutcome ? (
             <p
               role={metaOutcome.ok ? "status" : "alert"}
-              className={`rounded-md border bg-white px-4 py-3 text-sm ${
-                metaOutcome.ok ? "border-line" : "border-problem-line text-problem"
-              }`}
+              className={metaOutcome.ok ? "bg-tint-mint rounded-md px-4 py-3 text-sm" : "wz-problem"}
             >
               {metaOutcome.text}
             </p>
@@ -233,7 +234,7 @@ function EmailSteps({ slug }: { slug: string }) {
         value={to}
         onChange={(event) => setTo(event.target.value)}
         placeholder="maria@example.com"
-        className="border-line min-h-11 rounded-md border bg-white px-3"
+        className="si-input h-11 px-3"
       />
       <button
         type="submit"

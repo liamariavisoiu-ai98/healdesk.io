@@ -92,7 +92,7 @@ export type WebsiteChangeState = (typeof WEBSITE_CHANGE_STATES)[number];
 
 /** Each section as the portal names it: on the list, on Home and in L23. */
 export const WEBSITE_CHANGE_SECTION_NAMES: Readonly<Record<WebsiteChangeSection, string>> = {
-  practice: "Your practice",
+  practice: "Contact details",
   prices: "Prices",
   hours: "Hours",
   providers: "Providers",

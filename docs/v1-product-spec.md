@@ -563,7 +563,7 @@ The user is a clinic owner or a front-desk manager between patients. They are no
 
 ## Portal map
 
-Six screens: Home, Settings, Knowledge, Conversations, Bookings and Billing. Nothing nested more than one level deep, and Help on every screen. The menu is a sidebar on a laptop and a row of buttons on a phone; Settings opens with every connection in one card and shortcuts to its cards (owner, 1 November 2026).
+Six screens: Home, Settings, Your practice, Conversations, Bookings and Billing. Nothing nested more than one level deep, and Help on every screen. The menu is a sidebar on a laptop and a row of buttons on a phone; Settings opens with every connection in one card and shortcuts to its cards (owner, 1 November 2026).
 
 ### 1. Home
 
@@ -578,7 +578,9 @@ What happened, and is everything working.
 
 Every switch on one page, in cards: channels, how the assistant talks, calendar, payments, the safety net, alerts and sign-in. Each bought channel's card shows on or off, its status, and the connect or reconnect button. Voice carries its coverage mode selector. Website chat carries the embed snippet with a copy button. The switches are listed in full in the next section.
 
-### 3. Knowledge
+### 3. Your practice
+
+Called Knowledge in the code and its address (`/knowledge`) until 1 November 2026, when the owner renamed it for clinics; its first part, the practice's name, address, phone and website, is Contact details. It opens with three tiles: the treatments and how many have no price, the quick answers, and whether the hours are set.
 
 Quick edits, no re-scrape needed.
 

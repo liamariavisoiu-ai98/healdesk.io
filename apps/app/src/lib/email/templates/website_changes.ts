@@ -62,7 +62,7 @@ export const renderWebsiteChanges: EmailTemplate<WebsiteChangesPayload> = (paylo
         },
         {
           type: "paragraph",
-          text: `AYA keeps answering from Knowledge as it is. Confirm each change there and she uses it, or ignore it and we won't raise it again.`,
+          text: `AYA keeps answering from Your practice as it is. Confirm each change there and she uses it, or ignore it and we won't raise it again.`,
         },
         { type: "action", label: "Review the changes", url: payload.reviewUrl },
       ],

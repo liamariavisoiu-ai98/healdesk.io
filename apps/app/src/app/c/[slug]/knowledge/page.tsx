@@ -32,7 +32,7 @@ import { WebsiteChangesList } from "./WebsiteChanges";
 import { knowledgeSections, knowledgeTiles } from "@/lib/portal/knowledge-glance";
 import { SectionLinks } from "../settings/ConnectionsOverview";
 
-export const metadata: Metadata = { title: "Knowledge · healdesk", referrer: "no-referrer" };
+export const metadata: Metadata = { title: "Your practice · healdesk", referrer: "no-referrer" };
 
 export const dynamic = "force-dynamic";
 
@@ -62,7 +62,7 @@ export default async function KnowledgePage({ params }: { params: Promise<{ slug
   if (clinic.offboardingStartedAt) {
     return (
       <PortalShell {...shell}>
-        <h1 className="text-2xl font-semibold">Knowledge</h1>
+        <h1 className="text-2xl font-semibold">Your practice</h1>
         <div className="mt-6">
           <EmptyState>This account has closed, so there is nothing left to change.</EmptyState>
         </div>
@@ -86,7 +86,7 @@ export default async function KnowledgePage({ params }: { params: Promise<{ slug
 
   return (
     <PortalShell {...shell}>
-      <h1 className="text-2xl font-semibold">Knowledge</h1>
+      <h1 className="text-2xl font-semibold">Your practice</h1>
       <p className="text-muted mt-2">
         What AYA may say about your practice. Each part saves on its own, and AYA uses it at once.
         Leave out anything medical: AYA passes those questions to your team.
@@ -140,7 +140,7 @@ export default async function KnowledgePage({ params }: { params: Promise<{ slug
             </Section>
           ) : null}
 
-          <Section id="practice" title="Your practice">
+          <Section id="practice" title="Contact details">
             <PracticeForm
               slug={portal.clinicSlug}
               initial={{

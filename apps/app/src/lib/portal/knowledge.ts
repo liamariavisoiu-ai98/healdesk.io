@@ -89,7 +89,7 @@ export async function saveKnowledge(
   now: Date = new Date(),
 ): Promise<KnowledgeResult> {
   if (!isKnowledgeSection(section)) {
-    return { ok: false, field: "section", message: "That isn't part of Knowledge." };
+    return { ok: false, field: "section", message: "That isn't part of Your practice." };
   }
   const body = (input ?? {}) as Record<string, unknown>;
   const actor: ActorContext = { type: "user", userId: ctx.userId, label: ctx.actorLabel };

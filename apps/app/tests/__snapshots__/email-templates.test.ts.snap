@@ -1211,7 +1211,7 @@ exports[`each template's output > assistant_ready, for clients: the snapshot 1`]
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">She has passed her practice questions. Nothing in the preview reaches clients.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">AYA has passed her practice questions about Radiance Med Spa: a price on your menu and one that isn&#39;t, a clinical question she must not answer, and someone who needs help urgently, among others.</p>
-<p style="margin:0 0 16px;">Talk to her before anyone else does. Ask what your clients ask; in the preview nothing reaches a client, and nothing is booked. If she gets something wrong, change it in Knowledge and she uses it from then on.</p>
+<p style="margin:0 0 16px;">Talk to her before anyone else does. Ask what your clients ask; in the preview nothing reaches a client, and nothing is booked. If she gets something wrong, change it in Your practice and she uses it from then on.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Talk to your AYA</a></p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
@@ -1224,7 +1224,7 @@ exports[`each template's output > assistant_ready, for clients: the snapshot 1`]
   "subject": "Your AYA is ready to talk to",
   "text": "AYA has passed her practice questions about Radiance Med Spa: a price on your menu and one that isn't, a clinical question she must not answer, and someone who needs help urgently, among others.
 
-Talk to her before anyone else does. Ask what your clients ask; in the preview nothing reaches a client, and nothing is booked. If she gets something wrong, change it in Knowledge and she uses it from then on.
+Talk to her before anyone else does. Ask what your clients ask; in the preview nothing reaches a client, and nothing is booked. If she gets something wrong, change it in Your practice and she uses it from then on.
 
 Talk to your AYA: https://app.healdesk.test/c/radiance-med-spa
 
@@ -1257,7 +1257,7 @@ exports[`each template's output > assistant_ready, for patients: the snapshot 1`
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">She has passed her practice questions. Nothing in the preview reaches patients.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">AYA has passed her practice questions about Radiance Med Spa: a price on your menu and one that isn&#39;t, a clinical question she must not answer, and someone who needs help urgently, among others.</p>
-<p style="margin:0 0 16px;">Talk to her before anyone else does. Ask what your patients ask; in the preview nothing reaches a patient, and nothing is booked. If she gets something wrong, change it in Knowledge and she uses it from then on.</p>
+<p style="margin:0 0 16px;">Talk to her before anyone else does. Ask what your patients ask; in the preview nothing reaches a patient, and nothing is booked. If she gets something wrong, change it in Your practice and she uses it from then on.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Talk to your AYA</a></p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
@@ -1270,7 +1270,7 @@ exports[`each template's output > assistant_ready, for patients: the snapshot 1`
   "subject": "Your AYA is ready to talk to",
   "text": "AYA has passed her practice questions about Radiance Med Spa: a price on your menu and one that isn't, a clinical question she must not answer, and someone who needs help urgently, among others.
 
-Talk to her before anyone else does. Ask what your patients ask; in the preview nothing reaches a patient, and nothing is booked. If she gets something wrong, change it in Knowledge and she uses it from then on.
+Talk to her before anyone else does. Ask what your patients ask; in the preview nothing reaches a patient, and nothing is booked. If she gets something wrong, change it in Your practice and she uses it from then on.
 
 Talk to your AYA: https://app.healdesk.test/c/radiance-med-spa
 
@@ -3803,7 +3803,7 @@ exports[`each template's output > flag_alert, for clients: the snapshot 1`] = `
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Two flags from one clinic in a week is an alert. Look at both today.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">A clinic flagged one of AYA&#39;s answers: 2 flags from it in 7 days, this one included. Two in a week is an alert, not a statistic. Today, read the flagged conversations&#39; outcomes and the clinic&#39;s knowledge in the console, decide whether the fix is the clinic&#39;s knowledge or AYA&#39;s own words, and write to the practice.</p>
-<p style="margin:0 0 16px;">Staff typed a correction, screened as Knowledge screens a quick answer, which is already in the clinic&#39;s quick answers, and the practice questions run again on it. Read it in the clinic&#39;s knowledge in the console.</p>
+<p style="margin:0 0 16px;">Staff typed a correction, screened as Your practice screens a quick answer, which is already in the clinic&#39;s quick answers, and the practice questions run again on it. Read it in the clinic&#39;s knowledge in the console.</p>
 <p style="margin:0 0 4px;"><strong>Clinic id:</strong> 0c1d2e3f-0000-4000-8000-000000000000</p>
 <p style="margin:0 0 4px;"><strong>Flag id:</strong> 7a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d</p>
 <p style="margin:0 0 4px;"><strong>Conversation id:</strong> 1b2c3d4e-5f60-4718-9a2b-3c4d5e6f7a8b</p>
@@ -3824,7 +3824,7 @@ exports[`each template's output > flag_alert, for clients: the snapshot 1`] = `
   "subject": "healdesk ops: 2 flags in 7 days from one clinic",
   "text": "A clinic flagged one of AYA's answers: 2 flags from it in 7 days, this one included. Two in a week is an alert, not a statistic. Today, read the flagged conversations' outcomes and the clinic's knowledge in the console, decide whether the fix is the clinic's knowledge or AYA's own words, and write to the practice.
 
-Staff typed a correction, screened as Knowledge screens a quick answer, which is already in the clinic's quick answers, and the practice questions run again on it. Read it in the clinic's knowledge in the console.
+Staff typed a correction, screened as Your practice screens a quick answer, which is already in the clinic's quick answers, and the practice questions run again on it. Read it in the clinic's knowledge in the console.
 
 Clinic id: 0c1d2e3f-0000-4000-8000-000000000000
 Flag id: 7a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d
@@ -3866,7 +3866,7 @@ exports[`each template's output > flag_alert, for patients: the snapshot 1`] = `
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Two flags from one clinic in a week is an alert. Look at both today.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">A clinic flagged one of AYA&#39;s answers: 2 flags from it in 7 days, this one included. Two in a week is an alert, not a statistic. Today, read the flagged conversations&#39; outcomes and the clinic&#39;s knowledge in the console, decide whether the fix is the clinic&#39;s knowledge or AYA&#39;s own words, and write to the practice.</p>
-<p style="margin:0 0 16px;">Staff typed a correction, screened as Knowledge screens a quick answer, which is already in the clinic&#39;s quick answers, and the practice questions run again on it. Read it in the clinic&#39;s knowledge in the console.</p>
+<p style="margin:0 0 16px;">Staff typed a correction, screened as Your practice screens a quick answer, which is already in the clinic&#39;s quick answers, and the practice questions run again on it. Read it in the clinic&#39;s knowledge in the console.</p>
 <p style="margin:0 0 4px;"><strong>Clinic id:</strong> 0c1d2e3f-0000-4000-8000-000000000000</p>
 <p style="margin:0 0 4px;"><strong>Flag id:</strong> 7a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d</p>
 <p style="margin:0 0 4px;"><strong>Conversation id:</strong> 1b2c3d4e-5f60-4718-9a2b-3c4d5e6f7a8b</p>
@@ -3887,7 +3887,7 @@ exports[`each template's output > flag_alert, for patients: the snapshot 1`] = `
   "subject": "healdesk ops: 2 flags in 7 days from one clinic",
   "text": "A clinic flagged one of AYA's answers: 2 flags from it in 7 days, this one included. Two in a week is an alert, not a statistic. Today, read the flagged conversations' outcomes and the clinic's knowledge in the console, decide whether the fix is the clinic's knowledge or AYA's own words, and write to the practice.
 
-Staff typed a correction, screened as Knowledge screens a quick answer, which is already in the clinic's quick answers, and the practice questions run again on it. Read it in the clinic's knowledge in the console.
+Staff typed a correction, screened as Your practice screens a quick answer, which is already in the clinic's quick answers, and the practice questions run again on it. Read it in the clinic's knowledge in the console.
 
 Clinic id: 0c1d2e3f-0000-4000-8000-000000000000
 Flag id: 7a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d
@@ -6082,11 +6082,11 @@ exports[`each template's output > practice_questions_failed, for clients: the sn
 }</style>
 </head>
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">AYA got a practice question wrong because of 1 price in Knowledge → Prices.</span>
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">AYA got a practice question wrong because of 1 price in Your practice → Prices.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">AYA answers practice questions about Radiance Med Spa before clients talk to her, and again after every change. One came out wrong because of 1 price in Knowledge → Prices.</p>
+<p style="margin:0 0 16px;">AYA answers practice questions about Radiance Med Spa before clients talk to her, and again after every change. One came out wrong because of 1 price in Your practice → Prices.</p>
 <p style="margin:0 0 16px;">Fix it there and she answers them again a couple of minutes after you save.</p>
-<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/knowledge#prices" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Open Knowledge → Prices</a></p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/knowledge#prices" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Open Your practice → Prices</a></p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out your clients&#39; details.</p>
@@ -6094,13 +6094,13 @@ exports[`each template's output > practice_questions_failed, for clients: the sn
 </div>
 </body>
 </html>",
-  "preheader": "AYA got a practice question wrong because of 1 price in Knowledge → Prices.",
+  "preheader": "AYA got a practice question wrong because of 1 price in Your practice → Prices.",
   "subject": "One thing to fix",
-  "text": "AYA answers practice questions about Radiance Med Spa before clients talk to her, and again after every change. One came out wrong because of 1 price in Knowledge → Prices.
+  "text": "AYA answers practice questions about Radiance Med Spa before clients talk to her, and again after every change. One came out wrong because of 1 price in Your practice → Prices.
 
 Fix it there and she answers them again a couple of minutes after you save.
 
-Open Knowledge → Prices: https://app.healdesk.test/c/radiance-med-spa/knowledge#prices
+Open Your practice → Prices: https://app.healdesk.test/c/radiance-med-spa/knowledge#prices
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.
@@ -6128,11 +6128,11 @@ exports[`each template's output > practice_questions_failed, for patients: the s
 }</style>
 </head>
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">AYA got a practice question wrong because of 1 price in Knowledge → Prices.</span>
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">AYA got a practice question wrong because of 1 price in Your practice → Prices.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">AYA answers practice questions about Radiance Med Spa before patients talk to her, and again after every change. One came out wrong because of 1 price in Knowledge → Prices.</p>
+<p style="margin:0 0 16px;">AYA answers practice questions about Radiance Med Spa before patients talk to her, and again after every change. One came out wrong because of 1 price in Your practice → Prices.</p>
 <p style="margin:0 0 16px;">Fix it there and she answers them again a couple of minutes after you save.</p>
-<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/knowledge#prices" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Open Knowledge → Prices</a></p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/knowledge#prices" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Open Your practice → Prices</a></p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
@@ -6140,13 +6140,13 @@ exports[`each template's output > practice_questions_failed, for patients: the s
 </div>
 </body>
 </html>",
-  "preheader": "AYA got a practice question wrong because of 1 price in Knowledge → Prices.",
+  "preheader": "AYA got a practice question wrong because of 1 price in Your practice → Prices.",
   "subject": "One thing to fix",
-  "text": "AYA answers practice questions about Radiance Med Spa before patients talk to her, and again after every change. One came out wrong because of 1 price in Knowledge → Prices.
+  "text": "AYA answers practice questions about Radiance Med Spa before patients talk to her, and again after every change. One came out wrong because of 1 price in Your practice → Prices.
 
 Fix it there and she answers them again a couple of minutes after you save.
 
-Open Knowledge → Prices: https://app.healdesk.test/c/radiance-med-spa/knowledge#prices
+Open Your practice → Prices: https://app.healdesk.test/c/radiance-med-spa/knowledge#prices
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.
@@ -9267,7 +9267,7 @@ exports[`each template's output > website_changes, for clients: the snapshot 1`]
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">We found 3 changes AYA doesn&#39;t know yet: 2 in Prices and 1 in Hours.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">We read Radiance Med Spa&#39;s website again and found 3 changes that AYA doesn&#39;t know yet: 2 in Prices and 1 in Hours.</p>
-<p style="margin:0 0 16px;">AYA keeps answering from Knowledge as it is. Confirm each change there and she uses it, or ignore it and we won&#39;t raise it again.</p>
+<p style="margin:0 0 16px;">AYA keeps answering from Your practice as it is. Confirm each change there and she uses it, or ignore it and we won&#39;t raise it again.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/knowledge#website" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Review the changes</a></p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
@@ -9280,7 +9280,7 @@ exports[`each template's output > website_changes, for clients: the snapshot 1`]
   "subject": "Changes on your website",
   "text": "We read Radiance Med Spa's website again and found 3 changes that AYA doesn't know yet: 2 in Prices and 1 in Hours.
 
-AYA keeps answering from Knowledge as it is. Confirm each change there and she uses it, or ignore it and we won't raise it again.
+AYA keeps answering from Your practice as it is. Confirm each change there and she uses it, or ignore it and we won't raise it again.
 
 Review the changes: https://app.healdesk.test/c/radiance-med-spa/knowledge#website
 
@@ -9313,7 +9313,7 @@ exports[`each template's output > website_changes, for patients: the snapshot 1`
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">We found 3 changes AYA doesn&#39;t know yet: 2 in Prices and 1 in Hours.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">We read Radiance Med Spa&#39;s website again and found 3 changes that AYA doesn&#39;t know yet: 2 in Prices and 1 in Hours.</p>
-<p style="margin:0 0 16px;">AYA keeps answering from Knowledge as it is. Confirm each change there and she uses it, or ignore it and we won&#39;t raise it again.</p>
+<p style="margin:0 0 16px;">AYA keeps answering from Your practice as it is. Confirm each change there and she uses it, or ignore it and we won&#39;t raise it again.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/knowledge#website" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Review the changes</a></p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
@@ -9326,7 +9326,7 @@ exports[`each template's output > website_changes, for patients: the snapshot 1`
   "subject": "Changes on your website",
   "text": "We read Radiance Med Spa's website again and found 3 changes that AYA doesn't know yet: 2 in Prices and 1 in Hours.
 
-AYA keeps answering from Knowledge as it is. Confirm each change there and she uses it, or ignore it and we won't raise it again.
+AYA keeps answering from Your practice as it is. Confirm each change there and she uses it, or ignore it and we won't raise it again.
 
 Review the changes: https://app.healdesk.test/c/radiance-med-spa/knowledge#website
 

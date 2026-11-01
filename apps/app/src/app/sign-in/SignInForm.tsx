@@ -11,7 +11,6 @@ import {
   PRIMARY_BUTTON,
   ProblemLine,
   SECONDARY_BUTTON,
-  Spinner,
   TEXT_LINK,
 } from "./ui";
 
@@ -108,14 +107,7 @@ function Ask({
           </p>
         )}
         <button type="submit" disabled={pending} className={`${PRIMARY_BUTTON} mt-6`}>
-          {pending ? (
-            <>
-              <Spinner />
-              Sending…
-            </>
-          ) : (
-            "Email me a sign-in link"
-          )}
+          {pending ? "Sending…" : "Email me a sign-in link"}
         </button>
       </form>
     </>

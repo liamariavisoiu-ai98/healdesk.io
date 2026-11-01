@@ -2,7 +2,7 @@
 
 import { useFormStatus } from "react-dom";
 
-import { PRIMARY_BUTTON, Spinner } from "@/app/sign-in/ui";
+import { PRIMARY_BUTTON } from "@/app/sign-in/ui";
 
 /**
  * The link page's "Continue": while the link is being spent and the session
@@ -14,14 +14,7 @@ export function ContinueButton() {
   const { pending } = useFormStatus();
   return (
     <button type="submit" disabled={pending} className={PRIMARY_BUTTON}>
-      {pending ? (
-        <>
-          <Spinner />
-          Signing you in…
-        </>
-      ) : (
-        "Continue"
-      )}
+      {pending ? "Signing you in…" : "Continue"}
     </button>
   );
 }

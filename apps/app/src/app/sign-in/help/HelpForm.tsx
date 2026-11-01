@@ -2,7 +2,7 @@
 
 import { useActionState, useState, type ChangeEvent } from "react";
 
-import { CardBadge, CardLede, CardTitle, PRIMARY_BUTTON, ProblemLine, Spinner, TEXT_LINK } from "../ui";
+import { CardBadge, CardLede, CardTitle, PRIMARY_BUTTON, ProblemLine, TEXT_LINK } from "../ui";
 import { requestSignInHelp } from "./actions";
 
 type Field = "email" | "clinic" | "last4" | "expiry" | "invoice";
@@ -172,14 +172,7 @@ export function HelpForm() {
             {/* A long label: 16px with less padding keeps it on one line from a
                 tablet up, and a phone breaks it into two even lines. */}
             <button type="submit" disabled={pending} className={`${PRIMARY_BUTTON} px-5 text-base text-balance`}>
-              {pending ? (
-                <>
-                  <Spinner />
-                  Checking…
-                </>
-              ) : (
-                "Send a sign-in link to the clinic's address"
-              )}
+              {pending ? "Checking…" : "Send a sign-in link to the clinic's address"}
             </button>
           </form>
         </>

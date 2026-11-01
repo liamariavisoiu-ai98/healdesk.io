@@ -83,11 +83,6 @@ export function ProblemLine({ id, children }: { id?: string; children: ReactNode
   );
 }
 
-/** The spinner inside a primary button while its form is on its way. */
-export function Spinner() {
-  return <span className="si-spin" aria-hidden="true" />;
-}
-
 function MailGlyph() {
   return (
     <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">

@@ -81,7 +81,7 @@ const TURNS: readonly Turn[] = [
   {
     caller: "much is Botox?",
     before: "Botox is from $18 per unit. The total depends on the areas you want treated, which Dr. Shaun Patel works out with you at a consultation. Want me to request one?",
-    model: [say("Botox is from $18 per unit. The total depends on the areas you want treated, which Dr. Shaun Patel works out with you at a consultation. Want me to request one?", { booking: { service: "BOTOX Cosmetic" } })],
+    model: [say("Botox is from $18 per unit. The total depends on the areas you want treated, which Dr. Shaun Patel works out with you at a consultation. Want me to request one?", { booking: { service: "BOTOX Cosmetic" } }).replace('"state":{"booking":{"service":"BOTOX Cosmetic"}}', '"booking":{"wants":true,"service":"BOTOX Cosmetic"}')],
   },
   {
     caller: "this week?",
@@ -245,10 +245,13 @@ describe("sounds alike: what the line heard is taken as what they meant", () => 
     expect(at("Hi.").after).toBe("Hi there! How can I help you today?");
     // No popularity claim, and "BOTOX" said as a word.
     expect(at("Tell me about your treatments. Please.").after).toBe("Our main groups are injectables like Botox, Dysport, Daxxify and fillers such as Restylane and Sculptra. Which area are you most interested in?");
-    // "This week?", "evening", "not mornings": two times that fit, from the call, never the same list again.
-    expect(at("this week?").after).toBe("Let me pull up our calendar... I have Monday, November 2 at 11 AM or 4 PM. Would either of those work?");
-    expect(at("want evening time.").after).toBe("Let me take a look... Ah, Monday, November 2 at 5 PM is already taken, but I can do Tuesday, November 3 at 4 PM or 5 PM. Would either of those work?");
-    expect(at("that. Why are you repeating? I don't want early morning.").after).toBe("Let me take a look... I have Monday, November 2 at 12 PM or 1 PM. Would either of those work?");
+    // "This week?", "evening", "not mornings": times from the booking system, never the model's own (the restructure,
+    // 1 November 2026): evening only after four, no mornings when they said so, and an ask again leads with new times.
+    expect(at("this week?").after).toBe("I have Monday, November 2 at 10 AM, 2 PM, or 4 PM. Which would suit you?");
+    expect(at("want evening time.").after).toBe("I have Monday, November 2 at 5 PM, Tuesday, November 3 at 4 PM, or Tuesday, November 3 at 5 PM. Which would suit you?");
+    const noMornings = at("that. Why are you repeating? I don't want early morning.").after;
+    expect(noMornings).toMatch(/^I have /);
+    expect(noMornings).not.toMatch(/\b(?:9|10|11) AM\b/);
     // The deposit, from the clinic's own rule, said; asked again, said again shorter, never the same line twice.
     expect(at("You do I have to pay deposit?").after).toBe("Yes, a $50 deposit holds each appointment, and it comes off the treatment price.");
     expect(at("Do you do I have to pay deposit or something?").after).toBe("Like I mentioned, yes, a $50 deposit holds each appointment, and it comes off the treatment price.");

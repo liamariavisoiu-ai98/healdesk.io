@@ -365,10 +365,13 @@ export function demoStageNote(
   now: number,
   progress: DemoProgress = DEMO_START_PROGRESS,
 ): string {
+  void now;
   const full = context.clinic.clinicName;
   const clinic = shortClinicName(full);
-  const ctx = { ...context, issuedAt: context.issuedAt ?? now };
   const provider = routingProvider(context.clinic.providers.map((p) => p.name));
+  // Only what a demo needs on top of the clinic's own prompt, which a clinic with a connected calendar gets (owner,
+  // 1 November 2026, the restructure after be078f77): booking, times, names and misheard words are the prompt's and the
+  // tool layer's, never said twice in two ways here (docs/design/demo-aya-anatomy-2026-11-01.md, F).
   return [
     `You are Aya, ${clinic}'s AI receptionist, answering a caller. Everything above about the practice is yours to use. ${NAME_RULE}${clinic === full ? "" : ` Call the clinic "${clinic}": its full name was said once, in the opening line.`}`,
     ...confusedRule(progress),
@@ -377,34 +380,20 @@ export function demoStageNote(
       : []),
     ...(progress.frustrated
       ? [
-          `They're frustrated. Apologise at most once in the whole call (never if you already have), then fix what bothered them in one short sentence, or offer one concrete choice. Never repeat anything you have said, and never sum up the booking. A one-word "convenient", "great" or "perfect" after a complaint is sarcasm: never answer it with "Glad that works!".`,
+          `They're frustrated. Apologise at most once in the whole call (never if you already have), then fix what bothered them in one short sentence, or offer one concrete choice. Never repeat anything you have said. A one-word "convenient", "great" or "perfect" after a complaint is sarcasm: never answer it with "Glad that works!".`,
         ]
       : []),
     ...((progress.told ?? []).length > 0 && OTHERS_ASK.test(progress.lastCallerWords ?? "")
       ? [`They have already heard about: ${(progress.told ?? []).join(", ")}. Leave those out and give only what is new, in one or two short sentences, names first and no more than two prices.`]
       : []),
-    ...(progress.pickedSlot
-      ? [`They just picked ${nextDateOn(ctx, progress.pickedSlot.day)} at ${clock(progress.pickedSlot.minutes)}, from the times the call offered: that is the time, never another.`]
-      : []),
     ...(progress.unknownDoctor
-      ? [`They asked for ${progress.unknownDoctor}, who is not on the team. Say so in a few words and name who is (${context.clinic.providers.map((p) => p.name).slice(0, 3).join(", ") || "the team"}), before anything else; never book them with someone they did not ask for without saying so.`]
+      ? [`They asked for ${progress.unknownDoctor}, who is not on the team. Say so in a few words and name who is (${context.clinic.providers.map((p) => p.name).slice(0, 3).join(", ") || "the team"}), before anything else.`]
       : []),
-    ...(progress.saidNo ? [`They just said no. Nothing is confirmed, requested or set up on that: never say it's all set or done. Take the no, and ask what they would like instead in a few words.`] : []),
-    `Give a real answer to what they ask; if they are unsure what to book, name one or two treatments from the list that suit what they want (no price that is not on the list, and never a figure they said) and offer a consultation. Never read out more than two prices at once: give the lowest "from" price and offer to say more.`,
-    `If they ask what a price per unit means, or what an area costs, say close to these words: "The price is per unit, and the total depends on the area, which ${provider ?? "the provider"} works out with you at a consultation. Want me to request one?" Never say what a unit is or how many anyone needs: the clinic's screen refuses it.`,
-    `Never rank the providers or say who is best: say who does a treatment only where what you know says so, and leave the choice to them and the team.`,
-    `A question about ${clinic}'s own policies (insurance, financing, parking, deposits, payment) is about the practice: answer it only from what is written above, in its words; if it is not written there, say "I'd have to check that with the team" and never guess. Never say how the practice runs (parking, free parking, double-booking, how busy it is, waiting times) unless it is written above.`,
-    `Words are often misheard on a call ("Deeps" for lips, "a painting" for an appointment, "this port" for Dysport). A word that sounds like something on the list, or like something you just said, is that thing: answer about it and carry on, never asking them to say it again. Only if nothing on the list is close, ask once, naming the two likeliest ("Dysport or Daxxify?").`,
-    ...rpBookingLines(progress, context),
-    ...calendarLines(ctx, clinic),
-    ...timeLines(ctx, progress, clinic),
-    `When they name a weekday ("next Tuesday", "Tuesday morning"), take the next such day and say its date; never ask which one they mean.`,
-    ...(progress.picked
-      ? [`They just said "${progress.picked.said}": that is the ${progress.picked.item}, number ${progress.picked.index + 1} of what you listed (${(progress.lastListed ?? []).join(", ")}). Confirm it by that name, never another.`]
-      : []),
-    `If they push back on cost right after you quoted a price from the list, the pushback is about that price: acknowledge it in a few words, say plainly what it is for, and offer a consultation where the team can go through options. Never answer it with "I don't have a price for that one": you just gave one.`,
-    `When they say goodbye, say a short, warm goodbye and set "end" to true.`,
-    `In the JSON details, add a "state" object: {"booking": {"service", "day", "time", "name", "phone", "status"} with whatever of these the caller has given so far for the booking, in their words (the day as a weekday, the time as a clock time such as "4 PM"), and "status": "cancelled" or "rescheduled" only when they cancel it or move it}.`,
+    `Give a real answer to what they ask; if they are unsure what to book, name one or two treatments from the list that suit what they want and offer a consultation. Never read out more than two prices at once.`,
+    `If they ask what a price per unit means, or what an area costs, say close to these words: "The price is per unit, and the total depends on the area, which ${provider ?? "the provider"} works out with you at a consultation." Never say what a unit is or how many anyone needs.`,
+    `Never rank the providers or say who is best.`,
+    `A question about ${clinic}'s own policies (insurance, financing, parking, deposits, payment) is answered only from what is written above, in its words; if it is not written there, say "I'd have to check that with the team" and never guess. Never say how the practice runs (parking, double-booking, how busy it is, waiting times) unless it is written above.`,
+    `"What time was that?" or "when is it?" after a booking asks about their appointment, never the clock.`,
   ].join("\n");
 }
 
@@ -577,7 +566,7 @@ export function listedIn(reply: string, menu: readonly string[]): string[] {
     .map((h) => h.name);
 }
 
-const NAME_RULE = `Your name is Aya: write it exactly "Aya", never "AYA" and never spelled out. Never say the caller's first name yourself: the call says it once, when it confirms the booking.`;
+const NAME_RULE = `Your name is Aya: write it exactly "Aya", never "AYA" and never spelled out.`;
 
 /** "I don't understand", in a row (test call 72dc66b7: the same price list twice, then the same line twice). */
 function confusedRule(progress: DemoProgress): string[] {
@@ -588,64 +577,7 @@ function confusedRule(progress: DemoProgress): string[] {
   return [];
 }
 
-/** The role-play's booking, as far as it has got, and the hours a time must fall in. */
-function rpBookingLines(progress: DemoProgress, context: Pick<DemoCallContext, "clinic">): string[] {
-  const b = progress.rpBooking ?? {};
-  const hours = context.clinic.hours.map((h) => `${h.days} ${h.hours}`).join(", ");
-  const hoursLine = hours
-    ? `Opening hours: ${hours}.`
-    : `If they ask for a time the clinic is closed, offer two times within its usual working day instead.`;
-  // A cancelled request is never pending again (c4093be6: "when they confirm your Friday morning request" after the cancel).
-  if (b.status === "cancelled") {
-    const need = [!b.name ? "their first name" : null, !b.phone ? "the best number to reach them" : null].filter(Boolean);
-    return [
-      `They have asked to cancel their booking: as far as this call goes it is cancelled, and it no longer stands.`,
-      need.length > 0
-        ? `To pass the cancellation to the team, ask for ${need.join(", then ")}, one at a time; then say in one sentence that the team will cancel it and confirm within a day.`
-        : `You have their name and number for the cancellation: the team will cancel it and confirm within a day. If they want a new time, take a new request: the treatment, then a day and time.`,
-      hoursLine,
-    ];
-  }
-  const known = [
-    b.service ? `the treatment: ${b.service}` : null,
-    b.day ? `the day: ${b.day}` : null,
-    b.time ? `the time: ${b.time}` : null,
-    b.name ? `their first name: ${b.name}` : null,
-    b.phone ? `their number: ${b.phone}` : null,
-  ].filter(Boolean);
-  const missing = bookingMissing(b);
-  return [
-    known.length > 0
-      ? `On file for this booking: ${known.join("; ")}. Never ask for any of it again; use it.`
-      : `To take a booking request you need four things, asked one at a time: the treatment, a day and time, their first name, and the best number to reach them (the number they are calling from is fine if they say so).`,
-    missing.length > 0
-      ? `Still needed before it can be booked: ${missing.join(", ")}. Ask for the next one only, in one short question, and nothing else in that reply.`
-      : progress.rpConfirmed === true
-        ? `It is booked, and the call has told them so. Never say it again, nor any part of it (the day, the time, "your request", "the team will confirm"), unless they ask what they are booked for; then say it once, in one short sentence. Answer what they ask now, and only that.`
-        : `You have everything: the call books it and tells them itself. Say nothing about it being booked, requested or confirmed.`,
-    hoursLine,
-  ];
-}
 
-/**
- * The role-play's calendar (owner, 31 October 2026, step 4: "Give it two or
- * three plausible demo times from the clinic's hours"): a front desk that
- * cannot offer a time was a weak showcase, and without times she made them
- * up (a17b5aff: "Eleven AM is available"). The times come from the clinic's
- * published hours, from the day after the call was issued, so they are the
- * same for the whole call; it is a role-play, so nothing is booked and the
- * guard's rule against claiming a booking holds as on any call. Hours that
- * cannot be read leave her taking a preferred time, as before.
- */
-function calendarLines(context: Pick<DemoCallContext, "clinic" | "issuedAt">, clinic: string): string[] {
-  const slots = demoSlots(context);
-  if (slots.length === 0) {
-    return [`You can't see ${clinic}'s calendar: never say a time is available, free or open. Take the time they ask for as their preferred time, for the team to confirm (a17b5aff: "Eleven AM is available").`];
-  }
-  return [
-    `You can't see the calendar yourself: never name a free time, a list of times or "openings". When they ask about times, a day, a part of the day or "this week", the call answers with times that fit; if they ask in a way it did not answer, ask which day and which part of the day suits them, in one short question. Any time they ask for within the hours is free. Never say a time is booked, set, held or confirmed, and never that you can't confirm: once it has the treatment, the day and time, their first name and their number, the call books it and says so in its own words.`,
-  ];
-}
 
 /** A time a caller asks for: a clock time ("nine PM"), a part of the day ("Thursday afternoon"), or both. */
 export type RequestedTime = { minutes: number | null; part: "morning" | "afternoon" | "evening" | null; said: string };
@@ -676,7 +608,7 @@ export function requestedTime(words: string): RequestedTime | null {
 }
 
 /** The opening span of each weekday the hours can be read for, 0 Sunday to 6. */
-function openSpans(context: Pick<DemoCallContext, "clinic">): Map<number, { open: number; close: number }> {
+export function openSpans(context: Pick<DemoCallContext, "clinic">): Map<number, { open: number; close: number }> {
   const open = new Map<number, { open: number; close: number }>();
   for (const h of context.clinic.hours) {
     const span = hoursSpan(h.hours);
@@ -1224,15 +1156,6 @@ export function roleplayCheckedReply(
   return /\?\W*$/.test(kept.at(-1)!) ? kept.join(" ") : `${kept.join(" ")} ${ask}`;
 }
 
-/** In the role-play, an in-hours time they asked for: she takes it as their preferred time (roleplayTimeLine says the rest). */
-function timeLines(context: Pick<DemoCallContext, "clinic" | "issuedAt">, progress: DemoProgress, clinic: string): string[] {
-  const ask = progress.rpTime ?? null;
-  const day = progress.rpDay ?? null;
-  if (ask?.minutes === null || ask?.minutes === undefined || day === null) return [];
-  const span = openSpans(context).get(day);
-  if (!span || ask.minutes < span.open || ask.minutes > span.close - 30) return [];
-  return [`They asked for ${WEEKDAY_NAMES[day]} at ${ask.said}, on ${nextDateOn(context, day)}, which is within ${clinic}'s hours and free: take it, and ask for whatever the booking still needs. Never say it is booked yourself: the call does, once it has everything.`];
-}
 
 const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
 

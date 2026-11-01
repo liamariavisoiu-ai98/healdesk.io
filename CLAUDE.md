@@ -179,39 +179,40 @@ enforceable rather than aspirational.
    stays (owner, 25 October 2026): a demo call started by an operator signed
    in to `/admin` is sealed as a test, and its transcript is emailed to
    hello@ through SES as it ends, with nothing queued or kept; a prospect's
-   demo call keeps no transcript, as the Privacy page says. What the demo adds
-   to the clinic's prompt is one note per turn (`demoStageNote`): the
-   booking so far, a calendar made of the clinic's published hours
-   (`demoSlots`), and the repairs the turn needs. The booking is held in
-   code (demo call c4093be6, 31 October 2026): a time outside the hours, a
-   closed day and a question about free times are answered by the call from
-   the hours (`roleplayTimeLine`), each opened with her looking ("Let me pull
-   up our calendar...", with the day's pleasantry the first time,
-   `calendarLead`), and the first time a caller asks for, once a call, is
-   "already taken" with the two nearest free times offered, to show her
-   proactive (owner, 1 November 2026); "after four", "any day" and "whatever
-   you have" are read in code too and answered with two times that fit, none
-   offered twice, and "Monday works" picks from the offer (`windowIn`,
-   `slotPicked`); a demo books (demo call a44374c9, owner: "take it to
-   10/10"): once it has a treatment, a day and time inside the hours, a first
-   name and a number, the call says "You're all set" itself, once, with the
-   caller's name, and never restates it unless asked (`demoBookable`,
-   `demoConfirmLine`; the guard leaves a demo's booking words to that code,
-   `bookingClaimsOwned`); a cancelled one is never pending, and a goodbye
-   goes from a reply still asking for details (`roleplayCheckedReply`); a
-   doctor not on the team is named as such (`unknownDoctorIn`), a hurried
-   caller gets no pleasantry, sarcasm after a complaint never hears "Glad that
-   works!", and an apology is said once; a name must look like one and a
-   number be one, the demo never says a line twice, an amount in the
-   practice's own rules (its deposit) may be said (`amountsInRules`), and
-   "this week", "evening" and "not mornings" are answered in code; healdesk's words are on its never-say list
-   (`demoRoleplayFacts`); a refused reply gets the guard's line with the
-   provider's name (`routingProvider`, on demo calls only until the owner
-   decides a clinic's own lines name theirs); the urgent line reads out the
-   clinic's published number after 9-1-1, opened with a word of sympathy and
-   named as the clinical team's direct line (`demoUrgentLine`; a clinic's own
-   urgent lines wait on the medical director's sign-off). `tests/voice-demo-c4093be6.test.ts`
-   replays that call's patient lines. On every call, a clinic's and a demo,
+   demo call keeps no transcript, as the Privacy page says. **Since the
+   restructure of 1 November 2026** (owner, after demo call be078f77: "I feel
+   that we're going in circles", then "go ahead with the restructure"; the
+   whole of what she used, and where it contradicted itself, is
+   `docs/design/demo-aya-anatomy-2026-11-01.md`) a demo runs the prompt a
+   clinic with a connected calendar gets (`bookingTools: true`) and books
+   through the same tool layer as a clinic's calls (`booking-tools.ts`), on
+   the demo's own engine (`lib/voice/demo-booking.ts`: a calendar made of the
+   published or made-up hours, in memory, nothing written; the first time
+   picked "just gone" once a call, the owner's proactive moment; the demo's
+   deposit rule flagged as a clinic's is; a stand-in caller number, so "the
+   one I'm calling from" works as on a clinic's call). Free times come only
+   from the tool layer: a reply naming one with no action is answered by the
+   tool layer for the day and the part of the day the caller named
+   (`claimsFreeTime`, `windowNamedIn`, `turn.ts`, every call), and
+   `find_times` takes `after` and `before`. What the demo adds is one short
+   note per turn (`demoStageNote`): the clinic framing, a hurried or
+   frustrated caller, a doctor not on the team (`unknownDoctorIn`), what she
+   has already told them, and its policy rules, and nothing about booking,
+   times or names, which the prompt and the tool layer own. The demo's own
+   booking code before the restructure (`roleplayTimeLine`,
+   `roleplayCheckedReply`, `demoConfirmLine` and their notes) is off the call
+   path and waits to be deleted. The demo never says a line twice; healdesk's
+   words are on its never-say list (`demoRoleplayFacts`); a refused reply
+   gets the guard's line with the provider's name (`routingProvider`, on demo
+   calls only until the owner decides a clinic's own lines name theirs); the
+   urgent line reads out the clinic's published number after 9-1-1, opened
+   with a word of sympathy and named as the clinical team's direct line
+   (`demoUrgentLine`; a clinic's own urgent lines wait on the medical
+   director's sign-off). `tests/voice-demo-be078f77.test.ts` and
+   `tests/voice-demo-sound-alike.test.ts` replay the owner's test calls on
+   this path (the replays of c4093be6 and a44374c9 went with the demo booking
+   code they judged).
+   On every call, a clinic's and a demo,
    a word that sounds like the menu, a provider or what she just said is taken
    as that, never questioned ("this port" is Dysport; `lib/voice/sound-alike.ts`,
    owner, 1 November 2026); a reply is shaped for a voice (`forVoice`: no

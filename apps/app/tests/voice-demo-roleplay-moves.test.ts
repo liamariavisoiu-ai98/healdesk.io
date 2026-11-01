@@ -221,8 +221,9 @@ describe("the receptionist's manner (owner, 1 November 2026)", () => {
     expect(prompt).not.toContain("at most twice");
     // His insider-ally lines: "we" for the practice, an opening as a good find, no scarcity the calendar does not show; mirroring a brief caller.
     expect(manner).toContain('"we", "our team", "when we see you"');
-    expect(manner).toContain('"Oh, perfect, I\'ve got Thursday at 3 PM. Want me to put that in for you?"');
-    expect(manner).toContain("only when the calendar shows it, never to hurry them");
+    // Free times are the booking system's to name, never hers (the restructure, 1 November 2026).
+    expect(manner).toContain("Free times are never yours to name: they come from the booking system's own words, or from the team.");
+    expect(manner).toContain("only when the system said so, never to hurry them");
     expect(manner).not.toMatch(/tightly booked|rare opening|before it's taken/i);
     expect(prompt).toContain("Short, businesslike answers: drop the pleasantries");
     const lines = [...manner.matchAll(/"([^"]{8,})"/g)].map((m) => m[1]!.replace(/\[provider\]/g, "Dr. Maya Chen").replace(/\[first name\]/g, "Josh").replace(/\[their day\]/g, "Thursday"));

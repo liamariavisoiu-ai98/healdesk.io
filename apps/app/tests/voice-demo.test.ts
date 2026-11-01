@@ -235,14 +235,13 @@ describe("a demo call's facts", () => {
     expect(line).not.toContain("AYA");
   });
 
-  test("the note is a receptionist's: the booking's needs, the calendar, and nothing of healdesk's", () => {
+  test("the note is a receptionist's, and only what a demo adds: no booking, times or names, which the prompt and the tool layer own", () => {
     const note = demoStageNote(context(), "roleplay", Date.now(), DEMO_START_PROGRESS);
     expect(note).toContain("You are Aya, Lumen's AI receptionist, answering a caller.");
-    expect(note).toContain("you need four things, asked one at a time: the treatment, a day and time, their first name, and the best number to reach them");
-    // No list of times for her to read: the call offers times itself (a test call of 1 November 2026: the same three, three times).
-    expect(note).toContain("You can't see the calendar yourself: never name a free time");
+    // The restructure (owner, 1 November 2026): nothing here says how to book, which times to offer or whose name to
+    // say, so it never contradicts the prompt a clinic with a connected calendar gets (demo-aya-anatomy, F).
+    expect(note).not.toMatch(/four things|free time|calendar|the team will confirm|first name|"state"|say it again/i);
     expect(note).not.toMatch(/(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day, \w+ \d{1,2} at \d/);
-    expect(note).toContain('When they say goodbye, say a short, warm goodbye and set "end" to true.');
     expect(note).not.toMatch(/healdesk|setup fee|discount|role-?play|Book Onboarding|pitch|owner/i);
   });
 
@@ -380,13 +379,13 @@ describe("a demo call on the voice engine", () => {
     expect(m.seen[0]!.stable).toContain("How you run a booking");
     expect(m.seen[0]!.stable).not.toMatch(/healdesk.s Aya|Book Onboarding|the product they are hearing/);
 
-    // A day with a booking ask is answered by the call itself, from the hours, with no model call (a44374c9).
+    // The demo runs the prompt a clinic with a connected calendar gets, with the booking actions (the restructure).
+    expect(m.seen[0]!.stable).toContain("the practice's booking system books appointments, never you");
+    expect(m.seen[0]!.stable).not.toContain("you do not book appointments yourself");
     await s.handle(said(2, [{ role: "agent", content: heard().at(-1)!.content }, { role: "user", content: "can I book one for Friday" }]));
-    expect(heard().at(-1)!.content).toMatch(/^Let me pull up our calendar\.\.\. On Friday, November \d+, I have \d+ [AP]M or \d+ [AP]M\. Would either of those work\?$/);
-    expect(m.seen).toHaveLength(1);
-    await s.handle(said(3, [{ role: "agent", content: heard().at(-1)!.content }, { role: "user", content: "and what's your cancellation policy" }]));
     expect(m.seen).toHaveLength(2);
     expect(m.seen[1]!.turn).toContain("You are Aya, Lumen's AI receptionist");
+    expect(m.seen[1]!.turn).toContain("Live booking is available on this turn");
     expect(m.seen[1]!.turn).not.toMatch(/buying signal|the close|pitch/);
 
     expect(await s.finish()).toBeNull();

@@ -44,6 +44,19 @@ const HOURS_ES = ["doce", "una", "dos", "tres", "cuatro", "cinco", "seis", "siet
  * for a call in Spanish only; the day of the month stays a numeral, which
  * a Spanish voice reads as a number.
  */
+/**
+ * A time as a person says it on an English call: "Thursday, November 5 at
+ * 3 PM", "at 3:30 PM" when it is not on the hour. The booking lines used the
+ * written form ("Thu 5 Nov, 3:00 PM"), which a voice reads as it is written.
+ */
+export function spokenSlotEn(at: Date, timeZone: string): string {
+  const date = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long", month: "long", day: "numeric" }).format(at);
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit", hour12: true }).formatToParts(at);
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "";
+  const minute = get("minute");
+  return `${date} at ${get("hour")}${minute && minute !== "00" ? `:${minute}` : ""} ${get("dayPeriod").toUpperCase()}`;
+}
+
 export function spokenSlotEs(at: Date, timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,

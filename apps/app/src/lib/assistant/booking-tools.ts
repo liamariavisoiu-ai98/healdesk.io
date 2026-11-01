@@ -19,7 +19,7 @@ import { bookingModeFor } from "@/lib/booking/mode";
 import { describeError, log } from "@/lib/log";
 import type { PaymentTextState } from "@/lib/sms/payment-text";
 import { withTenant } from "@/lib/tenant";
-import { spokenSlotEs } from "@/lib/voice/spoken";
+import { spokenSlotEn, spokenSlotEs } from "@/lib/voice/spoken";
 
 import type { BookingCapture } from "./turn";
 
@@ -79,7 +79,15 @@ import type { BookingCapture } from "./turn";
  */
 
 export type ToolAction =
-  | { type: "find_times"; service: string | null; day: string | null }
+  | {
+      type: "find_times";
+      service: string | null;
+      day: string | null;
+      /** Only times starting at or after this hour of the day, "HH:MM" (24-hour): "after four", "evening". */
+      after?: string | null;
+      /** Only times starting before this hour of the day: "before noon", "mornings". */
+      before?: string | null;
+    }
   | { type: "choose_time"; at: string };
 
 export type OfferedSlot = { at: string; providerId: string | null };
@@ -206,8 +214,22 @@ export function bookingTools(
   mayAnswer: typeof assistantMayAnswer = assistantMayAnswer,
 ): BookingTools {
   const say = (line: string) => (context.channel === "web_chat" ? forChat(line) : line);
+  // On a call, a time as a person says it ("Thursday, November 5 at 3 PM"); in the chat, as it is written.
   const labelIn = (L: BookingLines) => (iso: string) =>
-    L === BOOKING_LINES_ES ? spokenSlotEs(new Date(iso), context.timeZone) : slotLabel(new Date(iso), context.timeZone);
+    L === BOOKING_LINES_ES
+      ? spokenSlotEs(new Date(iso), context.timeZone)
+      : context.channel === "voice"
+        ? spokenSlotEn(new Date(iso), context.timeZone)
+        : slotLabel(new Date(iso), context.timeZone);
+  // Times said together: on an English call, a day said once ("Thursday, November 5 at 10 AM, 2 PM, or 4 PM").
+  const labelsOf = (isos: readonly string[], L: BookingLines): string[] => {
+    const label = labelIn(L);
+    const full = isos.map(label);
+    if (context.channel !== "voice" || L === BOOKING_LINES_ES || isos.length < 2) return full;
+    const day = (iso: string) => full[isos.indexOf(iso)]!.split(" at ")[0];
+    if (!isos.every((iso) => day(iso) === day(isos[0]!))) return full;
+    return full.map((text, i) => (i === 0 ? text : text.split(" at ")[1] ?? text));
+  };
   // B's gate, as the engine asks it before a write: true only when it would answer now.
   // A gate that cannot be read is its own failure (GateUnreadable): nobody knows
   // whether the clinic may answer, so the website chat's request-on-failure
@@ -255,7 +277,6 @@ export function bookingTools(
   }
 
   async function findTimes(action: Extract<ToolAction, { type: "find_times" }>, state: BookingToolState, now: Date, L: BookingLines): Promise<ToolTurn> {
-    const label = labelIn(L);
     const service = action.service ?? state.service;
     let answer: OfferTimes;
     try {
@@ -263,6 +284,8 @@ export function bookingTools(
         channel: context.channel,
         holderKey: context.holderKey,
         day: action.day ? zonedDayStart(action.day, context.timeZone) : null,
+        // "After four": the engine starts from that hour of the day they named (or of today), and the window is kept below.
+        ...(action.after && action.day ? { from: atHour(zonedDayStart(action.day, context.timeZone), action.after) } : {}),
         service,
         now,
         actor: context.actor,
@@ -277,9 +300,20 @@ export function bookingTools(
       const next = { ...state, manual: true, offered: [], chosen: null, held: false };
       return turn(answer.reasons.includes("deposit_required") ? L.depositRequest : L.manual, next);
     }
+    // A window of the day they asked for ("after four", "not mornings"): only the times inside it (a test call of
+    // 1 November 2026: "I want evening" offered the same morning-heavy times again).
+    if (action.after || action.before) {
+      answer = { ...answer, slots: answer.slots.filter((slot) => inWindow(slot.at, context.timeZone, action.after ?? null, action.before ?? null)) };
+    }
+    // Asked again, the times not just offered come first (the same three, three times, on a test call of 1 November 2026).
+    if (state.offered.length > 0 && answer.slots.length > OFFERED) {
+      const before = new Set(state.offered.map((s) => s.at));
+      const fresh = answer.slots.filter((slot) => !before.has(slot.at.toISOString()));
+      if (fresh.length > 0) answer = { ...answer, slots: fresh };
+    }
     if (answer.slots.length === 0) return turn(L.noFreeTime, offered(state, [], service));
     const next = offered(state, answer.slots, service);
-    return turn(L.offer(next.offered.map((s) => label(s.at))), next);
+    return turn(L.offer(labelsOf(next.offered.map((s) => s.at), L)), next);
   }
 
   /**
@@ -342,7 +376,6 @@ export function bookingTools(
     now: Date,
     L: BookingLines,
   ): Promise<{ held: true } | { asRequest: true; deposit: boolean } | { turn: ToolTurn }> {
-    const label = labelIn(L);
     let placed: PlacedHold;
     try {
       placed = await engine.placeHold(context.clinicId, {
@@ -364,7 +397,7 @@ export function bookingTools(
         return { held: true };
       case "slot_taken": {
         const next = offered(state, placed.alternatives.map((at) => ({ at, providerId: null })), state.service);
-        return { turn: turn(L.slotGone(next.offered.map((s) => label(s.at))), next) };
+        return { turn: turn(L.slotGone(labelsOf(next.offered.map((s) => s.at), L)), next) };
       }
       case "request_only": {
         // Auto-confirm off, a deposit the channel cannot take, a calendar that
@@ -406,7 +439,7 @@ export function bookingTools(
       }
       case "slot_taken": {
         const next = offered(state, result.alternatives.map((at) => ({ at, providerId: null })), state.service);
-        return turn(L.slotGone(next.offered.map((s) => label(s.at))), next);
+        return turn(L.slotGone(labelsOf(next.offered.map((s) => s.at), L)), next);
       }
       case "in_progress":
         return turn(L.inProgress, state);
@@ -418,7 +451,7 @@ export function bookingTools(
       case "invalid":
         if (result.field === "at") {
           const next = { ...state, chosen: null, held: false, asRequest: false };
-          return turn(state.offered.length > 0 ? L.offer(state.offered.map((s) => label(s.at))) : L.missing.at, next);
+          return turn(state.offered.length > 0 ? L.offer(labelsOf(state.offered.map((s) => s.at), L)) : L.missing.at, next);
         }
         return turn(L.missing[result.field], state);
       case "unavailable":
@@ -466,7 +499,7 @@ export function bookingTools(
       const match = state.offered.find((s) => s.at === action.at);
       if (!match) {
         // Never a time the engine did not offer: offer again.
-        return state.offered.length > 0 ? turn(L.offer(state.offered.map((s) => label(s.at))), state) : turn(L.missing.at, state);
+        return state.offered.length > 0 ? turn(L.offer(labelsOf(state.offered.map((s) => s.at), L)), state) : turn(L.missing.at, state);
       }
       const same = state.chosen?.at === match.at;
       state = { ...state, chosen: match, held: same ? state.held : false, asRequest: same ? state.asRequest : false };
@@ -561,6 +594,29 @@ export function spread<T extends { at: Date }>(slots: readonly T[]): T[] {
 
 const SPREAD_MS = 60 * 60_000;
 
+/** "16:00" as minutes after midnight; null for anything else. */
+function minutesOf(hhmm: string | null): number | null {
+  const m = hhmm ? /^(\d{1,2}):(\d{2})$/.exec(hhmm) : null;
+  if (!m) return null;
+  const minutes = Number(m[1]) * 60 + Number(m[2]);
+  return minutes >= 0 && minutes < 24 * 60 ? minutes : null;
+}
+
+/** A day's start moved to an hour of it ("16:00"), or the day's start when the hour cannot be read. */
+function atHour(dayStart: Date | null, hhmm: string): Date | null {
+  const minutes = minutesOf(hhmm);
+  return dayStart ? new Date(dayStart.getTime() + (minutes ?? 0) * 60_000) : null;
+}
+
+/** Whether a time starts inside a window of the day, in the practice's zone. */
+function inWindow(at: Date, timeZone: string, after: string | null, before: string | null): boolean {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(at);
+  const minutes = Number(parts.find((p) => p.type === "hour")?.value) * 60 + Number(parts.find((p) => p.type === "minute")?.value);
+  const from = minutesOf(after);
+  const to = minutesOf(before);
+  return (from === null || minutes >= from) && (to === null || minutes < to);
+}
+
 /** "2026-10-23" as the instant that day starts in `timeZone`; null for anything else. */
 export function zonedDayStart(day: string, timeZone: string): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
@@ -597,7 +653,11 @@ export function parseToolAction(value: unknown): ToolAction | null {
   const text = (v: unknown, max: number) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
   if (raw.type === "find_times") {
     const day = text(raw.day, 10);
-    return { type: "find_times", service: text(raw.service, 120), day: day && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null };
+    const hour = (v: unknown) => {
+      const t = text(v, 5);
+      return t && /^\d{1,2}:\d{2}$/.test(t) ? t : null;
+    };
+    return { type: "find_times", service: text(raw.service, 120), day: day && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null, after: hour(raw.after), before: hour(raw.before) };
   }
   if (raw.type === "choose_time") {
     const at = text(raw.at, 40);

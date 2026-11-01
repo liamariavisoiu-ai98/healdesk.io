@@ -4,6 +4,7 @@ import { bookingTools, EMPTY_TOOL_STATE, type BookingEngine, type BookingToolSta
 import { EMPTY_CAPTURE } from "@/lib/assistant/turn";
 import type { AnswerDecision, assistantMayAnswer } from "@/lib/billing/answering";
 import { slotLabel } from "@/lib/booking/calendar";
+import { spokenSlotEn } from "@/lib/voice/spoken";
 import type { BookConversationInput, BookConversationResult } from "@/lib/booking/engine";
 import { bookedLine, BOOKING_REFUSED_LINE, forChat } from "@/lib/booking/lines";
 
@@ -103,7 +104,7 @@ describe("the booking tool layer and the answer gate", () => {
       const turn = await tools(channel, engine, gate).run({ action: null, capture: CAPTURE, state: CHOSEN, now: NOW });
       expect(writes).toEqual([new Date(AT)]);
       expect(turn?.bookingWritten).toBe(true);
-      expect(turn?.reply).toBe(bookedLine(slotLabel(new Date(AT), TZ), null));
+      expect(turn?.reply).toBe(bookedLine(channel === "voice" ? spokenSlotEn(new Date(AT), TZ) : slotLabel(new Date(AT), TZ), null));
     });
 
     test(`${channel}: a booking already made is answered as it was, paused now or not`, async () => {
@@ -113,7 +114,7 @@ describe("the booking tool layer and the answer gate", () => {
       // The tool layer leaves the gate to the engine, after its replay.
       expect(gateAsked.count).toBe(0);
       expect(turn?.bookingWritten).toBe(true);
-      expect(turn?.reply).toBe(bookedLine(slotLabel(new Date(AT), TZ), null));
+      expect(turn?.reply).toBe(bookedLine(channel === "voice" ? spokenSlotEn(new Date(AT), TZ) : slotLabel(new Date(AT), TZ), null));
     });
   }
 

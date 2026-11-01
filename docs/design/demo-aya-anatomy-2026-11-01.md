@@ -237,7 +237,7 @@ replaces it.
   means the booking.
 - "You're not... Goodbye." got "Goodbye!" but the call did not end.
 
-## H. A way out of the circle (proposal, not built)
+## H. A way out of the circle (proposal; slice 1 built, see I)
 
 Patching each call adds rules to a prompt that already disagrees with itself.
 Instead:
@@ -256,3 +256,58 @@ Instead:
 4. **A replay of every past test call** (c4093be6, a44374c9, the sound-alike
    call, be078f77) run on every change, so a fix for one call cannot break
    another.
+
+## I. Slice 1, built (DEMO-RESTRUCTURE-1)
+
+The owner: "go ahead with the restructure".
+
+- **One prompt, no contradictions.** The demo runs the shared prompt with
+  `bookingTools: true`, the version a clinic with a connected calendar gets
+  ("the practice's booking system books appointments, never you"). The
+  shared prompt's own two contradictions are fixed for every call: "ask them
+  to say it again" now only when nothing sounds close, and free times are the
+  booking system's to name, never hers.
+- **The booking as one piece of code: the clinic's own.** The demo books
+  through `booking-tools.ts`, the tool layer of a clinic's calls, on a demo
+  engine (`lib/voice/demo-booking.ts`): the published or made-up hours in
+  memory, nothing written, the first time picked "just gone" once a call,
+  the demo's deposit rule said as a clinic's is, and a stand-in caller
+  number so "the one I'm calling from" works as on a clinic's call.
+- **The turn note** keeps only what a demo adds: the clinic framing, a
+  hurried or frustrated caller, a doctor not on the team, what she has told
+  them, and the policy rules. Nothing about booking, times or names.
+- **Every call:** a reply naming a free time with no action is answered by
+  the booking system, for the day and part of the day the caller named
+  (`claimsFreeTime`, `windowNamedIn`); `find_times` takes `after` and
+  `before`; an ask again leads with new times; times are said as a person
+  says them on a call ("Thursday, November 5 at 3 PM"); the tool layer's
+  lines are shaped for a voice; a booking written may be restated later.
+- **Replays:** `tests/voice-demo-be078f77.test.ts` (this call, on the new
+  path) and `voice-demo-sound-alike.test.ts`. The c4093be6 and a44374c9
+  replays judged the demo's own booking code, which is now off the call
+  path; they were retired with it, and their clinical, urgent and never-say
+  checks moved into the be078f77 replay.
+
+What it now sounds like, from the be078f77 replay:
+
+| Caller | Aya |
+|---|---|
+| Hi. | Hi there! Thanks for calling Miami Skin & Vein. How can I help you today? |
+| in Thursday at three? | I have Thursday, November 5 at 10 AM, 2 PM, or 4 PM. Which would suit you? |
+| The two PM one. | That time has just gone. The nearest times I have are Thursday, November 5 at 1 PM or 3 PM. |
+| Three PM then. | I've got that time held for a minute while I take your details. Could I take your first name? |
+| Tomo. | You're booked for Thursday, November 5 at 3 PM for Botox Cosmetic. It's in the clinic's calendar. A deposit of 50 dollars is required to hold the appointment. The front desk will call you to take it; nothing is charged on this call. |
+| What time was the booking? | You're booked for Thursday, November 5 at 3 PM. |
+| (after booking) What times do you have this week? | I can only book one appointment per call, and yours is already booked for Thursday, November 5 at 3 PM. ... |
+
+## J. Waits (slice 2, for the owner's word)
+
+- Delete the demo's old booking code (`roleplayTimeLine`,
+  `roleplayCheckedReply`, `demoConfirmLine`, `DemoProgress`'s booking fields)
+  and their unit tests in `voice-demo-roleplay-moves.test.ts`.
+- A phone number changed after the booking is not written to the booking,
+  on a clinic's calls too.
+- The fixed booking lines are the product's and plain ("It's in the clinic's
+  calendar.", "The front desk will call you to take it"): warming them, and
+  the deposit wording the owner objected to on be078f77, is a change to
+  every clinic's calls and his decision.

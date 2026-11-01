@@ -302,7 +302,7 @@ export function DepositsScreen(
                     onChange={(event) =>
                       setAmounts((a) => ({ ...a, [service.name]: event.target.value }))
                     }
-                    className="border-line min-h-11 w-24 rounded-sm border px-2"
+                    className="si-input h-11 w-28 px-3"
                   />
                 </span>
               </label>

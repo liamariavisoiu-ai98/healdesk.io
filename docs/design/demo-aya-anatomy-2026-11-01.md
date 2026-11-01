@@ -19,7 +19,7 @@ contradicted itself.
 | 1 Nov, 09:23-09:34 | PR 91: receptionist only, made-up values, "already taken", hospitality, insider ally | `deploy-app.yml` 41292956346 |
 | 1 Nov, 11:43-11:54 | PR 93: a44374c9 fixes (the demo's own booking code) | 41303162984 |
 | 1 Nov, 13:35-13:45 | PR 94: sound-alike matching, voice shaping, the call's own lines | 41311998049 |
-| 1 Nov | PR 95: the restructure (this document) | deploying; see `AGENTS.md` |
+| 1 Nov | PR 95: the restructure (this document), merged as `7d194b7` | `deploy-app.yml` run 41316349409, 14:28-14:39 UTC: migrations, web, worker and voice rolled (no call running, owner's word) |
 
 Demo call be078f77 (13:23 UTC) ran on PR 93's version.
 

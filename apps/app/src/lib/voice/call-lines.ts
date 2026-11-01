@@ -21,8 +21,8 @@ const BUSINESS =
 export function businessLine(words: string, officeNumber: string | null): string | null {
   if (!BUSINESS.test(words)) return null;
   return officeNumber
-    ? `For business inquiries, please call our office on ${spokenPhone(officeNumber)}. Anything else I can help with?`
-    : "For business inquiries, please contact our office directly. Anything else I can help with?";
+    ? `That's one for our office, on ${spokenPhone(officeNumber)}. Anything else?`
+    : "That's one for our office directly. Anything else?";
 }
 
 /** "Are you always busy?", "Is it full of clients all the time?": a question about how busy the practice is. */
@@ -34,7 +34,17 @@ const BUSY = /\b(?:busy|packed|booked (?:up|solid)|full of (?:clients|patients|p
  * double-book"); a time found for them instead.
  */
 export function busyLine(words: string): string | null {
-  return BUSY.test(words) ? "I can usually find you a time that works. Want me to take a look?" : null;
+  // Off since 1 November 2026 (owner, approving docs/design/demo-aya-simpler-2026-11-01.md row 17): the
+  // model answers, under the prompt's rule that only the calendar says how busy it is. Kept so the
+  // pattern stays tested and can come back as a note.
+  void BUSY;
+  void words;
+  return null;
+}
+
+/** Whether the words ask how busy the practice is (BUSY), for a note rather than a fixed line. */
+export function asksHowBusy(words: string): boolean {
+  return BUSY.test(words);
 }
 
 /** Words that end a thought unfinished: "Before", "Besides Botox,", "is it". */
@@ -63,5 +73,6 @@ const GREETING = /^\W*(?:hi|hello|hey|hiya|good (?:morning|afternoon|evening)|yo
 /** A reply to a bare greeting always asks how she can help ("Hi there!" alone left a silence, then "Still with me?"). */
 export function withGreetingQuestion(words: string, reply: string): string {
   if (!GREETING.test(words) || /\?/.test(reply)) return reply;
-  return `${reply.trim()} How can I help you today?`.trim();
+  // Not the opening's own "How can I help you today?" again (owner: never the same thing twice).
+  return `${reply.trim()} What can I do for you?`.trim();
 }

@@ -50,8 +50,7 @@ import {
   MANUAL_BOOKING_LINE,
   REQUEST_TAKEN_LINE,
   requestAskLine,
-  TOOL_FAILURE_LINE,
-} from "@/lib/booking/lines";
+  TOOL_FAILURE_LINE, BOOKING_LINES_VOICE_EN } from "@/lib/booking/lines";
 import { sendWebChatMessage, startWebChat, type WebChatClinic } from "@/lib/chat/web-chat";
 import { COVERAGE_VENDORS } from "@/lib/compliance/vendor-coverage";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
@@ -790,12 +789,13 @@ describe("the booking tool layer's lines, on a scripted engine", () => {
     expect(held!.reply).toBe(BOOKING_LINES_ES.heldAsk("first_name"));
     const booked = await tools.run({ action: null, capture: { ...EMPTY_CAPTURE, firstName: "Ana" }, state: held!.state, callerPhone: PHONE, now, language: "es" });
     expect(booked!.reply).toBe(
-      "Su cita está reservada para el martes 3 de noviembre a las siete de la mañana para Consultation. Está en el calendario de la clínica. Se requiere un depósito de 50 dólares para reservar la cita. La recepción le llamará para cobrarlo; no se cobra nada en esta llamada.",
+      "Su cita está reservada para el martes 3 de noviembre a las siete de la mañana para Consultation. Está en el calendario de la clínica. ⟪beat⟫ Se requiere un depósito de 50 dólares para reservar la cita. La recepción le llamará para cobrarlo; no se cobra nada en esta llamada.",
     );
     expect(booked!.reply).not.toMatch(/https?:|link/i);
     // English, or no language, is the English line byte for byte.
     const english = await tools.run({ action: { type: "find_times", service: "Consultation", day: null }, capture: EMPTY_CAPTURE, state: EMPTY_TOOL_STATE, now });
-    expect(english!.reply).toBe(`I have ${spokenSlotEn(new Date(at), context.timeZone)}. Which would suit you?`);
+    // English on a call: the call's own line, the day said once (BOOKING_LINES_VOICE_EN).
+    expect(english!.reply).toBe(`${spokenSlotEn(new Date(at), context.timeZone).split(" at ")[0]}, I've got 7 AM. Does that work?`);
   });
 
   test("the website chat stays English whatever language is passed, and the English set is the English lines themselves", async () => {
@@ -819,7 +819,7 @@ describe("the booking tool layer's lines, on a scripted engine", () => {
     // a call keeps its tools and offers the clinic or the details.
     const tools = bookingTools(context, engine({ offerTimes: async () => ({ status: "unavailable" }) as never }));
     const said = await tools.run({ action: { type: "find_times", service: "Consultation", day: null }, capture: EMPTY_CAPTURE, state: EMPTY_TOOL_STATE, now: new Date() });
-    expect(said!.reply).toBe(TOOL_FAILURE_LINE);
+    expect(said!.reply).toBe(BOOKING_LINES_VOICE_EN.toolFailure);
     expect(said!.state.manual).toBe(false);
     const spanish = await tools.run({ action: { type: "find_times", service: "Consultation", day: null }, capture: EMPTY_CAPTURE, state: EMPTY_TOOL_STATE, now: new Date(), language: "es" });
     expect(spanish!.reply).toBe(BOOKING_LINES_ES.toolFailure);

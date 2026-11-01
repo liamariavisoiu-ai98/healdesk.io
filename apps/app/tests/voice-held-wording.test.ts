@@ -2,8 +2,9 @@ import { describe, expect, test, vi } from "vitest";
 
 import { bookingTools, EMPTY_TOOL_STATE, type BookingEngine, type BookingToolState } from "@/lib/assistant/booking-tools";
 import type { BookConversationResult, PlacedHold } from "@/lib/booking/engine";
-import { DEPOSIT_REQUEST_LINE, heldAskLine, HOLD_LINE, MANUAL_BOOKING_LINE, REQUEST_TAKEN_LINE } from "@/lib/booking/lines";
+import { BOOKING_LINES_VOICE_EN, DEPOSIT_REQUEST_LINE, HOLD_LINE, REQUEST_TAKEN_LINE } from "@/lib/booking/lines";
 import { EMPTY_CAPTURE } from "@/lib/assistant/turn";
+import { spokenSlotEn } from "@/lib/voice/spoken";
 
 /**
  * What a caller hears when they choose a time on a call (booking-tools.ts,
@@ -58,9 +59,9 @@ const KEPT = /\b(?:held|hold(?:ing)?|reserved|booked|confirmed|secured)\b/i;
 
 describe("voice: choosing a time the engine will not hold", () => {
   for (const [label, reasons, line] of [
-    ["Auto-confirm off", ["auto_confirm_off"], MANUAL_BOOKING_LINE],
-    ["the owner's kill switch", ["kill_switch_off"], MANUAL_BOOKING_LINE],
-    ["a broken calendar", ["calendar_broken"], MANUAL_BOOKING_LINE],
+    ["Auto-confirm off", ["auto_confirm_off"], BOOKING_LINES_VOICE_EN.manual],
+    ["the owner's kill switch", ["kill_switch_off"], BOOKING_LINES_VOICE_EN.manual],
+    ["a broken calendar", ["calendar_broken"], BOOKING_LINES_VOICE_EN.manual],
     ["a deposit the call cannot take", ["deposit_required"], DEPOSIT_REQUEST_LINE],
   ] as const) {
     test(`${label}: the caller is never told the time is held, and is told it is a request`, async () => {
@@ -89,7 +90,7 @@ describe("voice: choosing a time the engine will not hold", () => {
     const hold: PlacedHold = { kind: "held", holdId: "h-1", expiresAt: new Date(NOW.getTime() + 60_000), startsAt: SLOT, minutes: 30, providerId: null };
     const { engine } = engineWith(hold, REQUEST);
     const chose = await voiceTools(engine).run({ action: { type: "choose_time", at: SLOT.toISOString() }, capture: EMPTY_CAPTURE, state: OFFERED, callerPhone: CALLER, now: NOW });
-    expect(chose!.reply).toBe(heldAskLine("first_name"));
+    expect(chose!.reply).toBe(BOOKING_LINES_VOICE_EN.heldAsk("first_name", spokenSlotEn(SLOT, TZ)));
     expect(chose!.state.held).toBe(true);
   });
 });

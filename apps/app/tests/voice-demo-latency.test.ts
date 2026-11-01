@@ -73,6 +73,7 @@ async function session() {
   const s = new RetellCallSession("demo", "call_latency", (m) => sent.push(m), {
     responder,
     acknowledgeAfterMs: 60_000,
+    pauseScale: 0,
     now: () => new Date(CALLED_AT),
     random: () => 0,
     demo: { secret: SECRET, detailsWaitMs: 200 },
@@ -122,7 +123,7 @@ describe("the demo's latency with the booking tools live", () => {
       says("Let me pull up our calendar.", { action: { type: "find_times", service: "BOTOX® Cosmetic", day: "2026-11-05" }, booking: { wants: true, service: "BOTOX® Cosmetic" } }),
     ]);
     expect(parts[0]).toContain("Let me pull up our calendar.");
-    expect(whole).toMatch(/^Let me pull up our calendar\. I have Thursday, November 5 at .+\?$/);
+    expect(whole).toBe("Let me pull up our calendar. Thursday the 5th, I've got 10, 2 or 4. Any of those work?");
     await call.finish();
   });
 
@@ -131,7 +132,7 @@ describe("the demo's latency with the booking tools live", () => {
     const { whole } = await call.turn("Can I come in Thursday for Botox?", [
       says("Oh, for sure. We have Thursday at 11 AM open.", { booking: { wants: true, service: "BOTOX® Cosmetic" } }),
     ]);
-    expect(whole).toMatch(/^Oh, for sure\. I have Thursday, November 5 at /);
+    expect(whole).toMatch(/^Oh, for sure\. Thursday the 5th, I've got /);
     expect(whole).not.toContain("11 AM open");
     await call.finish();
   });
@@ -139,9 +140,10 @@ describe("the demo's latency with the booking tools live", () => {
   test("once times are offered, a reply is read whole: a picked time is the tool layer's line alone", async () => {
     const call = await session();
     await call.turn("Can I book Botox on Thursday?", [says("Let me check.", { action: { type: "find_times", service: "BOTOX® Cosmetic", day: "2026-11-05" }, booking: { wants: true, service: "BOTOX® Cosmetic" } })]);
-    const { parts } = await call.turn("Is there anything after three?", [says("Let me look at the afternoon.", { action: { type: "find_times", service: "BOTOX® Cosmetic", day: "2026-11-05", after: "15:00" } })]);
-    expect(parts).toHaveLength(1);
-    expect(parts[0]).not.toContain("Let me look");
+    const { parts, whole } = await call.turn("Is there anything after three?", [says("Let me look at the afternoon.", { action: { type: "find_times", service: "BOTOX® Cosmetic", day: "2026-11-05", after: "15:00" } })]);
+    // Her words are never spoken once times are offered: the tool layer's own lookup line leads, then its times.
+    expect(whole).not.toContain("Let me look at the afternoon");
+    expect(parts[0]).toMatch(/^(?:Let me check\.\.\.|One sec, let me look\.\.\.|Let me take another look\.\.\.)$/);
     await call.finish();
   });
 
@@ -151,7 +153,8 @@ describe("the demo's latency with the booking tools live", () => {
     const before = call.asked();
     const { whole } = await call.turn("What do you have Thursday?", [says("unused")]);
     expect(call.asked()).toBe(before);
-    expect(whole).toMatch(/^I have Thursday, November 5 at /);
+    // The tool layer's own lookup line, then the times: no model turn, and still the moment a person takes to look.
+    expect(whole).toBe("Let me pull up our calendar... Thursday the 5th, I've got 10, 2 or 4. Any of those work?");
     await call.finish();
   });
 

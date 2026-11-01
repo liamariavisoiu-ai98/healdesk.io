@@ -24,10 +24,10 @@ import { amountsInRules, demoClinicId, demoTimeZone, listedIn, openSpans } from 
  *
  * Only the engine underneath is the demo's own: the calendar is made of the
  * practice's published (or made-up) hours, held in memory for the call, and
- * nothing is written anywhere. The first time the caller picks is "just
- * taken", once a call, with the two nearest times offered (the owner's
- * "show that she's proactive", 1 November 2026), through the real line for a
- * time that went while the caller was deciding.
+ * nothing is written anywhere. The time the caller picks is held (owner,
+ * 1 November 2026, approving docs/design/demo-aya-simpler-2026-11-01.md row
+ * 2: the "just taken" first pick, once a call, was the one line a caller
+ * could tell was staged, and it is gone).
  */
 
 /**
@@ -69,9 +69,6 @@ export function demoBookingEngine(context: Pick<DemoCallContext, "clinic" | "iss
   const zone = demoTimeZone(context.clinic.address);
   const spans = openSpans(context);
   const menu = context.clinic.services.map((s) => s.name);
-  // The first time picked, once a call, is "just taken" (the owner's proactive moment).
-  let shownTaken = false;
-  const taken = new Set<number>();
   const canonical = (service: string | null | undefined) => (service ? (listedIn(service, menu)[0] ?? service) : null);
   const deposit = amountsInRules(context.clinic.policies.filter((p) => /\bdeposit\b/i.test(p)))[0] ?? null;
   const inHours = (at: Date) => {
@@ -98,17 +95,11 @@ export function demoBookingEngine(context: Pick<DemoCallContext, "clinic" | "iss
         return span ? timesOn(new Date(day.getTime() + 12 * 3_600_000), span, zone) : [];
       });
       const from = input.from ? input.from.getTime() : now.getTime();
-      const open = slots.filter((s) => !taken.has(s.at.getTime()) && s.at.getTime() > now.getTime() && s.at.getTime() >= from);
+      const open = slots.filter((s) => s.at.getTime() > now.getTime() && s.at.getTime() >= from);
       return { status: "ok", timeZone: zone, serviceMinutes: 60, canonicalService: canonical(input.service), slots: open };
     },
     async placeHold(_clinicId, input) {
       const at = input.startsAt;
-      if (!shownTaken && inHours(at)) {
-        shownTaken = true;
-        taken.add(at.getTime());
-        const near = [-60, 60, -120, 120].map((m) => new Date(at.getTime() + m * 60_000)).filter(inHours).slice(0, 2).sort((a, b) => a.getTime() - b.getTime());
-        return { kind: "slot_taken", alternatives: near };
-      }
       if (!inHours(at)) return { kind: "slot_taken", alternatives: [] };
       return { kind: "held", holdId: "demo-hold", expiresAt: new Date(at.getTime()), startsAt: at, minutes: 60, providerId: null };
     },

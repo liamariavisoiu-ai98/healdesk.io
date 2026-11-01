@@ -13,12 +13,13 @@ import {
   type OfferTimes,
   type PlacedHold,
 } from "@/lib/booking/engine";
-import { BOOKING_LINES_EN, BOOKING_LINES_ES, bookingLinesFor, depositLine, forChat, type BookingLines } from "@/lib/booking/lines";
+import { BOOKING_LINES_EN, BOOKING_LINES_ES, bookingLinesFor, depositLine, forChat, readBackLine, type BookingLines } from "@/lib/booking/lines";
 import { directBookingOpen } from "@/lib/booking/direct-switch";
 import { bookingModeFor } from "@/lib/booking/mode";
 import { describeError, log } from "@/lib/log";
 import type { PaymentTextState } from "@/lib/sms/payment-text";
 import { withTenant } from "@/lib/tenant";
+import { pause } from "@/lib/voice/pauses";
 import { spokenSlotEn, spokenSlotEs } from "@/lib/voice/spoken";
 
 import type { BookingCapture } from "./turn";
@@ -110,6 +111,15 @@ export type BookingToolState = {
   asRequest?: boolean;
   /** The location stopped offering times in this conversation: the request flow takes over. */
   manual: boolean;
+  /**
+   * A call only (owner, 1 November 2026: "make sure that she confirms a phone
+   * number whenever it's been given"): the number the caller gave, read back
+   * and waiting for their yes; and the one they said yes to. In the call's
+   * memory only; never sealed. Optional, so a state sealed before it existed
+   * still reads.
+   */
+  readBack?: string | null;
+  phoneConfirmed?: string | null;
   /** The conversation's one booking or request, once the engine has it. */
   done: { kind: "booked" | "request"; at: string | null; requestId: string | null; appointmentId: string | null } | null;
   /**
@@ -171,6 +181,8 @@ export type BookingTools = {
     now: Date;
     /** The language a call is being spoken in (lib/voice/call-language.ts); English when absent, and always on the website chat. */
     language?: "en" | "es";
+    /** The person's words this turn: a call reads its yes to a number read back from them (readBack). */
+    words?: string;
   }): Promise<ToolTurn | null>;
 };
 
@@ -207,6 +219,16 @@ class GateUnreadable extends Error {
 
 /** At most this many times are offered at once. */
 const OFFERED = 3;
+
+/** The caller's yes, or no, to a number read back (readBack). */
+const AFFIRMED = /^\W*(?:yes|yeah|yep|yup|ya|correct|right|exactly|perfect|sure|uh[- ]?huh|mm[- ]?hmm|that'?s (?:right|it|correct|me|the one)|s[ií]|claro|correcto|eso es)\b/i;
+const DENIED = /\b(?:no|nope|nah|wrong|not quite|not right|that'?s not)\b/i;
+
+/** An E.164 number as a person reads it in its own country: "+13055550199" is "305-555-0199". */
+function nationalNumber(e164: string): string {
+  const us = /^\+1(\d{3})(\d{3})(\d{4})$/.exec(e164);
+  return us ? `${us[1]}-${us[2]}-${us[3]}` : e164.replace(/^\+/, "");
+}
 
 export function bookingTools(
   context: BookingToolsContext,
@@ -397,7 +419,7 @@ export function bookingTools(
         return { held: true };
       case "slot_taken": {
         const next = offered(state, placed.alternatives.map((at) => ({ at, providerId: null })), state.service);
-        return { turn: turn(L.slotGone(labelsOf(next.offered.map((s) => s.at), L)), next) };
+        return { turn: turn(L.slotGone(labelsOf(next.offered.map((s) => s.at), L), labelIn(L)(chosen.at)), next) };
       }
       case "request_only": {
         // Auto-confirm off, a deposit the channel cannot take, a calendar that
@@ -413,7 +435,7 @@ export function bookingTools(
     }
   }
 
-  function answerBooking(result: BookConversationResult, state: BookingToolState, chosen: OfferedSlot, L: BookingLines): ToolTurn {
+  function answerBooking(result: BookConversationResult, state: BookingToolState, chosen: OfferedSlot, L: BookingLines, firstName: string | null = null): ToolTurn {
     const label = labelIn(L);
     switch (result.kind) {
       case "booked": {
@@ -421,7 +443,9 @@ export function bookingTools(
         const done = { kind: "booked" as const, at, requestId: result.requestId, appointmentId: result.appointmentId };
         // A call says the deposit the front desk will take; never a link.
         const deposit = context.channel === "voice" && result.deposit ? L.deposit({ ...result.deposit, scope: "booking" }) : "";
-        return turn([L.booked(label(at), result.canonicalService), deposit].filter(Boolean).join(" "), { ...state, done, chosen: null, held: false }, {
+        // On a call, a beat between the booking and the deposit, so the booking lands first (pauses.ts).
+        const joint = context.channel === "voice" ? ` ${pause("beat")} ` : " ";
+        return turn([L.booked(label(at), result.canonicalService, context.channel === "voice" ? firstName : null), deposit].filter(Boolean).join(joint), { ...state, done, chosen: null, held: false }, {
           bookingWritten: true,
           requestId: result.requestId,
           appointmentId: result.appointmentId,
@@ -439,7 +463,7 @@ export function bookingTools(
       }
       case "slot_taken": {
         const next = offered(state, result.alternatives.map((at) => ({ at, providerId: null })), state.service);
-        return turn(L.slotGone(labelsOf(next.offered.map((s) => s.at), L)), next);
+        return turn(L.slotGone(labelsOf(next.offered.map((s) => s.at), L), label(chosen.at)), next);
       }
       case "in_progress":
         return turn(L.inProgress, state);
@@ -509,7 +533,21 @@ export function bookingTools(
     if (!chosen) return null;
 
     const firstName = capture.firstName?.trim() || null;
-    const phone = (capture.phone ? toE164(capture.phone) : null) ?? (input.callerPhone ? toE164(input.callerPhone) : null);
+    const given = capture.phone ? toE164(capture.phone) : null;
+    if (context.channel === "voice" && given && given !== state.phoneConfirmed) {
+      // A number the caller gave is read back before it is used, and used only after their yes.
+      if (state.readBack === given && AFFIRMED.test(input.words ?? "")) {
+        state = { ...state, readBack: null, phoneConfirmed: given };
+      } else if (state.readBack === given && DENIED.test(input.words ?? "")) {
+        return turn(L.missing.phone, { ...state, readBack: null });
+      } else if (state.readBack !== given) {
+        return turn(L === BOOKING_LINES_ES ? `${nationalNumber(given)}, ¿correcto?` : readBackLine(nationalNumber(given)), { ...state, readBack: given });
+      } else {
+        // Neither a yes nor a no: asked once more, in the shortest words.
+        return turn(L === BOOKING_LINES_ES ? `${nationalNumber(given)}, ¿correcto?` : readBackLine(nationalNumber(given)), state);
+      }
+    }
+    const phone = (context.channel === "voice" && given ? (state.phoneConfirmed === given ? given : null) : given) ?? (input.callerPhone ? toE164(input.callerPhone) : null);
     const missing = !firstName ? ("first_name" as const) : !phone ? ("phone" as const) : null;
 
     if (context.channel === "voice" && !state.held && !state.asRequest) {
@@ -521,7 +559,7 @@ export function bookingTools(
         if (missing) return turn(L.requestAsk(missing, held.deposit), state);
       } else {
         state = { ...state, held: true };
-        if (missing) return turn(L.heldAsk(missing), state);
+        if (missing) return turn(L.heldAsk(missing, label(chosen.at)), state);
       }
     }
     if (missing) {
@@ -562,7 +600,7 @@ export function bookingTools(
     if (result.kind === "unavailable" && context.channel === "web_chat") {
       return requestInstead(state, chosen, { firstName: firstName!, phone: phone!, fields: capture.fields }, now);
     }
-    const answered = answerBooking(result, state, chosen, L);
+    const answered = answerBooking(result, state, chosen, L, firstName);
     if (context.channel !== "web_chat" || result.kind !== "booked" || !result.appointmentId) return answered;
     // The booking is in the calendar and said; its deposit after it, as the
     // appointment stands: the clinic's own payment link, or the front desk.

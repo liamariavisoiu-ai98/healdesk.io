@@ -35,6 +35,29 @@ import { withTenant } from "@/lib/tenant";
 
 import { nextCallLanguage, START_LANGUAGE, type CallLanguageState } from "./call-language";
 import { afterStallNote, isStallReply, pickUnsaid, STALL_LINES, STALL_REASONS, STALL_SORRY, stallNote } from "./stall";
+
+/**
+ * The key fact of a reply said before, in the fewest words (owner, 1 November
+ * 2026: "always worded differently and always the shortest version
+ * possible"): its price ("From $18 per unit."), its time ("Thursday the 5th
+ * at 3."), or its first clause when that is shorter than the sentence; null
+ * when there is nothing shorter to say.
+ */
+export function keyFactOf(reply: string): string | null {
+  const price = /(?:from |starting at )?\$\d[\d,]*(?:\.\d{2})?(?: (?:per|a|an) (?:unit|syringe|session|area|treatment|visit|month))?/i.exec(reply)?.[0];
+  // A yes or a no it opened with stays: "Yes, $50." answers "do I have to pay?", where "$50." alone does not.
+  const verdict = /^\W*(yes|yeah|yep|no|nope)\b/i.exec(reply)?.[1];
+  if (price) return verdict ? `${verdict.charAt(0).toUpperCase()}${verdict.slice(1).toLowerCase()}, ${price}.` : `${price.charAt(0).toUpperCase()}${price.slice(1)}.`;
+  const time = /\b(?:mon|tues|wednes|thurs|fri|satur|sun)day(?: the \d{1,2}(?:st|nd|rd|th))?(?: at \d{1,2}(?::\d{2})?(?: [AP]M)?)?/i.exec(reply)?.[0];
+  if (time && / at /.test(time)) return `${time.charAt(0).toUpperCase()}${time.slice(1)}.`;
+  const first = reply.split(/(?<=[.!?])\s+/)[0] ?? reply;
+  const clause = first.split(/,\s+|\s+(?:and|but|so)\s+/)[0]?.replace(/[.!?]+$/, "");
+  if (clause && clause.length + 8 < first.length && clause.split(/\s+/).length >= 3) return `${clause}.`;
+  return null;
+}
+
+/** The human stall (stall.ts): off (owner, 1 November 2026). */
+const STALL_ON = false;
 import {
   afterDemoReply,
   DEMO_START_PROGRESS,
@@ -62,6 +85,7 @@ import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
 import { redialPromptBlock, takeRedialContext, welcomeBackLine, type RedialContext } from "./redial";
 import { businessLine, busyLine, fragmentLine, isFragment, withGreetingQuestion } from "./call-lines";
 import { DEMO_CALLER_PHONE, demoBookingTools } from "./demo-booking";
+import { HURRIED_SHARE, speakingMs, splitPauses, withoutPauses, withoutPausesKeepingLead } from "./pauses";
 import { soundAlikeNote, soundAlikes } from "./sound-alike";
 import type { SpokenLanguage } from "./spoken";
 import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./test-calls";
@@ -218,8 +242,8 @@ export const REMINDER_LINES = ["Still with me?", "Hm, you there?"] as const;
 
 /** What a demo says in place of a line it would say twice, word for word (a test call of 1 November 2026). */
 const NOT_TWICE = [
-  "I don't have that detail in front of me, but the team can confirm it for you. Anything else I can help with?",
-  "That one's best checked with the team directly. What else can I help you with?",
+  "That one's for the team, I'm afraid.",
+  "I'd need the team for that one.",
 ] as const;
 export const REMINDER_CLOSE_LINE = "Looks like I lost you. I'll let you go, call back any time!";
 
@@ -389,6 +413,8 @@ export type RetellSessionDeps = {
   cacheFacts?: boolean;
   /** How long a reply may take to start before the acknowledgement is said (ACKNOWLEDGE_AFTER_MS). */
   acknowledgeAfterMs?: number;
+  /** How much of each pause is waited (pauses.ts); 0 sends the pieces at once, for tests. */
+  pauseScale?: number;
   /** The words said while the model thinks, in place of ACKNOWLEDGEMENTS (tests). */
   acknowledgements?: readonly string[];
   /** How long the model may sit idle on a call before it is warmed again (KEEP_WARM_MS); 0 turns keeping warm off. */
@@ -795,37 +821,95 @@ export class RetellCallSession {
    */
   private send(message: RetellOutbound): void {
     if ((message.response_type === "response" || message.response_type === "agent_interrupt") && typeof message.content === "string") {
-      const content = spokenOnly(message.content);
-      if (content !== message.content) log.warn("retell structured text kept out of speech", { callId: this.callId });
+      // A pause marker never reaches Retell: say() times the pieces itself (pauses.ts).
+      const unpaused = withoutPausesKeepingLead(message.content);
+      const content = spokenOnly(unpaused);
+      if (content !== unpaused) log.warn("retell structured text kept out of speech", { callId: this.callId });
+      // When these words will have been said: the next piece after a pause waits for it.
+      if (content.trim()) this.speechEndsAt = Math.max(Date.now(), this.speechEndsAt) + speakingMs(content);
       this.sendRaw({ ...message, content });
       return;
     }
     this.sendRaw(message);
   }
 
+  /** When the words sent so far will have been said, estimated from their length (Date.now() clock). */
+  private speechEndsAt = 0;
+
   private say(
     responseId: number,
     content: string,
     options: { endCall?: boolean; transferTo?: string | null; spokenBefore?: string | null; noInterruption?: boolean; interruptId?: number | null } = {},
   ): void {
-    this.turns.push({ speaker: "assistant", text: spokenOnly([options.spokenBefore, content].filter(Boolean).join(" ")) });
+    this.turns.push({ speaker: "assistant", text: spokenOnly(withoutPauses([options.spokenBefore, content].filter(Boolean).join(" "))) });
     if (options.interruptId) {
       // A jump-in (anticipation): said at once, over the caller if they are
       // still talking, and never the end of the call or a transfer.
       this.send({ response_type: "agent_interrupt", interrupt_id: options.interruptId, content, content_complete: true, no_interruption_allowed: false });
       return;
     }
-    if (options.endCall || options.transferTo) this.final = { content, endCall: Boolean(options.endCall), transferTo: options.transferTo ?? null };
+    if (options.endCall || options.transferTo) this.final = { content: withoutPauses(content), endCall: Boolean(options.endCall), transferTo: options.transferTo ?? null };
     if (options.transferTo) this.transferred = true;
-    this.send({
-      response_type: "response",
-      response_id: responseId,
-      content: options.spokenBefore ? (content ? ` ${content}` : "") : content,
-      content_complete: true,
+    const last = {
       end_call: Boolean(options.endCall),
       ...(options.transferTo ? { transfer_number: options.transferTo } : {}),
       ...(options.noInterruption ? { no_interruption_allowed: true } : {}),
-    });
+    };
+    // A reply with pauses in it (pauses.ts): each piece after one waits until the
+    // words before it have been said, plus the pause's silence; the last carries
+    // the turn's end. A newer request, or a closed call, drops what is still waiting.
+    const pieces = splitPauses(content);
+    if (pieces.length <= 1) {
+      const text = pieces[0]?.text ?? "";
+      this.send({ response_type: "response", response_id: responseId, content: options.spokenBefore ? (text ? ` ${text}` : "") : text, content_complete: true, ...last });
+      return;
+    }
+    const share = this.hurried ? HURRIED_SHARE : 1;
+    const sendPiece = (i: number) => {
+      const piece = pieces[i]!;
+      const complete = i === pieces.length - 1;
+      const lead = i > 0 || options.spokenBefore ? " " : "";
+      this.send({ response_type: "response", response_id: responseId, content: `${lead}${piece.text}`, content_complete: complete, ...(complete ? last : { end_call: false }) });
+      if (complete) return;
+      const next = pieces[i + 1]!;
+      if (this.pauseScale() === 0) return sendPiece(i + 1);
+      const wait = Math.max(0, this.speechEndsAt + Math.round(next.pauseMs * share) - Date.now());
+      const timer = setTimeout(() => {
+        this.pauseTimers.delete(timer);
+        // Superseded by newer words from the caller: Retell has moved on, and so does the call.
+        if (responseId !== this.latestResponseId || this.ended) return;
+        sendPiece(i + 1);
+      }, Math.round(wait * this.pauseScale()));
+      this.pauseTimers.add(timer);
+    };
+    if (pieces[0]!.pauseMs > 0 && options.spokenBefore && this.pauseScale() > 0) {
+      // The pause comes after words already streamed this turn ("Let me pull up Thursday..." then the times).
+      const wait = Math.max(0, this.speechEndsAt + Math.round(pieces[0]!.pauseMs * share) - Date.now());
+      const timer = setTimeout(() => {
+        this.pauseTimers.delete(timer);
+        if (responseId !== this.latestResponseId || this.ended) return;
+        sendPiece(0);
+      }, Math.round(wait * this.pauseScale()));
+      this.pauseTimers.add(timer);
+      return;
+    }
+    sendPiece(0);
+  }
+
+  /** Pieces of a reply waiting out a pause (say): cleared when the call ends. */
+  private pauseTimers = new Set<ReturnType<typeof setTimeout>>();
+
+  /** The caller speaks quickly (paceOf, from Retell's word timings): pauses are halved, and the model told to keep it brisk. */
+  private hurried = false;
+
+  /** The call has been recorded or closed: nothing waiting is said. */
+  private get ended(): boolean {
+    return this.recording || this.cutOff;
+  }
+
+  /** How much of each pause is waited (tests set 0: the pieces go at once, in order). */
+  private pauseScale(): number {
+    return this.deps.pauseScale ?? 1;
   }
 
   /**
@@ -1581,7 +1665,10 @@ export class RetellCallSession {
     const quiet = jump !== null || fixedMove;
     // The human stall (stall.ts): once per call, never ahead of a line that
     // must come first. The turn after one, a refusal opens with a sorry word.
-    const stallOpen = !this.stalled && nothingDue && !jump;
+    // Off since 1 November 2026 (owner, approving docs/design/demo-aya-simpler-2026-11-01.md row 20 and review
+    // point 4): a planned "Sorry, say that again?" cost the caller a whole turn and ended on the same refusal,
+    // which is what "going in circles" sounded like. The refusal is said at once. Kept as a switch, never as a note.
+    const stallOpen = STALL_ON && !this.stalled && nothingDue && !jump;
     const afterStall = this.stallPending && !jump;
     const turnNotes = [
       ...(this.demoContext ? [demoStageNote(this.demoContext, stageNow, this.now().getTime(), progress ?? undefined)] : []),
@@ -1739,9 +1826,13 @@ export class RetellCallSession {
         // A real answer asked for again is said again, shorter; a refusal, in words not said yet.
         const first = now.split(/(?<=[.!?])\s+/)[0] ?? now;
         const answer = !/\b(?:don'?t have|don'?t know|can'?t|cannot|not able|isn'?t something|not sure)\b/i.test(now) && first.length > 12;
-        roleplayLine = answer
-          ? `Like I mentioned, ${/^(?:I\b|[A-Z][a-z]*[A-Z]|[A-Z]{2})/.test(first) ? first : first.charAt(0).toLowerCase() + first.slice(1)}`
-          : ([...again, ...NOT_TWICE].find((line) => !before.some((b) => b.includes(line))) ?? "What else can I help you with?");
+        // Never the same words twice (owner, 1 November 2026): a real answer asked for again is its key fact alone,
+        // in the fewest words (keyFactOf); a refusal, in words not said yet.
+        const key = answer ? keyFactOf(now) : null;
+        roleplayLine =
+          key && !before.includes(key)
+            ? key
+            : ([...again, ...NOT_TWICE].find((line) => !before.some((b) => b.includes(line))) ?? "What else can I do for you?");
       }
     }
     // An apology said once is never said on its own again (roleplayCheckedReply, a44374c9).
@@ -1985,6 +2076,8 @@ export class RetellCallSession {
     this.recording = true;
     this.closing = true;
     this.stopKeepingWarm();
+    for (const timer of this.pauseTimers) clearTimeout(timer);
+    this.pauseTimers.clear();
     // The earlier call's turns were for this call's replies only.
     this.redial = null;
     this.redialLookup = null;

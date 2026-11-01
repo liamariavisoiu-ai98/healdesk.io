@@ -524,7 +524,7 @@ describe("the annex on how we protect data", () => {
 
   test("states the spec's breach clock, for breaches and security incidents alike", () => {
     expect(annex).toContain(
-      "We tell the clinic of a breach of unsecured patient information, and of any other security incident whether or not it turns out to be a breach, without unreasonable delay and in no case later than 60 calendar days after discovery.",
+      "We tell the clinic of a breach of unsecured patient information, and of any other security incident whether or not it turns out to be a breach, without unreasonable delay and in no case later than 10 calendar days after discovery.",
     );
     expect(annex).not.toMatch(/five calendar days|within five business days of/);
   });

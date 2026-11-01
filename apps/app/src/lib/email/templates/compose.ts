@@ -1,4 +1,13 @@
-import { SENDER_IDENTITY } from "@healdesk/catalog";
+import {
+  brandedEmailDocument,
+  EMAIL_COLORS,
+  EMAIL_DISPLAY_FONT,
+  EMAIL_FONT,
+  EMAIL_MONO_FONT,
+  EMAIL_STYLES,
+  emailButtonHtml,
+  SENDER_IDENTITY,
+} from "@healdesk/catalog";
 
 import type { EmailAudience, RenderedEmail, TemplateContext } from "./types";
 
@@ -7,10 +16,15 @@ import type { EmailAudience, RenderedEmail, TemplateContext } from "./types";
  *
  * Plain text first (Annex X1.8): a template lists blocks, and both renderings
  * are built from the same list, so the HTML can never say something the text
- * does not. The HTML is deliberately plain: one column, system fonts, no
- * images and nothing fetched from anywhere, because a remote image is a read
- * receipt and a tracking pixel in all but name, and because Gmail clips a
- * message over 102 KB (compose refuses anything over 100 KB).
+ * does not. The HTML wears healdesk's look (owner, 1 November 2026: every
+ * email branded, Apple-like): the catalog's shell (email-brand.ts) puts the
+ * logo at the top, the subject under it as the title, and the blocks below in
+ * Apple's type and greys. The title is the one line of the HTML the text part
+ * does not repeat, because a text-only reader sees the subject first anyway.
+ * The logo is the only thing fetched: one public file, the same URL in every
+ * email, so it says nothing about who opened what (email-brand.ts explains).
+ * Fonts are the system's own, and Gmail clips a message over 102 KB, so
+ * compose refuses anything over 100 KB.
  *
  * The footer is not the template's to write. compose() appends it to both
  * renderings, so no template can leave out the sender's identity, the postal
@@ -64,6 +78,12 @@ export type RichSegment = { text: string; bold?: boolean; underline?: boolean; h
 export type EmailContent = {
   subject: string;
   preheader: string;
+  /**
+   * The large line under the logo, in the HTML only. Left out, it is the
+   * subject, unless the email opens with its own headline (an ops alert).
+   * Null for none: a support reply reads as a letter, not a notice.
+   */
+  title?: string | null;
   blocks: readonly Block[];
   /**
    * The footer's line about reaching us. `reply` for every email but one:
@@ -135,6 +155,7 @@ export function compose(content: EmailContent, ctx: TemplateContext): RenderedEm
   for (const [field, value] of [
     ["subject", content.subject],
     ["preheader", content.preheader],
+    ["title", content.title ?? ""],
   ] as const) {
     if (/[\r\n]/.test(value)) {
       throw new EmailCompositionError(`The ${field} must be one line.`);
@@ -202,95 +223,61 @@ function segmentsText(segments: readonly RichSegment[]): string {
 // HTML
 // -----------------------------------------------------------------------------
 
-/**
- * The system font stack. Nothing is loaded: a web font is remote content, and
- * remote content is a request every mail client makes when the message opens.
- */
-const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+const INK = EMAIL_COLORS.ink;
+const MUTED = EMAIL_COLORS.muted;
+const RULE = EMAIL_COLORS.rule;
 
-const INK = "#1f2328";
-const MUTED = "#57606a";
-
-/**
- * Dark mode, for the clients that honour prefers-color-scheme. Inline styles
- * carry the light rendering, so a client that strips <style> still shows a
- * readable message.
- */
-const DARK_MODE = `@media (prefers-color-scheme: dark) {
-  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
-  .hd-muted { color: #9da7b3 !important; }
-  a { color: #8cc4ff !important; }
-  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
-}`;
+/** Body copy: the paragraph style the shell sets every block's text in. */
+const BODY = EMAIL_STYLES.paragraph;
 
 function renderHtml(content: EmailContent, ctx: TemplateContext): string {
-  const blocks = content.blocks.map(blockHtml).join("\n");
   const footer = footerLines(ctx, content.replyLine)
-    .map(
-      (line) =>
-        `<p class="hd-muted" style="margin:0 0 6px;color:${MUTED};font-size:13px;">${linkify(line)}</p>`,
-    )
+    .map((line) => `<p class="hd-muted" style="${EMAIL_STYLES.footer}">${footerLineHtml(line)}</p>`)
     .join("\n");
-
-  return [
-    "<!doctype html>",
-    '<html lang="en">',
-    "<head>",
-    '<meta charset="utf-8">',
-    '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    '<meta name="color-scheme" content="light dark">',
-    '<meta name="supported-color-schemes" content="light dark">',
-    `<title>${escapeHtml(content.subject)}</title>`,
-    `<style>${DARK_MODE}</style>`,
-    "</head>",
-    `<body style="margin:0;padding:0;background:#ffffff;color:${INK};">`,
-    // The preheader: shown in the inbox list, hidden in the message.
-    `<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">${escapeHtml(content.preheader)}</span>`,
-    `<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:${FONT};font-size:16px;line-height:1.5;color:${INK};background:#ffffff;">`,
-    blocks,
-    `<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">`,
-    footer,
-    "</div>",
-    "</body>",
-    "</html>",
-  ].join("\n");
+  // The first action is the filled pill; any later one is outlined, so the
+  // next step still stands out in an email with several links (X1.3).
+  const firstAction = content.blocks.findIndex((block) => block.type === "action");
+  return brandedEmailDocument({
+    subject: content.subject,
+    preheader: content.preheader,
+    title: titleOf(content),
+    bodyHtml: content.blocks.map((block, i) => blockHtml(block, i === firstAction)).join("\n"),
+    footerHtml: footer,
+  });
 }
 
-function blockHtml(block: Block): string {
+/** The title under the logo: the template's, else the subject, unless an alert's headline opens it. */
+function titleOf(content: EmailContent): string | null {
+  if (content.title !== undefined) return content.title;
+  return content.blocks[0]?.type === "headline" ? null : content.subject;
+}
+
+function blockHtml(block: Block, isFirstAction: boolean): string {
   switch (block.type) {
     case "paragraph":
-      return `<p style="margin:0 0 16px;">${escapeHtml(block.text).replace(/\n/g, "<br>")}</p>`;
+      return `<p class="hd-ink" style="${BODY}">${escapeHtml(block.text).replace(/\n/g, "<br>")}</p>`;
     case "facts":
-      return block.rows
-        .map(
-          ([label, value]) =>
-            `<p style="margin:0 0 4px;"><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</p>`,
-        )
-        .join("\n");
+      return factsHtml(block.rows);
     case "action":
-      return (
-        `<p style="margin:16px 0 24px;"><a class="hd-action" href="${escapeHtml(block.url)}" ` +
-        `style="display:inline-block;background:${INK};color:#ffffff;padding:10px 16px;` +
-        `border-radius:6px;text-decoration:none;font-weight:600;">${escapeHtml(block.label)}</a></p>`
-      );
+      return emailButtonHtml(block.label, block.url, isFirstAction ? "primary" : "secondary");
     case "code":
-      // Its own ink on its own ground, so a client's dark mode, which
-      // repaints the page, never leaves light text on this light box.
+      // A soft grey box, its ground and ink repainted together in dark mode,
+      // so a client's dark mode never leaves light text on a light box.
       return (
-        `<pre style="margin:0 0 16px;padding:12px;background:#f6f8fa;color:${INK};` +
-        `border:1px solid #d0d7de;border-radius:6px;font-family:ui-monospace, SFMono-Regular, ` +
-        `Menlo, Consolas, monospace;font-size:13px;line-height:1.4;white-space:pre-wrap;` +
+        `<pre class="hd-soft hd-ink" style="margin:0 0 18px;padding:14px 16px;background:${EMAIL_COLORS.soft};color:${INK};` +
+        `border-radius:12px;font-family:${EMAIL_MONO_FONT};font-size:13px;line-height:20px;white-space:pre-wrap;` +
         `word-break:break-all;">${escapeHtml(block.text)}</pre>`
       );
     case "list":
-      return `<ul style="margin:0 0 16px;padding-left:20px;">${block.items
-        .map((item) => `<li>${escapeHtml(item)}</li>`)
+      return `<ul class="hd-ink" style="${LIST}">${block.items
+        .map((item) => `<li style="margin:0 0 6px;">${escapeHtml(item)}</li>`)
         .join("")}</ul>`;
     case "links":
-      return `<ul style="margin:0 0 16px;padding-left:20px;">${block.items
+      return `<ul class="hd-ink" style="${LIST}">${block.items
         .map(
           (item) =>
-            `<li style="margin:0 0 4px;">${escapeHtml(item.text)} · <a href="${escapeHtml(item.url)}">${escapeHtml(item.label)}</a></li>`,
+            `<li style="margin:0 0 6px;">${escapeHtml(item.text)} · <a href="${escapeHtml(item.url)}" class="hd-link" ` +
+            `style="${EMAIL_STYLES.link}">${escapeHtml(item.label)}</a></li>`,
         )
         .join("")}</ul>`;
     case "rich": {
@@ -298,45 +285,70 @@ function blockHtml(block: Block): string {
         ? `<strong>${escapeHtml(block.label)}</strong>${segmentsText(block.segments).startsWith("\n") ? "" : " "}`
         : "";
       return block.small
-        ? `<p class="hd-muted" style="margin:16px 0 0;color:${MUTED};font-size:13px;">${label}${segmentsHtml(block.segments)}</p>`
-        : `<p style="margin:0 0 16px;">${label}${segmentsHtml(block.segments)}</p>`;
+        ? `<p class="hd-muted" style="margin:24px 0 0;font-family:${EMAIL_FONT};font-size:13px;line-height:19px;color:${MUTED};">${label}${segmentsHtml(block.segments)}</p>`
+        : `<p class="hd-ink" style="${BODY}">${label}${segmentsHtml(block.segments)}</p>`;
     }
     case "headline":
-      // No table: every email is one column with no tables (the HTML rule
-      // tests/email-templates.test.ts holds). Outlook desktop may drop the
-      // padding and radius; the colour and the word survive.
+      // The tag as a small pill, then the line itself, large: an alert's own
+      // title, so the shell prints no other (titleOf).
       return (
-        `<p style="margin:0 0 8px;"><span style="display:inline-block;background:${TAG_TONES[block.tag.tone]};` +
-        `color:#ffffff;font-size:13px;font-weight:700;letter-spacing:0.08em;padding:3px 9px;border-radius:4px;">` +
+        `<p style="margin:0 0 12px;font-family:${EMAIL_FONT};"><span style="display:inline-block;background:${TAG_TONES[block.tag.tone]};` +
+        `color:#ffffff;font-size:12px;line-height:16px;font-weight:700;letter-spacing:0.08em;padding:4px 11px;border-radius:980px;">` +
         `${escapeHtml(block.tag.text)}</span></p>\n` +
-        `<p style="margin:0 0 16px;font-size:20px;line-height:1.3;font-weight:700;">${segmentsHtml(block.segments)}</p>`
+        `<p class="hd-ink" style="margin:0 0 20px;font-family:${EMAIL_DISPLAY_FONT};font-size:24px;line-height:30px;font-weight:700;` +
+        `letter-spacing:-0.3px;color:${INK};">${segmentsHtml(block.segments)}</p>`
       );
     case "callout":
-      // Its own ink on its own ground, as the code box: a client's dark mode
-      // repaints the page, never this box.
-      // Its own ground, ink and button colours: the shared dark mode repaints
-      // .hd-action and the page, never this box, so its button carries no
-      // hd-action class and stays dark on the light box. A div, not a table:
-      // every email is one column with no tables (tests/email-templates.test.ts);
-      // Outlook desktop may drop the padding and radius, never the colours.
+      // Its own ground, ink and button colours, kept in dark mode: the shell
+      // repaints the page and the one hd-action button, never this box, so
+      // its button carries no hd-action class and stays dark on the light box.
       return (
-        `<div style="margin:0 0 20px;padding:12px 14px;background:#fff8c5;color:${INK};border:1px solid #d4a72c;border-radius:6px;">` +
-        `<p style="margin:0 0 6px;color:${INK};"><strong>${escapeHtml(block.label)}</strong></p>` +
-        `<p style="margin:0;color:${INK};">${segmentsHtml(block.segments, CALLOUT_HIGHLIGHT)}</p>` +
+        `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 22px;border-collapse:separate;">` +
+        `<tr><td style="padding:16px 20px;background:#fff8c5;color:${INK};border:1px solid #e9c46a;border-radius:14px;">` +
+        `<p style="margin:0 0 6px;font-family:${EMAIL_FONT};font-size:15px;line-height:22px;font-weight:700;color:${INK};">${escapeHtml(block.label)}</p>` +
+        `<p style="margin:0;font-family:${EMAIL_FONT};font-size:16px;line-height:24px;color:${INK};">${segmentsHtml(block.segments, CALLOUT_HIGHLIGHT)}</p>` +
         (block.action
-          ? `<p style="margin:12px 0 0;"><a href="${escapeHtml(block.action.url)}" ` +
-            `style="display:inline-block;background:${INK};color:#ffffff !important;padding:10px 16px;` +
-            `border-radius:6px;text-decoration:none;font-weight:600;">${escapeHtml(block.action.label)}</a></p>`
+          ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:14px 0 0;border-collapse:separate;">` +
+            `<tr><td style="background:${INK};border-radius:980px;mso-padding-alt:10px 22px;">` +
+            `<a href="${escapeHtml(block.action.url)}" style="display:inline-block;padding:10px 22px;font-family:${EMAIL_FONT};` +
+            `font-size:15px;line-height:18px;font-weight:600;color:#ffffff !important;background:${INK};text-decoration:none;` +
+            `border-radius:980px;">${escapeHtml(block.action.label)}</a></td></tr></table>`
           : "") +
-        `</div>`
+        `</td></tr></table>`
       );
     case "divider":
       return (
-        `<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 12px;">\n` +
-        `<p class="hd-muted" style="margin:0 0 12px;color:${MUTED};font-size:12px;font-weight:700;` +
-        `letter-spacing:0.08em;text-transform:uppercase;">${escapeHtml(block.label)}</p>`
+        `<hr class="hd-rule" style="height:0;border:0;border-top:1px solid ${RULE};margin:30px 0 14px;">\n` +
+        `<p class="hd-muted" style="margin:0 0 14px;font-family:${EMAIL_FONT};font-size:12px;line-height:16px;font-weight:600;` +
+        `letter-spacing:0.08em;text-transform:uppercase;color:${MUTED};">${escapeHtml(block.label)}</p>`
       );
   }
+}
+
+/** A list in body type, its markers hung in the margin. */
+const LIST = `margin:0 0 18px;padding:0 0 0 22px;font-family:${EMAIL_FONT};font-size:17px;line-height:26px;color:${INK};`;
+
+/**
+ * Label and value pairs as Apple sets a receipt's details: each label small
+ * and grey over its value, the pairs between hairlines. Stacked, not side by
+ * side, so a long value (a document hash, a sentence) wraps across the whole
+ * column on a phone instead of down a narrow one.
+ */
+function factsHtml(rows: readonly (readonly [label: string, value: string])[]): string {
+  const cells = rows.map(([label, value], i) => {
+    const edge = `border-top:1px solid ${RULE};${i === rows.length - 1 ? `border-bottom:1px solid ${RULE};` : ""}`;
+    return (
+      `<tr><td class="hd-rule" style="padding:12px 0;${edge}">` +
+      `<p class="hd-muted" style="margin:0 0 2px;font-family:${EMAIL_FONT};font-size:13px;line-height:18px;color:${MUTED};">${escapeHtml(label)}</p>` +
+      `<p class="hd-ink" style="margin:0;font-family:${EMAIL_FONT};font-size:17px;line-height:24px;color:${INK};` +
+      `word-break:break-word;overflow-wrap:anywhere;">${escapeHtml(value)}</p>` +
+      `</td></tr>`
+    );
+  });
+  return (
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 22px;">` +
+    `${cells.join("")}</table>`
+  );
 }
 
 /** The urgency tag's colours: red, amber, grey, each with white text. */
@@ -361,11 +373,18 @@ function segmentsHtml(segments: readonly RichSegment[], highlight = "#fff3a3"): 
     .join("");
 }
 
-/** The footer's one link (the stop link), clickable in HTML; everything else escaped. */
-function linkify(line: string): string {
+/**
+ * A footer line as HTML, everything escaped. The stop line's address is
+ * printed in full and is its own link, as the text part prints it, so both
+ * renderings show the reader exactly where the link goes.
+ */
+function footerLineHtml(line: string): string {
   const match = /^(Stop these emails: )(https:\/\/\S+|http:\/\/\S+)$/.exec(line);
   if (!match) return escapeHtml(line);
-  return `${escapeHtml(match[1]!)}<a href="${escapeHtml(match[2]!)}">${escapeHtml(match[2]!)}</a>`;
+  return (
+    `${escapeHtml(match[1]!)}<a href="${escapeHtml(match[2]!)}" class="hd-muted" ` +
+    `style="${EMAIL_STYLES.footerLink}word-break:break-all;">${escapeHtml(match[2]!)}</a>`
+  );
 }
 
 /** For text and for attribute values alike: every value in the HTML passes through it. */

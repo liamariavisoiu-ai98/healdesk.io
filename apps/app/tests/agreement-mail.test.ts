@@ -584,8 +584,10 @@ describe("renderAgreementCopy", () => {
       clinicName: '<img src=x onerror="alert(1)">',
     });
 
-    expect(copy.html).not.toContain("<img");
+    expect(copy.html).not.toContain("<img src=x");
     expect(copy.html).toContain("&lt;img");
+    // The one image is the healdesk logo the branded shell carries.
+    expect([...copy.html.matchAll(/<img\b/g)]).toHaveLength(1);
   });
 
   /**
@@ -609,7 +611,7 @@ describe("renderAgreementCopy", () => {
       ].join("\n"),
     );
     expect(copy.html).toContain(
-      "<p>Attached, as a PDF, is the business associate agreement you signed for <strong>Radiance Med Spa</strong>.",
+      ">Attached, as a PDF, is the business associate agreement you signed for <strong>Radiance Med Spa</strong>.",
     );
     expect(copy.html).toContain(
       "ever asked to produce its business associate agreements, this is the file.</p>",

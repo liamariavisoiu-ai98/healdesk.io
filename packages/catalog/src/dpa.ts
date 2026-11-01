@@ -30,7 +30,10 @@ import {
 } from "./calendar-terms";
 import { MODEL_RETENTION_AGREEMENT } from "./model-retention";
 import { isSpecialtyId, regimeFor, type SpecialtyId } from "./specialties";
-import { subprocessorNoticeClauseBody } from "./subprocessor-notice";
+import {
+  subprocessorNoticeClauseBody,
+  subprocessorNoticeClauseBody15Days,
+} from "./subprocessor-notice";
 import { wrap } from "./wrap";
 
 /**
@@ -157,8 +160,8 @@ import { wrap } from "./wrap";
  * external counsel: 1.0.0 with the Safeguards clause's telephone exception
  * carrying the one optional payment-link text after a call, as BAA 1.6.0's
  * does (DPA_NO_SMS_1_1, below; agreement-changes.md §21). DPA_1_1_0_RELEASED
- * is true, so 1.1.0 is DPA_TEMPLATES[0] and 1.0.0 follows it, released and
- * never offered again. It applies to new signers only: a practice that signed
+ * is true, so 1.1.0 was DPA_TEMPLATES[0], 1.0.0 after it, released and
+ * never offered again, until dpa/1.2.0 took [0] (DPA_1_2_0_RELEASED, below). It applies to new signers only: a practice that signed
  * 1.0.0 stays on 1.0.0, since nothing in the product lets it re-sign a newer
  * DPA, and no payment-link text may go to a caller of a practice whose
  * accepted agreement is older than the one that carries the exception.
@@ -1371,6 +1374,112 @@ function preamble110(v: DpaVariables): string {
 }
 
 // -----------------------------------------------------------------------------
+// 1.2.0: ten days to report, fifteen days' notice of a subcontractor
+// -----------------------------------------------------------------------------
+
+/**
+ * ⚖️ dpa/1.2.0: dpa/1.1.0 with two sentences changed, the owner's instruction
+ * of 30 October 2026 for both documents ("Breach notice of 60 days vs
+ * California's 'immediately': adjust whatever's needed"; "24 hours' notice
+ * before adding a new vendor: adjust whatever's needed"), released by the
+ * owner that day with BAA 1.7.0 ("release BAA 1.7.0 and DPA 1.1.0"), without
+ * external counsel (docs/counsel/agreement-changes.md §22).
+ *
+ * Why 1.2.0 and not 1.1.0: that release was built on a branch
+ * (claude/friendly-edison-bwvr76, LEGAL-4) as a "dpa/1.1.0" carrying three
+ * changes from 1.0.0, while main released a dpa/1.1.0 carrying one of them,
+ * the payment-link text, and deployed it (drizzle/0140, 30 October 2026).
+ * A released version is never edited, so the branch's two other changes come
+ * here, on top of main's 1.1.0, and the owner chose to land them before
+ * launch (C13 on docs/launch-board.html, 1 November 2026). The text is the
+ * branch's dpa/1.1.0 word for word but for the version line.
+ *
+ * Against 1.1.0, two clauses change and nothing else does; every other clause
+ * is 1.1.0's own object, in its order, and the preamble differs only in its
+ * version line:
+ *
+ *   incidents      1.0.0's (which 1.1.0 carries) but for its first sentence's
+ *                  outer limit: "in no case later than 10 calendar days after
+ *                  discovery", where 1.1.0 says 60, as BAA 1.7.0.
+ *   subcontractors 1.0.0's (which 1.1.0 carries) but for its notice
+ *                  paragraph: subprocessorNoticeClauseBody15Days(), "at least
+ *                  15 days' notice by email", where 1.1.0 gives 24 hours, as
+ *                  BAA 1.7.0. The recipient, the contents and the objection
+ *                  right are the same words.
+ */
+
+/** The outer limit 1.0.0's incidents clause states, which 1.1.0 keeps. */
+const INCIDENT_LIMIT_1_0 = `in no case later than 60 calendar days after discovery:`;
+
+/** dpa/1.2.0's outer limit (owner, 30 October 2026), as BAA 1.7.0's. */
+const INCIDENT_LIMIT_1_2 = `in no case later than 10 calendar days after discovery:`;
+
+const clauseOf110 = (id: string): DpaClause => CLAUSES_1_1.find((clause) => clause.id === id)!;
+
+const INCIDENTS_1_1 = clauseOf110("incidents");
+
+/**
+ * 1.1.0's incidents clause with its first sentence's outer limit as
+ * INCIDENT_LIMIT_1_2 says it. Every other sentence is 1.1.0's, and the
+ * replacement refuses to render if 1.1.0's sentence is not there, compared
+ * with the wrap undone.
+ */
+const INCIDENTS_1_2: DpaClause = {
+  id: INCIDENTS_1_1.id,
+  heading: INCIDENTS_1_1.heading,
+  appliesWhen: INCIDENTS_1_1.appliesWhen,
+  body: (v) => {
+    const paragraphs = INCIDENTS_1_1.body(v).split("\n\n");
+    const first = paragraphs[0]!.replace(/\s+/g, " ").trim();
+    if (!first.endsWith(` ${INCIDENT_LIMIT_1_0}`)) {
+      throw new DpaRenderError("1.2.0's incidents clause: 1.1.0's sixty-day sentence is not there.");
+    }
+    paragraphs[0] = wrap(first.slice(0, -INCIDENT_LIMIT_1_0.length) + INCIDENT_LIMIT_1_2);
+    return paragraphs.join("\n\n");
+  },
+};
+
+const SUBCONTRACTORS_1_1 = clauseOf110("subcontractors");
+
+/**
+ * 1.1.0's Subcontractors clause with its notice paragraph giving 15 days. The
+ * paragraphs before it are 1.1.0's, and the replacement refuses to render if
+ * 1.1.0's 24-hour notice paragraph is not its last.
+ */
+const SUBCONTRACTORS_1_2: DpaClause = {
+  id: SUBCONTRACTORS_1_1.id,
+  heading: SUBCONTRACTORS_1_1.heading,
+  appliesWhen: SUBCONTRACTORS_1_1.appliesWhen,
+  body: (v) => {
+    const paragraphs = SUBCONTRACTORS_1_1.body(v).split("\n\n");
+    if (paragraphs[paragraphs.length - 1] !== wrap(subprocessorNoticeClauseBody())) {
+      throw new DpaRenderError(
+        "1.2.0's subcontractors clause: 1.1.0's 24-hour notice paragraph is not there.",
+      );
+    }
+    paragraphs[paragraphs.length - 1] = wrap(subprocessorNoticeClauseBody15Days());
+    return paragraphs.join("\n\n");
+  },
+};
+
+/** 1.1.0's clauses in 1.1.0's order, the same objects, with the two above in place of its own. */
+const CLAUSES_1_2: readonly DpaClause[] = CLAUSES_1_1.map((clause) => {
+  switch (clause.id) {
+    case INCIDENTS_1_2.id:
+      return INCIDENTS_1_2;
+    case SUBCONTRACTORS_1_2.id:
+      return SUBCONTRACTORS_1_2;
+    default:
+      return clause;
+  }
+});
+
+/** 1.0.0's preamble, naming version 1.2.0. */
+function preamble120(v: DpaVariables): string {
+  return preambleFrom100(v, "1.2.0");
+}
+
+// -----------------------------------------------------------------------------
 // Templates
 // -----------------------------------------------------------------------------
 
@@ -1392,8 +1501,9 @@ function preamble110(v: DpaVariables): string {
  * a migration of its own (0091) to give it a destruction rule, 1.1.0 was not
  * registered at all while the switch was off.
  *
- * True (now): 1.1.0 is DPA_TEMPLATES[0] with approvedByCounsel true, and 1.0.0
- * follows it, released, signed by whoever signed it, and never offered again
+ * True (since its release): 1.1.0 is released with approvedByCounsel true. It
+ * was DPA_TEMPLATES[0] until dpa/1.2.0 took [0], and now follows it; 1.0.0
+ * follows 1.1.0, released, signed by whoever signed it, and never offered again
  * (signableDpaTemplate takes only the current version). The DPA has no
  * go-live floor, so a practice bound to 1.0.0 still goes live under it. The
  * release migration (apps/app drizzle/0140_dpa_release_1_1_0.sql) landed in
@@ -1434,11 +1544,63 @@ export const DPA_TEMPLATE_1_1_0_DRAFT: DpaTemplate = {
   validate: validate100,
 };
 
-/** DPA_TEMPLATES as it reads once the switch is in the given state. */
-export function dpaTemplatesFor(released: boolean): readonly DpaTemplate[] {
-  return released
-    ? [{ ...DPA_TEMPLATE_1_1_0_DRAFT, approvedByCounsel: true }, TEMPLATE_1_0_0]
-    : [TEMPLATE_1_0_0];
+/**
+ * ⚖️ THE ONE SWITCH for releasing dpa/1.2.0 (owner's word only), built as
+ * DPA_1_1_0_RELEASED is.
+ *
+ * Released by the owner: on 30 October 2026 he said "release BAA 1.7.0 and
+ * DPA 1.1.0", meaning this content (see dpa/1.2.0's comment above for why
+ * the number moved), and on 1 November 2026 he chose to land it before
+ * launch ("Go C13"), without external counsel. True: 1.2.0 is
+ * DPA_TEMPLATES[0] with approvedByCounsel true, and 1.1.0 and 1.0.0 follow
+ * it, released, signed by whoever signed them, and never offered again
+ * (signableDpaTemplate takes only the current version). The DPA has no
+ * go-live floor, so a practice bound to an earlier DPA still goes live under
+ * it. The release migration is apps/app
+ * drizzle/0143_baa_release_1_7_0_dpa_1_2_0.sql, which adds dpa/1.2.0 to
+ * app_dpa_version_released() and app_destruction_rule(); apps/app
+ * tests/baa-release-1-7-0.test.ts holds the two together. It needs
+ * DPA_1_1_0_RELEASED, which has been true since 30 October 2026.
+ */
+export const DPA_1_2_0_RELEASED: boolean = true;
+
+/**
+ * DPA 1.2.0 as drafted. Its flag becomes true only through
+ * dpaTemplatesFor(_, true), which DPA_TEMPLATES reads (DPA_1_2_0_RELEASED);
+ * this object keeps approvedByCounsel false so that the switch, not a
+ * literal, is what releases it.
+ */
+export const DPA_TEMPLATE_1_2_0_DRAFT: DpaTemplate = {
+  version: "dpa/1.2.0",
+  // Released by the owner on 30 October 2026 as "DPA 1.1.0" and renumbered
+  // when it landed (1 November 2026); see its comment above.
+  publishedOn: "2026-11-01",
+  approvedByCounsel: false,
+  preamble: preamble120,
+  clauses: CLAUSES_1_2,
+  // 1.0.0's render guard: the variables are 1.0.0's, and so are its refusals.
+  validate: validate100,
+};
+
+/**
+ * DPA_TEMPLATES as it reads once the switches are in the given state: the
+ * first argument is DPA_1_1_0_RELEASED's, the second DPA_1_2_0_RELEASED's
+ * (today's value unless given). 1.2.0 cannot be released before 1.1.0, and
+ * while it is a draft it is not registered, as 1.1.0 was not before its
+ * release.
+ */
+export function dpaTemplatesFor(
+  released: boolean,
+  released120: boolean = DPA_1_2_0_RELEASED,
+): readonly DpaTemplate[] {
+  if (released120 && !released) {
+    throw new Error("DPA 1.2.0 cannot be released while 1.1.0 is not.");
+  }
+  const template110: DpaTemplate = { ...DPA_TEMPLATE_1_1_0_DRAFT, approvedByCounsel: true };
+  if (released120) {
+    return [{ ...DPA_TEMPLATE_1_2_0_DRAFT, approvedByCounsel: true }, template110, TEMPLATE_1_0_0];
+  }
+  return released ? [template110, TEMPLATE_1_0_0] : [TEMPLATE_1_0_0];
 }
 
 // Newest released first, as BAA_TEMPLATES: CURRENT_DPA_VERSION and
@@ -1449,11 +1611,18 @@ export function dpaTemplatesFor(released: boolean): readonly DpaTemplate[] {
 // (0090), go-live's copy of this flag, and the form to
 // app_calendar_election_released(). No hash moved: nothing in the text marked
 // it a draft (docs/counsel/dpa.md, gap 11). dpa/1.1.0, drafted on 30 October
-// 2026, was released by the owner the same day (DPA_1_1_0_RELEASED): it is at
-// [0], and 1.0.0 follows it, released but never offered again. The migration
+// 2026, was released by the owner the same day (DPA_1_1_0_RELEASED): it was
+// at [0] until dpa/1.2.0, and 1.0.0 follows it, released but never offered again. The migration
 // of that day, dpa_release_1_1_0 (apps/app drizzle/0140), added dpa/1.1.0 to
-// app_dpa_version_released() and to app_destruction_rule().
-export const DPA_TEMPLATES: readonly DpaTemplate[] = dpaTemplatesFor(DPA_1_1_0_RELEASED);
+// app_dpa_version_released() and to app_destruction_rule(). dpa/1.2.0 (ten
+// days to report, fifteen days' notice of a subcontractor) is at [0] since it
+// landed (reconciled 1 November 2026; DPA_1_2_0_RELEASED), and 1.1.0 and 1.0.0 follow
+// it; its migration, baa_release_1_7_0_dpa_1_2_0 (apps/app drizzle/0143),
+// added it to both functions.
+export const DPA_TEMPLATES: readonly DpaTemplate[] = dpaTemplatesFor(
+  DPA_1_1_0_RELEASED,
+  DPA_1_2_0_RELEASED,
+);
 
 export const CURRENT_DPA_VERSION = DPA_TEMPLATES[0]!.version;
 

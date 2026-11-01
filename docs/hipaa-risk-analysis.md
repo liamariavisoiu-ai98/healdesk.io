@@ -14,6 +14,47 @@ read by a clinic's compliance officer, a cyber insurer, or a regulator, and it s
 what is true today — including the controls that are not finished. A risk analysis
 that claims completeness is the finding.
 
+## 0. What has changed since the 1 October redraft (30 October 2026)
+
+The tables below were written on 1 October 2026 and several cells no longer
+hold. Until the Security Official re-reads and re-dates the whole analysis,
+read them with this list. Each line was checked on 30 October 2026 against
+the code, the repo or the mailbox named.
+
+- **`apps/app` is deployed.** AWS applied and deployed it on 14 October 2026
+  (CLAUDE.md, "Applied and deployed"). It holds synthetic data only. Real
+  calls stay off: `voice_real_calls = false` in `infra/aws/production.tfvars`,
+  so the voice endpoint answers only the demo clinic.
+- **Much of what §§1–2 call "not built" now exists in the code:** the Retell
+  voice endpoint (`src/voice/server.ts`), the web chat widget API
+  (`src/app/api/widget`), the clinic portal (`src/app/c/[slug]`) with its
+  step-up and protect screens, and the Google Calendar connection
+  (`src/app/api/calendar`). That a control exists in code is not evidence
+  that it works in production; each row's control has to be re-checked
+  before real patients.
+- **Retell's BAA and DPA are signed.** The completed DocuSign copies of both
+  reached hello@healdesk.io on 19 October 2026. They are not yet filed in
+  the compliance file or attested on `/admin/compliance`.
+- **Anthropic's BAA is owner-reported, not evidenced.** The owner confirmed on
+  26 October 2026 that healdesk's key belongs to the BAA organisation
+  (CLAUDE.md). No executed copy is in the repo or the mailbox.
+- **The database is chosen:** Amazon RDS for PostgreSQL 17, under the AWS
+  agreement accepted on 22 September 2026 (`infra/aws/rds.tf`). The Neon
+  option in §2 is closed.
+- **BAA 1.7.0 and DPA 1.2.0 are released** (owner, 30 October 2026), after
+  1.6.0 the day before. §2's "BAA 1.6.0, drafted" and clause references to
+  1.5.1 should read 1.7.0. Both report a breach or security incident in no
+  case later than 10 calendar days after discovery, where 1.2.2 to 1.6.0 said
+  60. Production holds the release once migration 0143 is deployed. (The DPA was
+  numbered 1.1.0 on the branch that built it; main had already released a
+  dpa/1.1.0 for the payment-link text, so it landed as 1.2.0.)
+- **T4's notice period is 15 days** under BAA 1.7.0 and DPA 1.2.0. It was 24
+  hours in BAA 1.3.0 to 1.6.0, DPA 1.0.0 and DPA 1.1.0, which no real clinic signed.
+- **Still open, owner only:** the Security Official's name
+  (`policies/security-official.md`), the Security Official's read and
+  signature of this analysis and the policies (`policies/training-log.md`),
+  and the vendor attestations on `/admin/compliance`.
+
 ## 1. Scope
 
 healdesk is a **business associate** to each clinic it serves: the assistant answers a

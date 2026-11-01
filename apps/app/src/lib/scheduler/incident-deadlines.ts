@@ -13,8 +13,9 @@ import { JOB_INCIDENT_DEADLINES, runJob, type JobOutcome } from "./jobs";
  *
  * The agreements promise the practice notice of a breach, a security
  * incident or an improper use or disclosure without unreasonable delay and
- * in no case later than 60 calendar days after discovery (BAA 1.2.2 on;
- * the owner, 12 October 2026). Opening an incident stamps healdesk's own,
+ * in no case later than 60 calendar days after discovery (BAA 1.2.2 to
+ * 1.6.0 and DPA 1.0.0 and 1.1.0; the owner, 12 October 2026), or 10 under
+ * BAA 1.7.0 and DPA 1.2.0 (the owner, 30 October 2026). Opening an incident stamps healdesk's own,
  * stricter target as `notify_by`: 24 hours from discovery, an internal
  * target the agreements do not state (lib/incidents/incidents.ts). Nothing
  * read it back: an incident nobody recorded as notified sat past it in the

@@ -106,7 +106,7 @@ export const SETTING_PLACES: Readonly<Record<SettingKey, SettingPlace>> = {
   mention_promotions: {
     card: "how-aya-talks",
     label: "Mention promotions",
-    does: "Whether AYA uses what you write in Knowledge → Promotions, on phone and website chat.",
+    does: "Whether AYA uses what you write in Your practice → Promotions, on phone and website chat.",
   },
   deposits_enabled: {
     card: "payments",
@@ -188,7 +188,7 @@ export const SCREEN_TARGETS = {
   settings_safety_net: { section: "settings", hash: "#safety-net", label: "Settings → Safety net" },
   settings_alerts: { section: "settings", hash: "#alerts", label: "Settings → Alerts" },
   settings_sign_in: { section: "settings", hash: "#sign-in", label: "Settings → Sign-in" },
-  knowledge: { section: "knowledge", hash: "", label: "Knowledge" },
+  knowledge: { section: "knowledge", hash: "", label: "Your practice" },
   conversations: { section: "conversations", hash: "", label: "Conversations" },
   bookings: { section: "bookings", hash: "", label: "Bookings" },
   billing: { section: "billing", hash: "", label: "Billing" },

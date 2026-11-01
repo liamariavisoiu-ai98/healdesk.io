@@ -857,7 +857,7 @@ describe("the markup", () => {
     for (const text of ["a **b", "**a __b__ c**", "x == y", "__", "** spaced **", "a==b==c=="]) {
       const segments = parseMarkup(text);
       const html = compose({ subject: "s", preheader: "p", blocks: [{ type: "rich", segments }] }, CTX).html;
-      const body = /<div class="hd-wrap"[^>]*>\n([\s\S]*?)\n<hr/.exec(html)![1]!;
+      const body = /<td class="hd-px hd-ink"[^>]*>\n([\s\S]*?)\n<\/td><\/tr>/.exec(html)![1]!;
       // Every tag opened is closed, and nested input never nests emphasis.
       for (const tag of ["strong", "u", "mark"]) {
         expect(body.split(`<${tag}`).length, `${text} ${tag}`).toBe(body.split(`</${tag}>`).length);

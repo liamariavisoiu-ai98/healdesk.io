@@ -2,7 +2,7 @@ import type { AgreementExplainer } from "./agreement-copy";
 import { BAA_CLAUSE_EXPLAINERS, type BaaExplainerTerm } from "./baa-explainer";
 import { CALENDAR_CLAUSE_HEADING, CALENDAR_CLAUSE_IDS } from "./calendar-terms";
 import { getDpaTemplate } from "./dpa";
-import { SUBPROCESSOR_NOTICE_HOURS } from "./subprocessor-notice";
+import { SUBPROCESSOR_NOTICE_DAYS_1_7, SUBPROCESSOR_NOTICE_HOURS } from "./subprocessor-notice";
 
 /**
  * Why a Data Protection Agreement exists, explained to the person about to
@@ -97,6 +97,30 @@ export const DPA_EXPLAINER = {
 } as const satisfies AgreementExplainer;
 
 /**
+ * The DPA's subcontractors note, with the notice period its version gives:
+ * "24 hours" for dpa/1.0.0 and dpa/1.1.0, word for word what their checkout
+ * showed, and "15 days" for dpa/1.2.0 (subprocessorNoticeClauseBody15Days;
+ * agreement-changes.md §22).
+ */
+function subcontractorsNote(notice: string): BaaExplainerTerm {
+  return {
+    plain:
+      "Every vendor that handles client information agrees in writing to terms as protective " +
+      "before it does. The language model is Anthropic's: it receives conversation content only " +
+      "under a business associate agreement with healdesk, signed before any client's " +
+      "information reaches it, keeps that content for no more than the 30 days " +
+      "of its standard retention, then deletes it (content its safety systems flag may be held " +
+      "for up to two years, and content the law requires it to keep for as long as the law " +
+      "requires), and doesn't train on it without healdesk's permission, which healdesk won't " +
+      `give. You're told by email at least ${notice} before a new vendor ` +
+      "handles client information, and may end the agreement without penalty if you object on " +
+      "reasonable grounds before the change takes effect: the service ends with it, and fees you " +
+      "paid for the time after are refunded",
+    citation: clause("Subcontractors"),
+  };
+}
+
+/**
  * Notes for the DPA's clauses that describe what the product does, keyed by
  * DPA clause id, for the signing screen to show beside the clause. The three
  * calendar notes are the BAA's own words, because the DPA chooses and prints
@@ -139,21 +163,7 @@ export const DPA_CLAUSE_EXPLAINERS: Readonly<Record<string, BaaExplainerTerm>> =
       "only to you, its subcontractors, the systems you connect, and anyone the law requires",
     citation: clause("Minimum necessary, and who receives Client Information"),
   },
-  subcontractors: {
-    plain:
-      "Every vendor that handles client information agrees in writing to terms as protective " +
-      "before it does. The language model is Anthropic's: it receives conversation content only " +
-      "under a business associate agreement with healdesk, signed before any client's " +
-      "information reaches it, keeps that content for no more than the 30 days " +
-      "of its standard retention, then deletes it (content its safety systems flag may be held " +
-      "for up to two years, and content the law requires it to keep for as long as the law " +
-      "requires), and doesn't train on it without healdesk's permission, which healdesk won't " +
-      `give. You're told by email at least ${SUBPROCESSOR_NOTICE_HOURS} hours before a new vendor ` +
-      "handles client information, and may end the agreement without penalty if you object on " +
-      "reasonable grounds before the change takes effect: the service ends with it, and fees you " +
-      "paid for the time after are refunded",
-    citation: clause("Subcontractors"),
-  },
+  subcontractors: subcontractorsNote(`${SUBPROCESSOR_NOTICE_HOURS} hours`),
 };
 
 /**
@@ -168,5 +178,64 @@ export function dpaClauseExplainer(
   if (!Object.prototype.hasOwnProperty.call(DPA_CLAUSE_EXPLAINERS, clauseId)) return undefined;
   const template = getDpaTemplate(templateVersion);
   if (!template?.clauses.some((c) => c.id === clauseId)) return undefined;
-  return DPA_CLAUSE_EXPLAINERS[clauseId];
+  const forVersion = Object.prototype.hasOwnProperty.call(
+    DPA_CLAUSE_EXPLAINERS_BY_VERSION,
+    templateVersion,
+  )
+    ? DPA_CLAUSE_EXPLAINERS_BY_VERSION[templateVersion]
+    : undefined;
+  return forVersion?.[clauseId] ?? DPA_CLAUSE_EXPLAINERS[clauseId];
+}
+
+/**
+ * Notes for a version whose clause says something different from what
+ * DPA_CLAUSE_EXPLAINERS describes (dpa/1.0.0's), keyed by version and then
+ * clause id. dpa/1.2.0 gives fifteen days' notice of a new subcontractor
+ * (released 30 October 2026, reconciled 1 November 2026); dpa/1.1.0 gives
+ * dpa/1.0.0's 24 hours, as DPA_CLAUSE_EXPLAINERS says.
+ */
+export const DPA_CLAUSE_EXPLAINERS_BY_VERSION: Readonly<
+  Record<string, Readonly<Record<string, BaaExplainerTerm>>>
+> = {
+  "dpa/1.2.0": { subcontractors: subcontractorsNote(`${SUBPROCESSOR_NOTICE_DAYS_1_7} days`) },
+};
+
+/**
+ * "Why you're signing this" for dpa/1.2.0: DPA_EXPLAINER with its two
+ * bullets that state a period said as 1.2.0's clauses say them, ten
+ * calendar days to report and fifteen days' notice of a new subcontractor.
+ * Every other line is DPA_EXPLAINER's.
+ */
+const DPA_EXPLAINER_1_2: AgreementExplainer = {
+  ...DPA_EXPLAINER,
+  terms: DPA_EXPLAINER.terms.map((term) => {
+    if (term.citation === clause("Reporting incidents and breaches")) {
+      return {
+        ...term,
+        plain: term.plain.replace(
+          "in no case later than 60 calendar days after discovery",
+          "in no case later than 10 calendar days after discovery",
+        ),
+      };
+    }
+    if (term.citation === clause("Subcontractors")) {
+      return {
+        ...term,
+        plain: term.plain.replace(
+          `at least ${SUBPROCESSOR_NOTICE_HOURS} hours before`,
+          `at least ${SUBPROCESSOR_NOTICE_DAYS_1_7} days before`,
+        ),
+      };
+    }
+    return term;
+  }),
+};
+
+/**
+ * "Why you're signing this" for one DPA version: DPA_EXPLAINER for
+ * dpa/1.0.0, dpa/1.1.0 and any version that words no bullet differently,
+ * and DPA_EXPLAINER_1_2 for dpa/1.2.0.
+ */
+export function dpaExplainerFor(templateVersion: string): AgreementExplainer {
+  return templateVersion === "dpa/1.2.0" ? DPA_EXPLAINER_1_2 : DPA_EXPLAINER;
 }

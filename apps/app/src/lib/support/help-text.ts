@@ -43,11 +43,11 @@ healdesk gives the practice AYA, an AI assistant that answers its patients (or, 
 
 ## The portal
 
-Six screens: Home, Settings, Knowledge, Conversations, Bookings and Billing. Help is at the foot of every screen.
+Six screens: Home, Settings, Your practice, Conversations, Bookings and Billing. Help is at the foot of every screen.
 
 - Home: what needs attention, the "Building your AYA" tracker before go-live, each channel's status, and the plan.
 - Settings: every switch on one page, in cards: Channels, How AYA talks, Calendar, Payments, Safety net, Alerts, Sign-in. Each switch saves the moment it is changed.
-- Knowledge: what AYA knows about the practice: Your practice, Hours, Prices, Policies, Quick answers, Promotions and Never say.
+- Your practice: what AYA knows about the practice: Contact details, Hours, Prices, Policies, Quick answers, Promotions and Never say.
 - Conversations: each conversation's outcome and whether it produced a booking. Opening one needs the device's passkey.
 - Bookings: opens after go-live.
 - Billing: the package, its usage steps, auto-renew, what happens when the allowance runs out, usage alerts, invoices, the card, adding a location, and the signed agreement to download.
@@ -66,7 +66,7 @@ The portal does not have, by design: editing AYA's instructions or prompt, a flo
 
 - Setup has four steps: confirm the practice's details (filled in from its website), set how AYA behaves, connect Google Calendar, and connect the channels bought. Each step saves as it is finished, and the link in the welcome email resumes it.
 - The practice has 30 days from payment to finish setup. Until a channel is live it gets a reminder every five days. If nothing is live by the end of the 30th day, the subscription is cancelled and the account closed. The setup fee is never refunded.
-- Home's "Building your AYA" tracker shows each stage: Agreement signed, Payment, Your website read, Your answers set up, Calendar, Assistant built and Practice questions passed. "Your answers set up" needs at least one service with its price checked, the hours confirmed and the most-asked question answered. Until all three are there AYA isn't built: the practice questions don't run and no channel can go live. Prices are checked on Setup's services screen; hours are confirmed on Setup's hours screen or in Knowledge; the most-asked question is answered only on Setup's most-asked question screen, as Knowledge has no field for it.
+- Home's "Building your AYA" tracker shows each stage: Agreement signed, Payment, Your website read, Your answers set up, Calendar, Assistant built and Practice questions passed. "Your answers set up" needs at least one service with its price checked, the hours confirmed and the most-asked question answered. Until all three are there AYA isn't built: the practice questions don't run and no channel can go live. Prices are checked on Setup's services screen; hours are confirmed on Setup's hours screen or in Your practice; the most-asked question is answered only on Setup's most-asked question screen, as Your practice has no field for it.
 - Talk to your AYA, the private preview, opens once every stage is done.
 
 ## Channels, and why one is not live yet
@@ -95,10 +95,10 @@ Switching a channel off in Settings → Channels stops AYA there at once: calls 
 ## What AYA says, and what she won't
 
 - Her first line always says she is an AI assistant, on every channel, and on calls that the call is transcribed. The greeting fields in Settings → How AYA talks come after that line; it can't be edited out.
-- Prices come only from Knowledge → Prices. Asked for a price that isn't listed, she offers to book a consultation.
+- Prices come only from Your practice → Prices. Asked for a price that isn't listed, she offers to book a consultation.
 - She never diagnoses, prescribes, gives treatment plans or promises outcomes.
 - A message that matches the complication and urgent-symptom patterns is answered before the model sees it, with a fixed reply (call 911 in an emergency, then the practice's urgent-help number), and the practice is alerted.
-- Knowledge → Never say lists phrases AYA must never use, on every channel.
+- Your practice → Never say lists phrases AYA must never use, on every channel.
 - On Instagram, Messenger and WhatsApp she is designed not to name a treatment or carry anything clinical, because Meta signs no business associate agreement: she moves the person to a call or to the practice's own secure route, and says why.
 
 ## Bookings and the calendar

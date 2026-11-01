@@ -2,7 +2,7 @@ import type { AgreementKind } from "./agreement-kind";
 import { assentSentence, BAA_ACTION_LABEL, BAA_ASSENT_LABEL, CURRENT_BAA_VERSION } from "./baa";
 import { baaExplainerFor, clauseExplainer, type BaaExplainerTerm } from "./baa-explainer";
 import { CURRENT_DPA_VERSION, DPA_ACTION_LABEL, DPA_ASSENT_LABEL, dpaAssentSentence } from "./dpa";
-import { DPA_EXPLAINER, dpaClauseExplainer } from "./dpa-explainer";
+import { dpaClauseExplainer, dpaExplainerFor } from "./dpa-explainer";
 
 /**
  * Everything the signing screen says about the agreement, by kind (plan Part
@@ -46,15 +46,6 @@ export type AgreementCopy = {
   /** The words on the button that signs. */
   actionLabel: string;
 };
-
-/**
- * The DPA's explainer. One version so far, and nothing in it depends on the
- * version; a later DPA that words a bullet differently keys its own here, as
- * baaExplainerFor does for the BAA.
- */
-function dpaExplainerFor(): AgreementExplainer {
-  return DPA_EXPLAINER;
-}
 
 export const AGREEMENT_COPY: Readonly<Record<AgreementKind, AgreementCopy>> = {
   baa: {

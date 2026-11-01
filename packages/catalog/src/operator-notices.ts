@@ -20,8 +20,9 @@
  * Every sentence is about "people who contacted your practice" rather than
  * patients or clients, so one wording serves a medical practice and a
  * veterinary one. None of them may promise a reporting deadline: the
- * agreements promise "without unreasonable delay and in no case later than
- * 60 calendar days" (BAA 1.2.2 on and the DPA), and healdesk's own 24-hour
+ * agreements promise "without unreasonable delay and in no case later than"
+ * 10 "calendar days" (BAA 1.7.0, DPA 1.2.0) or 60 (BAA 1.2.2 to 1.6.0, DPA
+ * 1.0.0 and 1.1.0), and healdesk's own 24-hour
  * target is internal (owner, 12 October 2026).
  *
  * Pure data, with no imports, so the console's client components can import
@@ -183,7 +184,8 @@ export const INCIDENT_REPORT_MAX_COUNT = 1_000_000;
 /**
  * The subcontractors that handle the information the agreements protect,
  * worded for the notice each agreement promises before one is added (BAA
- * 1.3.0 on and the DPA: at least 24 hours; 1.2.2 and earlier: fifteen days;
+ * 1.7.0 and DPA 1.2.0: at least fifteen days; BAA 1.3.0 to 1.6.0, DPA 1.0.0
+ * and DPA 1.1.0: at least 24 hours; 1.2.2 and earlier: fifteen days;
  * subprocessor-notice.ts): the notice "names the subcontractor, what it will
  * receive and why". apps/web's internal register (src/lib/subprocessors.ts)
  * holds the same companies; its test holds every row that handles patient

@@ -563,7 +563,7 @@ The user is a clinic owner or a front-desk manager between patients. They are no
 
 ## Portal map
 
-Six screens: Home, Settings, Knowledge, Conversations, Bookings and Billing. Nothing nested more than one level deep, and Help on every screen. The menu is a sidebar on a laptop and a row of buttons on a phone; Settings opens with every connection in one card and shortcuts to its cards (owner, 1 November 2026).
+Six screens: Home, Settings, Your practice, Conversations, Bookings and Billing. Nothing nested more than one level deep, and Help on every screen. The menu is a sidebar on a laptop and a row of buttons on a phone; Settings opens with every connection in one card and shortcuts to its cards (owner, 1 November 2026).
 
 ### 1. Home
 
@@ -578,7 +578,9 @@ What happened, and is everything working.
 
 Every switch on one page, in cards: channels, how the assistant talks, calendar, payments, the safety net, alerts and sign-in. Each bought channel's card shows on or off, its status, and the connect or reconnect button. Voice carries its coverage mode selector. Website chat carries the embed snippet with a copy button. The switches are listed in full in the next section.
 
-### 3. Knowledge
+### 3. Your practice
+
+Called Knowledge in the code and its address (`/knowledge`) until 1 November 2026, when the owner renamed it for clinics; its first part, the practice's name, address, phone and website, is Contact details. It opens with three tiles: the treatments and how many have no price, the quick answers, and whether the hours are set.
 
 Quick edits, no re-scrape needed.
 
@@ -771,8 +773,8 @@ The scoping decision rests on this table, so it is worth being precise rather th
 
 | Vendor | Role | Agreement available | Condition, and what it costs |
 | --- | --- | --- | --- |
-| Anthropic, Claude API | The assistant's reasoning on every channel | Yes | Anthropic provides a BAA covering its HIPAA-ready services including the first-party API. The organisation's primary owner signs and then arranges it with Anthropic. Note the trade-off: covered models require 30-day data retention and are not available with zero data retention |
-| Supabase | Database, transcripts, account records | Yes | Only on Team or Enterprise with the paid HIPAA add-on. Free and Pro have no path at all. Covered projects must be marked high compliance with point-in-time recovery, SSL enforcement, network restrictions, MFA and connection logging. Team is published at $599 a month and the add-on price is not published. Cheaper providers sign the same agreement, so this is no longer the assumed choice. See the infrastructure section |
+| Anthropic, Claude API | The assistant's reasoning on every channel | Yes | Anthropic provides a BAA covering its HIPAA-ready services including the first-party API. The organisation's primary owner signs and then arranges it with Anthropic. Anthropic's Covered Models (Fable, Mythos) require 30-day retention and cannot run with zero retention; the models the product calls are not Covered Models and keep content no more than 30 days under the HIPAA-ready organisation's standard retention (BAA 1.6.0; `docs/counsel/agreement-changes.md` § 17) |
+| Supabase (not chosen; the database is AWS RDS) | Database, transcripts, account records | Yes | Only on Team or Enterprise with the paid HIPAA add-on. Free and Pro have no path at all. Covered projects must be marked high compliance with point-in-time recovery, SSL enforcement, network restrictions, MFA and connection logging. Team is published at $599 a month and the add-on price is not published. Cheaper providers sign the same agreement, so this is no longer the assumed choice. See the infrastructure section |
 | Retell | Voice telephony and speech | **Yes, self-serve** | Retell's documentation states the BAA and the DPA are available for self-signing at its click-agreements portal, at no additional fee, and not gated to an enterprise contract. It also documents per-agent retention from 1 day to 2 years and per-agent PII controls. Some third-party comparisons still claim HIPAA is Enterprise-only; the vendor's own documentation is the better source, but confirm the executed agreement names the services in use |
 | Payment-link text sender: AWS End User Messaging SMS | The one optional text after a call ("Payment by text after a call") | **No separate agreement** (owner, 28 and 30 October 2026) | Covered as an AWS HIPAA eligible service under the AWS agreement already signed. Fixed words and the clinic's own checkout link only, nothing clinical. One US toll-free number registered once by healdesk (up to 15 business days, no registration fee, about $2 a month and about 1.2 cents a text, to be checked at purchase). Nothing sends a text yet |
 | Twilio, if used for numbers | Telephony | Yes | Only on Security or Enterprise Edition, and only for the products on Twilio's eligible list. WhatsApp is explicitly not on that list |
@@ -790,10 +792,10 @@ The chain that has to be complete before any patient data flows:
 | Link | Action | State |
 | --- | --- | --- |
 | Clinic to Healdesk | Accepted inline at checkout | Built into the flow |
-| Healdesk to Retell | Self-sign the BAA in Retell's click-agreements portal, then set per-agent retention and PII controls | Not yet done |
-| Healdesk to Anthropic | Primary owner signs and activates | Not yet done |
-| Healdesk to the database provider | Neon on Scale, or AWS RDS under the agreement already held. Sign, then apply the settings it requires | Not yet done |
-| Healdesk to AWS, where used | Already executed, applies to the designated account and eligible services only | Done |
+| Healdesk to Retell | Self-sign the BAA in Retell's click-agreements portal, then set per-agent retention and PII controls | Signed: the BAA and the DPA, through DocuSign, 19 October 2026 (the completed copies are in the hello@ mailbox; still to be filed and attested on `/admin/compliance`). Per-agent controls are written by `lib/voice/retell-agent.ts`, which runs only from automatic provisioning, still off |
+| Healdesk to Anthropic | Primary owner signs and activates | Signed (owner-reported; the owner confirmed on 26 October 2026 that healdesk's key is the BAA organisation's). No executed copy is filed yet |
+| Healdesk to the database provider | AWS RDS for PostgreSQL under the agreement already held (chosen 7 October 2026, applied 14 October 2026, `infra/aws/rds.tf`) | Covered by the AWS agreement |
+| Healdesk to AWS, where used | Accepted 22 September 2026, applies to the designated account and eligible services only | Done (the Artifact screenshot is still to be filed) |
 | Clinic to Google | The calendar is the clinic's own, under their agreement with Google | Confirm per clinic |
 
 A single missing link means patient data is being processed without contractual cover, whatever the technical controls look like.
@@ -811,7 +813,7 @@ Two gaps stay open by design, and both are handled by scoping rather than by pap
 - Transcripts are not stored: each is emailed to the clinic through Amazon SES, with TLS required, when its conversation ends, and Healdesk deletes its encrypted copy the moment Amazon SES reports it delivered, keeping a receipt without the words (when it was sent, when it was delivered, how many attempts). A copy never confirmed is deleted 72 hours after it goes; one that cannot be delivered, after 30 days. No other copy is kept anywhere. The conversation record, without the words, keeps a 90-day clock. Demo sandbox transcripts purge on a 7 to 14 day cycle whether or not the lead ever buys.
 - Second factor before any conversation or booking can be opened, and an access log of who opened what.
 - Offboarding is export first, then destroy, on a clock that matches the agreement text.
-- Breach notification runs to the clinic without unreasonable delay and inside 60 days, and vendor notices flow upward into that obligation.
+- Breach notification runs to the clinic without unreasonable delay and inside 10 calendar days (BAA 1.7.0 and DPA 1.2.0, the owner's release of 30 October 2026; 60 days under the versions before), and vendor notices flow upward into that obligation.
 - Non-payment never produces a dead phone line. Every degradation path, whether a usage cap, a suspension or a cancellation, ends with calls forwarding to the clinic's own line. A patient calling a medical clinic must always reach someone
 
 ### Five rules that are not optional
@@ -827,7 +829,7 @@ Two gaps stay open by design, and both are handled by scoping rather than by pap
 
 **The model retention rule contradicts minimum retention, and the contradiction has to be disclosed.** Anthropic's agreement covers the first-party API, but its covered models require 30-day data retention and cannot run with zero retention. Everywhere else this document pushes retention down. Both are true at once: state the 30-day window in the clinic-facing agreement, explain why it exists, and do not let a clinic's counsel be the one who discovers it.
 
-**Breach response is a written procedure or it is nothing.** The agreement commits Healdesk to notifying the clinic without unreasonable delay and inside 60 days. That obligation needs a named person, a defined trigger, a log, a template notice and a rule for vendor notices arriving from Retell, Anthropic or the database provider and flowing upward. Write it before signing an agreement that promises it.
+**Breach response is a written procedure or it is nothing.** The agreement commits Healdesk to notifying the clinic without unreasonable delay and inside 10 calendar days (60 under the versions before BAA 1.7.0 and DPA 1.2.0). That obligation needs a named person, a defined trigger, a log, a template notice and a rule for vendor notices arriving from Retell, Anthropic or the database provider and flowing upward. Write it before signing an agreement that promises it.
 
 **Call recording and transcription consent.** Healdesk keeps no call audio and the voice vendor holds a recording for no more than a day, but transcription of a call is still capture, and consent rules vary by state, with some requiring all parties to consent. Confirm the position for the states being sold into, and where consent is required, make the disclosure line carry it: the assistant says it is an AI assistant and that the call is being transcribed, in the same breath.
 
@@ -986,11 +988,10 @@ AYA Meta Chat is priced on the assumption that inbound conversation is free. Fro
 | Exact custom LLM WebSocket contract Retell expects | Retell opens a WebSocket to the Healdesk endpoint per call. Pull the message schema from Retell's documentation before the voice proxy is built, since the whole proxy shape depends on it |
 | Whether Stripe Connect is the only gateway in v1 | Decide whether the manual invoice fallback ships alongside it for clinics with no online payment setup |
 | Meta's published WhatsApp service-message rates from 1 October 2026 | Resolved 1 October: $0.0034 per delivered service message in North America, after 1,000 free per number each month. Now in the unit economics table |
-| Prepared answer for a US clinic asking about a non-US business associate | Counsel, plus confirmation that the free zone licence activity covers software and marketing services |
-| Refund window, data destruction timeline, business associate agreement text | Legal review |
-| Retell BAA not yet signed | Self-sign it in Retell's click-agreements portal, confirm the executed text names the services in use, then set per-agent retention and PII controls. Do this before the first clinic agreement is signed |
-| Supabase HIPAA add-on price | Not published. Ask Supabase for a written quote, on top of the Team plan at $599 a month |
-| Anthropic business associate agreement not yet activated | The primary owner signs it and arranges activation with Anthropic. Note that covered models require 30-day retention and cannot run with zero data retention, which changes the retention design |
+| Prepared answer for a US clinic asking about a non-US business associate | Resolved by the owner on 30 October 2026: no counsel; the free zone licence covers the activities (owner-confirmed); Viixi FZC keeps its Delaware mailing address (`docs/counsel/brief.md`) |
+| Refund window, data destruction timeline, business associate agreement text | Released by the owner without legal review; no lawyer will be engaged (owner, 30 October 2026; `docs/counsel/README.md`) |
+| Retell BAA | Signed with the DPA on 19 October 2026. Left: confirm the executed text names the services in use, file it, attest it on `/admin/compliance`, and set per-agent retention and PII controls |
+| Anthropic business associate agreement | Owner-reported signed (26 October 2026). Left: file the executed copy and attest it on `/admin/compliance` |
 
 ### Phase two, already scoped
 

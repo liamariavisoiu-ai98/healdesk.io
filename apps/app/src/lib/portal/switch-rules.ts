@@ -153,7 +153,7 @@ export type SwitchUnlock = NonNullable<SwitchRule["unlock"]>;
  */
 export const UNLOCK_REASONS: Readonly<Record<SwitchUnlock, string>> = {
   connect_stripe: "Connect your Stripe account first.",
-  set_deposit: "Set a deposit on a treatment in Knowledge → Prices first.",
+  set_deposit: "Set a deposit on a treatment in Your practice → Prices first.",
   connect_calendar: "Connect your calendar first.",
   turn_on_auto_confirm:
     "Turn on Auto-confirm bookings first, so nobody pays for a time your team might decline.",

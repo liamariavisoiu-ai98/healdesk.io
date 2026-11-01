@@ -632,7 +632,8 @@ the portal does not have". Where the plan and the spec differ, the plan records
 the spec edits the owner approved.
 
 - **Six screens, nothing nested more than one level deep:** Home, Settings,
-  Knowledge, Conversations, Bookings, Billing. Settings holds every switch on one
+  Your practice (Knowledge in the code, at `/knowledge`; renamed for clinics
+  by the owner, 1 November 2026), Conversations, Bookings, Billing. Settings holds every switch on one
   page, in cards. Invoices and the payment method deep-link into Stripe's own
   portal.
 - **One email address per clinic** (a shared inbox such as info@ is fine). It is

@@ -49,7 +49,7 @@ export const renderAssistantReady: EmailTemplate<AssistantReadyPayload> = (paylo
         },
         {
           type: "paragraph",
-          text: `Talk to her before anyone else does. Ask what your ${people} ask; in the preview nothing reaches a ${one}, and nothing is booked. If she gets something wrong, change it in Knowledge and she uses it from then on.`,
+          text: `Talk to her before anyone else does. Ask what your ${people} ask; in the preview nothing reaches a ${one}, and nothing is booked. If she gets something wrong, change it in Your practice and she uses it from then on.`,
         },
         { type: "action", label: "Talk to your AYA", url: payload.homeUrl },
       ],

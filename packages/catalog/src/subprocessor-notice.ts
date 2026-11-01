@@ -56,3 +56,29 @@ export function subprocessorNoticeClauseBody(): string {
     `without penalty.`
   );
 }
+
+/**
+ * How far ahead, in days, BAA 1.7.0 and DPA 1.2.0 (released 30 October
+ * 2026, reconciled 1 November 2026) tell the practice about a new subcontractor. The owner asked that day
+ * to lengthen the 24 hours ("24 hours' notice before adding a new vendor:
+ * adjust whatever's needed"): fifteen days is what BAA 1.2.1 and 1.2.2 gave,
+ * and inside the usual fifteen to thirty (docs/counsel/agreement-changes.md
+ * §22; docs/counsel/brief.md row 13). The recipient, the contents and the
+ * objection right are the 24-hour sentence's, word for word.
+ */
+export const SUBPROCESSOR_NOTICE_DAYS_1_7 = 15;
+
+/**
+ * subprocessorNoticeClauseBody() with "at least 24 hours' notice" said as
+ * "at least 15 days' notice", and nothing else changed: a new wording beside
+ * the released one, which stays as it is for every document that renders it.
+ * The test in subprocessor-notice.test.ts holds the two to that one phrase.
+ */
+export function subprocessorNoticeClauseBody15Days(): string {
+  const released = subprocessorNoticeClauseBody();
+  const was = `at least ${SUBPROCESSOR_NOTICE_HOURS} hours' notice by email`;
+  if (released.split(was).length !== 2) {
+    throw new Error("The released subcontractor notice no longer says 24 hours' notice by email.");
+  }
+  return released.replace(was, `at least ${SUBPROCESSOR_NOTICE_DAYS_1_7} days' notice by email`);
+}

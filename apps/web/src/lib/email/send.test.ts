@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { EMAIL_LOGO } from "@healdesk/catalog";
+
 import { emailKey, send } from "./index";
 
 /**
@@ -124,7 +126,10 @@ describe("send", () => {
     expect(html.startsWith("<!doctype html>")).toBe(true);
     expect(html).toContain('<a href="https://healdesk.io/demo/smith-dental-k7q2mz9xwa"');
     expect(html).toContain("Replies reach the healdesk team. Please leave out patient details.");
-    expect(html).not.toMatch(/<img|src=|<table/i);
+    // Branded (owner, 1 November 2026): the healdesk logo is the one image,
+    // at its one fixed URL, and nothing else is fetched.
+    expect([...html.matchAll(/\bsrc="([^"]*)"/g)].map((m) => m[1])).toEqual([EMAIL_LOGO.url]);
+    expect(html).not.toMatch(/url\(|@import|<link|<script/i);
     expect(new TextEncoder().encode(html).length).toBeLessThan(100 * 1024);
   });
 

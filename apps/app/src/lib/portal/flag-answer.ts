@@ -129,7 +129,7 @@ async function applyCorrection(
   if (next.length > KNOWLEDGE_LIMITS.quickAnswers) {
     throw new KnowledgeError(
       "quickAnswers",
-      `Your quick answers are full (${KNOWLEDGE_LIMITS.quickAnswers}). Remove one in Knowledge, then add this correction.`,
+      `Your quick answers are full (${KNOWLEDGE_LIMITS.quickAnswers}). Remove one in Your practice, then add this correction.`,
     );
   }
   await saveQuickAnswers(tx, validateQuickAnswers(next), now, await knowledgeWriteOptions(tx));

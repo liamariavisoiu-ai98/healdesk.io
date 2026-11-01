@@ -103,7 +103,7 @@ export const JOB_CALENDAR_WATCH = "calendar-watch";
  * drizzle/0066, because it only alerts: hourly from the tick, one ops alert,
  * ever, per open incident past healdesk's internal 24-hour notice target
  * with no notice recorded (lib/scheduler/incident-deadlines.ts). The
- * agreements promise 60 calendar days; the target is ours.
+ * agreements promise 10 or 60 calendar days, by version; the target is ours.
  */
 export const JOB_INCIDENT_DEADLINES = "incident-deadlines";
 /**

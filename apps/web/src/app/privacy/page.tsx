@@ -1,4 +1,4 @@
-import { TRANSCRIPT_RETENTION_DAYS } from "@healdesk/catalog";
+import { BAA_1_7_0_RELEASED, TRANSCRIPT_RETENTION_DAYS } from "@healdesk/catalog";
 import type { Metadata } from "next";
 
 import { LegalPage, Section } from "@/components/LegalPage";
@@ -661,8 +661,8 @@ export default function PrivacyPage() {
           Meta&apos;s systems, which we do not control. Email that would carry patient information
           goes only over an encrypted connection, and is not sent if the receiving server cannot
           accept one. A breach of unsecured patient information, or any other security incident,
-          is reported to the clinic without unreasonable delay and in no case later than 60 calendar days
-          after discovery.
+          is reported to the clinic without unreasonable delay and in no case later than{" "}
+          {BAA_1_7_0_RELEASED ? 10 : 60} calendar days after discovery.
         </p>
         <p>
           The product&apos;s servers and its database run in our cloud hosting provider&apos;s US

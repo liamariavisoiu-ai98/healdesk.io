@@ -282,7 +282,7 @@ export function needsAttention(facts: AttentionFacts): AttentionItem[] {
     items.push({
       id: "double_checking",
       text: words ? `We're double-checking your change to ${words.name}.` : "We're double-checking your latest change.",
-      action: screenLink(slug, screen === "settings" ? "settings" : "knowledge", hash ? `#${hash}` : "", words ? `Open ${words.name}` : "Open Knowledge"),
+      action: screenLink(slug, screen === "settings" ? "settings" : "knowledge", hash ? `#${hash}` : "", words ? `Open ${words.name}` : "Open Your practice"),
     });
   }
 

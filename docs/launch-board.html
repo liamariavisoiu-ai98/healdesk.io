@@ -646,7 +646,7 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
     <table>
       <thead><tr><th>Product</th><th>Built</th><th>In production</th><th>Seen working</th><th>Note</th></tr></thead>
       <tbody>
-        <tr><td>Website, pricing, Terms, Privacy, guides</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td>Terms and Privacy print version 2026-10-30.2 (checked 31 Oct)</td></tr>
+        <tr><td>Website, pricing, Terms, Privacy, guides</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td>Terms and Privacy print version 2026-11-01.1, with the 10-day breach notice (checked 1 Nov, after pull request 111)</td></tr>
         <tr><td>Personalised demo and the demo call (Aya as receptionist)</td><td class="yes">Yes</td><td class="yes">Yes, 1 Nov</td><td class="part">Your test calls</td><td>Today's restructure is deployed; your next test call checks it</td></tr>
         <tr><td>Checkout, signing, provisioning on first paid invoice</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td>Stripe's product setup never run with the live key; no purchase yet</td></tr>
         <tr><td>Clinic portal, setup wizard, passkeys</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td>No clinic has signed in yet</td></tr>
@@ -680,10 +680,10 @@ footer { margin: 40px 0 0; padding: 20px 0 40px; border-top: 1px solid var(--lin
       <thead><tr><th>Where</th><th>It says</th><th>What is true</th></tr></thead>
       <tbody>
         <tr><td>Launch plan tab, steps 1.14 and 3.3</td><td>Checkout offers BAA 1.7.0 and a DPA with 10-day breach and 15-day vendor notice, released 30 Oct</td><td>Built on branch <code>claude/friendly-edison-bwvr76</code>, never opened as a pull request. Until 1 Nov checkout offered BAA 1.6.0 and DPA 1.1.0 (60 days). Main's live DPA 1.1.0 and migration 0140 are a different release, so it landed as DPA 1.2.0 with migration 0143 (C13, deployed 1 Nov); the tab should now say BAA 1.7.0 and DPA 1.2.0</td></tr>
-        <tr><td><code>docs/google-verification/STATUS.md</code> on main</td><td>Audience not confirmed; test account and YouTube channel not started</td><td>Done today, recorded on branch <code>claude/eager-keller-d0zdiv</code>, not yet merged</td></tr>
-        <tr><td>Go-live list, direct booking</td><td>Left: the infrastructure apply, then the deploy</td><td>Applied 28 Oct (run 40670359689) and rolled the same day (run 40703315369). Only the test booking is left. Fixed on the branch (C1)</td></tr>
-        <tr><td>Go-live list, BAA 1.6.0 retention</td><td>Waits on its deploy</td><td>Migration 0136 ran in the 29 Oct deploy (run 40870436687). Fixed on the branch (C1)</td></tr>
-        <tr><td>Go-live list, no audio</td><td>Live once the apply and a full deploy roll automatic provisioning</td><td>Applied 15:12 UTC (run 41319945681) and deployed 15:35 UTC today (run 41321401407); left: the test call that proves the deletion. Fixed on the branch (C1)</td></tr>
+        <tr><td><code>docs/google-verification/STATUS.md</code> on main</td><td>Audience not confirmed; test account and YouTube channel not started</td><td>Fixed on main 1 Nov: the page now says everything before the video is done</td></tr>
+        <tr><td>Go-live list, direct booking</td><td>Left: the infrastructure apply, then the deploy</td><td>Applied 28 Oct (run 40670359689) and rolled the same day (run 40703315369). Only the test booking is left. Fixed 1 Nov (C1, pull request 111)</td></tr>
+        <tr><td>Go-live list, BAA 1.6.0 retention</td><td>Waits on its deploy</td><td>Migration 0136 ran in the 29 Oct deploy (run 40870436687). Fixed 1 Nov (C1, pull request 111)</td></tr>
+        <tr><td>Go-live list, no audio</td><td>Live once the apply and a full deploy roll automatic provisioning</td><td>Applied 15:12 UTC (run 41319945681) and deployed 15:35 UTC today (run 41321401407); left: the test call that proves the deletion. Fixed 1 Nov (C1, pull request 111)</td></tr>
         <tr><td>Launch plan tab, step 3.6 and the dates</td><td>The support chat is not built (due 16 October); first clinics live 21 October</td><td>The support chat is built and deployed; both dates have passed</td></tr>
         <tr><td><code>docs/hipaa-compliance.md</code>, pre-launch list</td><td>All 10 boxes unticked</td><td>At least the AWS host is true; the Security Official, the security review and the attorney review are yours to decide</td></tr>
       </tbody>

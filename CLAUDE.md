@@ -201,14 +201,25 @@ enforceable rather than aspirational.
    goes from a reply still asking for details (`roleplayCheckedReply`); a
    doctor not on the team is named as such (`unknownDoctorIn`), a hurried
    caller gets no pleasantry, sarcasm after a complaint never hears "Glad that
-   works!", and an apology is said once; healdesk's words are on its never-say list
+   works!", and an apology is said once; a name must look like one and a
+   number be one, the demo never says a line twice, an amount in the
+   practice's own rules (its deposit) may be said (`amountsInRules`), and
+   "this week", "evening" and "not mornings" are answered in code; healdesk's words are on its never-say list
    (`demoRoleplayFacts`); a refused reply gets the guard's line with the
    provider's name (`routingProvider`, on demo calls only until the owner
    decides a clinic's own lines name theirs); the urgent line reads out the
    clinic's published number after 9-1-1, opened with a word of sympathy and
    named as the clinical team's direct line (`demoUrgentLine`; a clinic's own
    urgent lines wait on the medical director's sign-off). `tests/voice-demo-c4093be6.test.ts`
-   replays that call's patient lines. The receptionist's manner (the day's
+   replays that call's patient lines. On every call, a clinic's and a demo,
+   a word that sounds like the menu, a provider or what she just said is taken
+   as that, never questioned ("this port" is Dysport; `lib/voice/sound-alike.ts`,
+   owner, 1 November 2026); a reply is shaped for a voice (`forVoice`: no
+   capitals spelled out, an address and a number as a person says them, no
+   popularity claim, no more than two prices in a sentence); and the call says
+   its own line to a business ask ("please call our office on ..."), a question
+   about how busy the practice is, a paused fragment and a bare "hi"
+   (`lib/voice/call-lines.ts`). The receptionist's manner (the day's
    pleasantry before the calendar, human words for a pause, a nod before
    each question, one sentence of validation once they choose, the caller's
    first name once at the wrap-up, a word that the consultation is relaxed, and

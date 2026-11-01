@@ -239,7 +239,9 @@ describe("a demo call's facts", () => {
     const note = demoStageNote(context(), "roleplay", Date.now(), DEMO_START_PROGRESS);
     expect(note).toContain("You are Aya, Lumen's AI receptionist, answering a caller.");
     expect(note).toContain("you need four things, asked one at a time: the treatment, a day and time, their first name, and the best number to reach them");
-    expect(note).toContain("The calendar has these free times");
+    // No list of times for her to read: the call offers times itself (a test call of 1 November 2026: the same three, three times).
+    expect(note).toContain("You can't see the calendar yourself: never name a free time");
+    expect(note).not.toMatch(/(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day, \w+ \d{1,2} at \d/);
     expect(note).toContain('When they say goodbye, say a short, warm goodbye and set "end" to true.');
     expect(note).not.toMatch(/healdesk|setup fee|discount|role-?play|Book Onboarding|pitch|owner/i);
   });

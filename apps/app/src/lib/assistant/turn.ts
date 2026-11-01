@@ -736,12 +736,59 @@ const LEADING_APOLOGY = /^(?:(?:oh|ah|aw+),?\s+)?(?:i'?m\s+)?(?:so\s+|really\s+)
  * Words are only ever taken out, so the guard, which reads what is left,
  * screens exactly as it would have.
  */
+/** "Our most popular", "best-selling", "everyone's favorite": a claim about the practice nobody wrote. */
+const POPULARITY = /\b(?:(?:our|the|its|their) most (?:popular|requested|loved|booked)|best[- ]?sell(?:ing|er)|(?:fan|everyone'?s|patients'?|our) favou?rite|everyone loves|most people (?:choose|get|love))\b/i;
+
+/** A price as a sentence says it: "from $6 per unit", "at $950 per syringe", "$199". */
+const PRICE_PHRASE = /\s*(?:(?:starting |which (?:is|starts) )?(?:from|at|for|is|are|costs?|starts at)\s+)?\$\s?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:\s*(?:per|a|an|\/)\s*(?:unit|syringe|vial|session|area|treatment|visit|month)s?)?/gi;
+
+/** A sentence with more than two prices loses the prices and keeps the names (six in one reply on that call). */
+function atMostTwoPrices(sentence: string): string {
+  const prices = sentence.match(/\$\s?\d/g) ?? [];
+  if (prices.length <= 2) return sentence;
+  return sentence.replace(PRICE_PHRASE, "").replace(/\s+,/g, ",").replace(/\s{2,}/g, " ").trim();
+}
+
+/** Short forms a voice reads badly in an address: "Red Rd" is "Red Road". */
+const STREET_WORDS: readonly [RegExp, string][] = [
+  [/\bRd\b\.?/g, "Road"],
+  [/\bAve\b\.?/g, "Avenue"],
+  [/\bBlvd\b\.?/g, "Boulevard"],
+  [/\bSte\b\.?/g, "Suite"],
+  [/\bHwy\b\.?/g, "Highway"],
+  [/\bPkwy\b\.?/g, "Parkway"],
+  [/\bDr\b\.?(?=,|\s+(?:Suite|Ste|#|\d|,))/g, "Drive"],
+  [/\bSt\b\.?(?=,|\s+(?:Suite|Ste|#|\d|,))/g, "Street"],
+];
+
+/** Acronyms a voice should say letter by letter: never written as a word. */
+const ACRONYMS = new Set(["IPL", "BBL", "PRP", "PRF", "HIFU", "CO2", "MD", "DO", "NP", "PA", "RN", "AM", "PM", "USA", "HIPAA", "FDA", "AI", "LED", "RF", "TCA", "FL", "NY", "CA", "TX"]);
+
+/**
+ * A reply made for a voice: no trademark signs; a name in capitals said as a
+ * word ("BOTOX" was read letter by letter, as "AYA" was); an address without
+ * its state and zip code and with its short forms said in full; and a phone
+ * number as a person says it, in groups (a test call of 1 November 2026:
+ * "6705 Red Rd, Suite 608, Coral Gables, FL 33143" and "(786) 618-5039").
+ */
+export function forVoice(text: string): string {
+  let out = text.replace(/\s*[®™]/g, "");
+  out = out.replace(/\b[A-Z][A-Z0-9]{3,}\b/g, (word) => (ACRONYMS.has(word) ? word : word.charAt(0) + word.slice(1).toLowerCase()));
+  out = out.replace(/,?\s*\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/g, "");
+  for (const [short, full] of STREET_WORDS) out = out.replace(short, full);
+  out = out.replace(/(?<![\d$])(?:\+?1[\s.-]?)?\(?(\d{3})\)?[\s.-]?(\d{3})[\s.-]?(\d{4})(?!\d)/g, (_m, a: string, b: string, c: string) => spokenPhone(`+1${a}${b}${c}`));
+  return out;
+}
+
 export function shapeVoiceReply(
   text: string,
   options: { name: string | null; nameUses: number; nameLimit?: number; apologised: boolean; first: boolean; noSignOff: boolean; oneQuestion?: boolean; askedAlready?: boolean; keepQuestions?: readonly string[]; drop?: RegExp | null },
 ): string {
   // A trademark sign is never spoken: a voice reads "BOTOX®" as "Botox registered" (demo call a44374c9).
-  let out = sentencesOf(text.replace(/\s*[®™]/g, "")).filter((sentence) => !(options.noSignOff && /\btalk soon\b/i.test(sentence)) && !options.drop?.test(sentence));
+  let out = sentencesOf(forVoice(text)).filter((sentence) => !(options.noSignOff && /\btalk soon\b/i.test(sentence)) && !options.drop?.test(sentence));
+  // Never a popularity claim stated as the practice's fact (prompt.ts RECEPTIONIST_MANNER; a test call of 1 November 2026:
+  // "Botox is our most popular injectable"), and never more than two prices in one sentence: the names stay, the prices go.
+  out = out.filter((sentence) => !POPULARITY.test(sentence)).map(atMostTwoPrices);
   if (options.oneQuestion) {
     let asked = options.askedAlready === true;
     out = out.filter((sentence) => {

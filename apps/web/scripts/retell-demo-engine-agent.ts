@@ -81,6 +81,7 @@ const DEMO_KEYWORDS: readonly string[] = [
   "sclerotherapy", "varicose veins", "spider veins", "vein",
   "Invisalign", "veneers", "teeth whitening", "implants", "cleaning", "crown",
   "WhatsApp", "Instagram", "Messenger", "after hours", "voicemail",
+  "parking", "deposit", "Sculptra", "PicoWay", "insurance", "financing", "cancellation",
 ];
 
 function agentConfig(secret: string) {
